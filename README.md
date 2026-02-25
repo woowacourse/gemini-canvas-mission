@@ -43,7 +43,7 @@ Gemini API를 활용한 '텍스트 생성(Text Generation)' 기능을 추가했�
 ### 앱 이름
 우아한 레이싱
 ### 배포 링크
-https://gemini.google.com/share/f97d57e00550
+https://gemini.google.com/share/446d278a9321
 ### 이 앱을 만든 이유
 
 - 어떤 문제/불편함을 해결하려고 했나요?

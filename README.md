@@ -13,7 +13,7 @@ Gemini Canvas 미션 결과물을 관리하는 저장소입니다.
 ### 앱 이름
 ExcuseGPT(핑계봇)
 ### 배포 링크
-https://gemini.google.com/share/c735fdd8b899
+https://gemini.google.com/share/8fecfe3cee0e
 ### 이 앱을 만든 이유
 
 - 어떤 문제/불편함을 해결하려고 했나요?

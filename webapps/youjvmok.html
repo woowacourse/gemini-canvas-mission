@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이쟈부터 네 이름은 JVM이여</title>
+    <!-- Tailwind CSS 연동 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap');
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #111827; /* gray-900 */
+            color: #f3f4f6; /* gray-100 */
+            overflow-x: hidden;
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* 드롭존 및 드래그 아이템 스타일링 */
+        .dropzone {
+            min-height: 120px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .dropzone::before {
+            content: attr(data-placeholder);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #4b5563; /* gray-600 */
+            font-weight: 500;
+            pointer-events: none;
+            opacity: 1;
+            transition: opacity 0.3s;
+            text-align: center;
+            width: 100%;
+        }
+
+        .dropzone:not(:empty)::before {
+            opacity: 0;
+        }
+
+        .dropzone.dragover {
+            background-color: #374151; /* gray-700 */
+            border-color: #10b981; /* emerald-500 */
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+        }
+
+        .draggable-item {
+            cursor: grab;
+            user-select: none;
+            transition: transform 0.1s;
+        }
+
+        .draggable-item:active {
+            cursor: grabbing;
+            transform: scale(0.95);
+        }
+
+        /* 오답 시 흔들림 애니메이션 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
+            20%, 40%, 60%, 80% { transform: translateX(6px); }
+        }
+
+        .shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        /* 오답 모달 팝업 애니메이션 */
+        @keyframes popIn {
+            0% { transform: scale(0.8) translateY(20px); opacity: 0; }
+            100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+
+        /* 말풍선 꼬리 */
+        .speech-bubble::after {
+            content: '';
+            position: absolute;
+            left: 20px;
+            bottom: -10px;
+            border-width: 10px 10px 0;
+            border-style: solid;
+            border-color: #1f2937 transparent transparent transparent;
+            display: block;
+            width: 0;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-emerald-500 selection:text-white">
+
+<!-- 헤더 -->
+<header class="bg-gray-800 border-b border-gray-700 p-4 shadow-md">
+    <div class="max-w-6xl mx-auto flex justify-between items-center">
+        <h1 class="text-2xl font-black tracking-tight text-emerald-400">
+            ☕ 이쟈부터 네 이름은 JVM이여
+        </h1>
+        <div id="level-indicator" class="px-4 py-1 rounded-full bg-emerald-900 text-emerald-300 font-bold text-sm border border-emerald-700">
+            LEVEL 1 / 3
+        </div>
+    </div>
+</header>
+
+<!-- 메인 컨텐츠 -->
+<main class="flex-grow max-w-6xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+
+    <!-- 왼쪽 패널: AI 시나리오 및 코드 -->
+    <div class="lg:col-span-1 space-y-6">
+        <!-- AI 메세지 -->
+        <div class="relative bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-700 speech-bubble">
+            <div class="flex items-center gap-4 mb-4 pb-4 border-b border-gray-700/50">
+                <!-- 외부 이미지 로드 대신, 절대 깨지지 않는 SVG 컨테이너로 교체 -->
+                <div id="avatar-container" class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-sky-100 overflow-hidden border-4 border-emerald-500 shadow-md shrink-0 transition-all duration-300 flex items-end justify-center">
+                    <!-- JS에서 SVG 동적 주입 -->
+                </div>
+                <span class="font-black text-gray-200 text-xl">JVM 현장 소장님</span>
+            </div>
+            <div id="ai-message" class="text-gray-300 leading-relaxed space-y-2 text-lg">
+                <!-- JS에서 동적 주입 -->
+            </div>
+        </div>
+
+        <!-- 코드 블럭 -->
+        <div class="bg-[#1e1e1e] rounded-xl overflow-hidden shadow-lg border border-gray-700">
+            <div class="bg-gray-800 px-4 py-2 text-xs text-gray-400 border-b border-gray-700 flex items-center gap-2">
+                <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                <span class="ml-2 font-mono">Main.java</span>
+            </div>
+            <div class="p-6">
+                <code id="code-block" class="code-font text-emerald-400 text-lg">
+                    <!-- JS에서 동적 주입 -->
+                </code>
+            </div>
+        </div>
+    </div>
+
+    <!-- 오른쪽 패널: 메모리 게임 보드 -->
+    <div class="lg:col-span-2 space-y-6">
+
+        <!-- 요소 대기소 -->
+        <div class="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg">
+            <h2 class="text-gray-400 text-sm font-bold mb-4 uppercase tracking-wider">📦 메모리에 할당할 데이터 (드래그 하세요)</h2>
+            <div id="source-zone" class="dropzone flex flex-wrap gap-3 items-center" data-placeholder="여기에 남은 데이터가 표시됩니다.">
+                <!-- JS에서 동적 주입 -->
+            </div>
+        </div>
+
+        <!-- JVM 메모리 영역 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="memory-board">
+
+            <!-- 스택 영역 -->
+            <div class="bg-gray-800 rounded-xl border-t-4 border-t-blue-500 border-x border-b border-gray-700 shadow-lg flex flex-col">
+                <div class="p-4 border-b border-gray-700 bg-gray-800/50">
+                    <h3 class="font-bold text-blue-400 flex items-center gap-2">
+                        <span>📚</span> Stack (스택) 영역
+                    </h3>
+                    <p class="text-xs text-gray-500 mt-1">기본 자료형 값과 객체의 참조(주소)값이 저장됩니다.</p>
+                </div>
+                <div id="target-stack" class="dropzone p-4 flex-grow flex flex-col gap-3" data-placeholder="여기로 드래그 & 드롭"></div>
+            </div>
+
+            <!-- 힙 영역 -->
+            <div class="bg-gray-800 rounded-xl border-t-4 border-t-orange-500 border-x border-b border-gray-700 shadow-lg flex flex-col">
+                <div class="p-4 border-b border-gray-700 bg-gray-800/50">
+                    <h3 class="font-bold text-orange-400 flex items-center gap-2">
+                        <span>📦</span> Heap (힙) 영역
+                    </h3>
+                    <p class="text-xs text-gray-500 mt-1">new 연산자로 생성된 실제 객체와 배열이 저장됩니다.</p>
+                </div>
+                <div id="target-heap" class="dropzone p-4 flex-grow flex flex-col gap-3" data-placeholder="여기로 드래그 & 드롭"></div>
+            </div>
+
+        </div>
+
+        <!-- 컨트롤 버튼 -->
+        <div class="flex justify-end gap-3 mt-4">
+            <button id="btn-reset" class="px-6 py-3 rounded-lg font-bold text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors">
+                🔄 다시 배치하기
+            </button>
+            <button id="btn-check" class="px-8 py-3 rounded-lg font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-500/30 transition-all transform hover:-translate-y-0.5">
+                ✅ 검사하기
+            </button>
+            <button id="btn-next" class="hidden px-8 py-3 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-500/30 transition-all transform hover:-translate-y-0.5">
+                다음 레벨로 ➡️
+            </button>
+        </div>
+
+        <!-- 상태 메세지 -->
+        <div id="status-message" class="text-center font-bold text-lg h-8 transition-opacity duration-300 opacity-0">
+            결과가 여기에 표시됩니다.
+        </div>
+
+    </div>
+</main>
+
+<!-- 오답 시 나타나는 큰 팝업 (모달) -->
+<div id="angry-modal" class="fixed inset-0 z-[100] hidden flex-col items-center justify-center bg-black/80 backdrop-blur-sm transition-opacity opacity-0 duration-300">
+    <div class="relative flex flex-col items-center max-w-lg w-full p-6 animate-[popIn_0.3s_ease-out_forwards]">
+        <!-- 큰 얼굴 사진 (절대 깨지지 않는 붉은색 분노 SVG 컨테이너) -->
+        <div id="angry-avatar-container" class="w-64 h-64 md:w-80 md:h-80 rounded-full bg-red-100 overflow-hidden border-8 border-red-600 shadow-[0_0_50px_rgba(239,68,68,0.6)] mb-8 flex items-end justify-center">
+            <!-- JS에서 SVG 동적 주입 -->
+        </div>
+        <!-- 말풍선 -->
+        <div class="bg-gray-800 border-2 border-red-500 rounded-2xl p-6 shadow-2xl relative w-full text-center">
+            <!-- 꼬리 -->
+            <div class="absolute -top-4 left-1/2 -translate-x-1/2 border-x-[16px] border-x-transparent border-b-[16px] border-b-red-500"></div>
+            <div class="absolute -top-[13px] left-1/2 -translate-x-1/2 border-x-[14px] border-x-transparent border-b-[14px] border-b-gray-800"></div>
+
+            <p id="angry-text" class="text-xl md:text-2xl font-black text-white leading-relaxed tracking-tight break-keep">
+                <!-- JS에서 동적 주입 -->
+            </p>
+            <button id="btn-close-modal" class="mt-8 px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors shadow-lg shadow-red-500/30">
+                죄송합니다! 다시 똑바로 하겠습니다!
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Web Audio API를 사용한 간단한 효과음 생성 (외부 에셋 불필요)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playSound(type) {
+        // 브라우저 정책으로 인해 AudioContext가 suspended 상태일 수 있으므로 resume 처리
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        if (type === 'success') {
+            // 정답 효과음 (경쾌한 2연속 톤)
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+            osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.4);
+        } else if (type === 'error') {
+            // 오답 효과음 (낮고 짧은 버즈음)
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.2);
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.2);
+        } else if (type === 'clear') {
+            // 전체 클리어 효과음 (아르페지오)
+            osc.type = 'triangle';
+            const now = audioCtx.currentTime;
+            osc.frequency.setValueAtTime(523.25, now); // C5
+            osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+            osc.frequency.setValueAtTime(783.99, now + 0.2); // G5
+            osc.frequency.setValueAtTime(1046.50, now + 0.3); // C6
+            gainNode.gain.setValueAtTime(0.1, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+            osc.start();
+            osc.stop(now + 0.8);
+        }
+    }
+
+    // 레벨 데이터 정의
+    const levels = [
+        {
+            id: 1,
+            aiText: "어이, 신참! 이쟈부터 네 이름은 JVM(자바 가상 머신)이여. 알겄냐?<br><br>가장 기본부터 간다. <b>기본 자료형(int, double 등) 변수</b>와 그 <b>알맹이 값</b>은 전부 <b>스택(Stack)</b> 영역에 때려 넣는 거여. 자, 아래 코드 보이지? 알맞게 드래그해서 넣어봐!",
+            successText: "어라? 이걸 한 번에 맞추네... 뽀록 아녀? (의심스러운 눈초리로 쳐다본다)<br><br>일단 다음 작업장으로 넘어가 봐!",
+            code: "int age = 25;",
+            items: [
+                { id: "var-age", text: "변수 age", target: "target-stack", color: "bg-blue-600" },
+                { id: "val-25", text: "값 25", target: "target-stack", color: "bg-cyan-600" }
+            ]
+        },
+        {
+            id: 2,
+            aiText: "오야, J씨! 제법인디? 하지만 이건 어떨까!<br><br><code>new</code>로 찍어낸 놈들은 덩치가 커서 <b>힙(Heap)</b>이라는 넓은 공터에 모셔둬야 혀. 대신 그놈을 찾을 수 있는 이름표(참조 변수)는 잽싸게 꺼낼 수 있게 <b>스택(Stack)</b>에 두는 거제. 자, 움직여봐!",
+            successText: "흠... 눈치는 좀 생겼네. 그래도 아직 내 맘엔 안 들어!<br><br>마지막 작업이나 마저 혀! 지켜보겄어.",
+            code: "Student std = new Student();",
+            items: [
+                { id: "var-std", text: "참조 변수 std", target: "target-stack", color: "bg-blue-600" },
+                { id: "obj-student", text: "new Student() 객체", target: "target-heap", color: "bg-orange-600" }
+            ]
+        },
+        {
+            id: 3,
+            aiText: "어이구, J반장! 마지막이여! 이것까지 해내면 오늘 일당은 두 배로 쳐주지.<br><br>배열? 그놈도 결국 객체여! 여러 개가 줄줄이 엮인 진짜 데이터 덩어리는 <b>힙(Heap)</b>에 던져두고, 이름표만 <b>스택(Stack)</b>에 챙기는 거 잊지 말어. 자, 얼른 끝내고 퇴근하자고!",
+            successText: "뭐여, 진짜 다 한 겨? ... 칫, 제법이구만.<br><br>인정하긴 싫지만 오늘 일당은 쳐주마. 내일 늦지나 말어! (애써 미소를 참으며 돌아선다)",
+            code: "int[] scores = new int[]{90, 80, 100};",
+            items: [
+                { id: "var-scores", text: "참조 변수 scores", target: "target-stack", color: "bg-blue-600" },
+                { id: "obj-array", text: "배열 {90, 80, 100}", target: "target-heap", color: "bg-orange-600" }
+            ]
+        }
+    ];
+
+    let currentLevelIndex = 0;
+
+    // --- 동적 SVG 소장님 얼굴 생성기 (외부 이미지 차단/깨짐 완벽 방지) ---
+    function getManagerSvg(state) {
+        let faceColor = "#e7c6b1"; // 기본 피부색
+        let brows, eyes, mouth, extra = "";
+
+        if (state === 'angry') {
+            faceColor = "#ff9999"; // 붉어진 화난 얼굴
+            brows = `
+                    <path d="M 65 75 L 95 90" stroke="#1f2937" stroke-width="5" stroke-linecap="round"/>
+                    <path d="M 135 75 L 105 90" stroke="#1f2937" stroke-width="5" stroke-linecap="round"/>
+                `;
+            eyes = `
+                    <path d="M 75 95 Q 85 90 95 95" stroke="#1f2937" stroke-width="4" fill="none"/>
+                    <circle cx="85" cy="98" r="4" fill="#1f2937"/>
+                    <path d="M 105 95 Q 115 90 125 95" stroke="#1f2937" stroke-width="4" fill="none"/>
+                    <circle cx="115" cy="98" r="4" fill="#1f2937"/>
+                `;
+            mouth = `<path d="M 85 115 Q 100 140 115 115 Z" fill="#7f1d1d"/> <path d="M 85 115 Q 100 125 115 115 Z" fill="#ffffff"/>`; // 소리치는 입
+            extra = `
+                    <!-- 이마 핏줄 -->
+                    <path d="M 60 50 L 70 60 M 70 50 L 60 60" stroke="#ef4444" stroke-width="2"/>
+                    <path d="M 130 55 L 140 65 M 140 55 L 130 65" stroke="#ef4444" stroke-width="2"/>
+                `;
+        } else if (state === 'suspicious') {
+            brows = `
+                    <path d="M 65 85 Q 80 75 95 85" stroke="#1f2937" stroke-width="4" fill="none" stroke-linecap="round"/>
+                    <path d="M 105 80 Q 120 70 135 75" stroke="#1f2937" stroke-width="4" fill="none" stroke-linecap="round"/>
+                `; // 짝짝이 눈썹 (의심)
+            eyes = `
+                    <path d="M 75 95 Q 85 92 95 95" stroke="#1f2937" stroke-width="3" fill="none"/>
+                    <circle cx="80" cy="96" r="3" fill="#1f2937"/>
+                    <path d="M 105 95 Q 115 88 125 95" stroke="#1f2937" stroke-width="3" fill="none"/>
+                    <circle cx="110" cy="96" r="3" fill="#1f2937"/>
+                `; // 곁눈질
+            mouth = `<path d="M 85 120 Q 100 115 115 125" stroke="#1f2937" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+        } else {
+            // default (피곤한 후줄근한 얼굴)
+            brows = `
+                    <path d="M 65 80 Q 80 75 95 85" stroke="#1f2937" stroke-width="4" fill="none" stroke-linecap="round"/>
+                    <path d="M 105 85 Q 120 75 135 80" stroke="#1f2937" stroke-width="4" fill="none" stroke-linecap="round"/>
+                `;
+            eyes = `
+                    <path d="M 75 98 Q 85 93 95 98" stroke="#1f2937" stroke-width="4" fill="none" stroke-linecap="round"/>
+                    <path d="M 105 98 Q 115 93 125 98" stroke="#1f2937" stroke-width="4" fill="none" stroke-linecap="round"/>
+                `; // 감긴듯한 눈
+            mouth = `<path d="M 85 120 Q 100 125 115 120" stroke="#1f2937" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+            extra = `
+                    <!-- 다크서클 -->
+                    <path d="M 75 103 Q 85 108 95 103" stroke="#9ca3af" stroke-width="2" fill="none"/>
+                    <path d="M 105 103 Q 115 108 125 103" stroke="#9ca3af" stroke-width="2" fill="none"/>
+                `;
+        }
+
+        return `
+            <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" class="w-full h-full transform translate-y-4 drop-shadow-lg">
+                <!-- 남색 작업복 -->
+                <path d="M 30 200 L 30 150 Q 100 130 170 150 L 170 200 Z" fill="#1e3a8a"/>
+                <!-- 주황색 안전 조끼 -->
+                <path d="M 45 200 L 45 160 Q 100 150 155 160 L 155 200 Z" fill="#ea580c"/>
+
+                <!-- 목과 목수건 -->
+                <rect x="85" y="110" width="30" height="40" fill="${faceColor}"/>
+                <path d="M 60 130 Q 100 160 140 130 Q 150 160 150 200 L 50 200 Q 50 160 60 130 Z" fill="#f3f4f6"/>
+                <path d="M 60 130 Q 100 160 140 130" stroke="#d1d5db" stroke-width="5" fill="none"/>
+
+                <!-- 얼굴형 -->
+                <ellipse cx="100" cy="90" rx="45" ry="50" fill="${faceColor}"/>
+
+                <!-- 거뭇거뭇한 수염 자국 -->
+                <path d="M 62 100 Q 100 150 138 100 Q 100 135 62 100" fill="#4b5563" opacity="0.4"/>
+
+                <!-- 콧수염 -->
+                <path d="M 80 110 Q 100 100 120 110 Q 100 115 80 110" fill="#374151"/>
+
+                <!-- 코 -->
+                <path d="M 100 90 L 93 105 L 107 105 Z" fill="#ca8a04" opacity="0.3"/>
+
+                <!-- 표정 요소 (눈썹, 눈, 입 등) -->
+                ${brows}
+                ${eyes}
+                ${mouth}
+                ${extra}
+
+                <!-- 노란색 안전모 -->
+                <path d="M 50 60 C 50 5 150 5 150 60 Z" fill="#facc15"/>
+                <path d="M 40 55 Q 100 45 160 55 L 155 65 Q 100 55 45 65 Z" fill="#eab308"/>
+                <path d="M 95 15 L 105 15 L 105 50 L 95 50 Z" fill="#ca8a04"/>
+            </svg>
+            `;
+    }
+
+    // DOM 요소 캐싱
+    const elAvatarContainer = document.getElementById('avatar-container');
+    const elAiMessage = document.getElementById('ai-message');
+    const elCodeBlock = document.getElementById('code-block');
+    const elSourceZone = document.getElementById('source-zone');
+    const elTargetStack = document.getElementById('target-stack');
+    const elTargetHeap = document.getElementById('target-heap');
+    const elLevelIndicator = document.getElementById('level-indicator');
+    const elBtnCheck = document.getElementById('btn-check');
+    const elBtnNext = document.getElementById('btn-next');
+    const elBtnReset = document.getElementById('btn-reset');
+    const elStatusMessage = document.getElementById('status-message');
+    const elMemoryBoard = document.getElementById('memory-board');
+    const elAngryModal = document.getElementById('angry-modal');
+    const elAngryText = document.getElementById('angry-text');
+    const elBtnCloseModal = document.getElementById('btn-close-modal');
+
+    // 모달 닫기 이벤트
+    elBtnCloseModal.addEventListener('click', () => {
+        elAngryModal.classList.remove('opacity-100');
+        elAngryModal.classList.add('opacity-0');
+        setTimeout(() => {
+            elAngryModal.classList.add('hidden');
+            elAngryModal.classList.remove('flex');
+        }, 300); // transition duration과 일치
+    });
+
+    // 모달 띄우기 함수
+    function showAngryModal(text) {
+        elAngryText.innerHTML = text;
+        elAngryModal.classList.remove('hidden');
+        elAngryModal.classList.add('flex');
+        // reflow 후 opacity 적용하여 애니메이션 트리거
+        setTimeout(() => {
+            elAngryModal.classList.remove('opacity-0');
+            elAngryModal.classList.add('opacity-100');
+        }, 10);
+    }
+
+    // 게임 초기화 및 레벨 로드
+    function loadLevel(index) {
+        const levelData = levels[index];
+
+        // UI 업데이트 (피곤하고 후줄근한 기본 표정 SVG 주입)
+        elAvatarContainer.innerHTML = getManagerSvg('default');
+        elAvatarContainer.classList.remove('border-yellow-400');
+        elAvatarContainer.classList.add('border-emerald-500');
+
+        elLevelIndicator.innerText = `LEVEL ${index + 1} / ${levels.length}`;
+        elAiMessage.innerHTML = levelData.aiText;
+        elCodeBlock.innerText = levelData.code;
+
+        // 영역 초기화
+        elSourceZone.innerHTML = '';
+        elTargetStack.innerHTML = '';
+        elTargetHeap.innerHTML = '';
+
+        // 버튼 및 메세지 상태 초기화
+        elBtnCheck.classList.remove('hidden');
+        elBtnNext.classList.add('hidden');
+        hideStatus();
+
+        // 드래그 아이템 생성
+        levelData.items.forEach(item => {
+            const div = document.createElement('div');
+            div.id = item.id;
+            div.className = `draggable-item ${item.color} text-white px-4 py-3 rounded-lg shadow-md font-medium border border-white/20 flex items-center gap-2`;
+            div.draggable = true;
+            div.dataset.target = item.target; // 검사용 정답 저장
+            div.innerHTML = `<span>✥</span> ${item.text}`;
+
+            // 드래그 이벤트 연결
+            div.addEventListener('dragstart', handleDragStart);
+            div.addEventListener('dragend', handleDragEnd);
+
+            elSourceZone.appendChild(div);
+        });
+    }
+
+    // --- 드래그 앤 드롭 로직 ---
+    let draggedElementId = null;
+
+    function handleDragStart(e) {
+        draggedElementId = e.target.id;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', e.target.id);
+        setTimeout(() => {
+            e.target.style.opacity = '0.5';
+        }, 0);
+    }
+
+    function handleDragEnd(e) {
+        e.target.style.opacity = '1';
+        draggedElementId = null;
+        document.querySelectorAll('.dropzone').forEach(z => z.classList.remove('dragover'));
+    }
+
+    // 드롭존 이벤트 설정
+    const dropzones = [elSourceZone, elTargetStack, elTargetHeap];
+    dropzones.forEach(zone => {
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault(); // 드롭 허용
+            e.dataTransfer.dropEffect = 'move';
+            const currentZone = e.target.closest('.dropzone');
+            if(currentZone) currentZone.classList.add('dragover');
+        });
+
+        zone.addEventListener('dragleave', (e) => {
+            const currentZone = e.target.closest('.dropzone');
+            if(currentZone) currentZone.classList.remove('dragover');
+        });
+
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const currentZone = e.target.closest('.dropzone');
+            if(currentZone) {
+                currentZone.classList.remove('dragover');
+                const id = e.dataTransfer.getData('text/plain');
+                const el = document.getElementById(id);
+                // 요소를 해당 영역으로 이동 (드롭존 자식으로만 추가되도록 처리)
+                if(el) {
+                    currentZone.appendChild(el);
+                }
+            }
+        });
+    });
+
+    // --- 메세지 처리 함수 ---
+    function showStatus(msg, isSuccess) {
+        elStatusMessage.innerText = msg;
+        elStatusMessage.className = `text-center font-bold text-lg h-8 transition-opacity duration-300 opacity-100 ${isSuccess ? 'text-emerald-400' : 'text-red-400'}`;
+    }
+    function hideStatus() {
+        elStatusMessage.classList.remove('opacity-100');
+        elStatusMessage.classList.add('opacity-0');
+    }
+
+    // --- 검사 로직 ---
+    elBtnCheck.addEventListener('click', () => {
+        const levelData = levels[currentLevelIndex];
+        let allCorrect = true;
+        let sourceHasItems = elSourceZone.children.length > 0;
+
+        if (sourceHasItems) {
+            playSound('error');
+            showStatus("❌ 아직 안 옮긴 짐이 있잖여!", false);
+            document.getElementById('angry-avatar-container').innerHTML = getManagerSvg('angry');
+            showAngryModal("어허! 아직 바닥에 뒹구는 짐짝이 있잖여!<br>싹 다 안 치워?!");
+            elMemoryBoard.classList.remove('shake');
+            void elMemoryBoard.offsetWidth; // 리플로우 강제 트리거로 애니메이션 리셋
+            elMemoryBoard.classList.add('shake');
+            return;
+        }
+
+        levelData.items.forEach(item => {
+            const element = document.getElementById(item.id);
+            // 부모 요소(드롭존)의 ID가 정답 타겟 ID와 일치하는지 확인
+            if (element.parentElement.id !== item.target) {
+                allCorrect = false;
+            }
+        });
+
+        if (allCorrect) {
+            // 아바타 얼굴을 의심스러운/못마땅한 표정의 SVG로 변경
+            elAvatarContainer.innerHTML = getManagerSvg('suspicious');
+            elAvatarContainer.classList.remove('border-emerald-500');
+            elAvatarContainer.classList.add('border-yellow-400');
+
+            // 대사 업데이트 (정답 시 의심스러운 대사)
+            elAiMessage.innerHTML = levelData.successText;
+
+            if (currentLevelIndex === levels.length - 1) {
+                // 모든 레벨 완료
+                playSound('clear');
+                showStatus("🎉 모든 작업을 완벽하게 마쳤습니다!", true);
+                elBtnCheck.classList.add('hidden');
+                elBtnReset.classList.add('hidden');
+            } else {
+                // 해당 레벨 클리어
+                playSound('success');
+                showStatus("✅ 오야, 깔끔하구만! 다음 작업장으로 넘어가자고!", true);
+                elBtnCheck.classList.add('hidden');
+                elBtnNext.classList.remove('hidden');
+            }
+        } else {
+            // 오답
+            playSound('error');
+            showStatus("❌ 번지수가 틀렸잖여!", false);
+            document.getElementById('angry-avatar-container').innerHTML = getManagerSvg('angry');
+            showAngryModal("에잉 쯧쯧! 번지수가 틀렸잖여!<br>이따구로 하고 월급 받을 생각 한 겨?<br>다시 똑바로 옮겨놔!");
+            elMemoryBoard.classList.remove('shake');
+            void elMemoryBoard.offsetWidth;
+            elMemoryBoard.classList.add('shake');
+        }
+    });
+
+    // 다음 레벨 버튼
+    elBtnNext.addEventListener('click', () => {
+        if (currentLevelIndex < levels.length - 1) {
+            currentLevelIndex++;
+            loadLevel(currentLevelIndex);
+        }
+    });
+
+    // 리셋 버튼 (현재 레벨 처음으로)
+    elBtnReset.addEventListener('click', () => {
+        loadLevel(currentLevelIndex);
+    });
+
+    // 게임 최초 실행
+    window.addEventListener('DOMContentLoaded', () => {
+        loadLevel(currentLevelIndex);
+    });
+
+</script>
+</body>
+</html>

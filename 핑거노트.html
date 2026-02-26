@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 핸드 트래킹 피아노 - 떴다 떴다 비행기</title>
+
+  <!-- MediaPipe Hands & Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    :root {
+      --primary: #4CAF50;
+      --bg-color: #121212;
+      --key-white: #ffffff;
+      --key-pressed: #e0e0e0;
+      --note-colors: #ff5252, #ffb142, #ffda79, #34ace0, #706fd3;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-color);
+      color: white;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    #game-container {
+      position: relative;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* Camera feed (hidden but needed for mediapipe) */
+    #video-feed {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.15;
+      /* Background visibility */
+      z-index: 0;
+      transform: scaleX(-1);
+      /* Mirror effect */
+    }
+
+    #game-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* UI Layer */
+    #ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .hud {
+      position: absolute;
+      top: 20px;
+      padding: 0 30px;
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      justify-content: space-between;
+      font-size: 24px;
+      font-weight: bold;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+    }
+
+    .combo-text {
+      color: #ffda79;
+      font-size: 32px;
+      transition: transform 0.1s;
+    }
+
+    /* Piano Keyboard at bottom */
+    #keyboard {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 25vh;
+      display: flex;
+      z-index: 2;
+      box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.5);
+    }
+
+    .key {
+      flex: 1;
+      background: var(--key-white);
+      border: 1px solid #ccc;
+      border-bottom-left-radius: 8px;
+      border-bottom-right-radius: 8px;
+      position: relative;
+      transition: background 0.1s;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 20px;
+      color: #333;
+      font-weight: bold;
+      font-size: 1.2rem;
+    }
+
+    .key::before {
+      content: attr(data-finger);
+      position: absolute;
+      top: 20px;
+      font-size: 0.9rem;
+      color: #888;
+    }
+
+    .key.active {
+      background: #dcdde1;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Screens */
+    .screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      pointer-events: auto;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 10px;
+      background: linear-gradient(45deg, #4CAF50, #8BC34A);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    p {
+      font-size: 1.2rem;
+      margin-bottom: 30px;
+      text-align: center;
+      line-height: 1.5;
+      max-width: 600px;
+    }
+
+    .btn {
+      padding: 15px 40px;
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: white;
+      background: var(--primary);
+      border: none;
+      border-radius: 30px;
+      cursor: pointer;
+      transition: transform 0.2s, background 0.2s;
+      box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+    }
+
+    .btn:hover {
+      transform: scale(1.05);
+      background: #45a049;
+    }
+
+    .btn:disabled {
+      background: #555;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* Leaderboard */
+    .leaderboard {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      border-radius: 15px;
+      width: 80%;
+      max-width: 400px;
+      margin-bottom: 20px;
+    }
+
+    .leaderboard h2 {
+      margin-top: 0;
+      text-align: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+      padding-bottom: 10px;
+    }
+
+    .song-selector {
+      margin-bottom: 20px;
+      padding: 10px 15px;
+      font-size: 1.2rem;
+      border-radius: 10px;
+      border: 2px solid var(--primary);
+      background: rgba(0, 0, 0, 0.5);
+      color: white;
+      cursor: pointer;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .song-selector option {
+      background: #222;
+    }
+
+    .rank-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .rank-item:last-child {
+      border-bottom: none;
+    }
+
+    input[type="text"] {
+      padding: 10px;
+      font-size: 1.2rem;
+      border-radius: 8px;
+      border: none;
+      margin-bottom: 20px;
+      text-align: center;
+      width: 200px;
+    }
+
+    #ai-feedback-box {
+      background: rgba(76, 175, 80, 0.2);
+      border: 1px solid #4CAF50;
+      border-radius: 10px;
+      padding: 15px;
+      margin: 10px 0 20px 0;
+      max-width: 500px;
+      font-size: 1.1rem;
+      line-height: 1.4;
+      text-align: center;
+      color: #e0f2f1;
+      min-height: 60px;
+    }
+
+    #feedback-text {
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 4rem;
+      font-weight: bold;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="game-container">
+    <!-- Camera Feed -->
+    <video id="video-feed" autoplay playsinline></video>
+
+    <!-- Game Render Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+      <div class="hud hidden" id="hud">
+        <div>Score: <span id="score-display">0</span></div>
+        <div class="combo-text">Combo: <span id="combo-display">0</span></div>
+      </div>
+      <div id="feedback-text">PERFECT!</div>
+    </div>
+
+    <!-- Virtual Keyboard -->
+    <div id="keyboard">
+      <div class="key" id="key-0" data-finger="엄지 (접기)">도 (C)</div>
+      <div class="key" id="key-1" data-finger="검지 (접기)">레 (D)</div>
+      <div class="key" id="key-2" data-finger="중지 (접기)">미 (E)</div>
+      <div class="key" id="key-3" data-finger="약지 (접기)">파 (F)</div>
+      <div class="key" id="key-4" data-finger="소지 (접기)">솔 (G)</div>
+    </div>
+  </div>
+
+  <!-- Loading & Menu Screen -->
+  <div id="menu-screen" class="screen">
+    <h1>AI 피아노 리듬게임</h1>
+    <p>
+      카메라에 <strong>오른손</strong>을 보여주세요.<br>
+      떨어지는 노트 타이밍에 맞춰 손가락을 접으면 피아노가 연주됩니다!<br><br>
+      [엄지:도] [검지:레] [중지:미] [약지:파] [소지:솔]
+    </p>
+
+    <select id="song-select" class="song-selector">
+      <option value="airplane">🎵 떴다 떴다 비행기</option>
+      <option value="butterfly">🎵 나비야</option>
+      <option value="ode">🎵 환희의 송가</option>
+    </select>
+
+    <div class="leaderboard">
+      <h2>🏆 <span id="rank-song-title">떴다 떴다 비행기</span> 랭킹 🏆</h2>
+      <div id="ranking-list">
+        <!-- Ranks will be injected here -->
+      </div>
+    </div>
+
+    <button id="start-btn" class="btn" disabled>AI 모델 로딩중...</button>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="result-screen" class="screen hidden">
+    <h1>연주 완료!</h1>
+    <h2 style="font-size: 2.5rem; margin: 10px 0;">최종 점수: <span id="final-score">0</span></h2>
+    <p style="font-size: 1.5rem; color: #ffda79;">최대 콤보: <span id="max-combo">0</span></p>
+
+    <div id="ai-feedback-box">🎵 AI 평론가가 연주를 분석하고 있습니다...</div>
+
+    <input type="text" id="player-name" placeholder="이름을 입력하세요" maxlength="8">
+    <button id="save-btn" class="btn">점수 저장 및 메뉴로</button>
+  </div>
+
+  <script>
+    // --- 1. Audio System (Web Audio API Synthesizer) ---
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx;
+
+    // Frequencies for C4, D4, E4, F4, G4
+    const frequencies = [261.63, 293.66, 329.63, 349.23, 392.00];
+    const keyColors = ['#ff5252', '#ffb142', '#ffda79', '#34ace0', '#706fd3'];
+
+    function playNote(noteIndex) {
+      if (!audioCtx) return;
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.type = 'sine'; // Soft piano-like basic wave
+      oscillator.frequency.value = frequencies[noteIndex];
+
+      // Envelope
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.05);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.0);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 1.0);
+
+      // UI Key Active Effect
+      const keyEl = document.getElementById(`key-${noteIndex}`);
+      if (keyEl) {
+        keyEl.classList.add('active');
+        keyEl.style.backgroundColor = keyColors[noteIndex];
+        setTimeout(() => {
+          keyEl.classList.remove('active');
+          keyEl.style.backgroundColor = '';
+        }, 150);
+      }
+    }
+
+    // --- 2. Game Data (곡 목록) ---
+    const SONGS = {
+      'airplane': {
+        name: '떴다 떴다 비행기',
+        bpm: 120,
+        data: [
+          { note: 2, beat: 0 }, { note: 1, beat: 1 }, { note: 0, beat: 2 }, { note: 1, beat: 3 },
+          { note: 2, beat: 4 }, { note: 2, beat: 5 }, { note: 2, beat: 6 },
+          { note: 1, beat: 8 }, { note: 1, beat: 9 }, { note: 1, beat: 10 },
+          { note: 2, beat: 12 }, { note: 4, beat: 13 }, { note: 4, beat: 14 },
+          { note: 2, beat: 16 }, { note: 1, beat: 17 }, { note: 0, beat: 18 }, { note: 1, beat: 19 },
+          { note: 2, beat: 20 }, { note: 2, beat: 21 }, { note: 2, beat: 22 },
+          { note: 1, beat: 24 }, { note: 1, beat: 25 }, { note: 2, beat: 26 }, { note: 1, beat: 27 },
+          { note: 0, beat: 28 }
+        ]
+      },
+      'butterfly': {
+        name: '나비야',
+        bpm: 120,
+        data: [
+          { note: 4, beat: 0 }, { note: 2, beat: 1 }, { note: 2, beat: 2 },
+          { note: 3, beat: 4 }, { note: 1, beat: 5 }, { note: 1, beat: 6 },
+          { note: 0, beat: 8 }, { note: 1, beat: 9 }, { note: 2, beat: 10 }, { note: 3, beat: 11 },
+          { note: 4, beat: 12 }, { note: 4, beat: 13 }, { note: 4, beat: 14 },
+          { note: 4, beat: 16 }, { note: 2, beat: 17 }, { note: 2, beat: 18 },
+          { note: 3, beat: 20 }, { note: 1, beat: 21 }, { note: 1, beat: 22 },
+          { note: 0, beat: 24 }, { note: 2, beat: 25 }, { note: 4, beat: 26 }, { note: 2, beat: 27 },
+          { note: 0, beat: 28 }, { note: 0, beat: 29 }, { note: 0, beat: 30 }
+        ]
+      },
+      'ode': {
+        name: '환희의 송가',
+        bpm: 110,
+        data: [
+          { note: 2, beat: 0 }, { note: 2, beat: 1 }, { note: 3, beat: 2 }, { note: 4, beat: 3 },
+          { note: 4, beat: 4 }, { note: 3, beat: 5 }, { note: 2, beat: 6 }, { note: 1, beat: 7 },
+          { note: 0, beat: 8 }, { note: 0, beat: 9 }, { note: 1, beat: 10 }, { note: 2, beat: 11 },
+          { note: 2, beat: 12 }, { note: 1, beat: 13 }, { note: 1, beat: 14 }
+        ]
+      }
+    };
+
+    let currentSongId = 'airplane';
+    const SONG_SPEED = 0.4; // pixels per ms
+    const HIT_Y_OFFSET = window.innerHeight * 0.75;
+
+    // --- 3. Game Engine State ---
+    let gameState = 'menu'; // menu, playing, result
+    let activeNotes = [];
+    let startTime = 0;
+    let score = 0;
+    let combo = 0;
+    let maxCombo = 0;
+    let perfectCount = 0;
+    let goodCount = 0;
+    let missCount = 0;
+    let lastTime = 0;
+    let animationId;
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    let cw, ch;
+
+    function resizeCanvas() {
+      cw = canvas.width = window.innerWidth;
+      ch = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // --- 4. Hand Tracking Logic ---
+    let handLandmarks = null;
+    let fingerStates = [false, false, false, false, false]; // Thumb to Pinky
+    let fingerCooldowns = [0, 0, 0, 0, 0];
+    let globalCooldown = 0; // 전체 건반 동시 입력 방지용
+
+    function detectFingerBends(landmarks) {
+      // 각 손가락이 굽혀진 '정도(깊이)'를 점수화
+      const thumbScore = landmarks[4].x - landmarks[3].x;
+      const indexScore = landmarks[8].y - landmarks[6].y;
+      const middleScore = landmarks[12].y - landmarks[10].y;
+      const ringScore = landmarks[16].y - landmarks[14].y;
+      const pinkyScore = landmarks[20].y - landmarks[18].y;
+
+      // 문제 1 해결: 엄지 임계값을 대폭 완화하여 살짝만 안으로 굽혀도 인식되도록 수정
+      const thumbBent = thumbScore > -0.01;
+
+      // 나머지 손가락 임계값 (약지와 소지는 인체 구조상 둔하므로 더 깊게 설정)
+      const indexBent = indexScore > 0.02;
+      const middleBent = middleScore > 0.02;
+      const ringBent = ringScore > 0.035;
+      const pinkyBent = pinkyScore > 0.035;
+
+      return {
+        states: [thumbBent, indexBent, middleBent, ringBent, pinkyBent],
+        scores: [thumbScore, indexScore, middleScore, ringScore, pinkyScore]
+      };
+    }
+
+    function processHands(results) {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        // 편의상 첫 번째 감지된 손만 사용 (오른손 권장)
+        handLandmarks = results.multiHandLandmarks[0];
+
+        const { states: newStates, scores } = detectFingerBends(handLandmarks);
+        const now = performance.now();
+
+        let candidates = [];
+        for (let i = 0; i < 5; i++) {
+          if (newStates[i] && !fingerStates[i] && (now - fingerCooldowns[i] > 150)) {
+            candidates.push(i);
+          }
+        }
+
+        // 문제 2 해결: 여러 손가락이 동시에 눌리려고 할 때
+        if (candidates.length > 0) {
+          // 글로벌 쿨다운(120ms)을 적용하여 다중/연속 입력 완전 차단 (단음계 곡 전용)
+          if (now - globalCooldown > 120) {
+            // 가장 깊게 굽혀진(Score가 가장 높은) 주동작 손가락 하나만 선별
+            let bestFinger = candidates[0];
+            let maxScore = scores[bestFinger];
+
+            for (let i = 1; i < candidates.length; i++) {
+              if (scores[candidates[i]] > maxScore) {
+                maxScore = scores[candidates[i]];
+                bestFinger = candidates[i];
+              }
+            }
+
+            // 의도된 단 하나의 손가락만 실행
+            handleKeyPress(bestFinger);
+
+            // 글로벌 쿨다운 및 모든 손가락 개별 쿨다운 갱신 (딸려 접힌 손가락 무시)
+            globalCooldown = now;
+            for (let i = 0; i < 5; i++) {
+              fingerCooldowns[i] = now;
+            }
+          }
+        }
+        fingerStates = newStates;
+      } else {
+        handLandmarks = null;
+        fingerStates = [false, false, false, false, false];
+      }
+    }
+
+    // --- 5. Game Logic ---
+    function handleKeyPress(laneIndex) {
+      if (gameState !== 'playing') return;
+
+      playNote(laneIndex); // Play sound
+
+      // Hit Detection
+      const currentMs = performance.now() - startTime;
+      let hitProcessed = false;
+
+      // Find the closest note in this lane
+      for (let i = 0; i < activeNotes.length; i++) {
+        const note = activeNotes[i];
+        if (note.note === laneIndex && !note.hit && !note.missed) {
+          const diff = Math.abs(note.targetTime - currentMs);
+
+          if (diff < 150) { // Perfect Window
+            processHit(note, 100, "PERFECT!", "#4CAF50");
+            hitProcessed = true;
+            break;
+          } else if (diff < 300) { // Good Window
+            processHit(note, 50, "GOOD", "#ffeb3b");
+            hitProcessed = true;
+            break;
+          }
+        }
+      }
+    }
+
+    function processHit(note, points, text, color) {
+      note.hit = true;
+      score += points;
+      combo++;
+      if (combo > maxCombo) maxCombo = combo;
+      if (points === 100) perfectCount++; else goodCount++;
+
+      updateHUD();
+      showFeedback(text, color);
+    }
+
+    function processMiss() {
+      combo = 0;
+      missCount++;
+      updateHUD();
+      showFeedback("MISS", "#f44336");
+    }
+
+    function showFeedback(text, color) {
+      const fb = document.getElementById('feedback-text');
+      fb.innerText = text;
+      fb.style.color = color;
+      fb.style.opacity = 1;
+      fb.style.transform = 'translate(-50%, -60%) scale(1.2)';
+
+      setTimeout(() => {
+        fb.style.opacity = 0;
+        fb.style.transform = 'translate(-50%, -50%) scale(1)';
+      }, 400);
+    }
+
+    function updateHUD() {
+      document.getElementById('score-display').innerText = score;
+      const comboEl = document.getElementById('combo-display');
+      comboEl.innerText = combo;
+      comboEl.style.transform = 'scale(1.5)';
+      setTimeout(() => comboEl.style.transform = 'scale(1)', 100);
+    }
+
+    function drawGame(timestamp) {
+      ctx.clearRect(0, 0, cw, ch);
+
+      if (gameState === 'playing') {
+        const currentMs = timestamp - startTime;
+
+        // Draw Hit Line
+        const hitY = ch * 0.75;
+        ctx.beginPath();
+        ctx.moveTo(0, hitY);
+        ctx.lineTo(cw, hitY);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // Draw Notes
+        const laneWidth = cw / 5;
+
+        let allNotesCompleted = true;
+
+        for (let i = 0; i < activeNotes.length; i++) {
+          const note = activeNotes[i];
+          if (note.hit) continue;
+
+          const timeDiff = note.targetTime - currentMs;
+          const noteY = hitY - (timeDiff * SONG_SPEED);
+
+          if (timeDiff < -300 && !note.missed) {
+            note.missed = true;
+            processMiss();
+          }
+
+          if (!note.missed) {
+            allNotesCompleted = false;
+
+            if (noteY > -50 && noteY < ch) {
+              const noteX = (note.note * laneWidth) + (laneWidth / 2);
+
+              // Draw glowing note
+              ctx.shadowBlur = 15;
+              ctx.shadowColor = keyColors[note.note];
+              ctx.fillStyle = keyColors[note.note];
+
+              ctx.beginPath();
+              ctx.arc(noteX, noteY, 25, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.fillStyle = '#fff';
+              ctx.shadowBlur = 0;
+              ctx.beginPath();
+              ctx.arc(noteX, noteY, 15, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        }
+
+        // Draw Hand Landmarks
+        if (handLandmarks) {
+          ctx.fillStyle = 'rgba(76, 175, 80, 0.8)';
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+          ctx.lineWidth = 2;
+
+          // Draw joints
+          handLandmarks.forEach((lm) => {
+            ctx.beginPath();
+            ctx.arc(lm.x * cw, lm.y * ch, 5, 0, Math.PI * 2);
+            ctx.fill();
+          });
+
+          // Highlight folded fingertips
+          const tips = [4, 8, 12, 16, 20];
+          tips.forEach((idx, i) => {
+            if (fingerStates[i]) {
+              ctx.fillStyle = '#ff3333';
+              ctx.beginPath();
+              ctx.arc(handLandmarks[idx].x * cw, handLandmarks[idx].y * ch, 10, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          });
+        }
+
+        // End game check (Wait 2 secs after last note)
+        if (allNotesCompleted && currentMs > activeNotes[activeNotes.length - 1].targetTime + 2000) {
+          endGame();
+        }
+      }
+
+      animationId = requestAnimationFrame(drawGame);
+    }
+
+    // --- 6. Flow Control ---
+    function startGame() {
+      if (!audioCtx) audioCtx = new AudioContext();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      document.getElementById('menu-screen').classList.add('hidden');
+      document.getElementById('hud').classList.remove('hidden');
+
+      gameState = 'playing';
+      score = 0;
+      combo = 0;
+      maxCombo = 0;
+      perfectCount = 0;
+      goodCount = 0;
+      missCount = 0;
+      updateHUD();
+
+      // 선택된 곡 데이터 로드
+      const song = SONGS[currentSongId];
+      const BEAT_MS = 60000 / song.bpm;
+
+      // Prepare notes
+      activeNotes = song.data.map(n => ({
+        note: n.note,
+        targetTime: (n.beat * BEAT_MS) + 3000, // 3 seconds delay before first beat
+        hit: false,
+        missed: false
+      }));
+
+      startTime = performance.now();
+      if (!animationId) animationId = requestAnimationFrame(drawGame);
+    }
+
+    function endGame() {
+      gameState = 'result';
+      document.getElementById('hud').classList.add('hidden');
+      document.getElementById('result-screen').classList.remove('hidden');
+
+      document.getElementById('final-score').innerText = score;
+      document.getElementById('max-combo').innerText = maxCombo;
+
+      const aiBox = document.getElementById('ai-feedback-box');
+      aiBox.innerText = "🎵 까칠한 AI 음악 평론가가 연주를 분석하고 있습니다...";
+
+      getAIFeedback(perfectCount, goodCount, missCount, maxCombo, score).then(text => {
+        aiBox.innerText = text;
+      });
+    }
+
+    // --- 6.5 Gemini AI Feedback ---
+    const apiKey = "";
+
+    async function fetchWithRetry(url, options, retries = 5) {
+      const delays = [1000, 2000, 4000, 8000, 16000];
+      for (let i = 0; i < retries; i++) {
+        try {
+          const response = await fetch(url, options);
+          if (response.ok) return await response.json();
+        } catch (err) {
+          if (i === retries - 1) throw err;
+        }
+        if (i < retries - 1) {
+          await new Promise(r => setTimeout(r, delays[i]));
+        }
+      }
+      throw new Error("API 요청 실패");
+    }
+
+    async function getAIFeedback(perfect, good, miss, combo, score) {
+      const songName = SONGS[currentSongId].name;
+      const prompt = `당신은 까칠하지만 실력은 확실한 음악 평론가입니다. 사용자가 방금 피아노 리듬게임에서 '${songName}'를 연주했습니다.\n기록: PERFECT ${perfect}회, GOOD ${good}회, MISS ${miss}회, 최대 콤보 ${combo}, 총점 ${score}점.\n이 기록을 바탕으로 플레이어의 연주 실력을 평가하는 재치있는 코멘트를 한국어로 2~3문장만 작성해주세요. 너무 딱딱하지 않게 유머러스하게 써주세요.`;
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      const options = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        })
+      };
+
+      try {
+        const data = await fetchWithRetry(url, options);
+        return data.candidates[0].content.parts[0].text;
+      } catch (error) {
+        return "AI 평가를 불러오지 못했습니다. (서버 연결 불안정)";
+      }
+    }
+
+    // --- 7. Leaderboard (LocalStorage) ---
+    function loadLeaderboard() {
+      const data = localStorage.getItem(`pianoRanking_${currentSongId}`);
+      return data ? JSON.parse(data) : [];
+    }
+
+    function saveScore(name, finalScore) {
+      if (!name) name = "무명";
+      const ranks = loadLeaderboard();
+      ranks.push({ name, score: finalScore });
+      ranks.sort((a, b) => b.score - a.score);
+      const top5 = ranks.slice(0, 5);
+      localStorage.setItem(`pianoRanking_${currentSongId}`, JSON.stringify(top5));
+      renderLeaderboard();
+    }
+
+    function renderLeaderboard() {
+      const ranks = loadLeaderboard();
+      const listContainer = document.getElementById('ranking-list');
+      listContainer.innerHTML = '';
+
+      document.getElementById('rank-song-title').innerText = SONGS[currentSongId].name;
+
+      if (ranks.length === 0) {
+        listContainer.innerHTML = '<div style="text-align:center; color:#ccc;">아직 등록된 랭킹이 없습니다.</div>';
+        return;
+      }
+
+      ranks.forEach((r, idx) => {
+        const el = document.createElement('div');
+        el.className = 'rank-item';
+        el.innerHTML = `<span>${idx + 1}위: <b>${r.name}</b></span> <span>${r.score} 점</span>`;
+        listContainer.appendChild(el);
+      });
+    }
+
+    // --- 8. Initialization ---
+    const videoElement = document.getElementById('video-feed');
+    const startBtn = document.getElementById('start-btn');
+    const saveBtn = document.getElementById('save-btn');
+
+    // Init MediaPipe
+    const hands = new Hands({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+      }
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+      selfieMode: true // Mirror mode for easier hand coordination
+    });
+
+    hands.onResults(processHands);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+
+    // Start Camera & Enable button when ready
+    camera.start().then(() => {
+      startBtn.innerText = "게임 시작 (Start)";
+      startBtn.disabled = false;
+      renderLeaderboard();
+    }).catch(err => {
+      alert("카메라 권한을 허용해주셔야 게임이 가능합니다.");
+      console.error(err);
+    });
+
+    // Event Listeners
+    startBtn.addEventListener('click', startGame);
+
+    document.getElementById('song-select').addEventListener('change', (e) => {
+      currentSongId = e.target.value;
+      renderLeaderboard(); // 선택한 곡으로 랭킹 업데이트
+    });
+
+    saveBtn.addEventListener('click', () => {
+      const name = document.getElementById('player-name').value;
+      saveScore(name, score);
+
+      // Reset to Menu
+      document.getElementById('result-screen').classList.add('hidden');
+      document.getElementById('menu-screen').classList.remove('hidden');
+      gameState = 'menu';
+    });
+
+  </script>
+</body>
+
+</html>

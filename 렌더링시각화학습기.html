@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSR vs SSR 시각화 학습기</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+    body {
+      font-family: 'Pretendard', sans-serif;
+      background-color: #f8fafc;
+      color: #334155;
+    }
+
+    /* 브라우저 목업 스타일 */
+    .browser-window {
+      border: 1px solid #e2e8f0;
+      border-radius: 0.75rem;
+      overflow: hidden;
+      background: white;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      min-height: 380px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .browser-header {
+      background-color: #f1f5f9;
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #e2e8f0;
+      gap: 0.5rem;
+    }
+
+    .browser-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .dot-red {
+      background-color: #ef4444;
+    }
+
+    .dot-yellow {
+      background-color: #f59e0b;
+    }
+
+    .dot-green {
+      background-color: #10b981;
+    }
+
+    .browser-url {
+      background: white;
+      border-radius: 0.25rem;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      flex-grow: 1;
+      margin-left: 0.5rem;
+    }
+
+    .browser-content {
+      padding: 1.5rem;
+      flex-grow: 1;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: #ffffff;
+    }
+
+    /* 로딩 스피너 */
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3b82f6;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* 타임라인 진행바 */
+    .progress-bar-container {
+      width: 100%;
+      height: 8px;
+      background-color: #e2e8f0;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 1rem;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background-color: #3b82f6;
+      transition: width 0.3s ease-out;
+    }
+
+    /* 스텝 리스트 */
+    .step-item {
+      opacity: 0.4;
+      transition: opacity 0.3s, transform 0.3s;
+    }
+
+    .step-item.active {
+      opacity: 1;
+      transform: translateX(4px);
+      font-weight: 600;
+    }
+
+    .step-item.completed {
+      opacity: 0.8;
+    }
+
+    /* 모의 콘텐츠 UI */
+    .mock-ui {
+      opacity: 0;
+      transition: opacity 0.3s;
+      width: 100%;
+      max-width: 280px;
+    }
+
+    .mock-ui.visible {
+      opacity: 1;
+    }
+
+    .skeleton {
+      background: #e2e8f0;
+      border-radius: 4px;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: .5;
+      }
+    }
+
+    /* 좋아요 버튼 공통 (CSS는 렌더링 직후부터 작동함을 현실적으로 보여줌) */
+    .btn-like {
+      background-color: #ec4899;
+      color: white;
+      padding: 0.5rem 1rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      width: 100%;
+      font-weight: 500;
+    }
+
+    .btn-like:hover {
+      background-color: #db2777;
+    }
+
+    .btn-like:active {
+      transform: scale(0.98);
+    }
+
+    .toast {
+      position: absolute;
+      bottom: 1rem;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.3s;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+
+<body class="p-6 md:p-12 min-h-screen flex flex-col items-center">
+
+  <header class="text-center mb-10 max-w-3xl">
+    <h1 class="text-3xl md:text-4xl font-bold text-slate-800 mb-4">CSR vs SSR 렌더링 시각화</h1>
+    <p class="text-slate-600 leading-relaxed break-keep">
+      클라이언트 사이드 렌더링(CSR)과 서버 사이드 렌더링(SSR)이 브라우저에서 어떻게 동작하는지 비교해 보세요.<br>
+      <strong class="text-blue-600">FCP(화면 표시)</strong>와 <strong class="text-pink-600">TTI(상호작용 가능)</strong> 시점의 차이에
+      주목하세요!
+    </p>
+  </header>
+
+  <div class="flex gap-4 mb-8">
+    <button onclick="startSimulation('csr')"
+      class="px-6 py-2 bg-white border-2 border-blue-500 text-blue-600 font-bold rounded-lg hover:bg-blue-50 transition shadow-sm">
+      CSR 시뮬레이션
+    </button>
+    <button onclick="startSimulation('ssr')"
+      class="px-6 py-2 bg-white border-2 border-purple-500 text-purple-600 font-bold rounded-lg hover:bg-purple-50 transition shadow-sm">
+      SSR 시뮬레이션
+    </button>
+    <button onclick="startSimulation('both')"
+      class="px-6 py-2 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-700 transition shadow-md">
+      동시 비교하기
+    </button>
+    <button onclick="resetSimulation()"
+      class="px-4 py-2 bg-slate-200 text-slate-600 font-medium rounded-lg hover:bg-slate-300 transition">
+      초기화
+    </button>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-6xl">
+
+    <!-- CSR Panel -->
+    <div id="csr-panel" class="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 flex flex-col">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-xl font-bold text-blue-600 flex items-center gap-2">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+            </path>
+          </svg>
+          CSR
+        </h2>
+        <div class="font-mono text-sm bg-slate-100 px-3 py-1 rounded-full font-bold text-slate-700 w-20 text-center"
+          id="csr-timer">0ms</div>
+      </div>
+      <p class="text-sm text-slate-500 mb-4">빈 HTML을 먼저 받고, 브라우저가 JS를 실행하여 화면을 그립니다.</p>
+
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="bg-blue-50 rounded-lg p-2 text-center border border-blue-100">
+          <div class="text-xs text-blue-600 font-bold mb-1">FCP (화면 표시)</div>
+          <div class="text-lg font-mono font-bold text-blue-800" id="csr-fcp">-</div>
+        </div>
+        <div class="bg-blue-50 rounded-lg p-2 text-center border border-blue-100">
+          <div class="text-xs text-blue-600 font-bold mb-1">TTI (상호작용)</div>
+          <div class="text-lg font-mono font-bold text-blue-800" id="csr-tti">-</div>
+        </div>
+      </div>
+
+      <div class="browser-window mb-6">
+        <div class="browser-header">
+          <div class="browser-dot dot-red"></div>
+          <div class="browser-dot dot-yellow"></div>
+          <div class="browser-dot dot-green"></div>
+          <div class="browser-url">https://myapp.com/csr</div>
+        </div>
+        <div class="browser-content" id="csr-content">
+          <!-- 초기 상태: 빈 화면 -->
+          <div id="csr-empty" class="text-slate-400 text-sm">빈 화면 (HTML 도착)</div>
+          <!-- 로딩 상태 -->
+          <div id="csr-loader" class="loader hidden"></div>
+          <!-- 렌더링 완료 상태 -->
+          <div id="csr-mock-ui" class="mock-ui hidden text-left w-full">
+            <div
+              class="w-full h-32 bg-blue-100 rounded-lg mb-4 flex items-center justify-center text-blue-300 font-bold">
+              이미지</div>
+            <h3 class="font-bold text-lg mb-2">프론트엔드 개발 가이드</h3>
+            <p class="text-sm text-slate-500 mb-4">CSR은 처음에 비어있지만, 한 번 로드되면 깜빡임 없이 부드러운 페이지 이동이 가능합니다.</p>
+            <button class="btn-like hydrated" onclick="handleLikeClick('csr')">❤️ 좋아요</button>
+          </div>
+          <div id="csr-toast" class="toast">좋아요를 눌렀습니다!</div>
+        </div>
+      </div>
+
+      <div class="flex-grow">
+        <div class="font-semibold text-sm mb-2 text-slate-700">렌더링 타임라인</div>
+        <ul class="text-sm space-y-3 relative" id="csr-steps">
+          <li class="step-item flex gap-3" data-step="1"><span>🌐 브라우저, 서버에 페이지 요청</span></li>
+          <li class="step-item flex gap-3" data-step="2"><span>📄 빈 HTML 수신 (JS 링크 포함)</span></li>
+          <li class="step-item flex gap-3" data-step="3"><span>⚡ JS 번들 다운로드 및 파싱</span></li>
+          <li class="step-item flex gap-3" data-step="4"><span class="text-blue-600 font-bold">🚀 렌더링 완료 (FCP & TTI 동시
+              달성)</span></li>
+        </ul>
+      </div>
+
+      <div class="progress-bar-container">
+        <div class="progress-bar bg-blue-500" id="csr-progress"></div>
+      </div>
+    </div>
+
+    <!-- SSR Panel -->
+    <div id="ssr-panel" class="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 flex flex-col">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-xl font-bold text-purple-600 flex items-center gap-2">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01">
+            </path>
+          </svg>
+          SSR
+        </h2>
+        <div class="font-mono text-sm bg-slate-100 px-3 py-1 rounded-full font-bold text-slate-700 w-20 text-center"
+          id="ssr-timer">0ms</div>
+      </div>
+      <p class="text-sm text-slate-500 mb-4">서버에서 완성된 HTML을 보내주어 화면은 빨리 보이지만, JS 로드 전까진 반응하지 않습니다.</p>
+
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="bg-purple-50 rounded-lg p-2 text-center border border-purple-100">
+          <div class="text-xs text-purple-600 font-bold mb-1">FCP (화면 표시)</div>
+          <div class="text-lg font-mono font-bold text-purple-800" id="ssr-fcp">-</div>
+        </div>
+        <div class="bg-purple-50 rounded-lg p-2 text-center border border-purple-100">
+          <div class="text-xs text-purple-600 font-bold mb-1">TTI (상호작용)</div>
+          <div class="text-lg font-mono font-bold text-purple-800" id="ssr-tti">-</div>
+        </div>
+      </div>
+
+      <div class="browser-window mb-6">
+        <div class="browser-header">
+          <div class="browser-dot dot-red"></div>
+          <div class="browser-dot dot-yellow"></div>
+          <div class="browser-dot dot-green"></div>
+          <div class="browser-url">https://myapp.com/ssr</div>
+        </div>
+        <div class="browser-content" id="ssr-content">
+          <!-- 초기 상태 -->
+          <div id="ssr-empty" class="text-slate-400 text-sm">요청 대기 중...</div>
+          <!-- 렌더링 완료 상태 (Non-interactive) -->
+          <div id="ssr-mock-ui" class="mock-ui hidden text-left w-full">
+            <div
+              class="w-full h-32 bg-purple-100 rounded-lg mb-4 flex items-center justify-center text-purple-300 font-bold">
+              이미지</div>
+            <h3 class="font-bold text-lg mb-2">프론트엔드 개발 가이드</h3>
+            <p class="text-sm text-slate-500 mb-4">SSR은 화면이 빠르게 나타나 사용자 경험이 좋고, SEO(검색엔진 최적화)에 유리합니다.</p>
+            <button id="ssr-btn" class="btn-like" onclick="handleLikeClick('ssr')">❤️ 좋아요</button>
+          </div>
+          <div id="ssr-toast" class="toast"></div>
+        </div>
+      </div>
+
+      <div class="flex-grow">
+        <div class="font-semibold text-sm mb-2 text-slate-700">렌더링 타임라인</div>
+        <ul class="text-sm space-y-3 relative" id="ssr-steps">
+          <li class="step-item flex gap-3" data-step="1"><span>🌐 브라우저 요청 & 서버에서 HTML 렌더링</span></li>
+          <li class="step-item flex gap-3" data-step="2"><span class="text-purple-600 font-bold">📄 완성된 HTML 수신 및 화면 표시
+              (FCP)</span></li>
+          <li class="step-item flex gap-3" data-step="3"><span>⚡ JS 번들 다운로드 및 실행 완료</span></li>
+          <li class="step-item flex gap-3" data-step="4"><span class="text-pink-600 font-bold">🚀 Hydration 완료 (TTI
+              달성)</span></li>
+        </ul>
+      </div>
+
+      <div class="progress-bar-container">
+        <div class="progress-bar bg-purple-500" id="ssr-progress"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // 시뮬레이션 타이머 관리를 위한 변수
+    let activeTimeouts = [];
+    let rAFId = null;
+    let globalStartTime = 0;
+    let isCSRRunning = false;
+    let isSSRRunning = false;
+
+    function clearAllTimeouts() {
+      activeTimeouts.forEach(clearTimeout);
+      activeTimeouts = [];
+    }
+
+    function setSafeTimeout(callback, delay) {
+      const id = setTimeout(callback, delay);
+      activeTimeouts.push(id);
+      return id;
+    }
+
+    // DOM 요소 조작 헬퍼 함수
+    function el(id) { return document.getElementById(id); }
+    function hide(id) { el(id).classList.add('hidden'); }
+    function show(id) { el(id).classList.remove('hidden'); }
+    function setProgress(id, percent) { el(id).style.width = `${percent}%`; }
+    function setActiveStep(listId, stepNum) {
+      const list = el(listId);
+      const items = list.querySelectorAll('.step-item');
+      items.forEach((item, index) => {
+        if (index + 1 < stepNum) {
+          item.classList.remove('active');
+          item.classList.add('completed');
+        } else if (index + 1 === stepNum) {
+          item.classList.add('active');
+          item.classList.remove('completed');
+        } else {
+          item.classList.remove('active', 'completed');
+        }
+      });
+    }
+
+    // 시뮬레이션 초기화
+    function resetSimulation() {
+      clearAllTimeouts();
+      if (rAFId) cancelAnimationFrame(rAFId);
+
+      // 타이머 UI 초기화
+      el('csr-timer').innerText = '0ms';
+      el('ssr-timer').innerText = '0ms';
+      el('csr-fcp').innerText = '-';
+      el('csr-tti').innerText = '-';
+      el('ssr-fcp').innerText = '-';
+      el('ssr-tti').innerText = '-';
+
+      // CSR 초기화
+      show('csr-empty');
+      hide('csr-loader');
+      hide('csr-mock-ui');
+      el('csr-mock-ui').classList.remove('visible');
+      setProgress('csr-progress', 0);
+      setActiveStep('csr-steps', 0);
+      el('csr-toast').classList.remove('show');
+
+      // SSR 초기화
+      show('ssr-empty');
+      hide('ssr-mock-ui');
+      el('ssr-mock-ui').classList.remove('visible');
+      setProgress('ssr-progress', 0);
+      setActiveStep('ssr-steps', 0);
+      el('ssr-toast').classList.remove('show');
+
+      // SSR 버튼 비활성화 상태로 복구
+      const ssrBtn = el('ssr-btn');
+      ssrBtn.classList.remove('hydrated');
+    }
+
+    // 버튼 클릭 핸들러 (Hydration 테스트)
+    function handleLikeClick(type) {
+      const toast = el(`${type}-toast`);
+
+      if (type === 'ssr') {
+        const isHydrated = el('ssr-btn').classList.contains('hydrated');
+        if (!isHydrated) {
+          // Hydration 전에는 겉모습만 있고 실제 이벤트 처리가 되지 않음을 시뮬레이션
+          toast.innerText = '아무런 반응이 없습니다 (JS 이벤트 리스너 부재)';
+          toast.style.background = 'rgba(100, 116, 139, 0.9)'; // 밋밋한 회색 알림으로 현실감 부여
+        } else {
+          toast.innerText = '✅ 좋아요가 반영되었습니다!';
+          toast.style.background = 'rgba(16, 185, 129, 0.9)'; // 초록색 알림
+        }
+      } else {
+        toast.innerText = '✅ 좋아요가 반영되었습니다!';
+        toast.style.background = 'rgba(16, 185, 129, 0.9)';
+      }
+
+      toast.classList.add('show');
+      setSafeTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    // CSR 시뮬레이션 로직
+    function runCSR() {
+      setActiveStep('csr-steps', 1);
+      setProgress('csr-progress', 5);
+
+      // 200ms: 빈 HTML 수신
+      setSafeTimeout(() => {
+        hide('csr-empty');
+        show('csr-loader');
+        setActiveStep('csr-steps', 2);
+        setProgress('csr-progress', 20);
+      }, 200);
+
+      // 1000ms: JS 다운로드 완료
+      setSafeTimeout(() => {
+        setActiveStep('csr-steps', 3);
+        setProgress('csr-progress', 60);
+      }, 1000);
+
+      // 2000ms: 렌더링 완료 및 인터랙션 가능 (FCP, TTI 동시 달성)
+      setSafeTimeout(() => {
+        hide('csr-loader');
+        show('csr-mock-ui');
+        setTimeout(() => el('csr-mock-ui').classList.add('visible'), 10);
+
+        el('csr-fcp').innerText = '2000ms';
+        el('csr-tti').innerText = '2000ms';
+
+        setActiveStep('csr-steps', 4);
+        setProgress('csr-progress', 100);
+        isCSRRunning = false; // 타이머 정지
+        el('csr-timer').innerText = '2000ms';
+      }, 2000);
+    }
+
+    // SSR 시뮬레이션 로직
+    function runSSR() {
+      setActiveStep('ssr-steps', 1);
+      setProgress('ssr-progress', 10);
+
+      // 600ms: 완성된 HTML 도착 (FCP 달성)
+      setSafeTimeout(() => {
+        hide('ssr-empty');
+        show('ssr-mock-ui');
+        setTimeout(() => el('ssr-mock-ui').classList.add('visible'), 10);
+
+        el('ssr-fcp').innerText = '600ms';
+        setActiveStep('ssr-steps', 2);
+        setProgress('ssr-progress', 40);
+      }, 600);
+
+      // 1400ms: JS 다운로드 완료
+      setSafeTimeout(() => {
+        setActiveStep('ssr-steps', 3);
+        setProgress('ssr-progress', 80);
+      }, 1400);
+
+      // 1600ms: Hydration 완료 (TTI 달성)
+      setSafeTimeout(() => {
+        const ssrBtn = el('ssr-btn');
+        ssrBtn.classList.add('hydrated');
+
+        el('ssr-tti').innerText = '1600ms';
+        setActiveStep('ssr-steps', 4);
+        setProgress('ssr-progress', 100);
+        isSSRRunning = false; // 타이머 정지
+        el('ssr-timer').innerText = '1600ms';
+      }, 1600);
+    }
+
+    // 실시간 타이머 렌더링
+    function updateTimer() {
+      const elapsed = Date.now() - globalStartTime;
+
+      if (isCSRRunning && elapsed <= 2000) {
+        el('csr-timer').innerText = `${elapsed}ms`;
+      }
+      if (isSSRRunning && elapsed <= 1600) {
+        el('ssr-timer').innerText = `${elapsed}ms`;
+      }
+
+      if (isCSRRunning || isSSRRunning) {
+        rAFId = requestAnimationFrame(updateTimer);
+      }
+    }
+
+    // 시뮬레이션 실행기
+    function startSimulation(type) {
+      resetSimulation();
+
+      // 약간의 딜레이 후 시작하여 초기화되는 모습을 보여줌
+      setSafeTimeout(() => {
+        isCSRRunning = (type === 'csr' || type === 'both');
+        isSSRRunning = (type === 'ssr' || type === 'both');
+        globalStartTime = Date.now();
+
+        rAFId = requestAnimationFrame(updateTimer);
+
+        if (isCSRRunning) runCSR();
+        if (isSSRRunning) runSSR();
+      }, 100);
+    }
+
+    // 초기 화면 세팅
+    resetSimulation();
+  </script>
+</body>
+
+</html>

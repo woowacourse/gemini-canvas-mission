@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EXIF 프레임 생성기 (Step-by-Step)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- EXIF parser library -->
+  <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+  <!-- Pretendard Font (Toss-like clean typography) -->
+  <link rel="stylesheet" as="style" crossorigin
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
+  <!-- Google Fonts for Customization -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Gowun+Dodum&family=Inter:wght@400;500;600&family=Jua&family=Nanum+Myeongjo:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;500;700&family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Roboto+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Pretendard', 'sans-serif'] },
+          colors: { toss: { blue: '#3182F6', dark: '#1B64DA', light: '#E8F3FF' } }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #f2f4f6;
+      overflow: hidden;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #e5e8eb;
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #d1d6db;
+    }
+
+    .checker-bg {
+      background-image: linear-gradient(45deg, #e5e8eb 25%, transparent 25%),
+        linear-gradient(-45deg, #e5e8eb 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #e5e8eb 75%),
+        linear-gradient(-45deg, transparent 75%, #e5e8eb 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    }
+
+    /* Color Picker Reset */
+    input[type="color"] {
+      -webkit-appearance: none;
+      border: none;
+      width: 100%;
+      height: 48px;
+      border-radius: 0.75rem;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+
+    input[type="color"]::-webkit-color-swatch {
+      border: none;
+      border-radius: 0.75rem;
+    }
+
+    /* Step Animation (Toss-like Cubic Bezier) */
+    .step-panel {
+      transition: all 0.5s cubic-bezier(0.25, 1, 0.3, 1);
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .step-active {
+      transform: translateX(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .step-hidden-right {
+      transform: translateX(20%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .step-hidden-left {
+      transform: translateX(-20%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Interactive button active state */
+    .btn-press:active {
+      transform: scale(0.97);
+    }
+  </style>
+</head>
+
+<body class="h-screen flex flex-col md:flex-row text-gray-800 antialiased">
+
+  <!-- 사이드바 컨트롤 패널 (Step Wizard) -->
+  <aside
+    class="w-full md:w-80 lg:w-[420px] bg-white shadow-2xl flex flex-col h-[50vh] md:h-screen z-20 flex-shrink-0 relative">
+
+    <!-- 네비게이션 헤더 -->
+    <div class="h-14 flex items-center px-4 flex-shrink-0 z-30 bg-white/90 backdrop-blur-md absolute top-0 w-full">
+      <button id="btn-back"
+        class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-600 transition hidden btn-press">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 스텝 컨테이너 -->
+    <div class="relative w-full h-full overflow-hidden">
+
+      <!-- STEP 0: 사진 업로드 -->
+      <div id="step-0" class="step-panel step-active flex flex-col bg-white z-10">
+        <div class="px-6 pt-20 pb-6 flex-grow flex flex-col justify-center">
+          <h2 class="text-[26px] font-bold text-gray-900 leading-tight tracking-tight">어떤 사진에<br>프레임을 입힐까요?</h2>
+          <p class="text-gray-500 mt-3 text-sm font-medium mb-10">원본 화질 그대로 메타데이터를 추가합니다.</p>
+
+          <label for="image-upload"
+            class="flex flex-col items-center justify-center w-full aspect-square max-h-[300px] border-2 border-dashed border-gray-200 rounded-3xl cursor-pointer bg-gray-50 hover:bg-gray-100 hover:border-toss-blue transition group relative btn-press">
+            <div id="upload-content" class="flex flex-col items-center justify-center pointer-events-none">
+              <div
+                class="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <svg class="w-8 h-8 text-toss-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                  stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+              </div>
+              <span class="font-bold text-gray-700 text-lg">사진 업로드</span>
+            </div>
+            <input id="image-upload" type="file" class="hidden" accept="image/jpeg, image/png, image/webp" />
+          </label>
+        </div>
+      </div>
+
+      <!-- STEP 1: EXIF 정보 확인 -->
+      <div id="step-1" class="step-panel step-hidden-right flex flex-col bg-white z-10">
+        <div class="px-6 pt-20 pb-6 overflow-y-auto flex-grow flex flex-col">
+          <h2 class="text-[26px] font-bold text-gray-900 leading-tight tracking-tight">사진 정보를<br>확인해주세요</h2>
+          <p class="text-gray-500 mt-2 text-sm font-medium mb-8">오른쪽 미리보기 화면에서 글자를 드래그해<br>원하는 위치로 옮길 수 있어요.</p>
+
+          <div class="space-y-6">
+            <div>
+              <label class="flex items-center justify-between text-base font-bold text-gray-800 mb-3">
+                <span>추출된 EXIF</span>
+                <label class="inline-flex items-center cursor-pointer">
+                  <input type="checkbox" id="setting-logo" class="sr-only peer" checked>
+                  <div
+                    class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-toss-blue">
+                  </div>
+                  <span class="ms-2 text-sm font-semibold text-gray-600">제조사 로고</span>
+                </label>
+              </label>
+              <textarea id="exif-text" rows="3"
+                class="w-full text-base p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-toss-blue outline-none transition resize-none font-medium text-gray-700"
+                placeholder="정보가 추출되지 않았습니다."></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t border-gray-100 bg-white">
+          <button
+            class="btn-next w-full bg-toss-blue text-white rounded-2xl py-4 font-bold text-lg hover:bg-toss-dark transition btn-press"
+            data-next="2">다음</button>
+        </div>
+      </div>
+
+      <!-- STEP 2: 워터마크 -->
+      <div id="step-2" class="step-panel step-hidden-right flex flex-col bg-white z-10">
+        <div class="px-6 pt-20 pb-6 overflow-y-auto flex-grow flex flex-col">
+          <h2 class="text-[26px] font-bold text-gray-900 leading-tight tracking-tight">나만의 워터마크를<br>남겨볼까요?</h2>
+          <p class="text-gray-500 mt-2 text-sm font-medium mb-8">닉네임을 입력하면 shot by @와 함께 예쁘게 들어갑니다.<br>마찬가지로 자유롭게
+            드래그해보세요.</p>
+
+          <div>
+            <div class="relative">
+              <span
+                class="absolute inset-y-0 left-0 flex items-center pl-4 text-toss-blue font-bold text-lg pointer-events-none">shot
+                by @</span>
+              <input type="text" id="setting-watermark"
+                class="w-full text-lg py-4 pl-[110px] pr-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-toss-blue outline-none transition font-bold text-gray-800"
+                placeholder="닉네임 입력">
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t border-gray-100 bg-white">
+          <button
+            class="btn-next w-full bg-toss-blue text-white rounded-2xl py-4 font-bold text-lg hover:bg-toss-dark transition btn-press"
+            data-next="3">다음</button>
+        </div>
+      </div>
+
+      <!-- STEP 3: 스타일 및 프레임 -->
+      <div id="step-3" class="step-panel step-hidden-right flex flex-col bg-white z-10">
+        <div class="px-6 pt-20 pb-6 overflow-y-auto flex-grow flex flex-col space-y-8">
+          <div>
+            <h2 class="text-[26px] font-bold text-gray-900 leading-tight tracking-tight">스타일을<br>취향껏 꾸며보세요</h2>
+          </div>
+
+          <div class="space-y-6">
+            <!-- 디자인 라디오 버튼들 -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-bold text-gray-800 mb-2">프레임 위치</label>
+                <div class="flex bg-gray-100 p-1 rounded-xl" role="group">
+                  <button type="button" data-setting="position" data-value="top"
+                    class="flex-1 py-2 text-sm font-bold rounded-lg text-gray-500 hover:text-gray-900 transition">위</button>
+                  <button type="button" data-setting="position" data-value="bottom"
+                    class="flex-1 py-2 text-sm font-bold rounded-lg bg-white text-gray-900 shadow-sm transition active-tab">아래</button>
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-bold text-gray-800 mb-2">위치 초기화</label>
+                <button type="button" id="reset-position-btn"
+                  class="w-full py-[10px] text-sm font-bold bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition flex items-center justify-center gap-1 btn-press text-gray-700">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                    </path>
+                  </svg>
+                  가운데로
+                </button>
+              </div>
+            </div>
+
+            <!-- 폰트 -->
+            <div>
+              <label class="block text-sm font-bold text-gray-800 mb-2">글꼴 (Font)</label>
+              <select id="setting-font"
+                class="w-full text-base py-3 px-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-toss-blue outline-none cursor-pointer font-medium text-gray-700 appearance-none">
+                <option value="'Pretendard', sans-serif">Pretendard (토스 스타일)</option>
+                <option value="'Inter', sans-serif">Inter (모던 기본)</option>
+                <option value="'Playfair Display', serif">Playfair (영문 클래식)</option>
+                <option value="'Roboto Mono', monospace">Roboto Mono (타자기)</option>
+                <option value="'Noto Sans KR', sans-serif">본고딕 (깔끔함)</option>
+                <option value="'Noto Serif KR', serif">본명조 (클래식)</option>
+                <option value="'Nanum Myeongjo', serif">나눔명조 (부드러움)</option>
+                <option value="'Gowun Dodum', sans-serif">고운돋움 (감성)</option>
+                <option value="'Jua', sans-serif">배민 주아 (귀여움)</option>
+                <option value="'Do Hyeon', sans-serif">배민 도현 (레트로)</option>
+              </select>
+            </div>
+
+            <!-- 색상 -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-bold text-gray-800 mb-2">배경 색상</label>
+                <div
+                  class="border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:border-toss-blue transition">
+                  <input type="color" id="setting-bg-color" value="#FFFFFF">
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-bold text-gray-800 mb-2">글자 색상</label>
+                <div
+                  class="border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:border-toss-blue transition">
+                  <input type="color" id="setting-text-color" value="#191F28">
+                </div>
+              </div>
+            </div>
+
+            <!-- 슬라이더들 -->
+            <div class="space-y-5 pt-2">
+              <div>
+                <label class="flex justify-between text-sm font-bold text-gray-800 mb-3">
+                  <span>텍스트 크기</span>
+                  <span id="text-size-val" class="text-toss-blue">100%</span>
+                </label>
+                <input type="range" id="setting-text-size" min="0.5" max="1.5" step="0.1" value="1.0"
+                  class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-toss-blue">
+              </div>
+              <div>
+                <label class="flex justify-between text-sm font-bold text-gray-800 mb-3">
+                  <span>여백 두께</span>
+                </label>
+                <input type="range" id="setting-padding" min="1" max="10" value="4"
+                  class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-toss-blue">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t border-gray-100 bg-white">
+          <button
+            class="btn-next w-full bg-toss-blue text-white rounded-2xl py-4 font-bold text-lg hover:bg-toss-dark transition btn-press"
+            data-next="4">완료</button>
+        </div>
+      </div>
+
+      <!-- STEP 4: 저장하기 -->
+      <div id="step-4" class="step-panel step-hidden-right flex flex-col bg-white z-10">
+        <div class="px-6 pt-20 pb-6 flex-grow flex flex-col items-center justify-center text-center">
+          <div
+            class="w-20 h-20 bg-toss-light text-toss-blue rounded-full flex items-center justify-center mb-6 shadow-sm">
+            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </div>
+          <h2 class="text-[26px] font-bold text-gray-900 leading-tight tracking-tight">모든 준비가<br>끝났어요!</h2>
+          <p class="text-gray-500 mt-4 text-base font-medium">우측 미리보기를 마지막으로 확인하고<br>아래 버튼을 눌러 갤러리에 저장하세요.</p>
+        </div>
+        <div class="p-4 bg-white">
+          <button id="download-btn"
+            class="w-full bg-toss-blue text-white rounded-2xl py-[18px] font-bold text-xl hover:bg-toss-dark transition shadow-lg shadow-blue-500/30 btn-press flex items-center justify-center gap-2">
+            고화질 저장하기
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- 캔버스 및 DOM 미리보기 영역 -->
+  <main
+    class="flex-1 h-[50vh] md:h-screen relative p-4 md:p-8 flex items-center justify-center checker-bg overflow-hidden shadow-inner">
+
+    <!-- 반응형 DOM 미리보기 컨테이너 -->
+    <div id="preview-wrapper" class="relative w-full h-full flex items-center justify-center hidden">
+      <div id="preview-box"
+        class="shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden transition-colors duration-200 rounded-sm ring-1 ring-gray-900/5">
+
+        <!-- 상단 프레임 -->
+        <div id="frame-top" class="w-full relative overflow-hidden" style="display: none;">
+          <div id="drag-content-top"
+            class="absolute flex items-center gap-3 cursor-move p-2 rounded hover:ring-2 hover:ring-toss-blue hover:bg-toss-light/50 transition-colors"
+            style="left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10;">
+            <div id="logo-top" class="flex-shrink-0 pointer-events-none"></div>
+            <span id="text-top" class="whitespace-nowrap tracking-wide pointer-events-none font-medium"></span>
+          </div>
+          <!-- 워터마크 상단 -->
+          <div id="watermark-top"
+            class="absolute cursor-move p-2 rounded hover:ring-2 hover:ring-toss-blue hover:bg-toss-light/50 transition-colors hidden"
+            style="left: 85%; top: 50%; transform: translate(-50%, -50%); z-index: 11;">
+            <span id="watermark-text-top"
+              class="whitespace-nowrap tracking-wide pointer-events-none font-bold opacity-80"></span>
+          </div>
+        </div>
+
+        <!-- 이미지 영역 -->
+        <div class="flex-1 w-full relative pointer-events-none">
+          <img id="preview-image" class="absolute top-0 left-0 w-full h-full object-fill block" />
+        </div>
+
+        <!-- 하단 프레임 -->
+        <div id="frame-bottom" class="w-full relative overflow-hidden">
+          <div id="drag-content-bottom"
+            class="absolute flex items-center gap-3 cursor-move p-2 rounded hover:ring-2 hover:ring-toss-blue hover:bg-toss-light/50 transition-colors"
+            style="left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10;">
+            <div id="logo-bottom" class="flex-shrink-0 pointer-events-none"></div>
+            <span id="text-bottom" class="whitespace-nowrap tracking-wide pointer-events-none font-medium"></span>
+          </div>
+          <!-- 워터마크 하단 -->
+          <div id="watermark-bottom"
+            class="absolute cursor-move p-2 rounded hover:ring-2 hover:ring-toss-blue hover:bg-toss-light/50 transition-colors hidden"
+            style="left: 85%; top: 50%; transform: translate(-50%, -50%); z-index: 11;">
+            <span id="watermark-text-bottom"
+              class="whitespace-nowrap tracking-wide pointer-events-none font-bold opacity-80"></span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 플레이스홀더 -->
+    <div id="placeholder"
+      class="text-center flex flex-col items-center bg-white/90 p-10 rounded-3xl shadow-sm backdrop-blur-md border border-gray-100">
+      <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-5">
+        <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z">
+          </path>
+        </svg>
+      </div>
+      <p class="font-bold text-gray-800 text-lg">왼쪽에서 사진을 선택해주세요</p>
+    </div>
+
+  </main>
+
+  <script>
+    // --- Step Animation Logic ---
+    let currentStepIndex = 0;
+    const totalSteps = 5;
+    const steps = Array.from({ length: totalSteps }, (_, i) => document.getElementById(`step-${i}`));
+    const btnBack = document.getElementById('btn-back');
+
+    function goToStep(newIndex) {
+      if (newIndex < 0 || newIndex >= totalSteps) return;
+
+      const currentStep = steps[currentStepIndex];
+      const nextStep = steps[newIndex];
+
+      // Reset classes
+      currentStep.classList.remove('step-active', 'step-hidden-left', 'step-hidden-right');
+      nextStep.classList.remove('step-active', 'step-hidden-left', 'step-hidden-right');
+
+      if (newIndex > currentStepIndex) {
+        currentStep.classList.add('step-hidden-left');
+        nextStep.classList.add('step-hidden-right');
+        void nextStep.offsetWidth; // Trigger reflow
+        nextStep.classList.remove('step-hidden-right');
+        nextStep.classList.add('step-active');
+      } else {
+        currentStep.classList.add('step-hidden-right');
+        nextStep.classList.add('step-hidden-left');
+        void nextStep.offsetWidth;
+        nextStep.classList.remove('step-hidden-left');
+        nextStep.classList.add('step-active');
+      }
+
+      currentStepIndex = newIndex;
+
+      // Back button visibility
+      if (currentStepIndex === 0) {
+        btnBack.classList.add('hidden');
+      } else {
+        btnBack.classList.remove('hidden');
+      }
+    }
+
+    btnBack.addEventListener('click', () => {
+      goToStep(currentStepIndex - 1);
+    });
+
+    document.querySelectorAll('.btn-next').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const nextTarget = parseInt(btn.getAttribute('data-next'));
+        goToStep(nextTarget);
+      });
+    });
+
+    // --- Core Application Logic ---
+    const DOM = {
+      uploadInput: document.getElementById('image-upload'),
+      exifTextArea: document.getElementById('exif-text'),
+      placeholder: document.getElementById('placeholder'),
+      downloadBtn: document.getElementById('download-btn'),
+      fontSelect: document.getElementById('setting-font'),
+      textSizeRange: document.getElementById('setting-text-size'),
+      textSizeVal: document.getElementById('text-size-val'),
+      bgColorPicker: document.getElementById('setting-bg-color'),
+      textColorPicker: document.getElementById('setting-text-color'),
+      paddingRange: document.getElementById('setting-padding'),
+      logoToggle: document.getElementById('setting-logo'),
+      previewWrapper: document.getElementById('preview-wrapper'),
+      previewBox: document.getElementById('preview-box'),
+      previewImage: document.getElementById('preview-image'),
+      frameTop: document.getElementById('frame-top'),
+      frameBottom: document.getElementById('frame-bottom'),
+      textTop: document.getElementById('text-top'),
+      textBottom: document.getElementById('text-bottom'),
+      logoTop: document.getElementById('logo-top'),
+      logoBottom: document.getElementById('logo-bottom'),
+      dragContentTop: document.getElementById('drag-content-top'),
+      dragContentBottom: document.getElementById('drag-content-bottom'),
+      resetPositionBtn: document.getElementById('reset-position-btn'),
+      watermarkInput: document.getElementById('setting-watermark'),
+      watermarkTop: document.getElementById('watermark-top'),
+      watermarkBottom: document.getElementById('watermark-bottom'),
+      watermarkTextTop: document.getElementById('watermark-text-top'),
+      watermarkTextBottom: document.getElementById('watermark-text-bottom'),
+    };
+
+    let currentImage = null;
+    let originalFileName = 'photo';
+    let originalImageDimensions = { width: 0, height: 0 };
+
+    const state = {
+      position: 'bottom',
+      posX: 0.5, posY: 0.5,
+      watermarkText: '',
+      watermarkPosX: 0.85, watermarkPosY: 0.5,
+      paddingLevel: 4,
+      exifText: '',
+      cameraMake: '',
+      fontFamily: "'Pretendard', sans-serif",
+      textSizeScale: 1.0,
+      bgColor: '#FFFFFF',
+      textColor: '#191F28',
+      showLogo: true
+    };
+
+    // Custom Radio Buttons
+    document.querySelectorAll('button[data-setting]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const setting = btn.getAttribute('data-setting');
+        const value = btn.getAttribute('data-value');
+        state[setting] = value;
+
+        const siblings = btn.parentElement.querySelectorAll('button');
+        siblings.forEach(s => {
+          s.classList.remove('bg-white', 'text-gray-900', 'shadow-sm', 'active-tab');
+          s.classList.add('text-gray-500');
+        });
+        btn.classList.remove('text-gray-500');
+        btn.classList.add('bg-white', 'text-gray-900', 'shadow-sm', 'active-tab');
+
+        updatePreviewDOM();
+      });
+    });
+
+    // Inputs Binding
+    DOM.exifTextArea.addEventListener('input', (e) => { state.exifText = e.target.value; updatePreviewDOM(); });
+    DOM.watermarkInput.addEventListener('input', (e) => { state.watermarkText = e.target.value.trim(); updatePreviewDOM(); });
+    DOM.paddingRange.addEventListener('input', (e) => { state.paddingLevel = parseInt(e.target.value); updatePreviewDOM(); });
+    DOM.fontSelect.addEventListener('change', (e) => { state.fontFamily = e.target.value; updatePreviewDOM(); });
+    DOM.bgColorPicker.addEventListener('input', (e) => { state.bgColor = e.target.value; updatePreviewDOM(); });
+    DOM.textColorPicker.addEventListener('input', (e) => { state.textColor = e.target.value; updatePreviewDOM(); });
+    DOM.logoToggle.addEventListener('change', (e) => { state.showLogo = e.target.checked; updatePreviewDOM(); });
+    DOM.textSizeRange.addEventListener('input', (e) => {
+      state.textSizeScale = parseFloat(e.target.value);
+      DOM.textSizeVal.textContent = Math.round(state.textSizeScale * 100) + '%';
+      updatePreviewDOM();
+    });
+
+    // Reset Position
+    DOM.resetPositionBtn.addEventListener('click', () => {
+      state.posX = 0.5; state.posY = 0.5;
+      state.watermarkPosX = 0.85; state.watermarkPosY = 0.5;
+      updatePreviewDOM();
+    });
+
+    // Drag and Drop Logic
+    let isDragging = false, dragTargetType = null;
+    let dragStartX = 0, dragStartY = 0, startPosX = 0.5, startPosY = 0.5, activeDragFrame = null;
+
+    function setupDraggable(element, frameElement, type) {
+      const onMouseDown = (e) => {
+        if (!currentImage) return;
+        isDragging = true; dragTargetType = type; activeDragFrame = frameElement;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        dragStartX = clientX; dragStartY = clientY;
+
+        if (type === 'exif') { startPosX = state.posX; startPosY = state.posY; }
+        else if (type === 'watermark') { startPosX = state.watermarkPosX; startPosY = state.watermarkPosY; }
+
+        element.style.cursor = 'grabbing';
+        if (e.cancelable) e.preventDefault();
+      };
+      element.addEventListener('mousedown', onMouseDown);
+      element.addEventListener('touchstart', onMouseDown, { passive: false });
+    }
+
+    setupDraggable(DOM.dragContentTop, DOM.frameTop, 'exif');
+    setupDraggable(DOM.dragContentBottom, DOM.frameBottom, 'exif');
+    setupDraggable(DOM.watermarkTop, DOM.frameTop, 'watermark');
+    setupDraggable(DOM.watermarkBottom, DOM.frameBottom, 'watermark');
+
+    const onMouseMove = (e) => {
+      if (!isDragging || !activeDragFrame || !dragTargetType) return;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const frameRect = activeDragFrame.getBoundingClientRect();
+
+      let newPosX = startPosX + ((clientX - dragStartX) / frameRect.width);
+      let newPosY = startPosY + ((clientY - dragStartY) / frameRect.height);
+
+      if (dragTargetType === 'exif') {
+        state.posX = Math.max(0.0, Math.min(1.0, newPosX));
+        state.posY = Math.max(0.0, Math.min(1.0, newPosY));
+      } else {
+        state.watermarkPosX = Math.max(0.0, Math.min(1.0, newPosX));
+        state.watermarkPosY = Math.max(0.0, Math.min(1.0, newPosY));
+      }
+      updatePreviewDOM();
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const onMouseUp = () => {
+      if (isDragging) {
+        isDragging = false; activeDragFrame = null; dragTargetType = null;
+        [DOM.dragContentTop, DOM.dragContentBottom, DOM.watermarkTop, DOM.watermarkBottom].forEach(el => el.style.cursor = 'move');
+      }
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('touchmove', onMouseMove, { passive: false });
+    document.addEventListener('touchend', onMouseUp);
+
+
+    // Logos
+    const Logos = {
+      apple: (color) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" width="100%" height="100%"><path fill="${color}" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.3 48.6-.7 90.4-84.3 103.6-119.5-37.6-31.3-56.8-50.3-62.7-91.1zM207.6 109.1c20.3-21.5 32.7-48.4 28.5-74.7-22.1 1.7-50 14.8-67.6 34.6-18.1 20.6-30.8 48-25.9 74.4 24.3 2.1 50.8-11.8 65-34.3z"/></svg>`,
+      sony: (color) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" width="100%" height="100%"><text x="0" y="32" font-family="'Times New Roman', serif" font-size="36" font-weight="bold" fill="${color}" letter-spacing="3">SONY</text></svg>`,
+      canon: (color) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 170 45" width="100%" height="100%"><text x="0" y="35" font-family="'Times New Roman', serif" font-size="40" font-style="italic" font-weight="bold" fill="${color}" letter-spacing="-1">Canon</text></svg>`,
+      nikon: (color) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 45" width="100%" height="100%"><text x="0" y="36" font-family="Arial, sans-serif" font-size="40" font-style="italic" font-weight="900" fill="${color}">Nikon</text></svg>`,
+      fujifilm: (color) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 40" width="100%" height="100%"><text x="0" y="32" font-family="Arial, sans-serif" font-size="32" font-weight="900" fill="${color}" letter-spacing="1">FUJIFILM</text></svg>`,
+      leica: (color, bg) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><circle cx="50" cy="50" r="45" fill="${color}"/><text x="50" y="61" font-family="cursive, serif" font-size="28" font-weight="bold" fill="${bg}" text-anchor="middle">Leica</text></svg>`,
+      panasonic: (color) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 40" width="100%" height="100%"><text x="0" y="32" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="${color}" letter-spacing="1">Panasonic</text></svg>`,
+      default: (color) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>`
+    };
+    const LogoRatios = { apple: 384 / 512, sony: 160 / 40, canon: 170 / 45, nikon: 160 / 45, fujifilm: 210 / 40, leica: 1, panasonic: 240 / 40, default: 1 };
+
+    function getLogoSvgString() {
+      if (!state.showLogo || !state.cameraMake) return null;
+      return (Logos[state.cameraMake] || Logos.default)(state.textColor, state.bgColor);
+    }
+
+    // --- File Upload & EXIF Parsing ---
+    DOM.uploadInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      originalFileName = file.name.split('.').slice(0, -1).join('.') || 'photo';
+      DOM.exifTextArea.value = '추출 중...';
+
+      try {
+        const exifData = await exifr.parse(file, { tiff: true, exif: true });
+        if (exifData && exifData.Make) {
+          const make = exifData.Make.toLowerCase();
+          if (make.includes('apple')) state.cameraMake = 'apple';
+          else if (make.includes('sony')) state.cameraMake = 'sony';
+          else if (make.includes('canon')) state.cameraMake = 'canon';
+          else if (make.includes('nikon')) state.cameraMake = 'nikon';
+          else if (make.includes('fuji')) state.cameraMake = 'fujifilm';
+          else if (make.includes('panasonic')) state.cameraMake = 'panasonic';
+          else if (make.includes('leica')) state.cameraMake = 'leica';
+          else state.cameraMake = 'default';
+        } else state.cameraMake = '';
+
+        let parts = [];
+        if (exifData?.Model) parts.push(exifData.Model);
+        if (exifData?.LensModel) parts.push(exifData.LensModel);
+        if (exifData?.FocalLength) parts.push(`${Math.round(exifData.FocalLength)}mm`);
+        if (exifData?.FNumber) parts.push(`f/${exifData.FNumber}`);
+        if (exifData?.ExposureTime) parts.push(exifData.ExposureTime >= 1 ? `${exifData.ExposureTime}s` : `1/${Math.round(1 / exifData.ExposureTime)}s`);
+        if (exifData?.ISO) parts.push(`ISO ${exifData.ISO}`);
+
+        state.exifText = parts.length > 0 ? parts.join('  |  ') : "수동으로 텍스트를 입력해주세요.";
+        DOM.exifTextArea.value = state.exifText;
+      } catch (error) {
+        state.exifText = "수동으로 텍스트를 입력해주세요.";
+        DOM.exifTextArea.value = state.exifText;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          currentImage = img;
+          originalImageDimensions.width = img.width; originalImageDimensions.height = img.height;
+          DOM.previewImage.src = event.target.result;
+          DOM.placeholder.classList.add('hidden');
+          DOM.previewWrapper.classList.remove('hidden');
+          updatePreviewDOM();
+
+          // 파일 업로드 완료 시 자동으로 Step 1으로 이동
+          setTimeout(() => { goToStep(1); }, 300);
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // --- DOM Update ---
+    function updatePreviewDOM() {
+      if (!currentImage) return;
+
+      const imgW = originalImageDimensions.width, imgH = originalImageDimensions.height;
+      const fontSize = Math.max(12, imgW * 0.015 * state.textSizeScale);
+      const frameHeight = Math.round(fontSize * (1.5 + (state.paddingLevel * 0.5)));
+      const totalHeight = imgH + frameHeight;
+
+      DOM.previewBox.style.aspectRatio = `${imgW} / ${totalHeight}`;
+      DOM.previewBox.style.backgroundColor = state.bgColor;
+
+      const wrapperRect = DOM.previewWrapper.getBoundingClientRect();
+      let displayWidth = imgW;
+
+      if (wrapperRect.width > 0 && wrapperRect.height > 0) {
+        const targetRatio = imgW / totalHeight;
+        if (targetRatio > (wrapperRect.width / wrapperRect.height)) {
+          DOM.previewBox.style.width = '100%'; DOM.previewBox.style.height = 'auto';
+          displayWidth = wrapperRect.width;
+        } else {
+          DOM.previewBox.style.width = 'auto'; DOM.previewBox.style.height = '100%';
+          displayWidth = wrapperRect.height * targetRatio;
+        }
+      }
+
+      const scale = displayWidth / imgW;
+      const displayFontSize = Math.max(8, fontSize * scale);
+      const logoHeight = displayFontSize * 1.3;
+      const logoW = state.cameraMake && LogoRatios[state.cameraMake] ? logoHeight * LogoRatios[state.cameraMake] : logoHeight;
+      const logoSvg = getLogoSvgString();
+
+      let finalWatermarkText = '';
+      if (state.watermarkText) {
+        const cleanText = state.watermarkText.replace(/^(shot by\s*@?|@)/i, '').trim();
+        finalWatermarkText = `shot by @${cleanText}`;
+      }
+
+      const applyStyles = (frameEl, contentEl, textEl, logoEl, wmEl, wmTextEl) => {
+        frameEl.style.height = `${(frameHeight / totalHeight) * 100}%`;
+        contentEl.style.left = `${state.posX * 100}%`; contentEl.style.top = `${state.posY * 100}%`;
+
+        textEl.textContent = state.exifText;
+        textEl.style.color = state.textColor; textEl.style.fontFamily = state.fontFamily; textEl.style.fontSize = `${displayFontSize}px`;
+
+        if (logoSvg) {
+          logoEl.innerHTML = logoSvg; logoEl.style.display = 'block';
+          logoEl.style.height = `${logoHeight}px`; logoEl.style.width = `${logoW}px`;
+        } else logoEl.style.display = 'none';
+
+        if (finalWatermarkText) {
+          wmEl.style.display = 'block';
+          wmEl.style.left = `${state.watermarkPosX * 100}%`; wmEl.style.top = `${state.watermarkPosY * 100}%`;
+          wmTextEl.textContent = finalWatermarkText;
+          wmTextEl.style.color = state.textColor; wmTextEl.style.fontFamily = state.fontFamily; wmTextEl.style.fontSize = `${displayFontSize}px`;
+        } else wmEl.style.display = 'none';
+      };
+
+      if (state.position === 'top') {
+        DOM.frameTop.style.display = 'block'; DOM.frameBottom.style.display = 'none';
+        applyStyles(DOM.frameTop, DOM.dragContentTop, DOM.textTop, DOM.logoTop, DOM.watermarkTop, DOM.watermarkTextTop);
+      } else {
+        DOM.frameTop.style.display = 'none'; DOM.frameBottom.style.display = 'block';
+        applyStyles(DOM.frameBottom, DOM.dragContentBottom, DOM.textBottom, DOM.logoBottom, DOM.watermarkBottom, DOM.watermarkTextBottom);
+      }
+    }
+
+    const resizeObserver = new ResizeObserver(entries => {
+      if (!currentImage || entries.length === 0) return;
+      window.requestAnimationFrame(() => updatePreviewDOM());
+    });
+    resizeObserver.observe(DOM.previewWrapper);
+
+    // --- Download ---
+    DOM.downloadBtn.addEventListener('click', async () => {
+      if (!currentImage) return;
+      const originalBtnHtml = DOM.downloadBtn.innerHTML;
+      DOM.downloadBtn.innerHTML = '처리 중...'; DOM.downloadBtn.disabled = true;
+
+      setTimeout(async () => {
+        const exportCanvas = document.createElement('canvas');
+        const ctx = exportCanvas.getContext('2d');
+        const imgW = originalImageDimensions.width, imgH = originalImageDimensions.height;
+        const fontSize = Math.max(12, imgW * 0.015 * state.textSizeScale);
+        const frameHeight = Math.round(fontSize * (1.5 + (state.paddingLevel * 0.5)));
+
+        exportCanvas.width = imgW; exportCanvas.height = imgH + frameHeight;
+        ctx.fillStyle = state.bgColor; ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+        ctx.drawImage(currentImage, 0, state.position === 'top' ? frameHeight : 0);
+
+        const cleanFont = state.fontFamily.split(',')[0].replace(/'/g, "");
+        ctx.fillStyle = state.textColor; ctx.font = `500 ${fontSize}px ${cleanFont}, sans-serif`; ctx.textBaseline = 'middle';
+
+        const textY = state.position === 'top' ? (frameHeight * state.posY) : (imgH + (frameHeight * state.posY));
+        const textWidth = ctx.measureText(state.exifText).width;
+        const logoSvgStr = getLogoSvgString();
+        const logoHeight = fontSize * 1.3, logoWidth = logoSvgStr ? (logoHeight * (LogoRatios[state.cameraMake] || 1)) : 0;
+        const gap = logoSvgStr && state.exifText ? fontSize * 0.8 : 0;
+        let startX = (exportCanvas.width * state.posX) - ((logoWidth + gap + textWidth) / 2);
+
+        const drawContent = async () => {
+          if (logoSvgStr) {
+            return new Promise((resolve) => {
+              const img = new Image();
+              img.onload = () => {
+                ctx.drawImage(img, startX, textY - (logoHeight / 2), logoWidth, logoHeight);
+                ctx.fillText(state.exifText, startX + logoWidth + gap, textY);
+                resolve();
+              };
+              img.onerror = () => { ctx.fillText(state.exifText, startX, textY); resolve(); };
+              img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(logoSvgStr);
+            });
+          } else {
+            ctx.fillText(state.exifText, startX, textY);
+            return Promise.resolve();
+          }
+        };
+
+        await drawContent();
+
+        let finalWatermarkText = '';
+        if (state.watermarkText) {
+          const cleanText = state.watermarkText.replace(/^(shot by\s*@?|@)/i, '').trim();
+          finalWatermarkText = `shot by @${cleanText}`;
+        }
+
+        if (finalWatermarkText) {
+          ctx.textAlign = 'center'; ctx.globalAlpha = 0.8;
+          const wmY = state.position === 'top' ? (frameHeight * state.watermarkPosY) : (imgH + (frameHeight * state.watermarkPosY));
+          ctx.fillText(finalWatermarkText, exportCanvas.width * state.watermarkPosX, wmY);
+          ctx.globalAlpha = 1.0;
+        }
+
+        const link = document.createElement('a');
+        link.download = `${originalFileName}_frame.jpg`;
+        link.href = exportCanvas.toDataURL('image/jpeg', 0.95);
+        link.click();
+
+        DOM.downloadBtn.innerHTML = originalBtnHtml; DOM.downloadBtn.disabled = false;
+      }, 100);
+    });
+  </script>
+</body>
+
+</html>

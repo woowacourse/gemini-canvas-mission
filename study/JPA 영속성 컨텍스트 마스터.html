@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JPA Persistence Context Visualizer - Advanced</title>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --primary-color: #3b82f6;
+            --new-color: #94a3b8;
+            --managed-color: #22c55e;
+            --detached-color: #f59e0b;
+            --removed-color: #ef4444;
+            --selection-color: #3b82f6;
+            --border-color: #cbd5e1;
+            --text-main: #1e293b;
+        }
+
+        body {
+            font-family: 'Pretendard', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            user-select: none;
+        }
+
+        header { text-align: center; margin-bottom: 10px; }
+        h1 { margin: 0; font-size: 1.2rem; color: var(--primary-color); }
+        .subtitle { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+
+        .canvas {
+            position: relative;
+            width: 960px;
+            height: 480px;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            display: grid;
+            grid-template-columns: 180px 1fr 180px;
+            grid-template-rows: 1fr 1fr;
+            gap: 12px;
+            padding: 15px;
+            box-sizing: border-box;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 12px;
+            padding: 8px;
+            position: relative;
+            background: rgba(255,255,255,0.4);
+        }
+
+        .zone-header {
+            font-weight: 800;
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            color: #94a3b8;
+            margin-bottom: 5px;
+        }
+
+        #zone-new { grid-column: 1; grid-row: 1; border-color: var(--new-color); }
+        #zone-detached { grid-column: 1; grid-row: 2; border-color: var(--detached-color); }
+
+        #persistence-context {
+            grid-column: 2 / span 2; grid-row: 1 / span 2;
+            border: 2px solid #334155;
+            border-radius: 14px;
+            padding: 12px;
+            display: grid;
+            grid-template-columns: 1fr 200px;
+            grid-template-rows: 1fr 100px;
+            gap: 10px;
+            background: rgba(51, 65, 85, 0.01);
+            position: relative;
+        }
+
+        .pc-label {
+            position: absolute;
+            top: -10px;
+            left: 15px;
+            background: #334155;
+            color: white;
+            padding: 1px 8px;
+            border-radius: 10px;
+            font-size: 0.6rem;
+            font-weight: bold;
+            z-index: 20;
+        }
+
+        .internal-box {
+            border: 1px solid var(--border-color);
+            background: white;
+            border-radius: 10px;
+            padding: 8px;
+            position: relative;
+        }
+
+        #cache-box { grid-column: 1; grid-row: 1; border-color: var(--managed-color); }
+        #removed-box { grid-column: 2; grid-row: 1; border-color: var(--removed-color); }
+        #sql-box { grid-column: 1 / span 2; grid-row: 2; border-color: #334155; }
+
+        .internal-box-title {
+            font-size: 0.6rem;
+            font-weight: 800;
+            color: #64748b;
+            margin-bottom: 4px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        /* 엔티티 카드 */
+        .entity-card {
+            width: 80px;
+            height: 55px;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            position: absolute;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            padding: 5px;
+            box-sizing: border-box;
+            cursor: grab;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: left 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), border 0.2s, box-shadow 0.2s;
+        }
+
+        .entity-card.selected {
+            border: 2px solid var(--selection-color);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+            z-index: 100;
+        }
+
+        .entity-card.dragging { transition: none !important; z-index: 1000 !important; }
+
+        .entity-card .id-tag { font-size: 0.5rem; color: #94a3b8; font-weight: bold; }
+        .entity-card .entity-data { font-size: 0.6rem; font-weight: 700; color: var(--text-main); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .entity-card .dirty-mark {
+            position: absolute; bottom: 3px; right: 3px;
+            font-size: 0.5rem; color: #ef4444; font-weight: 800;
+            display: none;
+        }
+
+        /* 컨트롤러 */
+        .controls-container {
+            width: 960px;
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: white;
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+
+        .btn-row { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
+
+        .btn {
+            padding: 6px 10px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 0.7rem;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 90px;
+        }
+        .btn span:last-child { font-size: 0.5rem; font-weight: 400; opacity: 0.8; }
+        .btn:disabled { background: #f1f5f9 !important; color: #cbd5e1; cursor: not-allowed; }
+
+        .btn-new { background: var(--new-color); }
+        .btn-persist { background: var(--managed-color); }
+        .btn-action { background: var(--primary-color); }
+        .btn-remove { background: var(--removed-color); }
+        .btn-commit { background: #1e293b; border: 1px solid #475569; }
+
+        .search-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            padding-top: 5px;
+            border-top: 1px solid #f1f5f9;
+        }
+        .search-input {
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.7rem;
+            width: 120px;
+        }
+
+        /* 정보 영역 */
+        .info-panel {
+            margin-top: 10px;
+            width: 960px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .card-panel { background: white; padding: 12px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+        .card-panel h3 { margin: 0 0 5px 0; font-size: 0.8rem; color: var(--primary-color); }
+        .info-text { font-size: 0.75rem; line-height: 1.4; color: #475569; }
+
+        .console {
+            background: #1e293b;
+            color: #94a3b8;
+            border-radius: 12px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 0.65rem;
+            height: 80px;
+            overflow-y: auto;
+        }
+        .log-sql { color: #fbbf24; }
+        .log-hit { color: #22c55e; font-weight: bold; }
+
+        .sql-chip {
+            display: inline-block;
+            background: #f8fafc;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.55rem;
+            margin: 2px;
+            border: 1px solid #e2e8f0;
+        }
+        .flush { animation: flushOut 0.4s forwards; }
+        @keyframes flushOut { to { transform: translateY(20px); opacity: 0; } }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>JPA Persistence Context: Dirty Checking & Cache</h1>
+        <div class="subtitle">변경 감지와 1차 캐시 조회 메커니즘을 체험해 보세요.</div>
+    </header>
+
+    <div class="canvas" id="canvas">
+        <div class="zone" id="zone-new"><div class="zone-header">🌱 New</div></div>
+        <div class="zone" id="zone-detached"><div class="zone-header">🌪️ Detached</div></div>
+
+        <div id="persistence-context">
+            <div class="pc-label">Persistence Context</div>
+            <div class="internal-box" id="cache-box"><div class="internal-box-title">1차 캐시 (Managed)</div></div>
+            <div class="internal-box" id="removed-box"><div class="internal-box-title">삭제 대기 (Removed)</div></div>
+            <div class="internal-box" id="sql-box">
+                <div class="internal-box-title">쓰기 지연 저장소 (Action Queue)</div>
+                <div id="sql-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls-container">
+        <div class="btn-row">
+            <button class="btn btn-new" onclick="createNewEntity()"><span>new Member()</span><span>객체 생성</span></button>
+            <button class="btn btn-persist" id="btn-persist" onclick="handleAction('persist')" disabled><span>em.persist()</span><span>영속화</span></button>
+            <button class="btn btn-action" id="btn-update" onclick="handleUpdate()" disabled><span>setName("...")</span><span>데이터 수정</span></button>
+            <button class="btn btn-action" id="btn-detach" onclick="handleAction('detach')" disabled><span>em.detach()</span><span>분리</span></button>
+            <button class="btn btn-remove" id="btn-remove" onclick="handleAction('remove')" disabled><span>em.remove()</span><span>삭제</span></button>
+            <button class="btn btn-commit" id="btn-commit" onclick="handleCommit()" disabled><span>commit()</span><span>Flush & 반영</span></button>
+        </div>
+        <div class="search-row">
+            <span style="font-size: 0.7rem; font-weight: bold; color: #64748b;">em.find(Member.class, </span>
+            <input type="number" id="search-id" class="search-input" placeholder="ID 입력">
+            <span style="font-size: 0.7rem; font-weight: bold; color: #64748b;">)</span>
+            <button class="btn btn-action" style="min-width: 60px;" onclick="handleFind()">조회하기</button>
+        </div>
+    </div>
+
+    <div class="info-panel">
+        <div class="card-panel">
+            <h3 id="info-title">💡 가이드</h3>
+            <div id="info-body" class="info-text">
+                1. <b>데이터 수정</b>: 영속 상태인 객체의 이름을 바꾸면 <b>변경 감지</b>가 작동합니다.<br>
+                2. <b>캐시 조회</b>: 이미 영속 상태인 ID를 조회하면 SQL 없이 캐시에서 즉시 반환됩니다.
+            </div>
+        </div>
+        <div class="console" id="console">
+            <div>> System Ready.</div>
+        </div>
+    </div>
+
+    <script>
+        const STATES = { NEW: 'new', MANAGED: 'managed', DETACHED: 'detached', REMOVED: 'removed' };
+        let entities = [];
+        let selectedId = null;
+        let nextId = 1;
+        let sqlQueue = [];
+
+        let draggingEntity = null;
+        let offset = { x: 0, y: 0 };
+
+        function log(msg, type = 'default') {
+            const consoleEl = document.getElementById('console');
+            const div = document.createElement('div');
+            if (type === 'sql') div.className = 'log-sql';
+            if (type === 'hit') div.className = 'log-hit';
+            div.innerHTML = `> ${msg}`;
+            consoleEl.appendChild(div);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        function createNewEntity() {
+            const id = nextId++;
+            const entity = { id: id, state: STATES.NEW, name: 'Member_' + id, originalName: 'Member_' + id, isDirty: false };
+            const el = document.createElement('div');
+            el.className = 'entity-card';
+            el.innerHTML = `
+                <div class="status-dot" style="background: var(--new-color)"></div>
+                <div class="id-tag">ID: ${id}</div>
+                <div class="entity-data">${entity.name}</div>
+                <div class="dirty-mark">DIRTY</div>
+            `;
+            el.onmousedown = (e) => startDrag(e, id);
+            el.onclick = (e) => { e.stopPropagation(); selectEntity(id); };
+            document.getElementById('canvas').appendChild(el);
+            entity.element = el;
+            entities.push(entity);
+            autoPosition(entity);
+            selectEntity(id);
+            log(`new Member() - ID ${id} 생성 (비영속)`);
+        }
+
+        function getContainerBounds(entity) {
+            let tid = entity.state === STATES.NEW ? 'zone-new' :
+                      entity.state === STATES.MANAGED ? 'cache-box' :
+                      entity.state === STATES.DETACHED ? 'zone-detached' : 'removed-box';
+            const box = document.getElementById(tid);
+            const boxRect = box.getBoundingClientRect();
+            const canvasRect = document.getElementById('canvas').getBoundingClientRect();
+            return { minX: boxRect.left - canvasRect.left + 5, maxX: boxRect.right - canvasRect.left - 85,
+                     minY: boxRect.top - canvasRect.top + 5, maxY: boxRect.bottom - canvasRect.top - 60 };
+        }
+
+        function startDrag(e, id) {
+            const ent = entities.find(e => e.id === id);
+            selectEntity(id); draggingEntity = ent;
+            ent.element.classList.add('dragging');
+            const rect = ent.element.getBoundingClientRect();
+            offset.x = e.clientX - rect.left; offset.y = e.clientY - rect.top;
+            window.addEventListener('mousemove', onDrag); window.addEventListener('mouseup', endDrag);
+        }
+
+        function onDrag(e) {
+            if (!draggingEntity) return;
+            const canvasRect = document.getElementById('canvas').getBoundingClientRect();
+            const b = getContainerBounds(draggingEntity);
+            let nx = e.clientX - canvasRect.left - offset.x; let ny = e.clientY - canvasRect.top - offset.y;
+            draggingEntity.element.style.left = `${Math.max(b.minX, Math.min(nx, b.maxX))}px`;
+            draggingEntity.element.style.top = `${Math.max(b.minY, Math.min(ny, b.maxY))}px`;
+        }
+
+        function endDrag() { if (draggingEntity) draggingEntity.element.classList.remove('dragging'); draggingEntity = null; }
+
+        function selectEntity(id) {
+            selectedId = id;
+            entities.forEach(ent => ent.element.classList.toggle('selected', ent.id === id));
+            updateUI();
+        }
+
+        function autoPosition(ent) {
+            const b = getContainerBounds(ent);
+            const same = entities.filter(e => e.state === ent.state);
+            const idx = same.indexOf(ent);
+            ent.element.style.left = `${b.minX + 5 + (idx % 2) * 85}px`;
+            ent.element.style.top = `${b.minY + 20 + Math.floor(idx / 2) * 65}px`;
+            ent.element.querySelector('.status-dot').style.background = `var(--${ent.state}-color)`;
+            ent.element.querySelector('.entity-data').innerText = ent.name;
+        }
+
+        function updateUI() {
+            const sel = entities.find(e => e.id === selectedId);
+            document.getElementById('btn-persist').disabled = !sel || sel.state !== STATES.NEW;
+            document.getElementById('btn-update').disabled = !sel || sel.state !== STATES.MANAGED;
+            document.getElementById('btn-detach').disabled = !sel || sel.state !== STATES.MANAGED;
+            document.getElementById('btn-remove').disabled = !sel || sel.state !== STATES.MANAGED;
+            document.getElementById('btn-commit').disabled = sqlQueue.length === 0 && !entities.some(e => e.isDirty);
+
+            if (sel) {
+                document.getElementById('info-title').innerText = `Member (ID: ${sel.id}) 상태`;
+                document.getElementById('info-body').innerHTML = `이름: ${sel.name} <br>상태: <b>${sel.state.toUpperCase()}</b><br>${sel.isDirty ? '<span style="color:red">데이터가 수정되었습니다 (Dirty)</span>' : '데이터가 원본과 일치합니다.'}`;
+            }
+        }
+
+        function handleAction(type) {
+            const ent = entities.find(e => e.id === selectedId);
+            if (!ent) return;
+            if (type === 'persist') { ent.state = STATES.MANAGED; addSql(ent.id, `INSERT INTO Member (id=${ent.id}, name='${ent.name}')`); log(`em.persist(id=${ent.id})`); }
+            else if (type === 'detach') { ent.state = STATES.DETACHED; ent.isDirty = false; ent.element.querySelector('.dirty-mark').style.display = 'none'; log(`em.detach(id=${ent.id})`); }
+            else if (type === 'remove') { ent.state = STATES.REMOVED; addSql(ent.id, `DELETE FROM Member WHERE id=${ent.id}`); log(`em.remove(id=${ent.id})`); }
+            autoPosition(ent); updateUI();
+        }
+
+        function handleUpdate() {
+            const ent = entities.find(e => e.id === selectedId);
+            if (!ent || ent.state !== STATES.MANAGED) return;
+            ent.name += " (수정)";
+            ent.isDirty = true;
+            ent.element.querySelector('.entity-data').innerText = ent.name;
+            ent.element.querySelector('.dirty-mark').style.display = 'block';
+            log(`데이터 수정: '${ent.name}' - 변경 감지(Dirty Checking) 대기 중`);
+            updateUI();
+        }
+
+        function handleFind() {
+            const id = parseInt(document.getElementById('search-id').value);
+            const found = entities.find(e => e.id === id);
+            if (found && (found.state === STATES.MANAGED || found.state === STATES.REMOVED)) {
+                log(`1차 캐시 히트! em.find(id=${id}) - SQL 발생 안 함`, 'hit');
+                selectEntity(id);
+            } else {
+                log(`캐시에 없음. DB에서 조회 시도 (SELECT SQL 발생)`, 'sql');
+            }
+        }
+
+        function addSql(eid, txt) {
+            const chip = document.createElement('div'); chip.className = 'sql-chip'; chip.innerText = txt;
+            document.getElementById('sql-list').appendChild(chip);
+            sqlQueue.push({ eid, txt, el: chip });
+        }
+
+        function handleCommit() {
+            log("Transaction Commit (Flush 실행)", 'sql');
+            // Dirty Checking 적용
+            entities.forEach(ent => {
+                if (ent.isDirty && ent.state === STATES.MANAGED) {
+                    addSql(ent.id, `UPDATE Member SET name='${ent.name}' WHERE id=${ent.id}`);
+                    ent.isDirty = false;
+                    ent.originalName = ent.name;
+                    ent.element.querySelector('.dirty-mark').style.display = 'none';
+                }
+            });
+
+            sqlQueue.forEach((q, i) => {
+                setTimeout(() => { q.el.classList.add('flush'); log(`[SQL 실행] ${q.txt}`, 'sql'); }, i * 150);
+            });
+
+            setTimeout(() => {
+                entities.filter(e => e.state === STATES.REMOVED).forEach(e => {
+                    e.element.style.opacity = '0'; setTimeout(() => e.element.remove(), 400);
+                });
+                entities = entities.filter(e => e.state !== STATES.REMOVED);
+                sqlQueue = []; document.getElementById('sql-list').innerHTML = "";
+                log("커밋 완료."); updateUI();
+            }, sqlQueue.length * 150 + 400);
+        }
+    </script>
+</body>
+</html>

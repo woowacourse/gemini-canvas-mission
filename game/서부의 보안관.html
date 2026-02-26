@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>서부의 보안관 - Wild West Sheriff</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border: 4px solid #5d4037;
+        }
+
+        canvas {
+            display: block;
+            background-color: #ffab91;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .bar-container {
+            width: 250px;
+            height: 20px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid #fff;
+            margin-bottom: 5px;
+            position: relative;
+        }
+
+        .bar-fill {
+            height: 100%;
+            width: 100%;
+            transition: width 0.1s linear;
+        }
+
+        #hp-fill { background-color: #f44336; }
+        #exp-fill { background-color: #4caf50; }
+
+        .hud-bottom {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .active-items {
+            display: flex;
+            gap: 10px;
+        }
+
+        .item-tag {
+            background: rgba(0,0,0,0.8);
+            padding: 5px 12px;
+            border-radius: 4px;
+            border: 1px solid #ffd700;
+            font-size: 14px;
+            color: #ffd700;
+        }
+
+        #menu-overlay, #game-over-overlay, #clear-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            text-align: center;
+            z-index: 100;
+        }
+
+        button {
+            background: #795548;
+            color: #fff;
+            border: 2px solid #fff;
+            padding: 12px 24px;
+            font-size: 20px;
+            cursor: pointer;
+            margin: 8px;
+            font-family: inherit;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #a1887f;
+        }
+
+        .stage-select {
+            margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            max-width: 600px;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="1000" height="500"></canvas>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div>
+                <div style="font-weight: bold; margin-bottom: 2px;">체력 (HP)</div>
+                <div class="bar-container"><div id="hp-fill" class="bar-fill"></div></div>
+                <div style="font-weight: bold; margin-bottom: 2px;">경험치 (EXP - Lv.<span id="level-val">1</span>)</div>
+                <div class="bar-container"><div id="exp-fill" class="bar-fill" style="width:0%"></div></div>
+            </div>
+            <div style="text-align: right;">
+                <div id="stage-text" style="font-size: 28px; font-weight: bold; color: #ffd700;">STAGE 1</div>
+                <div id="score-text" style="font-size: 18px;">점수: 0</div>
+                <div id="enemy-count" style="font-size: 16px; color: #ffab91;">남은 적: 0</div>
+            </div>
+        </div>
+
+        <div class="hud-bottom">
+            <div>
+                <div id="weapon-text" style="font-size: 20px; color: #ffd700; font-weight: bold;">현재 무기: 리볼버</div>
+            </div>
+            <div class="active-items" id="active-items-list"></div>
+        </div>
+    </div>
+
+    <div id="menu-overlay">
+        <h1 style="font-size: 56px; color: #ffd700; text-shadow: 4px 4px #000; margin-bottom: 10px;">WILD WEST SHERIFF</h1>
+        <p style="font-size: 18px; margin-bottom: 20px;">A/D: 이동 | W: 점프(2단) | S: 앉기 | 마우스 클릭/J: 사격</p>
+        <button onclick="startGame(1)">게임 시작 (Stage 1)</button>
+        <div class="stage-select">
+            <button onclick="startGame(5)">Stage 5</button>
+            <button onclick="startGame(10)">Stage 10</button>
+            <button onclick="startGame(20)">Stage 20</button>
+            <button onclick="startGame(30)">Stage 30</button>
+            <button onclick="startGame(40)">Stage 40</button>
+        </div>
+    </div>
+
+    <div id="game-over-overlay" class="hidden">
+        <h1 style="font-size: 48px; color: #f44336; text-shadow: 2px 2px #000;">게임 오버</h1>
+        <p id="final-score" style="font-size: 24px;">최종 점수: 0</p>
+        <button onclick="location.reload()">다시 하기</button>
+    </div>
+
+    <div id="clear-overlay" class="hidden">
+        <h1 style="font-size: 56px; color: #ffd700; text-shadow: 3px 3px #000;">전설의 탄생</h1>
+        <p style="font-size: 20px;">모든 스테이지를 정복하고 서부의 전설이 되었습니다!</p>
+        <button onclick="location.reload()">처음으로</button>
+    </div>
+</div>
+
+<script>
+    /**
+     * 서부의 보안관 - 게임 로직
+     */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let gameState = 'MENU';
+    let stage = 1;
+    let score = 0;
+    let enemiesToSpawn = 0;
+    let enemiesRemaining = 0;
+    let lastTime = 0;
+    let spawnTimer = 0;
+
+    const keys = {};
+    let mousePressed = false;
+
+    const player = {
+        x: 100, y: 400, width: 40, height: 60,
+        vx: 0, vy: 0, speed: 5, jumpForce: -13, gravity: 0.7,
+        hp: 100, maxHp: 100, level: 1, exp: 0, maxExp: 100,
+        facing: 1, isCrouching: false, jumpCount: 0, maxJumps: 2,
+        shootTimer: 0, invincibleTimer: 0,
+        buffs: { speed: 0, power: 0, invincible: 0, gold: 0 }
+    };
+
+    let bullets = [];
+    let enemies = [];
+    let items = [];
+    let particles = [];
+    let boss = null;
+
+    const WEAPONS = [
+        { name: "리볼버", minLv: 1, damage: 33, rate: 1.5, type: 'single' },
+        { name: "더블 리볼버", minLv: 6, damage: 40, rate: 2.8125, type: 'double' },
+        { name: "샷건", minLv: 16, damage: 25, rate: 1.125, type: 'shotgun' },
+        { name: "윈체스터 라이플", minLv: 31, damage: 20, rate: 2.25, type: 'pierce' },
+        { name: "개틀링 건", minLv: 51, damage: 20, rate: 3.75, type: 'gatling' }
+    ];
+
+    function getCurrentWeapon() {
+        let best = WEAPONS[0];
+        for (const w of WEAPONS) if (player.level >= w.minLv) best = w;
+        return best;
+    }
+
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+    window.addEventListener('mousedown', () => mousePressed = true);
+    window.addEventListener('mouseup', () => mousePressed = false);
+
+    function startGame(startStage) {
+        stage = startStage;
+        player.level = Math.max(1, startStage);
+        player.hp = 100; player.exp = 0;
+        player.maxExp = 100 + (player.level * 30);
+        score = 0; bullets = []; enemies = []; items = []; boss = null;
+        gameState = 'PLAY';
+        document.getElementById('menu-overlay').classList.add('hidden');
+        document.getElementById('game-over-overlay').classList.add('hidden');
+        setupStage();
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function setupStage() {
+        enemies.length = 0; bullets.length = 0; items.length = 0; boss = null;
+        if (stage % 5 === 0) {
+            enemiesToSpawn = 0;
+            enemiesRemaining = 1;
+            spawnBoss();
+        } else {
+            enemiesToSpawn = 5 + Math.floor(stage/2);
+            enemiesRemaining = enemiesToSpawn;
+        }
+        spawnTimer = 0;
+    }
+
+    function drawSheriff(ctx, x, y, facing, isCrouching, scale = 1, color = "#333", options = {}) {
+        ctx.save();
+        ctx.translate(x + (facing === -1 ? 40 * scale : 0), y);
+        ctx.scale(facing * scale, scale);
+
+        let hOffset = isCrouching ? 20 : 0;
+        if (options.isBossCrouching) hOffset = 25;
+
+        // 머리
+        ctx.fillStyle = options.skinColor || "#ffe0b2";
+        ctx.beginPath(); ctx.arc(20, 10 + hOffset, 10, 0, Math.PI * 2); ctx.fill();
+
+        if (options.isPrep && Math.floor(Date.now() / 150) % 2 === 0) {
+            ctx.strokeStyle = "#ffeb3b";
+            ctx.lineWidth = 4;
+        } else {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+        }
+        ctx.stroke();
+
+        ctx.beginPath(); ctx.moveTo(20, 20 + hOffset); ctx.lineTo(20, 50); ctx.stroke();
+
+        if (isCrouching || options.isBossCrouching) {
+            ctx.beginPath(); ctx.moveTo(20, 50); ctx.lineTo(10, 55); ctx.lineTo(5, 60);
+            ctx.moveTo(20, 50); ctx.lineTo(30, 55); ctx.lineTo(35, 60); ctx.stroke();
+        } else {
+            ctx.beginPath(); ctx.moveTo(20, 50); ctx.lineTo(10, 60);
+            ctx.moveTo(20, 50); ctx.lineTo(30, 60); ctx.stroke();
+        }
+
+        ctx.fillStyle = options.hatColor || "#5d4037";
+        ctx.fillRect(0, 2 + hOffset, 40, 4); ctx.fillRect(10, -8 + hOffset, 20, 10);
+
+        if (options.isPlayer) {
+            ctx.fillStyle = "#ffd700"; ctx.beginPath(); ctx.moveTo(22, 28 + hOffset);
+            for(let i=0; i<5; i++) ctx.lineTo(22 + Math.cos(i*Math.PI*0.8)*6, 28 + hOffset + Math.sin(i*Math.PI*0.8)*6);
+            ctx.closePath(); ctx.fill();
+        }
+
+        ctx.beginPath(); ctx.moveTo(20, 25 + hOffset);
+        if (options.weaponType === 'double') {
+            ctx.lineTo(5, 30 + hOffset);
+            ctx.moveTo(20, 25 + hOffset);
+            ctx.lineTo(35, 30 + hOffset);
+        }
+        else if (options.weaponType === 'melee') ctx.lineTo(35, 10 + hOffset);
+        else if (!options.noWeapon) ctx.lineTo(35, 30 + hOffset);
+        ctx.stroke();
+
+        ctx.fillStyle = "#444";
+        if (options.weaponType === 'double') { ctx.fillRect(35, 28 + hOffset, 10, 4); ctx.fillRect(-5, 28 + hOffset, 10, 4); }
+        else if (options.weaponType === 'sniper') ctx.fillRect(35, 28 + hOffset, 25, 4);
+        else if (options.weaponType === 'bomb') { ctx.fillStyle = "#f44336"; ctx.beginPath(); ctx.arc(35, 25 + hOffset, 6, 0, Math.PI*2); ctx.fill(); }
+        else if (options.weaponType === 'melee') { ctx.strokeStyle = "#999"; ctx.beginPath(); ctx.moveTo(35, 10 + hOffset); ctx.lineTo(45, 0 + hOffset); ctx.stroke(); }
+        else if (!options.noWeapon) ctx.fillRect(35, 28 + hOffset, 10, 4);
+
+        if (options.isPlayer) { ctx.fillStyle = "#3e2723"; ctx.fillRect(12, 40, 6, 10); }
+        ctx.restore();
+    }
+
+    function spawnEnemy() {
+        if (enemiesToSpawn <= 0) return;
+        const side = Math.random() > 0.5 ? 1 : -1;
+        const x = side === 1 ? -60 : canvas.width + 20;
+
+        let type = 'gunman';
+        let typeRoll = Math.random();
+
+        if (stage >= 30 && typeRoll < 0.12) {
+            type = 'sniper';
+        } else if (stage >= 20 && typeRoll < 0.22) {
+            type = 'cavalry';
+        } else if (stage >= 10 && typeRoll < 0.35) {
+            type = 'bomber';
+        } else if (typeRoll < 0.55) {
+            type = 'bandit';
+        } else {
+            type = 'gunman';
+        }
+
+        const enemy = {
+            x: x, y: 400, width: 40, height: 60, type: type, hp: 50, maxHp: 50,
+            speed: 2 + (stage * 0.04), facing: side, shootTimer: 80 + Math.random() * 100,
+            damage: 10, color: "#d32f2f", aiState: 'approach', aiTimer: 0, vx: 0,
+            retreating: false, retreatTimer: 0
+        };
+
+        if (type === 'sniper') { enemy.hp = 75; enemy.damage = 40; enemy.color = "#1565c0"; }
+        // 수정: 단검 몬스터 피 75로 변경
+        if (type === 'bandit') { enemy.hp = 75; enemy.speed += 0.5; enemy.damage = 20; enemy.color = "#2e7d32"; }
+        if (type === 'bomber') { enemy.hp = 75; enemy.damage = 20; enemy.color = "#ef6c00"; }
+
+        if (type === 'cavalry') {
+            enemy.hp = 100;
+            enemy.speed = 6 + (stage * 0.05);
+            enemy.damage = 50;
+            enemy.color = "#6a1b9a";
+            enemy.width = 60;
+            enemy.isCavalry = true;
+        }
+
+        enemy.hp *= (1 + stage * 0.08);
+        enemy.maxHp = enemy.hp;
+        enemies.push(enemy);
+        enemiesToSpawn--;
+    }
+
+    function spawnBoss() {
+        const b = {
+            x: canvas.width / 2 - 40, y: -200, width: 80, height: 120,
+            hp: 0, maxHp: 0, isBoss: true, type: stage, facing: -1,
+            state: 'IDLE', stateTimer: 0, vx: 0, vy: 0,
+            isBuried: false, arrived: false, isBossCrouching: false,
+            targetX: 0, isPrep: false
+        };
+
+        if (stage === 5) { b.hp = 1000; b.name = "거대 건맨 보스"; }
+        else if (stage === 10) { b.hp = 1200; b.name = "쌍권총 학살자"; }
+        else if (stage === 20) { b.hp = 1500; b.name = "광기 어린 폭탄 보스"; }
+        else if (stage === 30) { b.hp = 1500; b.name = "기마 보스 (대장)"; }
+        else if (stage === 40) { b.hp = 1800; b.name = "침묵의 저격 보스"; }
+        else {
+            b.hp = 500 + stage * 40;
+            b.name = `무법 보스 (St.${stage})`;
+        }
+
+        b.hp *= (1 + Math.floor(stage/25) * 0.5);
+        b.maxHp = b.hp;
+        boss = b;
+    }
+
+    function gameLoop(timestamp) {
+        if (gameState !== 'PLAY') return;
+        const dt = timestamp - lastTime; lastTime = timestamp;
+        update(dt); draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function update(dt) {
+        if (keys['KeyA'] || keys['ArrowLeft']) { player.vx = -player.speed * (player.buffs.speed > 0 ? 1.5 : 1); player.facing = -1; }
+        else if (keys['KeyD'] || keys['ArrowRight']) { player.vx = player.speed * (player.buffs.speed > 0 ? 1.5 : 1); player.facing = 1; }
+        else player.vx *= 0.85;
+
+        player.x += player.vx; player.y += player.vy; player.vy += player.gravity;
+
+        if (player.y >= 400) {
+            player.y = 400;
+            player.vy = 0;
+            player.jumpCount = 0;
+        }
+
+        player.isCrouching = (keys['KeyS'] || keys['ArrowDown']) && player.y === 400;
+
+        if ((keys['KeyW'] || keys['Space']) && !player.jumpPressed) {
+            if (player.jumpCount < player.maxJumps) { player.vy = player.jumpForce; player.jumpCount++; }
+            player.jumpPressed = true;
+        }
+        if (!(keys['KeyW'] || keys['Space'])) player.jumpPressed = false;
+
+        if (player.x < 0) player.x = 0;
+        if (player.x > canvas.width - player.width) player.x = canvas.width - player.width;
+
+        if (player.shootTimer > 0) player.shootTimer -= dt / 1000;
+        if ((mousePressed || keys['KeyJ']) && player.shootTimer <= 0) {
+            const weapon = getCurrentWeapon();
+            const dmg = weapon.damage * (player.buffs.power > 0 ? 2 : 1);
+            const bulletY = player.y + (player.isCrouching ? 48 : 28);
+            if (weapon.type === 'single' || weapon.type === 'double' || weapon.type === 'gatling' || weapon.type === 'pierce') {
+                bullets.push({ x: player.x + (player.facing === 1 ? 40 : 0), y: bulletY, vx: player.facing * 12, vy: 0, dmg: dmg, owner: 'player', pierce: weapon.type === 'pierce' });
+            } else if (weapon.type === 'shotgun') {
+                const offsets = [-1.2, -0.4, 0.4, 1.2];
+                offsets.forEach(off => {
+                    bullets.push({ x: player.x + (player.facing === 1 ? 40 : 0), y: bulletY, vx: player.facing * 10, vy: off * 0.6, dmg: dmg, owner: 'player' });
+                });
+            }
+            player.shootTimer = 1 / weapon.rate;
+        }
+
+        for (let b in player.buffs) if (player.buffs[b] > 0) player.buffs[b] -= dt / 1000;
+        if (player.invincibleTimer > 0) player.invincibleTimer -= dt / 1000;
+
+        bullets.forEach((b, idx) => {
+            b.x += b.vx; b.y += b.vy; if (b.isBomb || b.isBigBomb) b.vy += 0.35;
+            if (b.isBigBomb && b.y > 440) { b.y = 440; b.vy = 0; b.vx = 0; }
+            if (b.isBomb && b.y > 450) { explodeBomb(b.x, b.y, 80, 20); bullets.splice(idx, 1); return; }
+            if (b.x < -100 || b.x > canvas.width + 100 || b.y > 500) { bullets.splice(idx, 1); return; }
+
+            if (b.owner === 'player') {
+                enemies.concat(boss && boss.arrived && !boss.isBuried ? [boss] : []).forEach(e => {
+                    if (b.x > e.x && b.x < e.x + e.width && b.y > e.y && b.y < e.y + e.height) {
+                        e.hp -= b.dmg; createParticles(b.x, b.y, "#fff");
+                        if (!b.pierce) bullets.splice(idx, 1);
+                    }
+                });
+            } else {
+                if (player.invincibleTimer <= 0 && player.buffs.invincible <= 0) {
+                    const pHitY = player.isCrouching ? player.y + 20 : player.y;
+                    const pHitH = player.isCrouching ? 40 : 60;
+                    if (b.x > player.x && b.x < player.x + player.width && b.y > pHitY && b.y < pHitY + pHitH) {
+                        player.hp -= b.dmg; player.invincibleTimer = 0.5;
+                        if (!b.pierce) bullets.splice(idx, 1);
+                    }
+                }
+            }
+        });
+
+        if (enemies.length < 4 && enemiesToSpawn > 0 && !boss) {
+            spawnTimer -= dt;
+            if (spawnTimer <= 0) { spawnEnemy(); spawnTimer = 1800; }
+        }
+
+        enemies.forEach((e, idx) => {
+            if (e.isCavalry) {
+                e.x += e.speed * e.facing;
+                if (e.x < 0) { e.x = 0; e.facing = 1; }
+                if (e.x > canvas.width - e.width) { e.x = canvas.width - e.width; e.facing = -1; }
+            } else if (e.type === 'bandit') {
+                if (!e.retreating) {
+                    const dist = player.x - e.x;
+                    e.x += Math.sign(dist) * e.speed;
+                    e.facing = dist > 0 ? 1 : -1;
+                    if (Math.abs(dist) < 20) {
+                        e.retreating = true;
+                        e.retreatTimer = 60 + Math.random() * 40;
+                    }
+                } else {
+                    e.x -= e.facing * e.speed;
+                    e.retreatTimer--;
+                    if (e.retreatTimer <= 0) {
+                        e.retreating = false;
+                    }
+                }
+            } else {
+                const dist = player.x - e.x;
+                if (Math.abs(dist) > 200) { e.x += Math.sign(dist) * e.speed; }
+                e.facing = dist > 0 ? 1 : -1;
+            }
+
+            e.shootTimer--;
+            if (e.shootTimer <= 0 && !e.isCavalry && e.type !== 'bandit') {
+                const bx = e.x + (e.facing === 1 ? 40 : 0);
+                if (e.type === 'gunman') { bullets.push({ x: bx, y: e.y + 30, vx: e.facing * 4.8, vy: 0, dmg: e.damage, owner: 'enemy' }); e.shootTimer = 100; }
+                else if (e.type === 'sniper') { bullets.push({ x: bx, y: e.y + 15, vx: e.facing * 15, vy: 0, dmg: e.damage, owner: 'enemy' }); e.shootTimer = 180; }
+                else if (e.type === 'bomber') { bullets.push({ x: bx, y: e.y + 20, vx: (player.x - e.x)/60, vy: -12, dmg: e.damage, owner: 'enemy', isBomb: true }); e.shootTimer = 150; }
+            }
+
+            if (player.invincibleTimer <= 0 && player.buffs.invincible <= 0) {
+                const pHitY = player.isCrouching ? player.y + 20 : player.y;
+                const pHitH = player.isCrouching ? 40 : 60;
+                if (player.x < e.x + e.width && player.x + player.width > e.x && pHitY < e.y + e.height && pHitY + pHitH > e.y) {
+                    player.hp -= e.damage; player.invincibleTimer = 1;
+                }
+            }
+            if (e.hp <= 0) { enemies.splice(idx, 1); onEnemyKill(e); }
+        });
+
+        if (boss) {
+            if (!boss.arrived) {
+                boss.y += 5;
+                if (boss.y >= 340) { boss.y = 340; boss.arrived = true; }
+            } else {
+                updateBossPattern(dt);
+            }
+            if (boss.hp <= 0) { onEnemyKill(boss); stage++; setupStage(); }
+        }
+
+        items.forEach((it, idx) => {
+            if (player.x < it.x + 30 && player.x + player.width > it.x && player.y < it.y + 30 && player.y + player.height > it.y) { applyItem(it.type); items.splice(idx, 1); }
+        });
+
+        particles.forEach((p, idx) => { p.x += p.vx; p.y += p.vy; p.life--; if (p.life <= 0) particles.splice(idx, 1); });
+
+        if (player.hp <= 0) {
+            gameState = 'GAMEOVER';
+            document.getElementById('game-over-overlay').classList.remove('hidden');
+            document.getElementById('final-score').innerText = `최종 점수: ${score}`;
+        }
+        updateUI();
+    }
+
+    function updateBossPattern(dt) {
+        if (!boss || !boss.arrived) return;
+        boss.stateTimer -= dt;
+        const bType = boss.type;
+
+        if (!boss.isBuried && boss.state !== 'JUMPING' && !boss.isBossCrouching && boss.state !== 'HORSE_DASH_ACTUAL' && boss.state !== 'DASH_PREP') {
+            if (bType === 40) {
+                boss.x += (850 - boss.x) * 0.1;
+                boss.facing = -1;
+            } else {
+                const dist = player.x - boss.x;
+                boss.facing = dist > 0 ? 1 : -1;
+                let targetDist = (bType === 20 || bType === 10) ? 350 : 60;
+                let currentDist = Math.abs(dist);
+                if (currentDist > targetDist + 30) {
+                    boss.vx = boss.facing * 2.5;
+                } else if (currentDist < targetDist - 30) {
+                    boss.vx = -boss.facing * 2.5;
+                } else {
+                    boss.vx *= 0.8;
+                }
+                boss.x += boss.vx;
+            }
+            if (boss.x < 0) boss.x = 0;
+            if (boss.x > 920) boss.x = 920;
+        }
+
+        if (boss.stateTimer <= 0 && boss.state === 'IDLE') {
+            const patterns = {
+                5: ['STOMP_JUMP'],
+                10: ['DUAL_WAVE', 'ALL_DIR'],
+                20: ['BIG_BOMB_THROW', 'CARPET_BOMB'],
+                30: ['BURROW_ATTACK', 'HORSE_DASH'],
+                40: ['FAST_SNIPE', 'HOMING_MISS']
+            };
+            const pList = patterns[bType] || ['ALL_DIR'];
+            boss.state = pList[Math.floor(Math.random() * pList.length)];
+            boss.stateTimer = 4500;
+            boss.subStep = 0;
+            boss.isPrep = true;
+        }
+
+        if (bType === 5) {
+            if (boss.state === 'STOMP_JUMP') {
+                if (boss.subStep === 0) { boss.isBossCrouching = true; boss.subStep = 1; boss.stateTimer = 1000;
+                } else if (boss.subStep === 1 && boss.stateTimer <= 0) { boss.isBossCrouching = false; boss.vy = -26; boss.vx = (player.x - boss.x) / 35; boss.subStep = 2; boss.state = 'JUMPING'; }
+            }
+            if (boss.state === 'JUMPING') {
+                boss.y += boss.vy; boss.x += boss.vx; boss.vy += 1.0;
+                if (boss.y >= 340) {
+                    boss.y = 340; boss.vy = 0; boss.vx = 0; boss.state = 'IDLE'; boss.subStep = 0;
+                    if (player.y >= 390) { player.hp -= 50; player.invincibleTimer = 1; }
+                    createParticles(boss.x + 40, 460, "#8d6e63", 60);
+                    for(let i=0; i<8; i++) { createParticles(boss.x + 40 + (i*60), 460, "#5d4037", 5); createParticles(boss.x + 40 - (i*60), 460, "#5d4037", 5); }
+                    boss.stateTimer = 2000;
+                }
+            }
+        } else if (bType === 10) {
+            if (boss.isPrep) {
+                boss.vx = 0;
+                if (boss.stateTimer < 3500) boss.isPrep = false;
+                return;
+            }
+            if (boss.state === 'DUAL_WAVE') {
+                if ((boss.stateTimer <= 3000 && boss.subStep === 0) || (boss.stateTimer <= 2000 && boss.subStep === 1) || (boss.stateTimer <= 1000 && boss.subStep === 2)) {
+                    let shootY = (boss.subStep === 0 || boss.subStep === 2) ? boss.y + 95 : boss.y + 70;
+                    const dirs = [-1, 1];
+                    dirs.forEach(d => { bullets.push({ x: boss.x + 40, y: shootY, vx: d * 9, vy: 0, dmg: 25, owner: 'enemy' }); bullets.push({ x: boss.x + 40, y: shootY - 12, vx: d * 9, vy: 0, dmg: 25, owner: 'enemy' }); });
+                    boss.subStep++;
+                }
+            } else if (boss.state === 'ALL_DIR') {
+                if (Math.floor(boss.stateTimer / 300) % 2 === 0 && boss.subStep < 6) {
+                    for(let i=0; i<12; i++) { const ang = (i / 12) * Math.PI * 2; bullets.push({ x: boss.x + 40, y: boss.y + 60, vx: Math.cos(ang) * 7, vy: Math.sin(ang) * 7, dmg: 15, owner: 'enemy' }); }
+                    boss.subStep++;
+                }
+            }
+        } else if (bType === 20) {
+            if (boss.state === 'BIG_BOMB_THROW') {
+                if (boss.subStep === 0 && boss.stateTimer < 2500) {
+                    bullets.push({ x: boss.x + (boss.facing * 60), y: boss.y + 40, vx: boss.facing * 2.5, vy: -8, dmg: 80, owner: 'enemy', isBigBomb: true, timer: 210 });
+                    boss.subStep = 1;
+                }
+            } else if (boss.state === 'CARPET_BOMB') {
+                if (boss.subStep === 0) { boss.safeX = Math.random() * 800 + 100; boss.subStep = 1; }
+                if (boss.stateTimer < 200 && boss.subStep === 1) {
+                    for(let i=0; i<10; i++) { let bx = i * 100 + 50; if (Math.abs(bx - boss.safeX) > 100) bullets.push({ x: bx, y: -50, vx: 0, vy: 9, dmg: 40, owner: 'enemy', isBomb: true }); }
+                    boss.subStep = 2;
+                }
+            }
+        } else if (bType === 30) {
+            if (boss.state === 'BURROW_ATTACK') {
+                if (boss.subStep === 0) {
+                    boss.isBuried = true;
+                    boss.subStep = 1;
+                    boss.stateTimer = 2500;
+                    boss.targetX = player.x + 20;
+                }
+                if (boss.subStep === 1) {
+                    boss.targetX += (player.x + 20 - boss.targetX) * 0.12;
+                    if (boss.stateTimer <= 0) {
+                        boss.subStep = 2;
+                        boss.stateTimer = 1000;
+                    }
+                }
+                if (boss.subStep === 2) {
+                    if (boss.stateTimer <= 0) {
+                        boss.isBuried = false;
+                        boss.x = boss.targetX - 40;
+                        boss.y = 340;
+                        boss.subStep = 3;
+                        boss.stateTimer = 500;
+                        const distToPlayer = Math.abs(player.x + 20 - boss.targetX);
+                        if (distToPlayer < 90 && player.y > 350) {
+                            player.hp -= 50;
+                            player.invincibleTimer = 1;
+                        }
+                        createParticles(boss.targetX, 460, "#8d6e63", 80);
+                    }
+                }
+                if (boss.subStep === 3) {
+                    boss.y = 340 - Math.sin((boss.stateTimer / 500) * Math.PI) * 150;
+                    if (boss.stateTimer <= 0) {
+                        boss.y = 340;
+                        boss.state = 'IDLE';
+                        boss.stateTimer = 1500;
+                    }
+                }
+            } else if (boss.state === 'HORSE_DASH') {
+                if (boss.subStep === 0) {
+                    boss.state = 'DASH_PREP';
+                    boss.isBossCrouching = true;
+                    boss.stateTimer = 1000;
+                    boss.subStep = 1;
+                }
+            } else if (boss.state === 'DASH_PREP') {
+                if (boss.stateTimer <= 0) {
+                    boss.isBossCrouching = false;
+                    boss.vx = boss.facing * 28;
+                    boss.state = 'HORSE_DASH_ACTUAL';
+                }
+            } else if (boss.state === 'HORSE_DASH_ACTUAL') {
+                boss.x += boss.vx;
+                if (player.invincibleTimer <= 0 && player.x < boss.x + 100 && player.x + 40 > boss.x && player.y > 360) {
+                    player.hp -= 50;
+                    player.invincibleTimer = 1;
+                }
+                if (boss.x < -200 || boss.x > 1200) {
+                    boss.vx = 0; boss.state = 'IDLE'; boss.subStep = 0; boss.stateTimer = 1500;
+                    boss.x = boss.x < 0 ? 0 : 920;
+                }
+            }
+        } else if (bType === 40) {
+            if (boss.state === 'FAST_SNIPE') {
+                if (boss.subStep === 0) {
+                    boss.isBossCrouching = true;
+                    boss.subStep = 1;
+                    boss.stateTimer = 800;
+                } else if (boss.subStep === 1 && boss.stateTimer <= 0) {
+                    bullets.push({ x: boss.x + (boss.facing === 1 ? 80 : 0), y: boss.y + 90, vx: boss.facing * 38, vy: 0, dmg: 65, owner: 'enemy', pierce: true });
+                    boss.subStep = 2;
+                    boss.stateTimer = 700;
+                } else if (boss.subStep === 2 && boss.stateTimer <= 0) {
+                    bullets.push({ x: boss.x + (boss.facing === 1 ? 80 : 0), y: boss.y + 90, vx: boss.facing * 38, vy: 0, dmg: 65, owner: 'enemy', pierce: true });
+                    boss.subStep = 3;
+                    boss.isBossCrouching = false;
+                    boss.stateTimer = 1000;
+                }
+            } else if (boss.state === 'HOMING_MISS') {
+                if (boss.stateTimer < 1000 && boss.subStep === 0) {
+                    for(let i=0; i<3; i++) bullets.push({ x: boss.x + 40, y: boss.y + 20, vx: (i-1)*2, vy: -7, dmg: 40, owner: 'enemy', homing: 120 });
+                    boss.subStep = 1;
+                }
+            }
+        }
+
+        bullets.forEach((b, idx) => {
+            if (b.homing && b.homing > 0) {
+                const targetX = player.x + player.width / 2;
+                const targetY = player.isCrouching ? player.y + 40 : player.y + 25;
+                const dx = targetX - b.x;
+                const dy = targetY - b.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const desiredVx = (dx / dist) * 10;
+                const desiredVy = (dy / dist) * 10;
+                b.vx += (desiredVx - b.vx) * 0.08;
+                b.vy += (desiredVy - b.vy) * 0.08;
+                b.homing--;
+            }
+            if (b.isBigBomb) {
+                b.timer--;
+                if (b.timer <= 0) { explodeBomb(b.x, b.y, 450, 70, true); bullets.splice(idx, 1); }
+            }
+        });
+
+        if (boss && !boss.isBuried && player.invincibleTimer <= 0 && player.buffs.invincible <= 0) {
+            if (player.x < boss.x + boss.width && player.x + player.width > boss.x && player.y < boss.y + boss.height && player.y + player.height > boss.y) {
+                player.hp -= (bType >= 30 ? 50 : 35);
+                player.invincibleTimer = 1;
+            }
+        }
+
+        if (boss && boss.stateTimer <= 0 &&
+            boss.state !== 'JUMPING' &&
+            boss.state !== 'HORSE_DASH_ACTUAL' &&
+            boss.state !== 'DASH_PREP' &&
+            boss.state !== 'BURROW_ATTACK'
+        ) {
+            boss.state = 'IDLE';
+            boss.isBossCrouching = false;
+            boss.isPrep = false;
+        }
+    }
+
+    function explodeBomb(x, y, radius, dmg = 20, isNuke = false) {
+        createParticles(x, y, isNuke ? "#00E5FF" : "#FF5722", isNuke ? 100 : 30, isNuke ? 12 : 20);
+        const playerCenterX = player.x + player.width / 2;
+        const playerCenterY = player.y + player.height / 2;
+        const dist = Math.sqrt((playerCenterX - x)**2 + (playerCenterY - y)**2);
+        if (dist < radius) { player.hp -= dmg; player.invincibleTimer = 0.5; }
+    }
+
+    function onEnemyKill(e) {
+        player.exp += e.isBoss ? 500 : 35; score += (e.isBoss ? 2000 : 100) * (player.buffs.gold > 0 ? 2 : 1);
+        if (!e.isBoss) {
+            enemiesRemaining--;
+            if (enemiesRemaining <= 0 && enemiesToSpawn <= 0) { stage++; if (stage > 50) { gameState = 'CLEAR'; document.getElementById('clear-overlay').classList.remove('hidden'); } else setupStage(); }
+            if (Math.random() < 0.25) { const types = ['heal', 'speed', 'power', 'invincible', 'gold']; items.push({ x: e.x, y: 430, type: types[Math.floor(Math.random() * types.length)] }); }
+        }
+        if (player.exp >= player.maxExp) { player.level++; player.exp -= player.maxExp; player.maxExp += 45; player.hp = Math.min(player.maxHp, player.hp + 25); }
+    }
+
+    function applyItem(type) { if (type === 'heal') player.hp = Math.min(player.maxHp, player.hp + 30); else player.buffs[type] = 10; }
+    function createParticles(x, y, color, count = 8, life = 25) { for (let i = 0; i < count; i++) particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 12, vy: (Math.random() - 0.5) * 12, color: color, life: life }); }
+
+    function draw() {
+        const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grd.addColorStop(0, "#1a237e"); grd.addColorStop(0.4, "#bf360c"); grd.addColorStop(0.7, "#ff7043"); grd.addColorStop(1, "#ffab91");
+        ctx.fillStyle = grd; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#5d4037"; ctx.fillRect(0, 460, canvas.width, 40);
+        ctx.fillStyle = "#1b5e20"; ctx.fillRect(200, 380, 15, 80); ctx.fillRect(180, 410, 50, 8); ctx.fillRect(850, 410, 12, 50);
+
+        if (boss && boss.isBuried && boss.type === 30) {
+            ctx.fillStyle = boss.subStep === 2 ? (Math.floor(Date.now()/100) % 2 === 0 ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 0, 0.5)") : "rgba(255, 0, 0, 0.4)";
+            ctx.beginPath(); ctx.ellipse(boss.targetX, 455, 75, 20, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+        }
+
+        items.forEach(it => { ctx.font = "28px Arial"; let icon = "❓"; if (it.type === 'heal') icon = "❤️"; if (it.type === 'speed') icon = "⚡"; if (it.type === 'power') icon = "🔥"; if (it.type === 'invincible') icon = "🛡️"; if (it.type === 'gold') icon = "💰"; ctx.fillText(icon, it.x, it.y); });
+
+        if (boss) {
+            if (boss.state === 'CARPET_BOMB' && boss.subStep === 1) { ctx.fillStyle = "rgba(0, 255, 0, 0.3)"; ctx.fillRect(boss.safeX - 40, 0, 80, 460); }
+            if (boss.type === 40 && boss.state === 'FAST_SNIPE' && boss.subStep === 1) {
+                ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
+                ctx.setLineDash([5, 15]); ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(boss.x, boss.y + 90); ctx.lineTo(0, boss.y + 90); ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        if (player.invincibleTimer % 0.2 < 0.1) drawSheriff(ctx, player.x, player.y, player.facing, player.isCrouching, 1, player.buffs.invincible > 0 ? "#ffeb3b" : "#333", { isPlayer: true });
+
+        enemies.forEach(e => {
+            let weapon = 'single'; if (e.type === 'sniper') weapon = 'sniper'; if (e.type === 'bomber') weapon = 'bomb'; if (e.type === 'bandit') weapon = 'melee';
+            drawSheriff(ctx, e.x, e.y, e.facing, false, 1, "#222", { hatColor: e.color, weaponType: weapon });
+            if (e.isCavalry) {
+                ctx.fillStyle = "#4e342e"; ctx.save(); ctx.translate(e.x + (e.facing === -1 ? 60 : 0), e.y + 35); ctx.scale(e.facing, 1);
+                ctx.fillRect(-10, 5, 60, 25); ctx.fillRect(40, -10, 15, 20); ctx.restore();
+            }
+            ctx.fillStyle = "#444"; ctx.fillRect(e.x, e.y - 12, 40, 6);
+            ctx.fillStyle = "#f44336"; ctx.fillRect(e.x, e.y - 12, (e.hp/e.maxHp) * 40, 6);
+        });
+
+        if (boss && !boss.isBuried) {
+            let bWep = 'single';
+            if (boss.type === 10) bWep = 'double'; if (boss.type === 40) bWep = 'sniper'; if (boss.type === 20) bWep = 'bomb';
+            drawSheriff(ctx, boss.x, boss.y, boss.facing, boss.isBossCrouching, 2, "#000", { hatColor: "#212121", weaponType: bWep, noWeapon: boss.type === 5 || boss.type === 30, isBossCrouching: boss.isBossCrouching, isPrep: boss.isPrep });
+            if (boss.type === 30) {
+                ctx.fillStyle = "#3e2723"; ctx.save(); ctx.translate(boss.x + (boss.facing === -1 ? 80 : 0), boss.y + 80); ctx.scale(boss.facing, 1);
+                ctx.fillRect(-20, 0, 120, 45); ctx.fillRect(85, -20, 30, 40); ctx.restore();
+            }
+            ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(250, 20, 500, 15);
+            ctx.fillStyle = "#f44336"; ctx.fillRect(250, 20, (boss.hp/boss.maxHp) * 500, 15);
+            ctx.fillStyle = "#fff"; ctx.font = "bold 14px Arial"; ctx.textAlign="center"; ctx.fillText(boss.name, 500, 14); ctx.textAlign="left";
+        }
+
+        bullets.forEach(b => {
+            if (b.owner === 'player') { ctx.fillStyle = "#ffeb3b"; ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI * 2); ctx.fill(); }
+            else {
+                ctx.save(); ctx.shadowBlur = b.isBigBomb ? 20 : 10; ctx.shadowColor = b.isBomb ? "#00E5FF" : "#FF00FF";
+                const radius = b.isBigBomb ? 25 : (b.isBomb ? 8 : 5);
+                const mainColor = b.isBomb || b.isBigBomb ? "#00E5FF" : "#FF00FF";
+                if (b.isBigBomb && Math.floor(b.timer/10) % 2 === 0) ctx.fillStyle = "#fff"; else ctx.fillStyle = mainColor;
+                ctx.beginPath(); ctx.arc(b.x, b.y, radius, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.stroke();
+                if (b.isBigBomb && b.y >= 440) {
+                    ctx.strokeStyle = "rgba(255, 0, 0, 0.2)"; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.arc(b.x, b.y, 450, 0, Math.PI * 2); ctx.stroke();
+                    if (b.timer < 30) { ctx.fillStyle = "rgba(255, 0, 0, 0.1)"; ctx.beginPath(); ctx.arc(b.x, b.y, 450, 0, Math.PI * 2); ctx.fill(); }
+                }
+                ctx.restore();
+            }
+        });
+
+        particles.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 4, 4); });
+    }
+
+    function updateUI() {
+        document.getElementById('hp-fill').style.width = player.hp + "%";
+        document.getElementById('exp-fill').style.width = (player.exp / player.maxExp * 100) + "%";
+        document.getElementById('level-val').innerText = player.level;
+        document.getElementById('stage-text').innerText = boss ? `보스 스테이지` : `스테이지 ${stage}`;
+        document.getElementById('score-text').innerText = `점수: ${score}`;
+        document.getElementById('enemy-count').innerText = boss ? `경고: ${boss.name} 출현!` : `남은 적: ${enemiesRemaining}`;
+        document.getElementById('weapon-text').innerText = `현재 무기: ${getCurrentWeapon().name}`;
+        const itemList = document.getElementById('active-items-list');
+        itemList.innerHTML = '';
+        for (let b in player.buffs) { if (player.buffs[b] > 0) { const div = document.createElement('div'); div.className = 'item-tag'; div.innerText = `${b.toUpperCase()} ${player.buffs[b].toFixed(1)}초`; itemList.appendChild(div); } }
+    }
+    draw();
+</script>
+</body>
+</html>

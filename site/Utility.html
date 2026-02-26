@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WoowaLog - Woowacourse Planner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+
+    :root {
+      --sig-mint: #0CEFD3;
+      --sig-mint-dark: #0bc9b2;
+      --pastel-mint: #E0FFFB;
+      --pastel-mint-border: #A5F3EB;
+      --bg-neutral: #f8fafc;
+      --border-color: #e2e8f0;
+    }
+
+    body {
+      font-family: 'Pretendard', sans-serif;
+      background-color: var(--bg-neutral);
+      user-select: none;
+      overflow: hidden;
+      color: #1e293b;
+    }
+
+    .mint-bg { background-color: var(--sig-mint); }
+    .mint-text { color: var(--sig-mint-dark); }
+
+    .time-label-col {
+      width: 80px;
+      position: relative;
+      background-color: #ffffff;
+      border-right: 1px solid var(--border-color);
+    }
+
+    .time-slot {
+      height: 35px;
+      border-bottom: 1px solid #f1f5f9;
+      position: relative;
+      box-sizing: border-box;
+    }
+
+    .time-slot:nth-child(even) {
+      border-bottom: 1px dashed #f1f5f9;
+    }
+
+    .time-label {
+      position: absolute;
+      right: 12px;
+      transform: translateY(-50%);
+      font-size: 11px;
+      color: #94a3b8;
+      font-weight: 700;
+      z-index: 10;
+      background: #ffffff;
+      padding: 0 4px;
+    }
+
+    .time-slot.dragging {
+      background-color: rgba(12, 239, 211, 0.2);
+    }
+
+    .event-card {
+      position: absolute;
+      left: 4px;
+      right: 4px;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.75rem;
+      z-index: 5;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: flex-start;
+      text-align: left;
+      font-weight: 700;
+    }
+    .event-card:hover { transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 20; }
+
+    .official-event { background-color: var(--pastel-mint); border-left: 4px solid var(--pastel-mint-border); color: #008B7D; }
+    .personal-event { background-color: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #94a3b8; color: #475569; cursor: pointer; }
+
+    .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+    .sidebar-scroll::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 10px; }
+
+    #startPage { background-color: var(--bg-neutral); }
+    .hidden-view { display: none !important; }
+
+    .loader {
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid var(--sig-mint);
+      border-radius: 50%;
+      width: 14px;
+      height: 14px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .collapsible-content {
+      max-height: 800px;
+      overflow: hidden;
+      transition: max-height 0.3s ease-in-out, opacity 0.2s;
+      opacity: 1;
+    }
+    .collapsible-content.collapsed {
+      max-height: 0;
+      opacity: 0;
+      margin-bottom: 0;
+    }
+    .rotate-icon { transition: transform 0.3s; }
+    .rotate-icon.collapsed { transform: rotate(-90deg); }
+
+    #sidebar {
+      transition: transform 0.3s ease, width 0.3s ease;
+      width: 320px;
+    }
+    #sidebar.main-collapsed {
+      width: 0;
+      transform: translateX(-320px);
+      padding: 0;
+      border-right-width: 0;
+    }
+
+    .day-header-cell {
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .day-header-cell.selected {
+      background-color: var(--pastel-mint);
+      border-bottom: 3px solid var(--sig-mint);
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col">
+
+<!-- Start Page -->
+<div id="startPage" class="fixed inset-0 z-[100] flex flex-col items-center justify-center text-center p-6 transition-opacity duration-500">
+  <div class="mb-12 flex flex-col items-center">
+    <h1 class="text-7xl font-black mb-4 tracking-tighter text-slate-800">WoowaLog</h1>
+    <p class="text-xl text-slate-500 font-medium mb-6">우아한테크코스 성장을 위한 최고의 파트너</p>
+    <div id="dayCounter" class="bg-white px-6 py-3 rounded-full shadow-sm border border-slate-100 mt-2">
+      <span class="text-sm font-bold text-slate-400 uppercase tracking-wider">Today is</span>
+      <span class="text-xl font-black mint-text mx-2" id="woowacourseDay"></span>
+      <span class="text-sm font-bold text-slate-400">일차 🚀</span>
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-4 w-full max-w-sm">
+    <button id="startWoowacourseBtn" class="mint-bg text-slate-900 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition shadow-lg group hover:brightness-95">
+      <i class="fas fa-sync-alt text-lg group-hover:rotate-180 transition-transform duration-500"></i>
+      우아한테크코스 일정 연동하고 시작하기
+    </button>
+    <button id="startGuestBtn" class="bg-slate-200 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-300 transition">
+      빈 플래너로 바로 시작하기
+    </button>
+  </div>
+  <p class="mt-8 text-[10px] text-slate-300 font-black tracking-[0.3em] uppercase">2026. 02. 24 - 12. 11 Planner</p>
+</div>
+
+<!-- Main Planner UI -->
+<div id="plannerUI" class="hidden-view h-screen flex flex-col overflow-hidden bg-white">
+  <header class="bg-white border-b px-6 py-3 flex justify-between items-center z-[70] shrink-0">
+    <div class="flex items-center gap-4">
+      <button id="sidebarMainToggle" class="p-2 hover:bg-slate-100 rounded-lg transition text-slate-400">
+        <i class="fas fa-bars text-xl"></i>
+      </button>
+      <h1 class="text-2xl font-bold tracking-tight text-slate-800 mr-4">WoowaLog</h1>
+      <div class="flex items-center bg-slate-100 rounded-full px-3 py-1 ml-2">
+        <button id="prevWeek" class="hover:text-slate-900 px-2 transition"><i class="fas fa-chevron-left text-xs"></i></button>
+        <span id="currentDateRange" class="mx-3 font-bold text-slate-600 text-sm min-w-[180px] text-center"></span>
+        <button id="nextWeek" class="hover:text-slate-900 px-2 transition"><i class="fas fa-chevron-right text-xs"></i></button>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <div id="syncStatus" class="hidden flex items-center gap-2 text-xs font-bold text-emerald-600 bg-emerald-50 px-4 py-2 rounded-full border border-emerald-100">
+        <span id="syncLoader" class="loader hidden"></span>
+        <i id="syncIcon" class="fas fa-check-circle"></i>
+        <span id="syncText">연동 완료</span>
+      </div>
+      <button id="homeBtn" class="flex items-center gap-2 px-4 py-2 hover:bg-slate-100 rounded-xl transition text-slate-600 font-bold text-sm">
+        <i class="fas fa-home text-lg mint-text"></i>
+        <span>Home</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden relative">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="bg-white border-r flex flex-col p-6 sidebar-scroll overflow-y-auto shrink-0 z-40">
+      <div class="mb-6">
+        <button onclick="toggleSection('goalContent', 'goalIcon')" class="w-full flex justify-between items-center group mb-3 text-left">
+          <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider">
+            <span id="sidebarDateLabelGoal" class="text-slate-800 mr-1">오늘</span>의 목표
+          </h2>
+          <i id="goalIcon" class="fas fa-chevron-down text-xs text-slate-300 group-hover:text-slate-500 rotate-icon"></i>
+        </button>
+        <div id="goalContent" class="collapsible-content">
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 relative group">
+            <textarea id="dailyGoalText" class="w-full bg-transparent text-sm text-slate-700 font-medium resize-none border-none focus:ring-0 p-0" rows="2" placeholder="이날의 다짐을 적어보세요."></textarea>
+            <i class="fas fa-pen absolute top-2 right-2 text-slate-300 text-xs opacity-0 group-hover:opacity-100 transition"></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-8">
+        <div class="w-full flex justify-between items-center mb-3">
+          <button onclick="toggleSection('todoContent', 'todoIcon')" class="flex items-center gap-2 group text-left">
+            <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider">
+              <span id="sidebarDateLabelTodo" class="text-slate-800 mr-1">오늘</span> 체크리스트
+            </h2>
+            <i id="todoIcon" class="fas fa-chevron-down text-xs text-slate-300 group-hover:text-slate-500 rotate-icon"></i>
+          </button>
+          <button id="addTodoBtn" class="text-xs mint-text font-black hover:underline">+ 추가</button>
+        </div>
+        <div id="todoContent" class="collapsible-content">
+          <div id="todoList" class="space-y-3"></div>
+        </div>
+      </div>
+
+      <div class="mt-auto pt-6 border-t text-[10px] text-slate-400 font-bold leading-relaxed">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-3 h-3 rounded" style="background-color: var(--pastel-mint); border: 1px solid var(--pastel-mint-border)"></div> <span>Woowacourse 공식 일정</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3 h-3 bg-white border border-slate-300 rounded"></div> <span>나의 커스텀 스케줄</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Calendar Grid -->
+    <main class="flex-1 bg-white overflow-y-auto relative flex flex-col">
+      <div id="dayHeader" class="grid grid-cols-[80px_1fr_1fr_1fr_1fr_1fr_1fr_1fr] sticky top-0 bg-white border-b z-[60] shrink-0 shadow-sm">
+        <div class="border-r bg-white"></div>
+      </div>
+
+      <div class="flex-1 relative min-h-[1200px]">
+        <div class="grid grid-cols-[80px_1fr_1fr_1fr_1fr_1fr_1fr_1fr] h-full" id="calendarGrid"></div>
+        <div id="eventsContainer" class="absolute inset-0 pointer-events-none ml-[80px]"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Modals -->
+<div id="todoModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[200]">
+  <div class="bg-white p-8 rounded-3xl w-96 shadow-2xl">
+    <h3 class="text-xl font-bold mb-4 text-slate-800">새 할 일 추가</h3>
+    <input type="text" id="todoInput" class="w-full border-slate-200 border p-4 rounded-2xl mb-6 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition" placeholder="무엇을 해야 하나요?">
+    <div class="flex justify-end gap-3">
+      <button id="closeTodoBtn" class="px-6 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition">취소</button>
+      <button id="confirmAddTodo" class="px-6 py-3 mint-bg text-slate-900 font-bold rounded-2xl transition hover:opacity-90">추가하기</button>
+    </div>
+  </div>
+</div>
+
+<div id="eventModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[200]">
+  <div class="bg-white p-8 rounded-3xl w-96 shadow-2xl">
+    <div class="flex items-center gap-3 mb-2">
+      <div class="w-2 h-6 mint-bg rounded-full"></div>
+      <h3 class="text-xl font-bold text-slate-800">일정 추가</h3>
+    </div>
+    <p id="eventModalTime" class="text-sm text-slate-400 mb-6 font-bold pl-5"></p>
+    <input type="text" id="eventTitleInput" class="w-full border-slate-200 border p-4 rounded-2xl mb-6 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition" placeholder="일정 이름을 입력하세요.">
+    <div class="flex justify-end gap-3">
+      <button id="closeEventBtn" class="px-6 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition">취소</button>
+      <button id="confirmAddEvent" class="px-6 py-3 mint-bg text-slate-900 font-bold rounded-2xl transition hover:opacity-90">스케줄 등록</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+  import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, getDoc, updateDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+  const firebaseConfig = JSON.parse(__firebase_config);
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'woowalog-planner-v4';
+
+  let user = null;
+  let currentViewDate = new Date(2026, 1, 24);
+  let selectedDate = getLocalDateString(new Date()); // 기본값 오늘
+  let isSyncMode = false;
+  let googleEvents = [];
+  let personalEvents = [];
+  let todos = [];
+  let isDragging = false;
+  let dragStart = null;
+  let pendingEvent = null;
+
+  const calendarId = "2oi02icg7huimmnl5man1f8n2k@group.calendar.google.com";
+  const SLOT_HEIGHT = 35;
+  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // Firestore Unsubscribe functions
+  let unsubscribeTodos = null;
+  let unsubscribeGoal = null;
+
+  function updateDayCount() {
+    const now = new Date();
+    const start = new Date(2026, 1, 24);
+    const diffTime = now.getTime() - start.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    const display = document.getElementById('woowacourseDay');
+    if (diffDays <= 0) {
+      document.getElementById('dayCounter').innerHTML = `<span class="text-sm font-bold text-slate-400">우아한테크코스 시작까지</span><span class="text-xl font-black mint-text mx-2">D${diffDays === 0 ? '-Day' : diffDays}</span><span class="text-sm font-bold text-slate-400">🚀</span>`;
+    } else {
+      display.innerText = diffDays;
+    }
+  }
+
+  window.toggleSection = (contentId, iconId) => {
+    document.getElementById(contentId).classList.toggle('collapsed');
+    document.getElementById(iconId).classList.toggle('collapsed');
+  };
+
+  window.toggleMainSidebar = () => {
+    document.getElementById('sidebar').classList.toggle('main-collapsed');
+  };
+
+  const initAuth = async () => {
+    try {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    } catch (err) { console.error("Auth failed", err); }
+  };
+
+  onAuthStateChanged(auth, (u) => {
+    user = u;
+    if (user) {
+      setupFirestoreEventsListener();
+      setupDateSpecificListeners();
+    }
+  });
+
+  function setupFirestoreEventsListener() {
+    if (!user) return;
+    // Events are for all dates in view, so we fetch all
+    const eventsQuery = collection(db, 'artifacts', appId, 'users', user.uid, 'personalEvents');
+    onSnapshot(eventsQuery, (snapshot) => {
+      personalEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      renderEvents();
+    });
+  }
+
+  function setupDateSpecificListeners() {
+    if (!user) return;
+    if (unsubscribeTodos) unsubscribeTodos();
+    if (unsubscribeGoal) unsubscribeGoal();
+
+    // UI Label update
+    const shortDate = selectedDate.split('-').slice(1).join('.');
+    document.getElementById('sidebarDateLabelGoal').innerText = shortDate;
+    document.getElementById('sidebarDateLabelTodo').innerText = shortDate;
+
+    // Todos Listener (Rule 2: Fetch all and filter in JS if complex, but simple filter is okay)
+    const todosQuery = collection(db, 'artifacts', appId, 'users', user.uid, 'todos');
+    unsubscribeTodos = onSnapshot(todosQuery, (snapshot) => {
+      const allTodos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      todos = allTodos.filter(t => t.date === selectedDate);
+      renderTodos();
+    });
+
+    // Daily Goal Listener
+    const goalDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'dailyGoals', selectedDate);
+    unsubscribeGoal = onSnapshot(goalDoc, (snapshot) => {
+      const textarea = document.getElementById('dailyGoalText');
+      if (snapshot.exists()) {
+        textarea.value = snapshot.data().text;
+      } else {
+        textarea.value = "";
+      }
+    });
+
+    // Re-render grid to update highlight
+    renderGrid();
+  }
+
+  async function startApp(sync) {
+    isSyncMode = sync;
+    await initAuth();
+    document.getElementById('startPage').style.opacity = '0';
+    setTimeout(() => {
+      document.getElementById('startPage').classList.add('hidden-view');
+      document.getElementById('plannerUI').classList.remove('hidden-view');
+      renderAll();
+      if(sync) {
+        document.getElementById('syncStatus').classList.remove('hidden');
+        fetchCalendarData();
+      }
+    }, 500);
+  }
+
+  async function fetchCalendarData() {
+    const loader = document.getElementById('syncLoader');
+    if (loader) loader.classList.remove('hidden');
+    const icsUrl = `https://calendar.google.com/calendar/ical/${encodeURIComponent(calendarId)}/public/basic.ics`;
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(icsUrl)}`;
+    try {
+      const response = await fetch(proxyUrl);
+      if (response.ok) parseICS(await response.text());
+    } catch (err) { console.error("iCal Fetch Error:", err); }
+    if (loader) loader.classList.add('hidden');
+    renderEvents();
+  }
+
+  function parseICS(icsText) {
+    const events = [];
+    const lines = icsText.split(/\r?\n/);
+    let currentEvent = null;
+    lines.forEach(line => {
+      if (line.startsWith('BEGIN:VEVENT')) currentEvent = {};
+      else if (line.startsWith('END:VEVENT')) {
+        if (currentEvent?.hasTime && currentEvent?.start && currentEvent?.end) {
+          events.push({
+            date: getLocalDateString(currentEvent.start),
+            startHour: currentEvent.start.getHours() + (currentEvent.start.getMinutes() / 60),
+            duration: Math.max(0.5, (currentEvent.end - currentEvent.start) / (1000 * 60 * 60)),
+            title: currentEvent.summary || "일정"
+          });
+        }
+        currentEvent = null;
+      } else if (currentEvent) {
+        if (line.startsWith('DTSTART')) {
+          const val = line.split(/[:;]/).pop();
+          currentEvent.hasTime = val.includes('T');
+          currentEvent.start = parseICSDate(val);
+        } else if (line.startsWith('DTEND')) {
+          currentEvent.end = parseICSDate(line.split(/[:;]/).pop());
+        } else if (line.startsWith('SUMMARY')) {
+          currentEvent.summary = line.split(':').slice(1).join(':').trim();
+        }
+      }
+    });
+    googleEvents = events;
+  }
+
+  function parseICSDate(dateStr) {
+    const year = parseInt(dateStr.substring(0, 4));
+    const month = parseInt(dateStr.substring(4, 6)) - 1;
+    const day = parseInt(dateStr.substring(6, 8));
+    if (dateStr.includes('T')) {
+      const hour = parseInt(dateStr.substring(9, 11));
+      const min = parseInt(dateStr.substring(11, 13));
+      return new Date(Date.UTC(year, month, day, hour, min));
+    }
+    return new Date(year, month, day);
+  }
+
+  function getLocalDateString(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function getStartOfWeek(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    d.setDate(d.getDate() - day);
+    d.setHours(0,0,0,0);
+    return d;
+  }
+
+  function renderHeader() {
+    const start = getStartOfWeek(currentViewDate);
+    const end = new Date(start); end.setDate(end.getDate() + 6);
+    const f = (d) => `${d.getFullYear()}. ${String(d.getMonth()+1).padStart(2,'0')}. ${String(d.getDate()).padStart(2,'0')}`;
+    document.getElementById('currentDateRange').innerText = `${f(start)} - ${f(end)}`;
+  }
+
+  function renderGrid() {
+    const grid = document.getElementById('calendarGrid');
+    const dayHeader = document.getElementById('dayHeader');
+    const startOfWeek = getStartOfWeek(currentViewDate);
+    dayHeader.innerHTML = '<div class="border-r bg-white"></div>';
+    grid.innerHTML = '';
+
+    const timeCol = document.createElement('div');
+    timeCol.className = "time-label-col";
+    for(let h=9; h<=24; h++) {
+      const label = document.createElement('div');
+      label.className = "time-label";
+      label.style.top = `${(h - 9) * SLOT_HEIGHT * 2}px`;
+      label.innerText = `${h % 12 === 0 ? 12 : h % 12}:00 ${h >= 12 && h < 24 ? 'PM' : 'AM'}`;
+      timeCol.appendChild(label);
+      timeCol.appendChild(createSlot());
+      timeCol.appendChild(createSlot());
+    }
+    grid.appendChild(timeCol);
+
+    for(let i=0; i<7; i++) {
+      const dayDate = new Date(startOfWeek); dayDate.setDate(dayDate.getDate() + i);
+      const dayStr = getLocalDateString(dayDate);
+      const isSelected = dayStr === selectedDate;
+      const isToday = dayDate.toDateString() === new Date().toDateString();
+
+      const hCell = document.createElement('div');
+      hCell.className = `p-3 border-r text-center day-header-cell ${isSelected ? 'selected' : (isToday ? 'bg-slate-50' : '')}`;
+      hCell.innerHTML = `<div class="text-[10px] ${isSelected || isToday ? 'mint-text font-bold' : 'text-slate-400'} uppercase">${DAY_NAMES[dayDate.getDay()]}</div><div class="text-lg font-bold ${isSelected || isToday ? 'mint-text' : 'text-slate-800'}">${dayDate.getDate()}</div>`;
+      hCell.onclick = () => { selectedDate = dayStr; setupDateSpecificListeners(); };
+      dayHeader.appendChild(hCell);
+
+      const col = document.createElement('div');
+      col.className = "col-span-1 border-r relative day-column bg-white cursor-pointer";
+      col.dataset.dayIdx = i;
+      col.onclick = (e) => {
+        if(e.target === col || e.target.classList.contains('time-slot')) {
+          selectedDate = dayStr;
+          setupDateSpecificListeners();
+        }
+      };
+      for(let s=0; s<30; s++) {
+        const slot = createSlot();
+        slot.dataset.slotIdx = s;
+        slot.onmousedown = (e) => { e.preventDefault(); startDrag(i, s, dayStr); };
+        slot.onmouseenter = () => updateDrag(i, s);
+        col.appendChild(slot);
+      }
+      grid.appendChild(col);
+    }
+  }
+
+  function createSlot() {
+    const slot = document.createElement('div');
+    slot.className = "time-slot transition-colors duration-150";
+    return slot;
+  }
+
+  function startDrag(dayIdx, slotIdx, dateStr) {
+    // Drag might also trigger date selection
+    selectedDate = dateStr;
+    setupDateSpecificListeners();
+
+    isDragging = true;
+    dragStart = { dayIdx, slotIdx, dateStr };
+    updateDragUI(slotIdx);
+  }
+
+  function updateDrag(dayIdx, slotIdx) {
+    if (!isDragging || dayIdx !== dragStart.dayIdx) return;
+    updateDragUI(slotIdx);
+  }
+
+  function updateDragUI(currentSlot) {
+    document.querySelectorAll('.time-slot').forEach(s => s.classList.remove('dragging'));
+    const sIdx = Math.min(dragStart.slotIdx, currentSlot);
+    const eIdx = Math.max(dragStart.slotIdx, currentSlot);
+    const col = document.querySelector(`.day-column[data-day-idx="${dragStart.dayIdx}"]`);
+    for(let i=sIdx; i<=eIdx; i++) if (col && col.children[i]) col.children[i].classList.add('dragging');
+  }
+
+  function finalizeDrag() {
+    if (!isDragging) return;
+    isDragging = false;
+    const slots = document.querySelectorAll(`.day-column[data-day-idx="${dragStart.dayIdx}"] .dragging`);
+    if (slots.length === 0) return;
+    const sIdx = parseInt(slots[0].dataset.slotIdx);
+    const eIdx = parseInt(slots[slots.length-1].dataset.slotIdx);
+    const startHour = 9 + (sIdx * 0.5);
+    const durationHours = (eIdx - sIdx + 1) * 0.5;
+
+    pendingEvent = {
+      dayIdx: dragStart.dayIdx,
+      startHour, duration: durationHours,
+      date: dragStart.dateStr
+    };
+    const modal = document.getElementById('eventModal');
+    document.getElementById('eventModalTime').innerText = `${formatHour(startHour)} - ${formatHour(startHour + durationHours)}`;
+    modal.classList.remove('hidden');
+    document.getElementById('eventTitleInput').focus();
+  }
+
+  window.savePendingEvent = async () => {
+    const titleInput = document.getElementById('eventTitleInput');
+    if (titleInput.value.trim() && pendingEvent && user) {
+      const eventData = { ...pendingEvent, title: titleInput.value.trim() };
+      const eventRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'personalEvents'));
+      await setDoc(eventRef, eventData);
+      closeEventModal();
+    }
+  };
+
+  window.closeEventModal = () => {
+    document.getElementById('eventModal').classList.add('hidden');
+    document.getElementById('eventTitleInput').value = '';
+    document.querySelectorAll('.time-slot').forEach(s => s.classList.remove('dragging'));
+    pendingEvent = null;
+  };
+
+  function formatHour(h) {
+    const hr = Math.floor(h); const min = (h % 1) * 60;
+    const p = hr >= 12 && hr < 24 ? 'PM' : 'AM';
+    let h12 = hr % 12; if (h12 === 0) h12 = 12;
+    return `${h12}:${min === 0 ? '00' : '30'} ${p}`;
+  }
+
+  function renderEvents() {
+    const container = document.getElementById('eventsContainer');
+    if (!container) return; container.innerHTML = '';
+    const sow = getStartOfWeek(currentViewDate);
+
+    const create = (ev, type) => {
+      const evD = new Date(ev.date + "T00:00:00");
+      const diff = Math.round((evD - sow) / (1000 * 60 * 60 * 24));
+      if (diff >= 0 && diff < 7 && ev.startHour >= 9) {
+        const card = document.createElement('div');
+        card.className = `event-card ${type === 'google' ? 'official-event' : 'personal-event pointer-events-auto'}`;
+        card.style.top = `${(ev.startHour - 9) * SLOT_HEIGHT * 2 + 1}px`;
+        card.style.height = `${ev.duration * SLOT_HEIGHT * 2 - 2}px`;
+        card.style.left = `calc(${diff * (100/7)}% + 4px)`;
+        card.style.width = `calc(${(100/7)}% - 8px)`;
+        card.innerHTML = `<div class="font-bold truncate leading-tight w-full">${ev.title}</div>${type === 'personal' ? `<button onclick="window.delEv(event, '${ev.id}')" class="absolute top-1 right-1 opacity-40 hover:opacity-100 transition"><i class="fas fa-times-circle text-[10px]"></i></button>` : ''}`;
+        container.appendChild(card);
+      }
+    };
+    if (isSyncMode) googleEvents.forEach(e => create(e, 'google'));
+    personalEvents.forEach(e => create(e, 'personal'));
+  }
+
+  window.delEv = async (e, id) => {
+    e.stopPropagation();
+    if (user) await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'personalEvents', id));
+  };
+
+  function renderTodos() {
+    const c = document.getElementById('todoList'); c.innerHTML = '';
+    todos.sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0)).forEach(t => {
+      const d = document.createElement('div'); d.className = 'flex items-center justify-between group p-2.5 hover:bg-slate-50 rounded-xl transition';
+      d.innerHTML = `<div class="flex items-center gap-3"><input type="checkbox" ${t.completed ? 'checked' : ''} onchange="window.toggleTodo('${t.id}', ${t.completed})" class="w-4 h-4 rounded-md border-slate-300 text-emerald-500 focus:ring-0 cursor-pointer transition"><span class="text-sm ${t.completed ? 'line-through text-slate-400' : 'text-slate-700 font-semibold'}">${t.text}</span></div><button onclick="window.delTodo('${t.id}')" class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition"><i class="fas fa-trash-can text-xs"></i></button>`;
+      c.appendChild(d);
+    });
+  }
+
+  window.addTodo = async () => {
+    const i = document.getElementById('todoInput');
+    if (i.value.trim() && user) {
+      const todoRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'todos'));
+      await setDoc(todoRef, {
+        text: i.value.trim(),
+        completed: false,
+        createdAt: Date.now(),
+        date: selectedDate // Store for the selected date
+      });
+      i.value = ''; document.getElementById('todoModal').classList.add('hidden');
+    }
+  };
+
+  window.toggleTodo = async (id, currentStatus) => {
+    if (user) await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'todos', id), { completed: !currentStatus });
+  };
+
+  window.delTodo = async (id) => {
+    if (user) await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'todos', id));
+  };
+
+  // Initialize Page
+  updateDayCount();
+
+  document.getElementById('startWoowacourseBtn').onclick = () => startApp(true);
+  document.getElementById('startGuestBtn').onclick = () => startApp(false);
+  document.getElementById('sidebarMainToggle').onclick = window.toggleMainSidebar;
+  document.getElementById('prevWeek').onclick = () => { currentViewDate.setDate(currentViewDate.getDate() - 7); renderAll(); if(isSyncMode) fetchCalendarData(); };
+  document.getElementById('nextWeek').onclick = () => { currentViewDate.setDate(currentViewDate.getDate() + 7); renderAll(); if(isSyncMode) fetchCalendarData(); };
+  document.getElementById('addTodoBtn').onclick = () => document.getElementById('todoModal').classList.remove('hidden');
+  document.getElementById('closeTodoBtn').onclick = () => document.getElementById('todoModal').classList.add('hidden');
+  document.getElementById('confirmAddTodo').onclick = window.addTodo;
+  document.getElementById('confirmAddEvent').onclick = window.savePendingEvent;
+  document.getElementById('closeEventBtn').onclick = window.closeEventModal;
+  document.getElementById('homeBtn').onclick = () => location.reload();
+  document.getElementById('dailyGoalText').onblur = async (e) => {
+    if (user) {
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'dailyGoals', selectedDate), {
+        text: e.target.value
+      });
+    }
+  };
+  window.onmouseup = finalizeDrag;
+
+  function renderAll() { renderHeader(); renderGrid(); renderTodos(); renderEvents(); }
+</script>
+</body>
+</html>

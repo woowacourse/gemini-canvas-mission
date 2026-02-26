@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevType - Terminal Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Fonts -->
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #58a6ff;
+      --bg-dark: #1e1e1e; /* Deeper Terminal Background */
+      --terminal-header: #323232;
+      --heart-red: #ff5f56;
+      --terminal-gray: #d1d1d1;
+      --terminal-prompt-green: #50fa7b;
+    }
+
+    body {
+      font-family: 'Pretendard', sans-serif;
+      background-color: #0d1117;
+      color: #c9d1d9;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .code-font {
+      font-family: 'Fira+Code', monospace;
+    }
+
+    /* macOS Style Terminal Window */
+    .terminal-window {
+      width: 95vw;
+      max-width: 1200px;
+      height: 90vh;
+      background-color: var(--bg-dark);
+      border-radius: 12px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid #444;
+    }
+
+    .terminal-header {
+      background-color: var(--terminal-header);
+      height: 38px;
+      display: flex;
+      align-items: center;
+      padding: 0 15px;
+      position: relative;
+      border-bottom: 1px solid #111;
+    }
+
+    .traffic-lights {
+      display: flex;
+      gap: 8px;
+    }
+
+    .light {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .red { background-color: #ff5f56; }
+    .yellow { background-color: #ffbd2e; }
+    .green { background-color: #27c93f; }
+
+    .terminal-title {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #999;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    /* Terminal Body CRT Effect */
+    .terminal-body {
+      flex-grow: 1;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .crt-effect::before {
+      content: " ";
+      display: block;
+      position: absolute;
+      top: 0; left: 0; bottom: 0; right: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%);
+      z-index: 100;
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+
+    #game-board {
+      position: relative;
+      flex-grow: 1;
+      width: 100%;
+      overflow: hidden;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 30px 30px;
+    }
+
+    .word-item {
+      position: absolute;
+      padding: 4px 8px;
+      font-weight: 500;
+      user-select: none;
+      background: transparent;
+      font-family: 'Fira+Code', monospace;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow: visible;
+      text-shadow: 2px 2px 2px rgba(0,0,0,0.8);
+    }
+
+    .word-item.match {
+      color: var(--primary);
+      text-shadow: 0 0 8px var(--primary);
+      transform: scale(1.05);
+    }
+
+    .word-item.heal-word {
+      color: #ff79c6; /* Dracula pink for heal words */
+    }
+
+    .heal-icon-float {
+      position: absolute;
+      top: -24px;
+      animation: bounce 0.6s step-end infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
+    }
+
+    /* Step-end blinking for real terminal feel */
+    @keyframes block-blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+
+    .cursor-block {
+      position: absolute;
+      width: 10px;
+      height: 20px;
+      background-color: var(--terminal-gray);
+      animation: block-blink 1s step-end infinite;
+      pointer-events: none;
+      z-index: 4;
+      left: 0;
+    }
+
+    .input-panel {
+      background: var(--bg-dark);
+      border-top: 1px solid #333;
+      padding: 10px 20px;
+    }
+
+    .terminal-prompt {
+      display: flex;
+      align-items: center;
+      font-family: 'Fira+Code', monospace;
+      font-size: 1.1rem;
+    }
+
+    .prompt-text {
+      color: var(--terminal-prompt-green);
+      margin-right: 10px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      flex-grow: 1;
+      display: flex;
+      align-items: center;
+    }
+
+    #user-input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: white;
+      width: 100%;
+      font-size: 1.1rem;
+      caret-color: transparent;
+      z-index: 5;
+      text-transform: lowercase;
+    }
+
+    #input-mirror {
+      position: absolute;
+      visibility: hidden;
+      white-space: pre;
+      font-size: 1.1rem;
+      left: 0;
+    }
+
+    /* Overlay Layout: LIVES on top, SCORE below */
+    .status-overlay {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      z-index: 50;
+      text-align: right;
+    }
+
+    .pixel-label {
+      font-family: 'Press Start 2P', cursive;
+      font-size: 8px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .heart-lost {
+      filter: grayscale(1) opacity(0.2);
+    }
+
+    /* Standardized Pixel Button Style */
+    .pixel-button {
+      transition: transform 0.1s, border-bottom-width 0.1s;
+    }
+    .pixel-button:active {
+      transform: translateY(2px);
+      border-bottom-width: 2px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="terminal-window">
+  <!-- macOS Terminal Header -->
+  <div class="terminal-header">
+    <div class="traffic-lights">
+      <div class="light red"></div>
+      <div class="light yellow"></div>
+      <div class="light green"></div>
+    </div>
+    <div class="terminal-title">dev — zsh — 114x24</div>
+  </div>
+
+  <!-- Terminal Body -->
+  <div class="terminal-body crt-effect">
+    <!-- Status Overlay -->
+    <div class="status-overlay">
+      <div>
+        <div class="pixel-label">LIVES</div>
+        <div id="hearts-container" class="flex justify-end gap-1"></div>
+      </div>
+      <div>
+        <div class="pixel-label">SCORE</div>
+        <div id="score" class="code-font text-xl text-green-400 font-bold">000000</div>
+      </div>
+    </div>
+
+    <!-- Game Board -->
+    <div id="game-board">
+      <!-- Start Screen -->
+      <div id="start-screen" class="absolute inset-0 flex items-center justify-center bg-black/60 z-20">
+        <div class="text-center p-10 bg-black/80 border border-white/20 rounded-lg max-w-lg">
+          <h2 class="pixel-font text-2xl mb-6 text-white tracking-widest">BACKEND RAIN</h2>
+          <div class="w-full h-[1px] bg-white/20 mb-8"></div>
+          <p class="mb-10 text-gray-400 code-font text-sm leading-relaxed text-left">
+            DEFEND THE SERVER CLUSTER.<br>
+            INPUT FALLING COMMANDS BEFORE IMPACT.<br>
+            <span class="text-pink-400 mt-2 block">BONUS: HEAL WORDS RECOVER SYSTEM INTEGRITY.</span>
+          </p>
+          <button id="start-btn" class="pixel-button pixel-font text-[14px] px-10 py-5 bg-green-600 border-b-4 border-green-800 rounded uppercase text-white font-bold">
+            Start Game
+          </button>
+        </div>
+      </div>
+
+      <!-- Result Screen (Updated Title to 503) -->
+      <div id="result-screen" class="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-30 hidden p-6">
+        <h2 class="pixel-font text-2xl mb-4 text-red-500">503 Service Unavailable</h2>
+        <div class="code-font text-xs text-red-400 mb-8 opacity-75 uppercase">Error: Server Overloaded - System Terminated</div>
+
+        <div id="final-stats-container" class="border border-white/10 p-8 bg-white/5 text-center mb-10 min-w-[320px] rounded">
+          <div class="pixel-label mb-4 uppercase">Performance Report</div>
+          <div id="final-stats" class="code-font text-2xl text-green-400 mb-2">SCORE: 00000</div>
+        </div>
+        <button id="restart-btn" class="pixel-button pixel-font text-[14px] px-10 py-5 bg-blue-600 border-b-4 border-blue-800 rounded uppercase text-white font-bold">
+          Restart System
+        </button>
+      </div>
+    </div>
+
+    <!-- Terminal Input Panel -->
+    <div class="input-panel">
+      <div class="terminal-prompt">
+        <span class="prompt-text">dev@backend-rain %</span>
+        <div class="input-wrapper">
+          <input type="text" id="user-input" autocomplete="off" placeholder="" disabled class="code-font">
+          <span id="input-mirror" class="code-font"></span>
+          <div id="cursor-block" class="cursor-block"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const WORDS = [
+    "java", "spring", "python", "docker", "k8s", "redis", "kafka", "mysql", "postgres", "mongodb",
+    "string", "int", "long", "double", "boolean", "object", "array", "map", "set", "list",
+    "hashmap", "hashset", "linkedlist", "stream", "lambda", "optional", "junit", "mockito", "jackson", "lombok",
+    "builder", "factory", "solid", "singleton", "proxy", "aspect", "async", "thread", "yield", "join",
+    "heap", "stack", "gc", "bytecode", "jvm", "war", "jar", "maven", "gradle", "git",
+    "commit", "branch", "merge", "pull", "push", "fetch", "remote", "rebase", "aws", "gcp",
+    "azure", "lambda", "s3", "ec2", "rds", "container", "pod", "node", "cluster", "ingress",
+    "json", "yaml", "xml", "http", "rest", "graphql", "grpc", "oauth", "jwt", "token",
+    "api", "endpoint", "url", "header", "cookie", "session", "status", "error", "log", "trace",
+    "debug", "mock", "test", "valid", "entity", "dto", "bean", "context", "filter", "security",
+    "auth", "login", "secret", "config", "env", "volume", "scale", "latency", "process", "memory",
+    "regex", "binary", "hex", "query", "commit", "rollback", "index", "join", "view", "lock",
+    "deadlock", "timeout", "retry", "circuit", "breaker", "health", "uptime", "deploy", "patch", "fix",
+    "@test", "@mock", "@valid", "@lazy", "@scope", "@service", "@bean", "@entity", "@id", "@data",
+    "spring_boot", "fastapi", "django", "flask", "express", "netty", "okhttp", "quartz", "jdbc"
+  ];
+
+  const HEAL_WORDS = ["reboot", "recovery", "backup", "restore", "patch", "fix", "deploy", "restart", "prune", "flush"];
+
+  const MAX_LIVES = 5;
+  const START_SPEED = 0.5;
+  const SPEED_INCREMENT = 0.006;
+  const START_SPAWN_RATE = 2500;
+  const MIN_SPAWN_RATE = 800;
+  const HEAL_SPAWN_CHANCE = 0.06;
+  const STEP_SIZE = 30;
+
+  let score = 0;
+  let lives = MAX_LIVES;
+  let currentSpeed = START_SPEED;
+  let currentSpawnRate = START_SPAWN_RATE;
+  let gameActive = false;
+  let wordsOnBoard = [];
+  let animationId = null;
+  let lastSpawnTime = 0;
+  let clearedCount = 0;
+
+  const gameBoard = document.getElementById('game-board');
+  const userInput = document.getElementById('user-input');
+  const mirror = document.getElementById('input-mirror');
+  const cursor = document.getElementById('cursor-block');
+  const scoreEl = document.getElementById('score');
+  const heartsContainer = document.getElementById('hearts-container');
+  const startBtn = document.getElementById('start-btn');
+  const restartBtn = document.getElementById('restart-btn');
+  const startScreen = document.getElementById('start-screen');
+  const resultScreen = document.getElementById('result-screen');
+
+  function initHearts() {
+    heartsContainer.innerHTML = '';
+    for (let i = 0; i < MAX_LIVES; i++) {
+      const heart = document.createElement('div');
+      heart.className = 'pixel-heart-svg';
+      heart.innerHTML = `<svg width="24" height="24" viewBox="0 0 10 10" fill="#ff5f56"><path d="M2 1h2v1h2V1h2v1h1v3H8v1H7v1H6v1H4v-1H3v-1H2v-1H1V2h1V1z"/></svg>`;
+      heartsContainer.appendChild(heart);
+    }
+  }
+
+  function createWord() {
+    const isHeal = Math.random() < HEAL_SPAWN_CHANCE;
+    const pool = isHeal ? HEAL_WORDS : WORDS;
+    const text = pool[Math.floor(Math.random() * pool.length)];
+
+    const wordEl = document.createElement('div');
+    wordEl.className = 'word-item' + (isHeal ? ' heal-word' : '');
+
+    if (isHeal) {
+      const iconWrap = document.createElement('div');
+      iconWrap.className = 'heal-icon-float';
+      iconWrap.innerHTML = `<svg width="18" height="18" viewBox="0 0 10 10" fill="#ff79c6"><path d="M2 1h2v1h2V1h2v1h1v3H8v1H7v1H6v1H4v-1H3v-1H2v-1H1V2h1V1z"/></svg>`;
+      wordEl.appendChild(iconWrap);
+    }
+
+    const textSpan = document.createElement('span');
+    textSpan.innerText = text;
+    wordEl.appendChild(textSpan);
+
+    const maxWidth = gameBoard.clientWidth - 200;
+    const x = Math.max(20, Math.floor(Math.random() * maxWidth));
+
+    wordEl.style.left = `${x}px`;
+    wordEl.style.top = '-100px';
+    gameBoard.appendChild(wordEl);
+
+    return {
+      element: wordEl,
+      text: text,
+      x: x,
+      y: -100,
+      isHeal: isHeal,
+      personalSpeed: currentSpeed * (isHeal ? 0.75 : (0.8 + Math.random() * 0.4))
+    };
+  }
+
+  function gameLoop(timestamp) {
+    if (!gameActive) return;
+
+    if (timestamp - lastSpawnTime > currentSpawnRate) {
+      wordsOnBoard.push(createWord());
+      lastSpawnTime = timestamp;
+    }
+
+    for (let i = wordsOnBoard.length - 1; i >= 0; i--) {
+      const word = wordsOnBoard[i];
+      word.y += word.personalSpeed;
+      const visualY = Math.floor(word.y / STEP_SIZE) * STEP_SIZE;
+      word.element.style.top = `${visualY}px`;
+
+      if (word.y > gameBoard.clientHeight) {
+        if (!word.isHeal) {
+          lives--;
+          updateUI();
+        }
+        word.element.remove();
+        wordsOnBoard.splice(i, 1);
+        if (lives <= 0) endGame();
+      }
+    }
+    animationId = requestAnimationFrame(gameLoop);
+  }
+
+  function updateUI() {
+    scoreEl.innerText = score.toString().padStart(6, '0');
+
+    const heartIcons = heartsContainer.children;
+    for(let i=0; i<MAX_LIVES; i++) {
+      if(heartIcons[i]) {
+        if(i >= lives) heartIcons[i].classList.add('heart-lost');
+        else heartIcons[i].classList.remove('heart-lost');
+      }
+    }
+  }
+
+  function updateCursorPosition() {
+    mirror.textContent = userInput.value;
+    const width = mirror.offsetWidth;
+    cursor.style.left = `${width}px`;
+  }
+
+  function startGame() {
+    score = 0;
+    lives = MAX_LIVES;
+    clearedCount = 0;
+    currentSpeed = START_SPEED;
+    currentSpawnRate = START_SPAWN_RATE;
+    wordsOnBoard = [];
+    gameActive = true;
+
+    initHearts();
+    updateUI();
+    startScreen.classList.add('hidden');
+    resultScreen.classList.add('hidden');
+    userInput.disabled = false;
+    userInput.value = '';
+    updateCursorPosition();
+    userInput.focus();
+
+    document.querySelectorAll('.word-item').forEach(el => el.remove());
+    lastSpawnTime = performance.now();
+    animationId = requestAnimationFrame(gameLoop);
+  }
+
+  function endGame() {
+    gameActive = false;
+    cancelAnimationFrame(animationId);
+    userInput.disabled = true;
+    document.getElementById('final-stats').innerText = `SCORE: ${score.toString().padStart(6, '0')}`;
+    resultScreen.classList.remove('hidden');
+  }
+
+  function handleInput(e) {
+    if (e.key === 'Enter') {
+      const typedText = userInput.value.trim().toLowerCase();
+      let foundIndex = -1;
+      let lowestY = -1;
+
+      for (let i = 0; i < wordsOnBoard.length; i++) {
+        if (wordsOnBoard[i].text.toLowerCase() === typedText && wordsOnBoard[i].y > lowestY) {
+          lowestY = wordsOnBoard[i].y;
+          foundIndex = i;
+        }
+      }
+
+      if (foundIndex !== -1) {
+        const word = wordsOnBoard[foundIndex];
+        if (word.isHeal) {
+          lives = Math.min(MAX_LIVES, lives + 1);
+          word.element.style.color = '#ff79c6';
+        } else {
+          word.element.style.color = 'var(--primary)';
+        }
+        word.element.style.textShadow = "0 0 20px white";
+        setTimeout(() => word.element.remove(), 100);
+
+        clearedCount++;
+        score += Math.floor(word.text.length * (word.isHeal ? 25 : 10) * currentSpeed);
+        currentSpeed += SPEED_INCREMENT;
+        currentSpawnRate = Math.max(MIN_SPAWN_RATE, START_SPAWN_RATE - (clearedCount * 25));
+        wordsOnBoard.splice(foundIndex, 1);
+        updateUI();
+      }
+      userInput.value = '';
+      updateCursorPosition();
+    }
+  }
+
+  userInput.addEventListener('input', () => {
+    updateCursorPosition();
+    const val = userInput.value.trim().toLowerCase();
+    wordsOnBoard.forEach(word => {
+      if (val && word.text.toLowerCase().startsWith(val)) {
+        word.element.classList.add('match');
+      } else {
+        word.element.classList.remove('match');
+      }
+    });
+  });
+
+  startBtn.addEventListener('click', startGame);
+  restartBtn.addEventListener('click', startGame);
+  userInput.addEventListener('keydown', handleInput);
+
+  initHearts();
+</script>
+</body>
+</html>

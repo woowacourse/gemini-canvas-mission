@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D SHELL GAME</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Pretendard', sans-serif;
+            background-color: #1a1a1a;
+            color: white;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .hud {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 30px;
+            border-radius: 20px;
+            display: inline-block;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            pointer-events: auto;
+        }
+        h1 { margin: 0 0 5px 0; font-size: 20px; color: #ffd700; text-transform: uppercase; letter-spacing: 2px; }
+        .stats { font-size: 16px; margin-bottom: 10px; color: #ccc; }
+        .level-info { font-size: 24px; font-weight: 800; color: #fff; margin-bottom: 10px; }
+        
+        button {
+            background: linear-gradient(135deg, #ffd700, #ff8c00);
+            border: none;
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #000;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 215, 0, 0.4); }
+        button:active { transform: translateY(1px); }
+        button:disabled { background: #444; color: #888; cursor: not-allowed; box-shadow: none; }
+
+        #message {
+            position: absolute;
+            bottom: 60px;
+            width: 100%;
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 10;
+            transition: all 0.3s;
+        }
+
+        /* 새롭게 추가된 설정 모달 및 라이트 모드 스타일 */
+        #settings-modal {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20, 25, 40, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            z-index: 100;
+            display: none;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            min-width: 320px;
+            color: white;
+        }
+        #settings-modal h2 { margin-top: 0; color: #ffd700; text-align: center; }
+        .setting-group { margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .setting-group label { font-size: 16px; font-weight: bold; }
+        .setting-group select, .setting-group input[type="color"] {
+            padding: 8px; font-size: 15px; border-radius: 5px; border: 1px solid #ccc; background: #fff; color: #000; cursor: pointer;
+        }
+        .setting-group input[type="color"] { padding: 2px; width: 50px; height: 35px; }
+        
+        /* 라이트 모드 테마 */
+        body.light-mode { background-color: #f1f5f9; color: #1e293b; }
+        body.light-mode .hud {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        body.light-mode .level-info, body.light-mode .stats { color: #334155; }
+        body.light-mode h1 { color: #d97706; }
+        body.light-mode #message { text-shadow: 0 0 10px rgba(255,255,255,0.8); }
+        body.light-mode #settings-modal {
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(0, 0, 0, 0.2);
+            color: #1e293b;
+        }
+        body.light-mode #settings-modal h2 { color: #d97706; }
+
+        /* 최고 기록 보드 스타일 */
+        #high-scores-board {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            z-index: 10;
+            pointer-events: none;
+        }
+        #high-scores-board h3 { margin: 0 0 10px 0; font-size: 16px; color: #ffd700; text-align: center; }
+        #high-scores-board .score-row { font-size: 14px; margin-bottom: 8px; color: #ccc; display: flex; justify-content: space-between; width: 130px; }
+        #high-scores-board .score-val { font-weight: bold; color: #fff; }
+
+        body.light-mode #high-scores-board {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: #1e293b;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        body.light-mode #high-scores-board h3 { color: #d97706; }
+        body.light-mode #high-scores-board .score-row { color: #334155; }
+        body.light-mode #high-scores-board .score-val { color: #1e293b; }
+        
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div class="hud">
+        <h1>3D Shell Game</h1>
+        <div class="level-info">현재 점수: <span id="score">0</span></div>
+        <button id="start-btn">게임 시작</button>
+        <button id="settings-btn" style="margin-left: 10px; background: #475569; color: white;">⚙️ 설정</button>
+    </div>
+</div>
+
+<!-- 우측 상단 최고 기록 보드 -->
+<div id="high-scores-board">
+    <h3>🏆 최고 기록</h3>
+    <div class="score-row"><span>초보자:</span> <span class="score-val" id="score-easy">기록없음</span></div>
+    <div class="score-row"><span>중급자:</span> <span class="score-val" id="score-normal">기록없음</span></div>
+    <div class="score-row"><span>전문가:</span> <span class="score-val" id="score-hard">기록없음</span></div>
+</div>
+
+<div id="message">공이 든 컵을 찾아보세요!</div>
+
+<!-- 설정 모달 -->
+<div id="settings-modal">
+    <h2>게임 설정</h2>
+    <div class="setting-group">
+        <label>난이도</label>
+        <select id="diff-select">
+            <option value="easy">초보자 (컵 3개, 느림)</option>
+            <option value="normal">중급자 (컵 4개, 보통)</option>
+            <option value="hard">전문가 (컵 5개, 빠름)</option>
+        </select>
+    </div>
+    <div class="setting-group">
+        <label>테마</label>
+        <select id="theme-select">
+            <option value="dark">다크 모드</option>
+            <option value="light">라이트 모드</option>
+        </select>
+    </div>
+    <div class="setting-group">
+        <label>컵 색상</label>
+        <input type="color" id="cup-color" value="#f39c12">
+    </div>
+    <div class="setting-group">
+        <label>공 색상</label>
+        <input type="color" id="ball-color" value="#ff4757">
+    </div>
+    <div style="margin-top: 25px; text-align: center;">
+        <button id="apply-btn">적용 및 재시작</button>
+        <button id="close-btn" style="background: #64748b; color: white; margin-left: 10px;">닫기</button>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+    let scene, camera, renderer, ball, cups = [];
+    let gameStatus = 'IDLE'; 
+    let winningCup = null; 
+    let score = 0;
+    let highScores = { easy: 0, normal: 0, hard: 0 };
+    let shuffleCount = 0;
+    
+    // 재질을 전역으로 관리 (색상 변경을 위해)
+    let bodyMat, ballMat, floorMat;
+    
+    // 난이도 설정 옵션
+    const diffConfigs = {
+        easy: { cups: 3, baseSpeed: 0.035, baseShuffles: 5 },
+        normal: { cups: 4, baseSpeed: 0.06, baseShuffles: 8 },
+        hard: { cups: 5, baseSpeed: 0.09, baseShuffles: 12 }
+    };
+    let currentDiff = 'easy';
+
+    const CUP_SPACING = 3.5;
+
+    window.onload = function() {
+        init();
+        animate();
+    };
+
+    function init() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f172a); // 더 깊은 밤색 배경
+
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        updateCameraPosition();
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const spotLight = new THREE.SpotLight(0xffffff, 1);
+        spotLight.position.set(0, 20, 10);
+        spotLight.castShadow = true;
+        spotLight.shadow.mapSize.width = 1024;
+        spotLight.shadow.mapSize.height = 1024;
+        scene.add(spotLight);
+
+        // 바닥
+        const floorGeo = new THREE.PlaneGeometry(50, 50);
+        floorMat = new THREE.MeshPhongMaterial({ color: 0x1e293b });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // 공 생성
+        const ballGeo = new THREE.SphereGeometry(0.4, 32, 32);
+        ballMat = new THREE.MeshPhongMaterial({ color: 0xff4757, emissive: 0x330000 });
+        ball = new THREE.Mesh(ballGeo, ballMat);
+        ball.castShadow = true;
+        scene.add(ball);
+
+        // 컵 기본 재질
+        bodyMat = new THREE.MeshPhongMaterial({ color: 0xf39c12, side: THREE.DoubleSide });
+
+        createCups();
+        updateHighScoresDisplay();
+
+        window.addEventListener('resize', onWindowResize);
+        renderer.domElement.addEventListener('mousedown', onDocumentMouseDown);
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        
+        // 설정 버튼 이벤트 바인딩
+        document.getElementById('settings-btn').addEventListener('click', () => {
+            if (gameStatus !== 'IDLE' && gameStatus !== 'REVEALING') return;
+            document.getElementById('settings-modal').style.display = 'block';
+        });
+        document.getElementById('close-btn').addEventListener('click', () => {
+            document.getElementById('settings-modal').style.display = 'none';
+        });
+        document.getElementById('apply-btn').addEventListener('click', applySettings);
+    }
+    
+    function updateHighScoresDisplay() {
+        document.getElementById('score-easy').innerText = highScores.easy > 0 ? highScores.easy + "점" : "기록없음";
+        document.getElementById('score-normal').innerText = highScores.normal > 0 ? highScores.normal + "점" : "기록없음";
+        document.getElementById('score-hard').innerText = highScores.hard > 0 ? highScores.hard + "점" : "기록없음";
+    }
+
+    function applySettings() {
+        currentDiff = document.getElementById('diff-select').value;
+
+        const theme = document.getElementById('theme-select').value;
+        const cupColor = document.getElementById('cup-color').value;
+        const ballColor = document.getElementById('ball-color').value;
+
+        // 테마 적용 (조명 및 배경색)
+        if (theme === 'light') {
+            document.body.classList.add('light-mode');
+            scene.background.set(0xf1f5f9);
+            floorMat.color.set(0xcbd5e1);
+        } else {
+            document.body.classList.remove('light-mode');
+            scene.background.set(0x0f172a);
+            floorMat.color.set(0x1e293b);
+        }
+
+        // 오브젝트 색상 적용
+        bodyMat.color.set(cupColor);
+        ballMat.color.set(ballColor);
+
+        // 게임 초기화
+        document.getElementById('settings-modal').style.display = 'none';
+        score = 0;
+        document.getElementById('score').innerText = score;
+        document.getElementById('message').innerText = "새로운 설정이 적용되었습니다.";
+        document.getElementById('message').style.color = "white";
+        document.getElementById('start-btn').innerText = "게임 시작";
+        gameStatus = 'IDLE';
+
+        createCups();
+    }
+
+    function updateCameraPosition() {
+        const cupCount = cups.length || 3;
+        const zPos = 12 + (cupCount * 1.5);
+        const yPos = 8 + (cupCount * 0.5);
+        camera.position.set(0, yPos, zPos);
+        camera.lookAt(0, 0, 0);
+    }
+
+    function createCups() {
+        // 기존 컵 제거
+        cups.forEach(c => scene.remove(c));
+        cups = [];
+
+        // 난이도 설정에 따른 컵 개수 결정
+        const count = diffConfigs[currentDiff].cups;
+
+        const totalWidth = (count - 1) * CUP_SPACING;
+        const startX = -totalWidth / 2;
+
+        for (let i = 0; i < count; i++) {
+            const cupGroup = new THREE.Group();
+            
+            const bodyGeo = new THREE.CylinderGeometry(1.2, 1.5, 2.5, 32, 1, true);
+            const body = new THREE.Mesh(bodyGeo, bodyMat); // 전역 재질 사용
+            body.position.y = 1.25;
+            body.castShadow = true;
+            body.receiveShadow = true;
+            cupGroup.add(body);
+
+            const topGeo = new THREE.CircleGeometry(1.2, 32);
+            const top = new THREE.Mesh(topGeo, bodyMat); // 전역 재질 사용
+            top.rotation.x = -Math.PI / 2;
+            top.position.y = 2.5;
+            cupGroup.add(top);
+
+            cupGroup.position.set(startX + (i * CUP_SPACING), 0, 0);
+            scene.add(cupGroup);
+            cups.push(cupGroup);
+        }
+        
+        updateCameraPosition();
+        if (winningCup === null || !cups.includes(winningCup)) {
+            winningCup = cups[Math.floor(count / 2)];
+        }
+        updateBallToCup();
+    }
+
+    function updateBallToCup() {
+        if (winningCup && ball) {
+            ball.position.x = winningCup.position.x;
+            ball.position.z = winningCup.position.z;
+        }
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function startGame() {
+        if (gameStatus !== 'IDLE' && gameStatus !== 'REVEALING') return;
+        
+        document.getElementById('start-btn').disabled = true;
+        document.getElementById('message').innerText = "공의 위치를 기억하세요!";
+        document.getElementById('message').style.color = "white";
+
+        // 레벨에 맞게 컵 다시 생성 (개수가 변할 수 있으므로)
+        createCups();
+        
+        winningCup = cups[Math.floor(Math.random() * cups.length)];
+        updateBallToCup();
+        ball.visible = true;
+        
+        gameStatus = 'SHOWING';
+        
+        animateCups(3, () => {
+            setTimeout(() => {
+                animateCups(0, () => {
+                    startShuffling();
+                });
+            }, 1000);
+        });
+    }
+
+    function startShuffling() {
+        gameStatus = 'SHUFFLING';
+        document.getElementById('message').innerText = "섞는 중...";
+        document.getElementById('message').style.color = "white";
+        shuffleCount = 0;
+        
+        // 난이도와 현재 점수에 따른 셔플 횟수 계산
+        const config = diffConfigs[currentDiff];
+        const totalShuffles = config.baseShuffles + Math.floor(score / 3);
+        
+        performShuffle(totalShuffles);
+    }
+
+    function performShuffle(totalShuffles) {
+        if (shuffleCount >= totalShuffles) {
+            gameStatus = 'GUESSING';
+            document.getElementById('message').innerText = "어느 컵일까요?";
+            return;
+        }
+
+        let idx1 = Math.floor(Math.random() * cups.length);
+        let idx2 = Math.floor(Math.random() * cups.length);
+        while (idx1 === idx2) idx2 = Math.floor(Math.random() * cups.length);
+
+        const cup1 = cups[idx1];
+        const cup2 = cups[idx2];
+        const pos1 = { ...cup1.position };
+        const pos2 = { ...cup2.position };
+
+        let progress = 0;
+        
+        // 난이도와 현재 점수에 따른 속도 가속
+        const config = diffConfigs[currentDiff];
+        const speed = config.baseSpeed + (score * 0.003);
+        
+        function doSwap() {
+            progress += speed;
+            if (progress >= 1) {
+                cup1.position.set(pos2.x, pos2.y, pos2.z);
+                cup2.position.set(pos1.x, pos1.y, pos1.z);
+                shuffleCount++;
+                performShuffle(totalShuffles);
+                return;
+            }
+
+            const dist = pos1.x - pos2.x;
+            const offsetZ = Math.sin(progress * Math.PI) * (Math.abs(dist) / 2);
+
+            cup1.position.x = pos1.x + (pos2.x - pos1.x) * progress;
+            cup1.position.z = pos1.z + offsetZ;
+
+            cup2.position.x = pos2.x + (pos1.x - pos2.x) * progress;
+            cup2.position.z = pos2.z - offsetZ;
+
+            requestAnimationFrame(doSwap);
+        }
+        doSwap();
+    }
+
+    function animateCups(targetY, callback) {
+        let doneCount = 0;
+        cups.forEach(cup => {
+            const startY = cup.position.y;
+            let progress = 0;
+            function step() {
+                progress += 0.07;
+                if (progress >= 1) {
+                    cup.position.y = targetY;
+                    doneCount++;
+                    if (doneCount === cups.length && callback) callback();
+                    return;
+                }
+                const easedProgress = Math.sin(progress * Math.PI / 2);
+                cup.position.y = startY + (targetY - startY) * easedProgress;
+                requestAnimationFrame(step);
+            }
+            step();
+        });
+    }
+
+    function onDocumentMouseDown(event) {
+        if (gameStatus !== 'GUESSING') return;
+
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(scene.children, true);
+
+        if (intersects.length > 0) {
+            let clickedCup = null;
+            let obj = intersects[0].object;
+            while (obj) {
+                if (cups.includes(obj)) {
+                    clickedCup = obj;
+                    break;
+                }
+                obj = obj.parent;
+            }
+            if (clickedCup) checkResult(clickedCup);
+        }
+    }
+
+    function checkResult(selectedCup) {
+        gameStatus = 'REVEALING';
+        const isCorrect = selectedCup === winningCup;
+        
+        animateCups(3, () => {
+            if (isCorrect) {
+                score++;
+                if (score > highScores[currentDiff]) {
+                    highScores[currentDiff] = score;
+                    updateHighScoresDisplay();
+                }
+                document.getElementById('message').innerText = `성공! 연속 ${score}번 정답입니다.`;
+                document.getElementById('message').style.color = "#4ade80";
+                document.getElementById('start-btn').innerText = "다음 라운드";
+            } else {
+                score = 0;
+                document.getElementById('message').innerText = "실패! 공은 여기에 있었습니다.";
+                document.getElementById('message').style.color = "#f87171";
+                document.getElementById('start-btn').innerText = "다시 시작";
+            }
+            
+            document.getElementById('score').innerText = score;
+            document.getElementById('start-btn').disabled = false;
+        });
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        if (ball && winningCup) {
+            ball.position.x = winningCup.position.x;
+            ball.position.z = winningCup.position.z;
+            
+            if (gameStatus === 'SHOWING' || gameStatus === 'REVEALING') {
+                ball.position.y = 0.4 + Math.abs(Math.sin(Date.now() * 0.01)) * 0.3;
+                ball.visible = true;
+            } else {
+                ball.position.y = 0.4;
+                ball.visible = (winningCup.position.y > 0.5);
+            }
+            ball.rotation.y += 0.05;
+        }
+
+        renderer.render(scene, camera);
+    }
+</script>
+</body>
+</html>

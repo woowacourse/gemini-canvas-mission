@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Java GC Interactive Explorer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 스크롤바 커스텀 스타일 (React의 기본 브라우저 스타일 대체) */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #374151; }
+    
+    .table-row-group { display: table-row-group; }
+    .table-row { display: table-row; }
+    .table-cell { display: table-cell; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans overflow-hidden">
+
+  <div id="app" class="flex h-screen w-full">
+    
+    <!-- --- Left Pane: Code & Scenarios --- -->
+    <div class="w-1/3 flex flex-col bg-white border-r border-gray-200 shadow-sm z-10">
+      
+      <!-- Header -->
+      <div class="p-4 bg-slate-800 text-white flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-400"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" x2="20" y1="19" y2="19"></line></svg>
+        <h1 class="font-bold text-lg tracking-wide">GC Explorer</h1>
+      </div>
+
+      <!-- Scenario Selector -->
+      <div class="p-4 border-b border-gray-100 flex-shrink-0">
+        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">학습 시나리오 선택</h2>
+        <div id="scenario-list" class="space-y-2">
+          <!-- Scenarios injected here by JS -->
+        </div>
+        <div class="mt-4 p-3 bg-blue-50/50 rounded-lg border border-blue-100 flex gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-500 flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <p id="scenario-desc" class="text-xs text-blue-800 leading-relaxed"></p>
+        </div>
+      </div>
+
+      <!-- Code Viewer (Mock IDE) -->
+      <div class="flex-1 flex flex-col min-h-0 bg-[#1e1e1e]">
+        <div class="px-4 py-2 bg-[#2d2d2d] flex items-center text-xs text-gray-400">
+          <span class="text-yellow-400 mr-2">☕</span> Main.java
+        </div>
+        <div class="p-4 overflow-auto flex-1 font-mono text-sm">
+          <pre class="text-gray-300"><code id="code-container" class="table-row-group">
+            <!-- Code injected here by JS -->
+          </code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- --- Right Pane: Dashboard & Visualizer --- -->
+    <div class="flex-1 flex flex-col overflow-hidden bg-slate-50">
+      
+      <!-- Controls & Metrics Header -->
+      <div class="p-4 bg-white border-b border-gray-200 shadow-sm flex items-center justify-between z-10">
+        <div class="flex gap-2">
+          <button id="btn-toggle" class="flex items-center gap-2 px-4 py-2 rounded-md font-semibold text-white transition-colors bg-emerald-500 hover:bg-emerald-600">
+            <span id="icon-play"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></span>
+            <span id="icon-pause" class="hidden"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg></span>
+            <span id="text-toggle">시뮬레이션 시작</span>
+          </button>
+          <button id="btn-reset" class="flex items-center gap-2 px-4 py-2 rounded-md font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg> 초기화
+          </button>
+        </div>
+
+        <div class="flex items-center gap-6">
+          <div class="text-center">
+            <div class="text-[10px] text-gray-500 font-bold uppercase">Minor GC</div>
+            <div id="stat-minor" class="text-xl font-black text-indigo-600">0</div>
+          </div>
+          <div class="text-center">
+            <div class="text-[10px] text-gray-500 font-bold uppercase">Full GC</div>
+            <div id="stat-full" class="text-xl font-black text-rose-600">0</div>
+          </div>
+          <div class="w-px h-8 bg-gray-300"></div>
+          <div class="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-400"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <input id="speed-slider" type="range" min="100" max="1500" step="100" value="500" class="w-24 accent-indigo-500" title="시뮬레이션 속도" dir="rtl">
+            <span id="speed-label" class="text-xs text-gray-500 font-medium w-12 text-right">500ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-time Usage Bars -->
+      <div class="px-6 py-4 bg-white border-b border-gray-100 flex gap-6">
+        <div class="flex-1">
+          <div class="flex justify-between text-xs font-bold text-gray-600 mb-1">
+            <span>Eden (Young)</span>
+            <span id="bar-eden-text">0%</span>
+          </div>
+          <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+            <div id="bar-eden" class="h-full bg-emerald-400 transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="flex-1">
+          <div class="flex justify-between text-xs font-bold text-gray-600 mb-1">
+            <span>Survivor (Young)</span>
+            <span id="bar-survivor-text">0%</span>
+          </div>
+          <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+            <div id="bar-survivor" class="h-full bg-blue-400 transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="flex-1">
+          <div class="flex justify-between text-xs font-bold text-gray-600 mb-1">
+            <span class="flex items-center gap-1">Old Generation 
+              <span id="old-oom-alert" class="hidden text-red-500 animate-pulse">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              </span>
+            </span>
+            <span id="bar-old-text">0%</span>
+          </div>
+          <div class="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+            <div id="bar-old" class="h-full bg-purple-500 transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GC Visualizer Canvas -->
+      <div class="flex-1 p-6 flex flex-col gap-4 overflow-y-auto relative">
+        <div id="oom-banner" class="hidden p-4 mb-2 bg-red-100 border border-red-300 text-red-800 rounded-lg flex items-center justify-center gap-2 font-bold shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> 
+          OutOfMemoryError: Java heap space 가득 참! (시뮬레이션 중지됨)
+        </div>
+        
+        <div class="flex flex-col gap-4 flex-1">
+          
+          <!-- Young Generation Area -->
+          <div class="flex gap-4 min-h-[160px]">
+            <!-- Eden -->
+            <div class="flex-1 border-2 border-emerald-200 bg-emerald-50/30 rounded-xl p-3 flex flex-col shadow-inner relative">
+              <div class="absolute top-2 right-3 text-[10px] font-bold text-emerald-300 uppercase">Young Gen</div>
+              <h3 class="font-bold text-emerald-800 mb-2 flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-emerald-400 block"></span> Eden Space
+              </h3>
+              <div id="eden-space" class="flex-1 flex flex-wrap content-start gap-1 p-1"></div>
+            </div>
+
+            <!-- Survivor Areas -->
+            <div class="w-[30%] flex flex-col gap-4">
+              <div id="s0-container-parent" class="flex-1 border-2 rounded-xl p-3 flex flex-col shadow-inner transition-colors duration-500 border-blue-300 bg-blue-50">
+                <h3 class="font-bold text-blue-800 mb-2 flex items-center justify-between text-sm">
+                  <div class="flex items-center gap-2">
+                    <span id="s0-dot" class="w-3 h-3 rounded-full block bg-blue-400"></span> S0
+                  </div>
+                  <span id="s0-active-badge" class="text-[10px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded">Active</span>
+                </h3>
+                <div id="s0-space" class="flex-1 flex flex-wrap content-start gap-1 p-1"></div>
+              </div>
+              
+              <div id="s1-container-parent" class="flex-1 border-2 rounded-xl p-3 flex flex-col shadow-inner transition-colors duration-500 border-gray-200 bg-gray-50 opacity-50">
+                <h3 class="font-bold text-blue-800 mb-2 flex items-center justify-between text-sm">
+                  <div class="flex items-center gap-2">
+                    <span id="s1-dot" class="w-3 h-3 rounded-full block bg-gray-300"></span> S1
+                  </div>
+                  <span id="s1-active-badge" class="hidden text-[10px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded">Active</span>
+                </h3>
+                <div id="s1-space" class="flex-1 flex flex-wrap content-start gap-1 p-1"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Old Generation Area -->
+          <div class="flex-1 min-h-[200px] border-2 border-purple-200 bg-purple-50/30 rounded-xl p-4 flex flex-col shadow-inner relative">
+             <div class="absolute top-2 right-3 text-[10px] font-bold text-purple-300 uppercase">Tenured Gen</div>
+            <h3 class="font-bold text-purple-800 mb-2 flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-purple-600 block"></span> Old Space 
+              <span class="text-xs font-normal text-purple-600 ml-2">(Promotion Age: 3)</span>
+            </h3>
+            <div id="old-space" class="flex-1 flex flex-wrap content-start gap-1 p-2 bg-white/50 rounded border border-purple-100"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- GC Event Console / Terminal -->
+      <div class="h-40 bg-[#1e1e1e] border-t-4 border-indigo-500 flex flex-col">
+        <div class="px-4 py-1.5 bg-[#2d2d2d] text-xs text-gray-400 font-bold flex justify-between items-center">
+          <span>GC Event Logs</span>
+          <button id="btn-clear-logs" class="hover:text-white transition-colors" title="Clear Logs">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+          </button>
+        </div>
+        <div id="log-container" class="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed flex flex-col-reverse">
+          <!-- Logs injected here -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // --- 설정 및 상수 ---
+    const MAX_EDEN = 40;
+    const MAX_SURVIVOR = 20;
+    const MAX_OLD = 60;
+    const PROMOTION_AGE = 3;
+
+    const SCENARIOS = [
+      {
+        id: 'basic',
+        title: 'Lv.1 단명 객체의 생애 (Basic)',
+        desc: '대부분의 객체는 금방 접근 불가능(Unreachable) 상태가 되어 Minor GC 시 Eden 영역에서 소멸합니다.',
+        code: `public void processBasic() {\n  while(true) {\n    // 임시 객체 생성 (메서드 종료/루프 반복 시 Unreachable)\n    byte[] tempData = new byte[1024]; \n    doSomething(tempData);\n  }\n}`,
+        logic: (tick) => ({ reachable: false, type: 'temp' }) 
+      },
+      {
+        id: 'generational',
+        title: 'Lv.2 세대 이동 (Generational)',
+        desc: '오래 살아남은 객체는 Survivor 영역을 거쳐 Old 영역으로 승격(Promotion)됩니다.',
+        code: `private List<String> cache = new ArrayList<>();\n\npublic void processGenerational() {\n  while(true) {\n    String data = generateData(); // 단명 객체\n    if (shouldCache(data)) {\n      cache.add(data); // 장기 생존 객체 (Reachable)\n    }\n  }\n}`,
+        logic: (tick) => ({ reachable: tick % 5 === 0, type: tick % 5 === 0 ? 'cache' : 'temp' })
+      },
+      {
+        id: 'leak',
+        title: 'Lv.3 메모리 누수 (Memory Leak)',
+        desc: 'static 컬렉션 등에 객체를 계속 추가하고 지우지 않으면 Old 영역이 가득 차 Full GC가 발생합니다.',
+        code: `// 치명적인 메모리 누수 패턴\nprivate static List<Object> LEAK_LIST = new ArrayList<>();\n\npublic void processLeak() {\n  while(true) {\n    Object obj = new Object();\n    LEAK_LIST.add(obj); // 계속 누적됨!\n  }\n}`,
+        logic: (tick) => ({ reachable: true, type: 'leak' }) // 전부 다 살려둠 (누수)
+      }
+    ];
+
+    // --- 전역 상태 ---
+    let state = {
+      scenario: SCENARIOS[0],
+      isRunning: false,
+      tick: 0,
+      speed: 500, // ms
+      memory: [],
+      activeSurvivor: 'S0',
+      logs: [],
+      stats: { minorGc: 0, fullGc: 0, oom: false }
+    };
+
+    let loopIntervalId = null;
+    const domMap = new Map(); // 객체 ID와 DOM Element 매핑 캐시
+
+    // --- 유틸리티 및 로직 ---
+    function addLog(msg, type = 'info') {
+      state.logs.push({ id: Date.now() + Math.random(), msg, type });
+      if (state.logs.length > 20) state.logs.shift(); // 최대 20개 유지
+      renderLogs();
+    }
+
+    function reset() {
+      state.memory = [];
+      state.activeSurvivor = 'S0';
+      state.tick = 0;
+      state.logs = [];
+      state.stats = { minorGc: 0, fullGc: 0, oom: false };
+      state.isRunning = false;
+      
+      // DOM에서 모든 객체 제거
+      for (const el of domMap.values()) el.remove();
+      domMap.clear();
+
+      addLog('JVM 및 메모리를 초기화했습니다.', 'info');
+      updateLoopTimer();
+      renderAll();
+    }
+
+    function changeScenario(id) {
+      state.scenario = SCENARIOS.find(s => s.id === id);
+      reset();
+    }
+
+    // GC Core Logic
+    function triggerMinorGC(currentMemory, currentSurvivor) {
+      let swept = 0, promoted = 0;
+      const nextSurvivor = currentSurvivor === 'S0' ? 'S1' : 'S0';
+      
+      const newMemory = currentMemory.filter(obj => {
+        if (!obj.reachable) { swept++; return false; }
+
+        if (obj.gen === 'Eden' || obj.gen === currentSurvivor) {
+          obj.age += 1;
+          if (obj.age >= PROMOTION_AGE) {
+            obj.gen = 'Old';
+            promoted++;
+          } else {
+            obj.gen = nextSurvivor;
+          }
+        }
+        return true;
+      });
+
+      return { newMemory, nextSurvivor, swept, promoted };
+    }
+
+    function triggerFullGC(currentMemory) {
+      let swept = 0;
+      const newMemory = currentMemory.filter(obj => {
+        if (!obj.reachable) { swept++; return false; }
+        return true;
+      });
+      return { newMemory, swept };
+    }
+
+    function gameLoop() {
+      if (!state.isRunning || state.stats.oom) return;
+
+      state.tick++;
+      let nextMemory = [...state.memory];
+      let oomTriggered = false;
+
+      // 객체 할당 로직
+      const newObjProps = state.scenario.logic(state.tick);
+      const allocCount = Math.floor(Math.random() * 3) + 2; 
+      
+      for(let i = 0; i < allocCount; i++) {
+        nextMemory.push({
+          id: `${state.tick}-${i}`,
+          gen: 'Eden',
+          age: 0,
+          reachable: newObjProps.reachable,
+          type: newObjProps.type
+        });
+      }
+
+      // 영역별 용량 확인
+      const edenCount = nextMemory.filter(o => o.gen === 'Eden').length;
+      const oldCount = nextMemory.filter(o => o.gen === 'Old').length;
+
+      // Minor GC
+      if (edenCount >= MAX_EDEN) {
+        state.stats.minorGc++;
+        addLog(`[Minor GC] Eden 영역 초과. GC 시작...`, 'warn');
+        const result = triggerMinorGC(nextMemory, state.activeSurvivor);
+        nextMemory = result.newMemory;
+        state.activeSurvivor = result.nextSurvivor;
+        addLog(`[Minor GC] ${result.swept}개 수거, ${result.promoted}개 Old 승격.`, 'info');
+      }
+
+      // Full GC
+      if (oldCount >= MAX_OLD) {
+        state.stats.fullGc++;
+        addLog(`[Full GC] STW 발생! Old 영역 스윕 진행...`, 'error');
+        const result = triggerFullGC(nextMemory);
+        nextMemory = result.newMemory;
+        addLog(`[Full GC] ${result.swept}개 객체 수거됨.`, 'info');
+        
+        if (nextMemory.filter(o => o.gen === 'Old').length >= MAX_OLD) oomTriggered = true;
+      }
+
+      if (oomTriggered) {
+        state.isRunning = false;
+        state.stats.oom = true;
+        addLog(`[OutOfMemoryError] Java heap space 가득 참!`, 'error');
+        updateLoopTimer();
+      }
+
+      state.memory = nextMemory;
+      renderDynamic();
+    }
+
+    function updateLoopTimer() {
+      if (loopIntervalId) clearInterval(loopIntervalId);
+      if (state.isRunning) {
+        loopIntervalId = setInterval(gameLoop, state.speed);
+      }
+    }
+
+    // --- 렌더링 함수 ---
+    
+    function renderScenarios() {
+      const container = document.getElementById('scenario-list');
+      const desc = document.getElementById('scenario-desc');
+      
+      let html = '';
+      SCENARIOS.forEach(s => {
+        const isActive = state.scenario.id === s.id;
+        const outerClass = isActive ? 'bg-indigo-50 border-indigo-300 shadow-sm' : 'bg-white border-gray-200 hover:border-indigo-200 hover:bg-gray-50';
+        const textClass = isActive ? 'text-indigo-700' : 'text-gray-700';
+        const iconHtml = isActive ? `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500"><polyline points="9 18 15 12 9 6"></polyline></svg>` : '';
+        
+        html += `<button onclick="changeScenario('${s.id}')" class="w-full text-left p-3 rounded-lg border transition-all flex items-center justify-between group ${outerClass}">
+          <div class="font-semibold text-sm ${textClass}">${s.title}</div>
+          ${iconHtml}
+        </button>`;
+      });
+      container.innerHTML = html;
+      desc.textContent = state.scenario.desc;
+    }
+
+    function renderCode() {
+      const container = document.getElementById('code-container');
+      const lines = state.scenario.code.split('\n');
+      let html = '';
+      
+      lines.forEach((line, i) => {
+        let formattedLine = line
+          .replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/public|private|void|static|while|new|doSomething/g, match => `<span class="text-pink-400">${match}</span>`)
+          .replace(/byte|String|List|ArrayList|Object/g, match => `<span class="text-yellow-200">${match}</span>`)
+          .replace(/\/\/.*$/g, match => `<span class="text-green-600">${match}</span>`);
+
+        html += `<div class="table-row">
+            <span class="table-cell text-gray-500 select-none pr-4 text-right w-8">${i + 1}</span>
+            <span class="table-cell">${formattedLine}</span>
+        </div>`;
+      });
+      container.innerHTML = html;
+    }
+
+    function renderControls() {
+      const btnToggle = document.getElementById('btn-toggle');
+      const iconPlay = document.getElementById('icon-play');
+      const iconPause = document.getElementById('icon-pause');
+      const textToggle = document.getElementById('text-toggle');
+      
+      if (state.stats.oom) {
+        btnToggle.className = 'flex items-center gap-2 px-4 py-2 rounded-md font-semibold text-white transition-colors bg-gray-400 cursor-not-allowed';
+        iconPlay.classList.remove('hidden');
+        iconPause.classList.add('hidden');
+        textToggle.textContent = '시뮬레이션 시작';
+        document.getElementById('oom-banner').classList.remove('hidden');
+      } else {
+        document.getElementById('oom-banner').classList.add('hidden');
+        if (state.isRunning) {
+          btnToggle.className = 'flex items-center gap-2 px-4 py-2 rounded-md font-semibold text-white transition-colors bg-amber-500 hover:bg-amber-600';
+          iconPlay.classList.add('hidden');
+          iconPause.classList.remove('hidden');
+          textToggle.textContent = '일시 정지';
+        } else {
+          btnToggle.className = 'flex items-center gap-2 px-4 py-2 rounded-md font-semibold text-white transition-colors bg-emerald-500 hover:bg-emerald-600';
+          iconPlay.classList.remove('hidden');
+          iconPause.classList.add('hidden');
+          textToggle.textContent = '시뮬레이션 시작';
+        }
+      }
+      
+      document.getElementById('stat-minor').textContent = state.stats.minorGc;
+      document.getElementById('stat-full').textContent = state.stats.fullGc;
+    }
+
+    function getCapacityPercent(gen) {
+      let count = 0, max = 1;
+      if (gen === 'Eden') { count = state.memory.filter(o => o.gen === 'Eden').length; max = MAX_EDEN; }
+      else if (gen === 'Survivor') { count = state.memory.filter(o => o.gen === 'S0' || o.gen === 'S1').length; max = MAX_SURVIVOR * 2; }
+      else if (gen === 'Old') { count = state.memory.filter(o => o.gen === 'Old').length; max = MAX_OLD; }
+      return Math.min(100, Math.round((count / max) * 100));
+    }
+
+    function renderBarsAndLabels() {
+      const edenPct = getCapacityPercent('Eden');
+      const survivorPct = getCapacityPercent('Survivor');
+      const oldPct = getCapacityPercent('Old');
+
+      document.getElementById('bar-eden').style.width = `${edenPct}%`;
+      document.getElementById('bar-survivor').style.width = `${survivorPct}%`;
+      
+      const barOld = document.getElementById('bar-old');
+      const textOld = document.getElementById('bar-old-text');
+      barOld.style.width = `${oldPct}%`;
+      
+      document.getElementById('bar-eden-text').textContent = `${edenPct}%`;
+      document.getElementById('bar-survivor-text').textContent = `${survivorPct}%`;
+      textOld.textContent = `${oldPct}%`;
+      
+      if (oldPct > 80) {
+        barOld.className = 'h-full transition-all duration-300 bg-red-500';
+        textOld.className = 'text-red-500';
+      } else {
+        barOld.className = 'h-full transition-all duration-300 bg-purple-500';
+        textOld.className = '';
+      }
+
+      if (state.stats.oom) {
+        document.getElementById('old-oom-alert').classList.remove('hidden');
+      } else {
+        document.getElementById('old-oom-alert').classList.add('hidden');
+      }
+    }
+
+    function renderMemory() {
+      const containers = {
+        'Eden': document.getElementById('eden-space'),
+        'S0': document.getElementById('s0-space'),
+        'S1': document.getElementById('s1-space'),
+        'Old': document.getElementById('old-space')
+      };
+
+      // Survivor Active 상태 렌더링
+      const s0P = document.getElementById('s0-container-parent');
+      const s1P = document.getElementById('s1-container-parent');
+      const s0B = document.getElementById('s0-active-badge');
+      const s1B = document.getElementById('s1-active-badge');
+      const s0D = document.getElementById('s0-dot');
+      const s1D = document.getElementById('s1-dot');
+
+      if (state.activeSurvivor === 'S0') {
+        s0P.className = 'flex-1 border-2 rounded-xl p-3 flex flex-col shadow-inner transition-colors duration-500 border-blue-300 bg-blue-50';
+        s1P.className = 'flex-1 border-2 rounded-xl p-3 flex flex-col shadow-inner transition-colors duration-500 border-gray-200 bg-gray-50 opacity-50';
+        s0B.classList.remove('hidden'); s1B.classList.add('hidden');
+        s0D.className = 'w-3 h-3 rounded-full block bg-blue-400'; s1D.className = 'w-3 h-3 rounded-full block bg-gray-300';
+      } else {
+        s1P.className = 'flex-1 border-2 rounded-xl p-3 flex flex-col shadow-inner transition-colors duration-500 border-blue-300 bg-blue-50';
+        s0P.className = 'flex-1 border-2 rounded-xl p-3 flex flex-col shadow-inner transition-colors duration-500 border-gray-200 bg-gray-50 opacity-50';
+        s1B.classList.remove('hidden'); s0B.classList.add('hidden');
+        s1D.className = 'w-3 h-3 rounded-full block bg-blue-400'; s0D.className = 'w-3 h-3 rounded-full block bg-gray-300';
+      }
+
+      // 메모리 블록 렌더링 (순수 DOM 조작을 통한 트랜지션 유지)
+      const currentIds = new Set(state.memory.map(o => o.id));
+
+      // 1. 메모리에서 제거된 DOM 제거
+      for (const [id, el] of domMap.entries()) {
+        if (!currentIds.has(id)) {
+          el.remove();
+          domMap.delete(id);
+        }
+      }
+
+      // 2. 남은/새로운 객체 DOM 생성 및 스타일 업데이트
+      state.memory.forEach(obj => {
+        let el = domMap.get(obj.id);
+        if (!el) {
+          el = document.createElement('div');
+          domMap.set(obj.id, el);
+        }
+
+        let colorClass = 'bg-emerald-400';
+        if (obj.gen === 'S0' || obj.gen === 'S1') colorClass = 'bg-blue-400';
+        if (obj.gen === 'Old') colorClass = obj.type === 'leak' ? 'bg-red-500 animate-pulse' : 'bg-purple-600';
+        if (!obj.reachable && state.isRunning) colorClass = 'bg-gray-200 border-2 border-dashed border-gray-400';
+
+        el.className = `w-4 h-4 rounded-sm transition-all duration-300 ease-in-out flex items-center justify-center text-[8px] text-white font-bold cursor-pointer hover:scale-125 ${colorClass}`;
+        el.title = `Type: ${obj.type}\nAge: ${obj.age}\nReachable: ${obj.reachable}`;
+        el.textContent = obj.age > 0 ? obj.age : '';
+
+        // 영역 이동 반영 (Append to correct container if changed)
+        if (el.parentElement !== containers[obj.gen]) {
+          containers[obj.gen].appendChild(el);
+        }
+      });
+    }
+
+    function renderLogs() {
+      const logContainer = document.getElementById('log-container');
+      let html = '';
+      const reversedLogs = [...state.logs].reverse();
+      
+      reversedLogs.forEach(log => {
+        let colorClass = '';
+        if (log.type === 'error') colorClass = 'text-red-400';
+        else if (log.type === 'warn') colorClass = 'text-amber-300';
+        else if (log.type === 'info') colorClass = 'text-emerald-300';
+
+        const d = new Date(log.id);
+        const timeString = d.toISOString().split('T')[1].slice(0, 8);
+        html += `<div class="${colorClass}">
+            <span class="text-gray-500 mr-2">[${timeString}]</span>${log.msg}
+        </div>`;
+      });
+      logContainer.innerHTML = html;
+    }
+
+    function renderAll() {
+      renderScenarios();
+      renderCode();
+      renderDynamic();
+    }
+
+    function renderDynamic() {
+      renderControls();
+      renderBarsAndLabels();
+      renderMemory();
+      renderLogs();
+    }
+
+    // --- 이벤트 바인딩 ---
+    document.getElementById('btn-toggle').addEventListener('click', () => {
+      if (state.stats.oom) return;
+      state.isRunning = !state.isRunning;
+      updateLoopTimer();
+      renderDynamic();
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      reset();
+    });
+
+    document.getElementById('speed-slider').addEventListener('input', (e) => {
+      state.speed = Number(e.target.value);
+      document.getElementById('speed-label').textContent = `${state.speed}ms`;
+      updateLoopTimer();
+    });
+
+    document.getElementById('btn-clear-logs').addEventListener('click', () => {
+      state.logs = [];
+      renderLogs();
+    });
+
+    // --- 초기화 구동 ---
+    renderAll();
+  </script>
+</body>
+</html>

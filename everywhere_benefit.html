@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트 혜택 알리미</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in-up {
+            animation: fadeInUp 0.3s ease-out forwards;
+        }
+        /* 스크롤바 숨기기 */
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-gray-900 pb-20">
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="fixed inset-0 z-50 bg-slate-50 flex items-center justify-center transition-opacity duration-500">
+        <i data-lucide="refresh-cw" class="w-8 h-8 text-blue-500 animate-spin"></i>
+    </div>
+
+    <!-- Main Application (Hidden initially) -->
+    <div id="main-app" class="min-h-screen hidden">
+        <!-- Header -->
+        <header class="bg-white shadow-sm sticky top-0 z-40">
+            <div class="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
+                <div class="flex items-center gap-2 cursor-pointer" id="header-logo-btn">
+                    <div class="bg-blue-600 p-2 rounded-lg relative">
+                        <i data-lucide="star" class="w-5 h-5 text-white"></i>
+                        <span id="db-connected-badge" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-400 border-2 border-white rounded-full"></span>
+                    </div>
+                    <h1 class="text-xl font-bold text-gray-900 tracking-tight hidden sm:block">어디서나 할인</h1>
+                </div>
+                
+                <!-- Navigation Tabs -->
+                <div class="flex bg-gray-100 rounded-lg p-1">
+                    <button id="nav-search-btn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all bg-white text-blue-600 shadow-sm">
+                        <i data-lucide="search" class="w-4 h-4"></i> 매장 검색
+                    </button>
+                    <button id="nav-memberships-btn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all text-gray-500 hover:text-gray-700">
+                        <i data-lucide="credit-card" class="w-4 h-4"></i> 멤버십 전체보기
+                    </button>
+                </div>
+
+                <div class="flex items-center">
+                    <button id="show-logic-guide-btn" class="text-gray-400 hover:text-blue-600 transition-colors p-2" title="서비스 로직">
+                        <i data-lucide="info" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-2xl mx-auto px-4 mt-8">
+            
+            <!-- ========================================== -->
+            <!-- VIEW 1: Search View                        -->
+            <!-- ========================================== -->
+            <div id="view-search" class="animate-fade-in-up">
+                <div class="relative z-10">
+                    <div class="relative flex items-center">
+                        <i data-lucide="search" class="absolute left-4 w-5 h-5 text-gray-400"></i>
+                        <input id="search-input" type="text" placeholder="방문하신 매장명을 입력하세요 (예: 서브웨이, 스타벅스)" class="w-full pl-12 pr-4 py-4 rounded-xl border-2 border-transparent focus:border-blue-500 shadow-lg outline-none text-lg transition-all bg-white">
+                        <button id="clear-search-btn" class="hidden absolute right-4 text-sm text-gray-400 hover:text-gray-600 font-medium">지우기</button>
+                    </div>
+
+                    <!-- Autocomplete Dropdown -->
+                    <div id="search-dropdown" class="hidden absolute w-full mt-2 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden"></div>
+                </div>
+
+                <!-- Realtime Loading State -->
+                <div id="ai-loading-state" class="hidden mt-16 text-center animate-fade-in-up">
+                    <i data-lucide="sparkles" class="w-10 h-10 text-purple-500 animate-spin mx-auto mb-4"></i>
+                    <h3 class="text-xl font-bold text-gray-800">AI가 혜택을 찾고 있습니다...</h3>
+                    <p class="text-gray-500 mt-2">
+                        Google Gemini AI가 인터넷을 검색하여 <b id="ai-search-query-text"></b>의<br>최신 멤버십 혜택 정보를 분석 중입니다.
+                    </p>
+                </div>
+
+                <!-- Results Section -->
+                <div id="search-results-section" class="hidden mt-8 animate-fade-in-up">
+                    <div class="flex items-end justify-between mb-4">
+                        <div>
+                            <h2 class="text-2xl font-extrabold text-gray-900">
+                                <span id="result-store-name"></span> <span class="text-gray-400 font-medium text-lg">혜택 모아보기</span>
+                            </h2>
+                        </div>
+                        <p id="result-source-badge" class="text-xs text-gray-500 flex items-center gap-1"></p>
+                    </div>
+
+                    <div id="benefits-container" class="space-y-4"></div>
+                </div>
+
+                <!-- Empty State / Dashboard Suggestions -->
+                <div id="popular-stores-section" class="mt-12">
+                    <div class="flex justify-between items-end mb-4">
+                        <h3 class="text-sm font-semibold text-gray-500 ml-1">🔥 사람들이 많이 찾는 매장</h3>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <button class="popular-store-btn bg-white border border-gray-200 rounded-xl py-4 shadow-sm hover:border-blue-300 hover:shadow text-gray-700 font-medium transition-all" data-store="서브웨이">서브웨이</button>
+                        <button class="popular-store-btn bg-white border border-gray-200 rounded-xl py-4 shadow-sm hover:border-blue-300 hover:shadow text-gray-700 font-medium transition-all" data-store="롯데시네마">롯데시네마</button>
+                        <button class="popular-store-btn bg-white border border-gray-200 rounded-xl py-4 shadow-sm hover:border-blue-300 hover:shadow text-gray-700 font-medium transition-all" data-store="파리바게뜨">파리바게뜨</button>
+                        <button class="popular-store-btn bg-white border border-gray-200 rounded-xl py-4 shadow-sm hover:border-blue-300 hover:shadow text-gray-700 font-medium transition-all" data-store="도미노피자">도미노피자</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- VIEW 2: Memberships View                   -->
+            <!-- ========================================== -->
+            <div id="view-memberships" class="hidden animate-fade-in-up">
+                <div class="mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+                    <div>
+                        <h2 class="text-2xl font-extrabold text-gray-900">멤버십 전체보기</h2>
+                        <p class="text-gray-500 text-sm mt-1">주요 제휴사 및 검색을 통해 찾아진 혜택 목록입니다.</p>
+                    </div>
+                    <p id="memberships-db-badge" class="hidden text-xs text-green-600 font-medium flex items-center gap-1 bg-green-50 px-2 py-1 rounded-md">
+                        <i data-lucide="database" class="w-3 h-3"></i> DB 동기화 완료
+                    </p>
+                </div>
+
+                <!-- Membership Tabs -->
+                <div id="membership-tabs-container" class="flex overflow-x-auto pb-4 gap-2 mb-4 scrollbar-hide"></div>
+
+                <!-- Selected Membership Content -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div id="membership-header" class="p-6 border-b border-gray-100 flex items-center justify-between"></div>
+                    
+                    <div class="bg-blue-50 px-6 py-3 flex items-start gap-2 border-b border-blue-100">
+                        <i data-lucide="info" class="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0"></i>
+                        <p class="text-xs text-blue-800">
+                            목록에 없는 매장은 <b>'매장 검색' 탭에서 검색</b>하시면 AI가 실시간으로 인터넷을 찾아 혜택 정보를 안내해 드립니다.
+                        </p>
+                    </div>
+                    
+                    <div id="membership-stores-container" class="divide-y divide-gray-100"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Logic Guide Modal -->
+    <div id="logic-guide-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 opacity-0 transition-opacity">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative transform scale-95 transition-transform duration-300" id="logic-guide-content">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">📊 백엔드 DB 연동 가이드</h2>
+            <div class="space-y-4 text-sm text-gray-600 max-h-[60vh] overflow-y-auto pr-2">
+                <div>
+                    <h3 class="font-bold text-gray-900 mb-1">1. 실시간 클라우드 DB 연결</h3>
+                    <p>앱을 실행하면 내장된 클라우드 DB(Firestore)의 `public/data/benefit_stores` 경로에 접속하여 실시간 동기화(onSnapshot)를 시작합니다.</p>
+                </div>
+                <div>
+                    <h3 class="font-bold text-gray-900 mb-1">2. 빠른 초기화 로직 (Silent Seeding)</h3>
+                    <p>기존의 무거운 크롤링 대기 화면 대신, DB가 비어있을 경우 백그라운드에서 조용히 기본 데이터를 채워넣고 사용자에게는 즉시 메인 화면을 보여줍니다.</p>
+                </div>
+                <div>
+                    <h3 class="font-bold text-gray-900 mb-1">3. Gemini AI 실시간 혜택 검색</h3>
+                    <p>DB에 존재하지 않는 매장 검색 시, Google Gemini API의 구글 검색(Grounding) 기능을 사용하여 실시간으로 인터넷 정보를 가져오고 JSON 포맷으로 파싱하여 화면에 보여줍니다.</p>
+                </div>
+                <div>
+                    <h3 class="font-bold text-gray-900 mb-1">4. Vanilla JavaScript 아키텍처</h3>
+                    <p>React 프레임워크 없이 순수 HTML, CSS, JS만으로 가상 DOM(Virtual DOM)과 유사한 상태 기반 렌더링을 구현하여 가볍고 빠르게 동작합니다.</p>
+                </div>
+            </div>
+            <button id="close-logic-guide-btn" class="mt-6 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors">닫기</button>
+        </div>
+    </div>
+
+    <!-- App Logic (Module) -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, onSnapshot, writeBatch } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        // ========================================================================
+        // Configuration & Data
+        // ========================================================================
+        
+        // 누락되었던 Firebase 초기화 변수 추가
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        const apiKey = "AIzaSyCWsALR19hxeDOaNDjR1jytoozDpXmb7Jw"; 
+
+        const BASE_TARGETS = [
+            { storeName: "서브웨이", aliases: ["subway", "써브웨이", "샌드위치"], category: "F&B", benefits: [{ id: "skt_subway", membership: "SKT T멤버십", brandColor: "text-red-600 bg-red-50 border-red-200", badgeColor: "bg-red-500", tiers: [{ level: "VIP", detail: "15% 할인 또는 적립" }, { level: "Gold/Silver", detail: "10% 할인 또는 적립" }], limit: "1일 1회, 결제 금액 최대 20만원 한도", isBest: true, officialUrl: "https://tmembership.tworld.co.kr" }, { id: "naver_subway", membership: "네이버 플러스 멤버십", brandColor: "text-green-600 bg-green-50 border-green-200", badgeColor: "bg-green-500", tiers: [{ level: "전체 등급", detail: "네이버페이 현장결제 시 최대 5% 포인트 더블 적립" }], limit: "결제 건당 1회, 월 최대 2만원 한도 내", isBest: false, officialUrl: "https://nid.naver.com/membership/join" }] },
+            { storeName: "롯데시네마", aliases: ["lotte cinema", "영화", "영화관", "시네마"], category: "Culture", benefits: [{ id: "kt_lotte", membership: "KT 멤버십", brandColor: "text-cyan-600 bg-cyan-50 border-cyan-200", badgeColor: "bg-cyan-500", tiers: [{ level: "VVIP", detail: "무료 영화 예매 (연 12회)" }, { level: "VIP", detail: "무료 영화 예매 (연 6회)" }, { level: "전등급", detail: "최대 5,000원 할인 (동반 3인까지)" }], limit: "본인/동반인 혜택 일 1회 적용", isBest: true, officialUrl: "https://membership.kt.com" }, { id: "skt_lotte", membership: "SKT T멤버십", brandColor: "text-red-600 bg-red-50 border-red-200", badgeColor: "bg-red-500", tiers: [{ level: "VIP", detail: "연 3회 무료, 이후 평일 1+1 (연 9회)" }, { level: "일반", detail: "티켓 1매당 2천원 ~ 4천원 할인" }], limit: "일 1회 적용", isBest: false, officialUrl: "https://tmembership.tworld.co.kr" }] },
+            { storeName: "파리바게뜨", aliases: ["paris baguette", "파바", "빵집", "베이커리"], category: "F&B", benefits: [{ id: "lgu_paris", membership: "LG U+ 멤버십", brandColor: "text-pink-600 bg-pink-50 border-pink-200", badgeColor: "bg-pink-500", tiers: [{ level: "VVIP/VIP", detail: "1,000원당 100원 할인" }, { level: "Diamond/일반", detail: "1,000원당 50원 할인" }], limit: "1일 1회, 결제 금액 최대 20만원 한도", isBest: true, officialUrl: "https://www.lguplus.com/benefit/membership" }] },
+            { storeName: "빕스", aliases: ["vips", "스테이크", "패밀리레스토랑", "레스토랑"], category: "F&B", benefits: [{ id: "cj_vips", membership: "CJ ONE", brandColor: "text-orange-600 bg-orange-50 border-orange-200", badgeColor: "bg-orange-500", tiers: [{ level: "SVIP", detail: "결제금액 15% 추가 할인 + 5% 적립" }, { level: "VIP", detail: "결제금액 10% 추가 할인 + 5% 적립" }, { level: "일반", detail: "0.5% 기본 적립" }], limit: "타 제휴 할인과 중복 적용 불가 (적립은 가능)", isBest: true, officialUrl: "https://www.cjone.com" }] },
+            { storeName: "도미노피자", aliases: ["domino", "피자", "배달"], category: "F&B", benefits: [{ id: "skt_domino", membership: "SKT T멤버십", brandColor: "text-red-600 bg-red-50 border-red-200", badgeColor: "bg-red-500", tiers: [{ level: "VIP", detail: "30% 할인 또는 적립" }, { level: "Silver/Gold", detail: "20% 할인 또는 적립" }], limit: "일 1회, 최대 20만원 한도", isBest: true, officialUrl: "https://tmembership.tworld.co.kr" }] },
+            { storeName: "GS25", aliases: ["gs25", "편의점", "지에스"], category: "Convenience", benefits: [{ id: "kt_gs25", membership: "KT 멤버십", brandColor: "text-cyan-600 bg-cyan-50 border-cyan-200", badgeColor: "bg-cyan-500", tiers: [{ level: "VVIP/VIP", detail: "1,000원당 100원 할인 (포인트 차감)" }, { level: "일반", detail: "1,000원당 50원 할인 (포인트 차감)" }], limit: "일 1회, 결제 금액 최대 20만원 한도", isBest: true, officialUrl: "https://membership.kt.com" }] },
+            { storeName: "CU", aliases: ["cu", "씨유", "편의점"], category: "Convenience", benefits: [{ id: "skt_cu", membership: "SKT T멤버십", brandColor: "text-red-600 bg-red-50 border-red-200", badgeColor: "bg-red-500", tiers: [{ level: "VIP/Gold", detail: "1,000원당 100원 할인 또는 적립" }, { level: "Silver", detail: "1,000원당 50원 할인 또는 적립" }], limit: "일 1회", isBest: true, officialUrl: "https://tmembership.tworld.co.kr" }] }
+        ];
+
+        const MEMBERSHIP_STATS = {
+            "SKT T멤버십": { totalStores: 1142 },
+            "KT 멤버십": { totalStores: 1050 },
+            "LG U+ 멤버십": { totalStores: 787 },
+            "네이버 플러스 멤버십": { totalStores: 420 },
+            "CJ ONE": { totalStores: 35 }
+        };
+
+        const MEMBERSHIP_CONFIG = {
+            "SKT T멤버십": { brandColor: "text-red-600 bg-red-50 border-red-200", badgeColor: "bg-red-500", officialUrl: "https://tmembership.tworld.co.kr" },
+            "KT 멤버십": { brandColor: "text-cyan-600 bg-cyan-50 border-cyan-200", badgeColor: "bg-cyan-500", officialUrl: "https://membership.kt.com" },
+            "LG U+ 멤버십": { brandColor: "text-pink-600 bg-pink-50 border-pink-200", badgeColor: "bg-pink-500", officialUrl: "https://www.lguplus.com/benefit/membership" },
+            "네이버 플러스 멤버십": { brandColor: "text-green-600 bg-green-50 border-green-200", badgeColor: "bg-green-500", officialUrl: "https://nid.naver.com/membership/join" },
+            "CJ ONE": { brandColor: "text-orange-600 bg-orange-50 border-orange-200", badgeColor: "bg-orange-500", officialUrl: "https://www.cjone.com" }
+        };
+
+        const DEFAULT_CONFIG = { brandColor: "text-gray-600 bg-gray-50 border-gray-200", badgeColor: "bg-gray-500", officialUrl: "#" };
+
+        // ========================================================================
+        // Application State
+        // ========================================================================
+        const state = {
+            dbData: [],
+            isDbConnected: false,
+            lastUpdated: null,
+            currentView: 'search',
+            searchQuery: '',
+            suggestions: [],
+            selectedStore: null,
+            isRealtimeLoading: false,
+            activeMembershipTab: 'SKT T멤버십',
+            groupedMemberships: {}
+        };
+
+        // ========================================================================
+        // Helper Functions
+        // ========================================================================
+        function updateIcons() {
+            lucide.createIcons();
+        }
+
+        function computeGroupedMemberships() {
+            const grouped = {
+                "SKT T멤버십": { color: "bg-red-500 text-red-600 border-red-500", stores: [], totalCount: MEMBERSHIP_STATS["SKT T멤버십"].totalStores },
+                "KT 멤버십": { color: "bg-cyan-500 text-cyan-600 border-cyan-500", stores: [], totalCount: MEMBERSHIP_STATS["KT 멤버십"].totalStores },
+                "LG U+ 멤버십": { color: "bg-pink-500 text-pink-600 border-pink-500", stores: [], totalCount: MEMBERSHIP_STATS["LG U+ 멤버십"].totalStores },
+                "네이버 플러스 멤버십": { color: "bg-green-500 text-green-600 border-green-500", stores: [], totalCount: MEMBERSHIP_STATS["네이버 플러스 멤버십"].totalStores },
+                "CJ ONE": { color: "bg-orange-500 text-orange-600 border-orange-500", stores: [], totalCount: MEMBERSHIP_STATS["CJ ONE"].totalStores }
+            };
+
+            state.dbData.forEach(store => {
+                store.benefits.forEach(benefit => {
+                    if (grouped[benefit.membership]) {
+                        grouped[benefit.membership].stores.push({
+                            storeName: store.storeName,
+                            category: store.category,
+                            ...benefit
+                        });
+                    }
+                });
+            });
+            state.groupedMemberships = grouped;
+        }
+
+        const fetchAIStoreData = async (query) => {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: `현재 한국 기준으로 '${query}' 매장에서 결제 시 받을 수 있는 주요 통신사(SKT T멤버십, KT 멤버십, LG U+ 멤버십) 및 기타(네이버 플러스 멤버십, CJ ONE) 제휴 할인 혜택을 구글 검색을 통해 찾아주세요. 혜택이 존재하지 않거나 알 수 없으면 benefits 배열을 비워서 반환하세요.` }] }],
+                systemInstruction: { parts: [{ text: `너는 멤버십 할인 혜택을 찾아주는 AI 봇이야. 구글 검색(Grounding)을 활용해 가장 최신의 정확한 혜택을 찾아. 
+반드시 아래의 JSON 형식으로만 응답해야 하며, 설명이나 마크다운(예: \`\`\`json)은 절대 포함하지 마.
+
+{
+  "storeName": "매장명",
+  "category": "카테고리 (예: F&B, Culture, Life 등)",
+  "benefits": [
+    {
+      "membershipName": "SKT T멤버십, KT 멤버십, LG U+ 멤버십, 네이버 플러스 멤버십, CJ ONE 중 하나",
+      "tiers": [
+        { "level": "등급 (예: VIP, 전등급)", "detail": "할인 혜택 상세 내용" }
+      ],
+      "limit": "할인 한도나 유의사항 (예: 일 1회)",
+      "isBest": true 또는 false
+    }
+  ]
+}` }] },
+                tools: [{ "google_search": {} }]
+            };
+
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            let lastError;
+
+            for (let i = 0; i <= delays.length; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errText = await response.text();
+                        console.error(`Gemini API Error (${response.status}):`, errText);
+                        
+                        if (response.status === 400) throw new Error("400_BAD_REQUEST");
+                        if (response.status === 401) throw new Error("401_UNAUTHORIZED");
+                        if (response.status === 404) throw new Error("404_NOT_FOUND");
+                        if (response.status === 429) throw new Error("429_TOO_MANY_REQUESTS");
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!text) throw new Error("No text returned from AI");
+
+                    let cleanText = text;
+                    if (cleanText.includes('```')) {
+                        cleanText = cleanText.replace(/```json/gi, '').replace(/```/g, '').trim();
+                    }
+                    return JSON.parse(cleanText);
+
+                } catch (error) {
+                    lastError = error;
+                    if (error.message.includes("400") || error.message.includes("401") || error.message.includes("404") || error.message.includes("429")) {
+                        break;
+                    }
+                    if (i < delays.length) {
+                        await new Promise(res => setTimeout(res, delays[i]));
+                    }
+                }
+            }
+            throw lastError;
+        };
+
+        const processAIData = (aiData) => {
+            const processedBenefits = aiData.benefits.map((b, idx) => {
+                const config = MEMBERSHIP_CONFIG[b.membershipName] || DEFAULT_CONFIG;
+                return {
+                    id: `ai_${idx}`,
+                    membership: b.membershipName,
+                    ...config,
+                    tiers: b.tiers,
+                    limit: b.limit,
+                    isBest: b.isBest
+                };
+            });
+
+            return {
+                storeName: aiData.storeName,
+                category: aiData.category || "AI 검색 결과",
+                isRealtimeFetched: true,
+                benefits: processedBenefits
+            };
+        };
+
+        // ========================================================================
+        // Rendering Logic
+        // ========================================================================
+        
+        function renderHeader() {
+            const searchBtn = document.getElementById('nav-search-btn');
+            const membersBtn = document.getElementById('nav-memberships-btn');
+            
+            if (state.currentView === 'search') {
+                searchBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all bg-white text-blue-600 shadow-sm';
+                membersBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all text-gray-500 hover:text-gray-700';
+            } else {
+                searchBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all text-gray-500 hover:text-gray-700';
+                membersBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all bg-white text-blue-600 shadow-sm';
+            }
+
+            const dbBadge = document.getElementById('db-connected-badge');
+            if (state.isDbConnected) dbBadge.classList.remove('hidden');
+            else dbBadge.classList.add('hidden');
+        }
+
+        function renderViews() {
+            document.getElementById('view-search').classList.toggle('hidden', state.currentView !== 'search');
+            document.getElementById('view-memberships').classList.toggle('hidden', state.currentView !== 'memberships');
+            if(state.currentView === 'memberships') renderMemberships();
+        }
+
+        function renderSearchInput() {
+            const clearBtn = document.getElementById('clear-search-btn');
+            if (state.searchQuery) clearBtn.classList.remove('hidden');
+            else clearBtn.classList.add('hidden');
+            
+            document.getElementById('search-input').value = state.searchQuery;
+            renderSuggestions();
+        }
+
+        function renderSuggestions() {
+            const dropdown = document.getElementById('search-dropdown');
+            dropdown.innerHTML = '';
+            
+            if (!state.isDropdownOpen) {
+                dropdown.classList.add('hidden');
+                return;
+            }
+
+            if (state.suggestions.length > 0) {
+                let html = '';
+                state.suggestions.forEach((store, index) => {
+                    html += `
+                        <div data-index="${index}" class="suggestion-item px-6 py-4 hover:bg-blue-50 cursor-pointer flex items-center justify-between border-b border-gray-50 last:border-0 transition-colors">
+                            <div>
+                                <span class="font-semibold text-gray-800 text-lg">${store.storeName}</span>
+                                <span class="ml-3 text-xs px-2 py-1 bg-gray-100 text-gray-500 rounded-full">${store.category}</span>
+                            </div>
+                            <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400"></i>
+                        </div>
+                    `;
+                });
+                dropdown.innerHTML = html;
+                dropdown.classList.remove('hidden');
+            } else if (state.searchQuery) {
+                dropdown.innerHTML = `
+                    <div id="trigger-ai-search" class="px-6 py-4 hover:bg-purple-50 cursor-pointer flex items-center justify-center gap-2 text-purple-600 font-medium transition-colors border-b-2 border-purple-500/20 bg-purple-50/50">
+                        <i data-lucide="sparkles" class="w-5 h-5 animate-pulse"></i>
+                        <span>"${state.searchQuery}" AI에게 실시간 혜택 물어보기</span>
+                    </div>
+                `;
+                dropdown.classList.remove('hidden');
+            } else {
+                dropdown.classList.add('hidden');
+            }
+            updateIcons();
+        }
+
+        function renderMainContent() {
+            const loadingState = document.getElementById('ai-loading-state');
+            const resultsSection = document.getElementById('search-results-section');
+            const popularSection = document.getElementById('popular-stores-section');
+
+            if (state.isRealtimeLoading) {
+                loadingState.classList.remove('hidden');
+                resultsSection.classList.add('hidden');
+                popularSection.classList.add('hidden');
+                document.getElementById('ai-search-query-text').innerText = `'${state.searchQuery}'`;
+                return;
+            } else {
+                loadingState.classList.add('hidden');
+            }
+
+            if (state.selectedStore) {
+                resultsSection.classList.remove('hidden');
+                popularSection.classList.add('hidden');
+                
+                document.getElementById('result-store-name').innerText = state.selectedStore.storeName;
+                
+                const sourceBadge = document.getElementById('result-source-badge');
+                if (state.selectedStore.isRealtimeFetched) {
+                    sourceBadge.innerHTML = `<i data-lucide="sparkles" class="w-3 h-3 text-purple-500"></i> AI 실시간 검색됨`;
+                } else {
+                    sourceBadge.innerHTML = `<i data-lucide="database" class="w-3 h-3 text-green-500"></i> DB 데이터 출력`;
+                }
+
+                const benefitsContainer = document.getElementById('benefits-container');
+                benefitsContainer.innerHTML = state.selectedStore.benefits.map(benefit => `
+                    <div class="relative bg-white rounded-2xl p-6 shadow-sm border ${benefit.isBest ? 'border-blue-400 shadow-md ring-1 ring-blue-400' : 'border-gray-200'}">
+                        ${benefit.isBest ? `
+                            <div class="absolute -top-3 -right-2 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-sm flex items-center gap-1">
+                                <i data-lucide="star" class="w-3 h-3 fill-white"></i> 추천 혜택
+                            </div>
+                        ` : ''}
+                        
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="inline-block w-3 h-3 rounded-full ${benefit.badgeColor}"></span>
+                            <h3 class="text-lg font-bold ${benefit.brandColor.split(' ')[0]}">${benefit.membership}</h3>
+                        </div>
+
+                        <div class="space-y-3 mb-5">
+                            ${benefit.tiers.map(tier => `
+                                <div class="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4 bg-gray-50 p-3 rounded-lg">
+                                    <span class="text-sm font-semibold text-gray-700 min-w-[80px] mt-0.5">${tier.level}</span>
+                                    <span class="text-gray-800 font-medium">${tier.detail}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-gray-100">
+                            <div class="flex items-center gap-1.5 text-xs text-gray-500">
+                                <i data-lucide="alert-circle" class="w-4 h-4 text-orange-400"></i>
+                                ${benefit.limit}
+                            </div>
+                            <a href="${benefit.officialUrl}" target="_blank" rel="noreferrer" class="inline-flex items-center justify-center gap-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors w-full sm:w-auto">
+                                공식 안내 확인 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                            </a>
+                        </div>
+                    </div>
+                `).join('');
+            } else if (!state.searchQuery) {
+                resultsSection.classList.add('hidden');
+                popularSection.classList.remove('hidden');
+            } else {
+                resultsSection.classList.add('hidden');
+                popularSection.classList.add('hidden');
+            }
+            updateIcons();
+        }
+
+        function renderMemberships() {
+            if (!state.isDbConnected) return;
+
+            const dbBadge = document.getElementById('memberships-db-badge');
+            if (state.isDbConnected) dbBadge.classList.remove('hidden');
+
+            const tabsContainer = document.getElementById('membership-tabs-container');
+            tabsContainer.innerHTML = Object.keys(state.groupedMemberships).map(membershipName => {
+                const isActive = state.activeMembershipTab === membershipName;
+                const config = state.groupedMemberships[membershipName];
+                const colorBase = config.color.split(' ')[0].split('-')[1]; 
+                
+                const activeClass = `bg-${colorBase}-50 border-${colorBase}-500 text-${colorBase}-700 shadow-sm`;
+                const inactiveClass = `bg-white border-gray-200 text-gray-500 hover:border-gray-300`;
+                
+                return `
+                    <button data-tab="${membershipName}" class="membership-tab-btn whitespace-nowrap px-5 py-3 rounded-xl font-bold text-sm transition-all border-2 ${isActive ? activeClass : inactiveClass}">
+                        ${membershipName}
+                    </button>
+                `;
+            }).join('');
+
+            const activeGroup = state.groupedMemberships[state.activeMembershipTab];
+            const headerColor = activeGroup.color.split(' ')[1];
+            
+            document.getElementById('membership-header').innerHTML = `
+                <h3 class="text-xl font-extrabold flex items-center gap-2 ${headerColor}">
+                    <i data-lucide="store" class="w-6 h-6"></i> ${state.activeMembershipTab} 제휴사 목록
+                </h3>
+                <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs font-bold">
+                    주요 데이터: ${activeGroup.stores.length}곳
+                </span>
+            `;
+
+            const storesContainer = document.getElementById('membership-stores-container');
+            if (activeGroup.stores.length > 0) {
+                storesContainer.innerHTML = activeGroup.stores.map(store => `
+                    <div class="p-6 hover:bg-gray-50 transition-colors">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-3">
+                                <span class="text-lg font-bold text-gray-900">${store.storeName}</span>
+                                <span class="text-xs px-2 py-1 bg-gray-200 text-gray-600 rounded-md">${store.category}</span>
+                            </div>
+                            <a href="${store.officialUrl}" target="_blank" rel="noreferrer" class="text-gray-400 hover:text-blue-500" title="공식 홈페이지 확인">
+                                <i data-lucide="external-link" class="w-5 h-5"></i>
+                            </a>
+                        </div>
+                        <div class="space-y-2">
+                            ${store.tiers.map(tier => `
+                                <div class="flex gap-4 text-sm">
+                                    <span class="font-semibold text-gray-700 min-w-[80px]">${tier.level}</span>
+                                    <span class="text-gray-600">${tier.detail}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        ${store.limit ? `
+                            <div class="mt-3 text-xs text-orange-500 flex items-center gap-1">
+                                <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> ${store.limit}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('');
+            } else {
+                storesContainer.innerHTML = `
+                    <div class="p-12 text-center text-gray-500 flex flex-col items-center">
+                        <i data-lucide="database" class="w-8 h-8 text-gray-300 mb-3"></i>
+                        해당 멤버십의 기본 제휴사가 등록되지 않았습니다.
+                    </div>
+                `;
+            }
+            updateIcons();
+        }
+
+        function updateAll() {
+            renderHeader();
+            renderViews();
+            renderSearchInput();
+            renderMainContent();
+        }
+
+        // ========================================================================
+        // Event Listeners & Actions
+        // ========================================================================
+        const handleSearchInput = (e) => {
+            state.searchQuery = e.target.value;
+            
+            if (!state.searchQuery.trim()) {
+                state.suggestions = [];
+                state.isDropdownOpen = false;
+            } else {
+                const lowerQuery = state.searchQuery.toLowerCase();
+                state.suggestions = state.dbData.filter(store => 
+                    store.storeName.toLowerCase().includes(lowerQuery) ||
+                    store.aliases.some(alias => alias.includes(lowerQuery))
+                );
+                state.isDropdownOpen = true;
+            }
+            renderSearchInput();
+            renderMainContent();
+        };
+
+        const handleSelectStore = (store) => {
+            state.selectedStore = {
+                ...store,
+                benefits: [...store.benefits].sort((a, b) => (b.isBest ? 1 : 0) - (a.isBest ? 1 : 0))
+            };
+            state.searchQuery = store.storeName;
+            state.isDropdownOpen = false;
+            document.getElementById('search-input').blur();
+            updateAll();
+        };
+
+        const handleClearSearch = () => {
+            state.searchQuery = '';
+            state.selectedStore = null;
+            state.suggestions = [];
+            state.isRealtimeLoading = false;
+            updateAll();
+        };
+
+        const handleRealtimeSearch = async () => {
+            state.isDropdownOpen = false;
+            document.getElementById('search-input').blur();
+            state.selectedStore = null;
+            state.isRealtimeLoading = true;
+            updateAll();
+
+            try {
+                const aiRawData = await fetchAIStoreData(state.searchQuery);
+                const dynamicResult = processAIData(aiRawData);
+
+                if (dynamicResult.benefits.length === 0) {
+                    dynamicResult.benefits = [{
+                        id: "no_benefit",
+                        membership: "제휴 혜택 미발견",
+                        brandColor: "text-gray-600 bg-gray-50 border-gray-200",
+                        badgeColor: "bg-gray-500",
+                        tiers: [{ level: "안내", detail: "인터넷 검색 결과, 주요 통신사 및 멤버십 제휴 혜택을 찾을 수 없습니다." }],
+                        limit: "제휴가 종료되었거나 공식 혜택이 아닐 수 있습니다.",
+                        isBest: false,
+                        officialUrl: "#"
+                    }];
+                }
+
+                state.selectedStore = {
+                    ...dynamicResult,
+                    benefits: [...dynamicResult.benefits].sort((a, b) => (b.isBest ? 1 : 0) - (a.isBest ? 1 : 0))
+                };
+            } catch (error) {
+                console.error("AI 검색 실패 상세 로그:", error);
+                let errorTitle = "AI 통신 오류";
+                let errorDetail = `AI 서버와의 연결이 지연되거나 실패했습니다. (${error.message})`;
+                let errorLimit = "잠시 후 다시 검색을 시도해 주세요.";
+
+                if (error.message.includes("400")) {
+                    errorTitle = "AI 설정 충돌 오류 (400)";
+                    errorDetail = "API 호출 시 지원되지 않는 옵션 조합이 발견되었습니다.";
+                    errorLimit = "관리자가 구글 검색 기능과 JSON 강제 옵션 충돌을 해결해야 합니다.";
+                } else if (error.message.includes("401")) {
+                    errorTitle = "AI 인증 만료 또는 권한 없음 (401)";
+                    errorDetail = "현재 이용 중인 Canvas 환경의 세션이 만료되었거나 일시적인 장애가 있습니다.";
+                    errorLimit = "키보드의 F5 버튼을 눌러 페이지를 새로고침 한 뒤 다시 시도해주세요.";
+                } else if (error.message.includes("404")) {
+                    errorTitle = "AI 모델 접근 권한 없음 (404)";
+                    errorDetail = "개인 API 키로는 Canvas 전용 내부 모델에 접근할 수 없습니다.";
+                    errorLimit = "제공된 코드가 무료 공용 모델을 쓰도록 적용되었는지 확인해주세요.";
+                } else if (error.message.includes("429")) {
+                    errorTitle = "API 사용량 한도 초과 (429)";
+                    errorDetail = "입력하신 무료 API 키의 분당 사용량 한도(Rate Limit)를 초과했습니다.";
+                    errorLimit = "약 1분 정도 기다리신 후 다시 검색을 시도해 주세요.";
+                } else if (error.message.includes("JSON") || error.name === "SyntaxError") {
+                    errorTitle = "AI 응답 해석 실패";
+                    errorDetail = "AI가 혜택 정보를 올바른 형태로 구성하지 못했습니다.";
+                    errorLimit = "다시 시도하시면 정상적인 답변을 받을 수 있습니다.";
+                }
+
+                state.selectedStore = {
+                    storeName: state.searchQuery,
+                    category: "검색 실패",
+                    isRealtimeFetched: true,
+                    benefits: [{
+                        id: "error",
+                        membership: errorTitle,
+                        brandColor: "text-red-600 bg-red-50 border-red-200",
+                        badgeColor: "bg-red-500",
+                        tiers: [{ level: "안내", detail: errorDetail }],
+                        limit: errorLimit,
+                        isBest: false,
+                        officialUrl: "#"
+                    }]
+                };
+            } finally {
+                state.isRealtimeLoading = false;
+                updateAll();
+            }
+        };
+
+        // DOM Event Binding
+        document.addEventListener('DOMContentLoaded', () => {
+            updateIcons();
+
+            document.getElementById('nav-search-btn').addEventListener('click', () => {
+                state.currentView = 'search';
+                updateAll();
+            });
+            
+            document.getElementById('nav-memberships-btn').addEventListener('click', () => {
+                state.currentView = 'memberships';
+                updateAll();
+            });
+
+            document.getElementById('header-logo-btn').addEventListener('click', () => {
+                state.currentView = 'search';
+                handleClearSearch();
+            });
+
+            document.getElementById('search-input').addEventListener('input', handleSearchInput);
+            document.getElementById('clear-search-btn').addEventListener('click', handleClearSearch);
+
+            // Delegation for Dropdown (Select Store & Trigger AI)
+            document.getElementById('search-dropdown').addEventListener('click', (e) => {
+                const item = e.target.closest('.suggestion-item');
+                if (item) {
+                    const index = item.dataset.index;
+                    handleSelectStore(state.suggestions[index]);
+                }
+                const aiBtn = e.target.closest('#trigger-ai-search');
+                if (aiBtn) {
+                    handleRealtimeSearch();
+                }
+            });
+
+            // Popular Stores
+            document.querySelectorAll('.popular-store-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const storeName = e.target.dataset.store;
+                    state.searchQuery = storeName;
+                    
+                    const store = state.dbData.find(s => s.storeName === storeName);
+                    if (store) handleSelectStore(store);
+                });
+            });
+
+            // Membership Tabs Delegation
+            document.getElementById('membership-tabs-container').addEventListener('click', (e) => {
+                const btn = e.target.closest('.membership-tab-btn');
+                if (btn) {
+                    state.activeMembershipTab = btn.dataset.tab;
+                    renderMemberships();
+                }
+            });
+
+            // Logic Guide Modal
+            const modal = document.getElementById('logic-guide-modal');
+            const content = document.getElementById('logic-guide-content');
+            
+            document.getElementById('show-logic-guide-btn').addEventListener('click', () => {
+                modal.classList.remove('hidden');
+                setTimeout(() => {
+                    modal.classList.remove('opacity-0');
+                    content.classList.remove('scale-95');
+                }, 10);
+            });
+
+            document.getElementById('close-logic-guide-btn').addEventListener('click', () => {
+                modal.classList.add('opacity-0');
+                content.classList.add('scale-95');
+                setTimeout(() => modal.classList.add('hidden'), 300);
+            });
+        });
+
+        // ========================================================================
+        // Firebase Initialization & Sync
+        // ========================================================================
+        const initializeFirebase = async () => {
+            try {
+                // Determine token and set up Auth
+                const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialToken) {
+                    await signInWithCustomToken(auth, initialToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        const appIdValue = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                        const storesCollection = collection(db, 'artifacts', appIdValue, 'public', 'data', 'benefit_stores');
+
+                        onSnapshot(storesCollection, async (snapshot) => {
+                            if (snapshot.empty) {
+                                try {
+                                    const batch = writeBatch(db);
+                                    BASE_TARGETS.forEach((store) => {
+                                        const docRef = doc(storesCollection, store.storeName);
+                                        batch.set(docRef, store);
+                                    });
+                                    await batch.commit();
+                                } catch (err) {
+                                    console.error("DB 초기화 실패:", err);
+                                }
+                            } else {
+                                state.dbData = snapshot.docs.map(doc => doc.data());
+                                state.isDbConnected = true;
+                                const now = new Date();
+                                state.lastUpdated = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
+                                
+                                computeGroupedMemberships();
+                            }
+                            
+                            // App is ready
+                            document.getElementById('loading-screen').classList.add('opacity-0');
+                            setTimeout(() => {
+                                document.getElementById('loading-screen').classList.add('hidden');
+                                document.getElementById('main-app').classList.remove('hidden');
+                                updateAll();
+                            }, 500);
+
+                        }, (error) => {
+                            console.error("클라우드 DB 읽기 에러:", error);
+                            // Hide loading even on error to allow basic usage
+                            document.getElementById('loading-screen').classList.add('hidden');
+                            document.getElementById('main-app').classList.remove('hidden');
+                            updateAll();
+                        });
+                    }
+                });
+            } catch (error) {
+                console.error("인증 에러:", error);
+                document.getElementById('loading-screen').classList.add('hidden');
+                document.getElementById('main-app').classList.remove('hidden');
+                updateAll();
+            }
+        };
+
+        // Start App
+        initializeFirebase();
+
+    </script>
+</body>
+</html>

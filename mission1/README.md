@@ -1,4 +1,5 @@
 # 🫂 걱정마소
+### 배포 링크: https://gemini.google.com/share/4efd1ad11e90
 
 ### 프로젝트 개요
 

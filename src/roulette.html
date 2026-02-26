@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>조작된 룰렛</title>
+  
+  <!-- Tailwind CSS (디자인 유지) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons (아이콘 유지) -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* 스크롤바 커스텀 스타일 */
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background-color: #CBD5E1;
+      border-radius: 20px;
+    }
+    
+    /* 룰렛 회전 애니메이션용 전환 효과 */
+    .spin-transition {
+      transition: transform 4s cubic-bezier(0.15, 0.85, 0.2, 1);
+    }
+
+    /* 모달 애니메이션 스타일 */
+    #modal { transition: opacity 0.2s ease-out; }
+    #modal-content { transition: transform 0.3s ease-out; }
+
+    /* 레버(손잡이) 애니메이션 */
+    .lever-handle {
+      transform-origin: bottom center;
+      /* 스프링처럼 부드럽게 제자리로 돌아오는 효과 */
+      transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+      transform-style: preserve-3d;
+      /* 터치 액션 제한으로 모바일에서 드래그 시 화면 스크롤 방지 */
+      touch-action: none;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-800">
+  <div class="max-w-5xl mx-auto">
+    
+    <!-- 헤더 -->
+    <div class="mb-8 text-center">
+      <h1 class="text-3xl font-bold mb-2 text-indigo-600 flex items-center justify-center gap-2">
+        <i data-lucide="refresh-cw" class="w-8 h-8"></i>
+        조작된 룰렛
+      </h1>
+      <p class="text-slate-500">
+        원하는 항목을 추가하고 확률을 조작하여 불공평하게 선택해보세요!
+      </p>
+    </div>
+
+    <div class="grid md:grid-cols-12 gap-6">
+      
+      <!-- 왼쪽: 항목 설정 영역 (폭 축소: col-span-5) -->
+      <div class="md:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-[550px]">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-bold flex items-center gap-2">
+            선택 항목
+            <span id="item-count-badge" class="text-sm font-normal bg-indigo-100 text-indigo-600 px-2 py-1 rounded-full">
+              총 3개 / 최대 6개
+            </span>
+          </h2>
+          <button id="btn-add" class="flex items-center gap-1 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+            <i data-lucide="plus" class="w-4 h-4"></i> 추가
+          </button>
+        </div>
+
+        <div class="bg-blue-50 text-blue-700 p-3 rounded-xl mb-4 text-sm flex items-start gap-2">
+          <i data-lucide="alert-circle" class="w-5 h-5 shrink-0 mt-0.5"></i>
+          <p>숫자가 클수록 당첨 확률이 높아집니다. (가중치: 1~100, 항목: 최대 6개)</p>
+        </div>
+
+        <!-- 항목 리스트가 들어갈 컨테이너 -->
+        <div id="item-list" class="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+          <!-- JS로 동적 렌더링 -->
+        </div>
+      </div>
+
+      <!-- 오른쪽: 룰렛 영역 (폭 확대: col-span-7) -->
+      <div class="md:col-span-7 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center h-[550px]">
+        
+        <!-- 넓어진 공간에 맞춰 룰렛 최대 크기 확대 (360px -> 420px) -->
+        <div class="relative flex items-center justify-center w-full max-w-[420px]">
+          
+          <!-- 룰렛 본체 래퍼 -->
+          <div class="relative w-full aspect-square flex items-center justify-center z-10">
+            <!-- 상단 포인터 (화살표) -->
+            <div class="absolute -top-4 left-1/2 -translate-x-1/2 z-20 filter drop-shadow-md">
+              <div class="w-8 h-10 bg-slate-800" style="clip-path: polygon(50% 100%, 0 0, 100% 0);"></div>
+            </div>
+
+            <!-- 룰렛 캔버스 -->
+            <div id="canvas-container" class="w-full h-full rounded-full overflow-hidden shadow-inner border-4 border-slate-100 spin-transition bg-slate-50" style="transform: rotate(0deg);">
+              <canvas id="roulette-canvas" width="400" height="400" class="w-full h-full block"></canvas>
+            </div>
+
+            <!-- 가운데 장식 원 -->
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+              <div class="w-16 h-16 bg-white rounded-full shadow-md border-4 border-slate-100 flex items-center justify-center">
+                <div class="w-4 h-4 bg-slate-200 rounded-full"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 측면 레버 UI -->
+          <div id="btn-lever" class="absolute -right-8 md:-right-10 z-0 cursor-grab active:cursor-grabbing group transition-opacity duration-200" style="perspective: 800px;">
+            <!-- 레버 슬롯(홈) (막대가 길어져서 슬롯도 h-32에서 h-40으로 길게 조정) -->
+            <div class="w-8 h-40 bg-slate-800 rounded-r-xl shadow-inner relative flex justify-center items-center border-y-4 border-r-4 border-slate-700">
+              <!-- 레버 막대와 구슬 (통째로 180도 회전, 전체 높이 80px -> 104px) -->
+              <div id="lever" class="lever-handle absolute flex flex-col items-center" style="height: 104px; bottom: 50%;">
+                <!-- 손잡이 구슬 -->
+                <div id="lever-ball" class="w-10 h-10 bg-red-500 rounded-full shadow-lg border-b-4 border-red-700 transition-colors duration-300 group-hover:bg-red-400 group-hover:scale-105"></div>
+                <!-- 은색 막대 (기존 h-12(48px)에서 50% 더 긴 h-[72px]로 변경) -->
+                <div class="w-3 h-[72px] bg-gradient-to-r from-slate-400 via-slate-200 to-slate-500 rounded-b-md -mt-2"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 하단 안내 문구 -->
+        <div class="mt-10 h-12 flex flex-col items-center justify-center">
+          <p id="spin-status-text" class="text-lg font-bold text-slate-600 flex items-center gap-2">
+            <i data-lucide="arrow-down" class="w-5 h-5"></i> 우측 레버를 당기세요!
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 결과 모달 -->
+  <div id="modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm opacity-0">
+    <div id="modal-content" class="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center transform scale-95">
+      <div class="mx-auto w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mb-4">
+        <i data-lucide="trophy" class="w-8 h-8"></i>
+      </div>
+      <h3 class="text-slate-500 font-medium mb-1">축하합니다! 당첨 결과</h3>
+      <div id="modal-winner-name" class="text-4xl font-bold text-slate-800 mb-6 py-4"></div>
+      <p id="modal-winner-prob" class="text-sm text-slate-400 mb-8"></p>
+      <button id="btn-modal-close" class="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl transition-colors">
+        확인
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // 전역 상태 변수
+    const COLORS = [
+      '#FF6B6B', '#4ECDC4', '#FFE66D', '#845EC2', '#D65DB1', 
+      '#FF9671', '#FFC75F', '#F9F871', '#2C73D2', '#008F7A',
+      '#C34A36', '#FF8066', '#00C9A7', '#4D8076', '#845EC2'
+    ];
+
+    let items = [
+      { id: 1, name: '짜장면', weight: 4, color: COLORS[0] },
+      { id: 2, name: '돈가스', weight: 3, color: COLORS[1] },
+      { id: 3, name: '피자', weight: 3, color: COLORS[2] },
+    ];
+    
+    let rotation = 0;
+    let isSpinning = false;
+    let winner = null;
+
+    // DOM 요소 캐싱
+    const canvas = document.getElementById('roulette-canvas');
+    const ctx = canvas.getContext('2d');
+    const canvasContainer = document.getElementById('canvas-container');
+    const itemListEl = document.getElementById('item-list');
+    const countBadgeEl = document.getElementById('item-count-badge');
+    const btnAdd = document.getElementById('btn-add');
+    const btnLever = document.getElementById('btn-lever');
+    const lever = document.getElementById('lever');
+    const leverBall = document.getElementById('lever-ball');
+    const spinStatusText = document.getElementById('spin-status-text');
+    const modal = document.getElementById('modal');
+    const modalContent = document.getElementById('modal-content');
+    const modalWinnerName = document.getElementById('modal-winner-name');
+    const modalWinnerProb = document.getElementById('modal-winner-prob');
+    const btnModalClose = document.getElementById('btn-modal-close');
+
+    // 유틸: 총 가중치 계산
+    function getTotalWeight() {
+      return items.reduce((acc, item) => acc + Math.max(1, Number(item.weight) || 1), 0);
+    }
+
+    // 초기화 및 이벤트 리스너 등록
+    function init() {
+      btnAdd.addEventListener('click', addItem);
+      initLeverDrag(); // 드래그 이벤트 초기화
+      btnModalClose.addEventListener('click', closeModal);
+      updateAllUI();
+      lucide.createIcons(); // 초기 아이콘 렌더링
+    }
+
+    // 드래그 상태 변수
+    let isDragging = false;
+    let startY = 0;
+    let leverAngle = 0;
+
+    // 레버 드래그 이벤트 리스너 설정
+    function initLeverDrag() {
+      const handleStart = (e) => {
+        if (isSpinning || items.length === 0 || getTotalWeight() === 0) return;
+        isDragging = true;
+        startY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        lever.style.transition = 'none'; // 드래그 중에는 실시간으로 따라오도록 애니메이션 끄기
+      };
+
+      const handleMove = (e) => {
+        if (!isDragging) return;
+        
+        // 모바일 환경에서 드래그 시 화면이 같이 스크롤되는 현상 방지
+        if (e.cancelable) e.preventDefault(); 
+
+        const currentY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        let deltaY = currentY - startY;
+        
+        // 위로 밀어올리는 것 방지
+        if (deltaY < 0) deltaY = 0;
+
+        // 드래그 거리(약 120px)를 180도 각도로 매핑
+        leverAngle = Math.min((deltaY / 120) * 180, 180);
+        lever.style.transform = `rotateX(${leverAngle}deg)`;
+
+        // 특정 각도(150도) 이상 충분히 당겼을 때 추첨 실행
+        if (leverAngle >= 150) {
+          isDragging = false; // 드래그 상태 해제
+          triggerSpin();
+        }
+      };
+
+      const handleEnd = () => {
+        if (!isDragging) return;
+        isDragging = false;
+        
+        // 끝까지 안 당기고 놓았을 때 제자리로 튕겨 돌아가기
+        lever.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        lever.style.transform = 'rotateX(0deg)';
+        leverAngle = 0;
+      };
+
+      // 마우스 이벤트 바인딩
+      btnLever.addEventListener('mousedown', handleStart);
+      window.addEventListener('mousemove', handleMove, { passive: false });
+      window.addEventListener('mouseup', handleEnd);
+
+      // 터치 이벤트 바인딩
+      btnLever.addEventListener('touchstart', handleStart, { passive: false });
+      window.addEventListener('touchmove', handleMove, { passive: false });
+      window.addEventListener('touchend', handleEnd);
+    }
+
+    // 전체 UI 업데이트 로직 (리액트의 렌더링을 모방)
+    function updateAllUI() {
+      renderItems();
+      updateHeader();
+      updateSpinButton();
+      drawCanvas();
+      toggleInteractiveElements();
+      lucide.createIcons();
+    }
+
+    // 항목 리스트 HTML 생성 및 DOM 삽입
+    function renderItems() {
+      itemListEl.innerHTML = '';
+
+      if (items.length === 0) {
+        itemListEl.innerHTML = '<div class="text-center py-10 text-slate-400 text-sm">항목이 없습니다. 우측 상단의 추가 버튼을 눌러주세요.</div>';
+        return;
+      }
+
+      const total = getTotalWeight();
+
+      items.forEach(item => {
+        const weight = Math.max(1, Number(item.weight) || 1);
+        const percentage = total > 0 ? Math.round((weight / total) * 100) : 0;
+        
+        const div = document.createElement('div');
+        div.className = 'flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100 group';
+        div.innerHTML = `
+          <div class="w-4 h-4 rounded-full shrink-0" style="background-color: ${item.color}"></div>
+          <input type="text" 
+            class="item-name-input flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50" 
+            placeholder="항목 이름" 
+            value="${item.name}" 
+            data-id="${item.id}">
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="item-percentage text-xs text-slate-500 w-10 text-right" data-id="${item.id}">${percentage}%</span>
+            <input type="number" min="1" max="100" 
+              class="item-weight-input w-16 bg-white border border-slate-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50" 
+              title="가중치 (1~100)" 
+              value="${item.weight}" 
+              data-id="${item.id}">
+            <button class="btn-remove p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30" data-id="${item.id}">
+              <i data-lucide="trash-2" class="w-4 h-4 pointer-events-none"></i>
+            </button>
+          </div>
+        `;
+        itemListEl.appendChild(div);
+      });
+
+      // 개별 이벤트 리스너 바인딩 (이름 변경)
+      document.querySelectorAll('.item-name-input').forEach(input => {
+        input.addEventListener('input', (e) => {
+          const id = parseInt(e.target.dataset.id);
+          const item = items.find(i => i.id === id);
+          if (item) {
+            item.name = e.target.value;
+            drawCanvas(); // 이름이 바뀌면 캔버스만 재그림
+          }
+        });
+      });
+
+      // 개별 이벤트 리스너 바인딩 (가중치 변경)
+      document.querySelectorAll('.item-weight-input').forEach(input => {
+        input.addEventListener('input', (e) => {
+          const id = parseInt(e.target.dataset.id);
+          const item = items.find(i => i.id === id);
+          if (item) {
+            let val = e.target.value;
+            if (val !== '') {
+              val = Math.min(100, Number(val));
+            }
+            item.weight = val;
+            e.target.value = val; 
+            updatePercentages();
+            drawCanvas();
+          }
+        });
+        
+        input.addEventListener('blur', (e) => {
+          const id = parseInt(e.target.dataset.id);
+          const item = items.find(i => i.id === id);
+          if (item) {
+            let val = Number(e.target.value);
+            if (val < 1 || isNaN(val)) {
+              item.weight = 1;
+              e.target.value = 1;
+              updatePercentages();
+              drawCanvas();
+            }
+          }
+        });
+      });
+
+      // 개별 이벤트 리스너 바인딩 (삭제)
+      document.querySelectorAll('.btn-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const id = parseInt(e.currentTarget.dataset.id);
+          items = items.filter(i => i.id !== id);
+          updateAllUI();
+        });
+      });
+    }
+
+    // 퍼센티지 텍스트만 업데이트 (포커스 유지용)
+    function updatePercentages() {
+      const total = getTotalWeight();
+      items.forEach(item => {
+        const weight = Math.max(1, Number(item.weight) || 1);
+        const percentage = total > 0 ? Math.round((weight / total) * 100) : 0;
+        const span = document.querySelector(`.item-percentage[data-id="${item.id}"]`);
+        if (span) span.textContent = `${percentage}%`;
+      });
+    }
+
+    // 헤더 상태 (개수 배지) 업데이트
+    function updateHeader() {
+      countBadgeEl.textContent = `총 ${items.length}개 / 최대 6개`;
+    }
+
+    // 스핀 버튼(레버) 상태 및 UI 업데이트
+    function updateSpinButton() {
+      const totalWeight = getTotalWeight();
+      
+      if (isSpinning || items.length === 0 || totalWeight === 0) {
+        btnLever.classList.add('cursor-not-allowed', 'opacity-50');
+        btnLever.classList.remove('group');
+        leverBall.classList.replace('bg-red-500', 'bg-slate-400');
+        leverBall.classList.replace('border-red-700', 'border-slate-500');
+        
+        if (isSpinning) {
+          spinStatusText.innerHTML = `<i data-lucide="refresh-cw" class="w-5 h-5 animate-[spin_2s_linear_infinite]"></i> 추첨 중...`;
+          spinStatusText.classList.replace('text-slate-600', 'text-indigo-600');
+        } else {
+          spinStatusText.innerHTML = `<i data-lucide="alert-circle" class="w-5 h-5"></i> 항목을 추가해주세요`;
+          spinStatusText.classList.replace('text-indigo-600', 'text-slate-600');
+        }
+      } else {
+        btnLever.classList.remove('cursor-not-allowed', 'opacity-50');
+        btnLever.classList.add('group');
+        leverBall.classList.replace('bg-slate-400', 'bg-red-500');
+        leverBall.classList.replace('border-slate-500', 'border-red-700');
+        
+        spinStatusText.innerHTML = `<i data-lucide="arrow-down" class="w-5 h-5"></i> 우측 레버를 당기세요!`;
+        spinStatusText.classList.replace('text-indigo-600', 'text-slate-600');
+      }
+      lucide.createIcons();
+    }
+
+    // 활성화/비활성화 상태 토글
+    function toggleInteractiveElements() {
+      btnAdd.disabled = isSpinning || items.length >= 6;
+      document.querySelectorAll('.item-name-input, .item-weight-input').forEach(el => el.disabled = isSpinning);
+      document.querySelectorAll('.btn-remove').forEach(el => el.disabled = isSpinning || items.length <= 1);
+    }
+
+    // 룰렛 그리기 로직 (안정성 강화 및 폰트 오류 수정)
+    function drawCanvas() {
+      const radius = canvas.width / 2;
+      const totalWeight = getTotalWeight();
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      if (items.length === 0 || totalWeight === 0) {
+        ctx.beginPath();
+        ctx.arc(radius, radius, radius, 0, 2 * Math.PI);
+        ctx.fillStyle = '#E5E7EB';
+        ctx.fill();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#9CA3AF';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillText('항목을 추가해주세요', radius, radius);
+        return;
+      }
+
+      let startAngle = 0;
+      items.forEach((item) => {
+        const weight = Math.max(1, Number(item.weight) || 1);
+        const sliceAngle = (weight / totalWeight) * 2 * Math.PI;
+        
+        // 조각 배경
+        ctx.beginPath();
+        ctx.moveTo(radius, radius);
+        ctx.arc(radius, radius, radius, startAngle, startAngle + sliceAngle);
+        ctx.closePath(); // 경로를 명확히 닫아주어 렌더링 오류 방지
+        ctx.fillStyle = item.color;
+        ctx.fill();
+        
+        // 조각 테두리
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+        
+        // 텍스트 그리기
+        ctx.save();
+        ctx.translate(radius, radius);
+        ctx.rotate(startAngle + sliceAngle / 2);
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        
+        ctx.fillStyle = '#ffffff';
+        // 특정 폰트 인식 오류로 인해 텍스트가 사라지는 버그를 막기 위해 기본 폰트(sans-serif) 지정
+        ctx.font = 'bold 18px sans-serif'; 
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
+        
+        // 항목 이름이 비어있을 경우를 대비한 안전 처리
+        const safeName = item.name || '';
+        const text = safeName.length > 8 ? safeName.substring(0, 8) + '...' : safeName;
+        ctx.fillText(text, radius - 20, 0);
+        ctx.restore();
+
+        startAngle += sliceAngle;
+      });
+    }
+
+    // 항목 추가 로직
+    function addItem() {
+      if (items.length >= 6) return;
+      const newId = items.length > 0 ? Math.max(...items.map(i => i.id)) + 1 : 1;
+      
+      const usedColors = items.map(item => item.color);
+      const availableColor = COLORS.find(color => !usedColors.includes(color)) || COLORS[0];
+
+      items.push({ 
+        id: newId, 
+        name: `새 항목 ${items.length + 1}`, 
+        weight: 1, 
+        color: availableColor 
+      });
+      
+      updateAllUI();
+    }
+
+    // 레버가 끝까지 당겨졌을 때 실행되는 처리
+    function triggerSpin() {
+      // 끝까지 내려가는 모션 (마저 180도 채우기)
+      lever.style.transition = 'transform 0.1s ease-in';
+      lever.style.transform = 'rotateX(180deg)';
+      
+      // 0.2초 후 레버 원상복구
+      setTimeout(() => {
+        lever.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        lever.style.transform = 'rotateX(0deg)';
+        leverAngle = 0;
+      }, 200);
+
+      // 레버가 바닥에 닿을 즈음 룰렛 회전 시작
+      setTimeout(() => {
+        spin();
+      }, 150);
+    }
+
+    // 룰렛 회전 애니메이션 실행
+    function spin() {
+      const totalWeight = getTotalWeight();
+      if (isSpinning || items.length === 0 || totalWeight === 0) return;
+      
+      isSpinning = true;
+      winner = null;
+      updateSpinButton();
+      toggleInteractiveElements();
+
+      // 당첨자 뽑기
+      let randomWeight = Math.random() * totalWeight;
+      let currentWeight = 0;
+      let winningIndex = 0;
+
+      for (let i = 0; i < items.length; i++) {
+        const weight = Math.max(1, Number(items[i].weight) || 1);
+        currentWeight += weight;
+        if (randomWeight <= currentWeight) {
+          winningIndex = i;
+          break;
+        }
+      }
+
+      // 회전 각도 계산
+      let startAngle = 0;
+      for (let i = 0; i < winningIndex; i++) {
+        startAngle += (Math.max(1, Number(items[i].weight) || 1) / totalWeight) * 360;
+      }
+      const sliceAngle = (Math.max(1, Number(items[winningIndex].weight) || 1) / totalWeight) * 360;
+      const centerAngle = startAngle + (sliceAngle / 2);
+
+      const targetModulo = (270 - centerAngle + 360) % 360;
+      const currentModulo = rotation % 360;
+      let diff = targetModulo - currentModulo;
+      if (diff < 0) diff += 360;
+
+      // 기본 5바퀴 추가 회전
+      const extraSpins = 360 * 5;
+      rotation = rotation + diff + extraSpins;
+      
+      canvasContainer.style.transform = `rotate(${rotation}deg)`;
+
+      // 애니메이션 종료 후
+      setTimeout(() => {
+        isSpinning = false;
+        winner = items[winningIndex];
+        
+        updateSpinButton();
+        toggleInteractiveElements();
+        showModal();
+      }, 4000); // CSS transition 시간과 동일하게 4초 적용
+    }
+
+    // 모달 표시
+    function showModal() {
+      if (!winner) return;
+      
+      const totalWeight = getTotalWeight();
+      const prob = Math.round((Math.max(1, Number(winner.weight) || 1) / totalWeight) * 100);
+      
+      modalContent.style.borderTop = `8px solid ${winner.color}`;
+      modalWinnerName.textContent = winner.name;
+      modalWinnerProb.textContent = `설정된 당첨 확률: ${prob}%`;
+      
+      // Tailwind를 활용한 모달 등장 애니메이션
+      modal.classList.remove('hidden');
+      // 브라우저 리플로우 강제 발생 (애니메이션 적용을 위함)
+      void modal.offsetWidth; 
+      modal.classList.remove('opacity-0');
+      modal.classList.add('opacity-100');
+      
+      modalContent.classList.remove('scale-95');
+      modalContent.classList.add('scale-100');
+    }
+
+    // 모달 닫기
+    function closeModal() {
+      modal.classList.remove('opacity-100');
+      modal.classList.add('opacity-0');
+      
+      modalContent.classList.remove('scale-100');
+      modalContent.classList.add('scale-95');
+      
+      setTimeout(() => {
+        modal.classList.add('hidden');
+        winner = null;
+      }, 200);
+    }
+
+    // 앱 시작
+    init();
+
+  </script>
+</body>
+</html>

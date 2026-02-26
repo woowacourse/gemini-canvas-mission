@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>슬라이딩 퍼즐 게임</title>
+    <!-- Tailwind CSS를 사용하여 UI 스타일링 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 퍼즐 보드 영역이 터치될 때 페이지 스크롤 방지 */
+        #puzzleContainer {
+            touch-action: none;
+            user-select: none;
+        }
+        
+        /* 타일 내부 그림자 및 부드러운 이동 효과 */
+        .puzzle-tile {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+            background-color: #374151; /* 빈 타일 배경색 (이미지 로드 전) */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4 text-gray-800 font-sans">
+
+    <div class="bg-white p-6 rounded-2xl shadow-xl w-full max-w-4xl">
+        <h1 class="text-3xl font-extrabold text-center text-gray-900 mb-2">슬라이딩 퍼즐</h1>
+        <p class="text-center text-gray-500 mb-6 text-sm">타일을 클릭하여 그림을 완성해보세요!</p>
+        
+        <!-- 컨트롤 패널 -->
+        <div class="space-y-4 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
+            <!-- 퍼즐 크기 선택 -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">퍼즐 난이도 (크기)</label>
+                <select id="sizeSelect" class="w-full rounded-lg border-gray-300 shadow-sm p-2.5 bg-white border outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    <option value="3">3 x 3 (쉬움)</option>
+                    <option value="4">4 x 4 (보통)</option>
+                    <option value="5">5 x 5 (어려움)</option>
+                </select>
+            </div>
+
+            <!-- 이미지 선택 -->
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">퍼즐 이미지</label>
+                <select id="imageSelect" class="w-full rounded-lg border-gray-300 shadow-sm p-2.5 bg-white border outline-none focus:ring-2 focus:ring-blue-500 transition mb-2">
+                    <option value="default1">기본 사진 1 (아름다운 자연)</option>
+                    <option value="default2">기본 사진 2 (야경 도시)</option>
+                    <option value="default3">기본 사진 3 (귀여운 강아지)</option>
+                    <option value="custom">내 사진으로 하기...</option>
+                </select>
+                <!-- 사용자 지정 사진 업로드 (기본 숨김) -->
+                <input type="file" id="customFileInput" accept="image/*" class="hidden w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer transition">
+            </div>
+
+            <!-- 난이도 조절 보조 (숫자 힌트) -->
+            <div class="flex items-center">
+                <input type="checkbox" id="hintToggle" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" checked>
+                <label for="hintToggle" class="ml-2 text-sm font-semibold text-gray-700 cursor-pointer">타일에 숫자 힌트 표시</label>
+            </div>
+
+            <!-- 시작 버튼 -->
+            <button id="startBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition shadow-md active:scale-95">
+                게임 다시 시작
+            </button>
+        </div>
+
+        <!-- 게임 영역 (원본 사진 + 퍼즐 보드) -->
+        <div class="flex flex-col md:flex-row gap-6 md:gap-10 items-center justify-center">
+            
+            <!-- 원본 사진 영역 (왼쪽) -->
+            <div class="flex flex-col items-center w-2/5 max-w-[160px] md:max-w-[220px] shrink-0">
+                <span class="text-xs md:text-sm font-bold text-gray-700 mb-2 bg-gray-200 px-3 py-1 rounded-full shadow-sm">원본 사진</span>
+                <img id="referenceImg" src="" alt="원본 사진" class="w-full aspect-square rounded-xl shadow-md border-2 border-gray-300">
+            </div>
+
+            <!-- 게임 보드 컨테이너 (오른쪽) -->
+            <div class="relative w-full max-w-sm md:max-w-lg transition-all duration-300" id="puzzleContainer" style="aspect-ratio: 4/3;">
+                <!-- 실제 퍼즐 조각들이 배치되는 곳 -->
+                <div id="puzzleBoard" class="absolute inset-0 w-full h-full"></div>
+                
+                <!-- 완료 축하 모달 (초기에는 숨김) -->
+                <div id="winModal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex-col items-center justify-center text-white z-[100] transition-opacity">
+                    <div class="bg-white text-gray-900 p-6 rounded-2xl shadow-2xl text-center mx-4 transform scale-100">
+                        <div class="text-4xl mb-2">🎉</div>
+                        <h2 class="text-2xl font-bold mb-2">퍼즐 완성!</h2>
+                        <p class="text-gray-600 mb-6 text-sm">축하합니다! 완벽하게 맞추셨습니다.</p>
+                        <!-- 에러의 원인이었던 버튼 요소를 복구했습니다 -->
+                        <button id="restartBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-8 rounded-full transition shadow-lg active:scale-95 w-full">
+                            다시 하기
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- 변수 및 DOM 요소 초기화 ---
+            const defaultImages = [
+                'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?auto=format&fit=crop&w=600&q=80', // 자연
+                'https://images.unsplash.com/photo-1449844908441-8829872d2607?auto=format&fit=crop&w=600&q=80', // 도시
+                'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&w=600&q=80'  // 강아지
+            ];
+
+            let currentImgUrl = defaultImages[0];
+            let gridSize = 3;
+            let tiles = [];
+            let isPlaying = false;
+            let emptySlotIndex = gridSize * gridSize; // 추가된 여분 슬롯 인덱스
+
+            const board = document.getElementById('puzzleBoard');
+            const winModal = document.getElementById('winModal');
+            const referenceImg = document.getElementById('referenceImg');
+            const sizeSelect = document.getElementById('sizeSelect');
+            const imageSelect = document.getElementById('imageSelect');
+            const customFileInput = document.getElementById('customFileInput');
+            const hintToggle = document.getElementById('hintToggle');
+            const startBtn = document.getElementById('startBtn');
+            const restartBtn = document.getElementById('restartBtn');
+
+            // --- 이벤트 리스너 ---
+            
+            // 숫자 힌트 토글
+            hintToggle.addEventListener('change', (e) => {
+                const hintEls = document.querySelectorAll('.tile-hint');
+                hintEls.forEach(el => {
+                    el.style.display = e.target.checked ? 'block' : 'none';
+                });
+            });
+
+            // 크기 변경 시 재시작
+            sizeSelect.addEventListener('change', () => {
+                gridSize = parseInt(sizeSelect.value);
+                initGame();
+            });
+
+            // 이미지 소스 변경
+            imageSelect.addEventListener('change', (e) => {
+                if (e.target.value === 'custom') {
+                    customFileInput.classList.remove('hidden');
+                } else {
+                    customFileInput.classList.add('hidden');
+                    const idx = parseInt(e.target.value.replace('default', '')) - 1;
+                    currentImgUrl = defaultImages[idx];
+                    initGame();
+                }
+            });
+
+            // 사용자 사진 업로드
+            customFileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        currentImgUrl = event.target.result;
+                        initGame();
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // 시작 / 다시시작 버튼
+            startBtn.addEventListener('click', initGame);
+            restartBtn.addEventListener('click', initGame);
+
+            // --- 게임 로직 ---
+
+            // 좌표 계산 헬퍼 함수 (추가된 빈칸 고려)
+            function getCoords(index) {
+                // 추가된 슬롯은 항상 (gridSize - 1)행, (gridSize)열에 위치
+                if (index === gridSize * gridSize) {
+                    return { row: gridSize - 1, col: gridSize };
+                }
+                return {
+                    row: Math.floor(index / gridSize),
+                    col: index % gridSize
+                };
+            }
+
+            // 게임 초기화
+            function initGame() {
+                isPlaying = false;
+                board.innerHTML = '';
+                winModal.classList.add('hidden');
+                winModal.classList.remove('flex');
+                
+                // 원본 이미지 미리보기에 현재 이미지 적용
+                referenceImg.src = currentImgUrl;
+                
+                // 컨테이너 비율 업데이트 (N+1 가로 너비 확보)
+                const container = document.getElementById('puzzleContainer');
+                container.style.aspectRatio = `${gridSize + 1} / ${gridSize}`;
+                
+                // === 보드 배경 및 테두리 UI 동적 생성 (SVG 활용하여 끊어짐 없는 하나의 형태로 구현) ===
+                const svgNS = "http://www.w3.org/2000/svg";
+                const pathD = `M 0 0 L ${gridSize} 0 L ${gridSize} ${gridSize - 1} L ${gridSize + 1} ${gridSize - 1} L ${gridSize + 1} ${gridSize} L 0 ${gridSize} Z`;
+
+                // 1. 배경 SVG (z-0)
+                const svgBg = document.createElementNS(svgNS, "svg");
+                svgBg.setAttribute("class", "absolute inset-0 w-full h-full z-0");
+                svgBg.setAttribute("viewBox", `0 0 ${gridSize + 1} ${gridSize}`);
+                const pathFill = document.createElementNS(svgNS, "path");
+                pathFill.setAttribute("d", pathD);
+                pathFill.setAttribute("fill", "#d1d5db"); // Tailwind gray-300
+                svgBg.appendChild(pathFill);
+                board.appendChild(svgBg);
+
+                // 2. 테두리 SVG (z-20)
+                const svgBorder = document.createElementNS(svgNS, "svg");
+                svgBorder.setAttribute("class", "absolute inset-0 w-full h-full pointer-events-none z-20 overflow-visible");
+                svgBorder.setAttribute("viewBox", `0 0 ${gridSize + 1} ${gridSize}`);
+                const pathStroke = document.createElementNS(svgNS, "path");
+                pathStroke.setAttribute("d", pathD);
+                pathStroke.setAttribute("fill", "none");
+                pathStroke.setAttribute("stroke", "#1f2937"); // Tailwind gray-800
+                pathStroke.setAttribute("stroke-width", "4"); 
+                pathStroke.setAttribute("vector-effect", "non-scaling-stroke");
+                pathStroke.setAttribute("stroke-linejoin", "round");
+                svgBorder.appendChild(pathStroke);
+                board.appendChild(svgBorder);
+
+                tiles = [];
+                const tileCount = gridSize * gridSize;
+                emptySlotIndex = tileCount; // 초기 빈칸 위치를 우측 하단 여분 슬롯으로 설정
+                
+                // 타일 생성 (비어있는 조각 없이 100% 이미지 사용)
+                for (let i = 0; i < tileCount; i++) {
+                    const tile = document.createElement('div');
+                    
+                    // z-10으로 설정하여 배경(z-0)과 겉테두리(z-20) 사이에서 슬라이딩되도록 함
+                    tile.className = 'puzzle-tile absolute bg-no-repeat transition-transform cursor-pointer box-border border-2 border-white/30 rounded-sm shadow-sm z-10';
+                    
+                    // 너비 및 높이 계산
+                    tile.style.width = `${100 / (gridSize + 1)}%`;
+                    tile.style.height = `${100 / gridSize}%`;
+                    
+                    // 배경 이미지 및 크기
+                    tile.style.backgroundImage = `url(${currentImgUrl})`;
+                    tile.style.backgroundSize = `${gridSize * 100}% ${gridSize * 100}%`;
+                    
+                    // 배경 위치 (조각이 원본에서 담당할 위치)
+                    const origRow = Math.floor(i / gridSize);
+                    const origCol = i % gridSize;
+                    tile.style.backgroundPosition = `${(origCol / (gridSize - 1)) * 100}% ${(origRow / (gridSize - 1)) * 100}%`;
+                    
+                    // 숫자 힌트 요소
+                    const hint = document.createElement('div');
+                    hint.className = 'tile-hint absolute top-1 left-1 bg-black bg-opacity-60 text-white text-xs md:text-sm px-1.5 py-0.5 rounded font-bold pointer-events-none';
+                    hint.textContent = i + 1;
+                    hint.style.display = hintToggle.checked ? 'block' : 'none';
+                    tile.appendChild(hint);
+
+                    const tileObj = {
+                        el: tile,
+                        originalIndex: i,
+                        currentIndex: i // 초기에는 정답 위치에 배치
+                    };
+                    
+                    // 모든 타일에 클릭 이벤트 활성화
+                    tile.addEventListener('click', () => handleTileClick(tileObj));
+                    
+                    tiles.push(tileObj);
+                    board.appendChild(tile);
+                }
+                
+                // 퍼즐 섞기 및 배치 렌더링
+                shuffleTiles();
+                renderAll();
+                
+                // 렌더링 후 트랜지션 애니메이션 활성화
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        tiles.forEach(t => t.el.classList.add('duration-200', 'ease-in-out'));
+                        isPlaying = true;
+                    }, 50);
+                });
+            }
+
+            // 모든 타일의 위치를 CSS transform으로 렌더링
+            function renderAll() {
+                tiles.forEach(t => {
+                    const coords = getCoords(t.currentIndex);
+                    t.el.style.transform = `translate(${coords.col * 100}%, ${coords.row * 100}%)`;
+                });
+            }
+
+            // 퍼즐 무작위 섞기 알고리즘
+            function shuffleTiles() {
+                let prevIndex = -1;
+                const shuffleMoves = gridSize * gridSize * 25; 
+                
+                for (let i = 0; i < shuffleMoves; i++) {
+                    const emptyCoords = getCoords(emptySlotIndex);
+                    
+                    // 현재 빈칸(emptySlotIndex)에 인접해 있는 타일 찾기
+                    const neighbors = tiles.filter(t => {
+                        const tCoords = getCoords(t.currentIndex);
+                        return Math.abs(tCoords.row - emptyCoords.row) + Math.abs(tCoords.col - emptyCoords.col) === 1;
+                    });
+                    
+                    // 직전에 움직였던 타일은 제외하여 제자리걸음 방지
+                    const validNeighbors = neighbors.filter(n => n.currentIndex !== prevIndex);
+                    
+                    const tileToMove = validNeighbors.length > 0 
+                        ? validNeighbors[Math.floor(Math.random() * validNeighbors.length)] 
+                        : neighbors[0];
+                    
+                    prevIndex = emptySlotIndex;
+                    
+                    // 자리 스왑
+                    const temp = tileToMove.currentIndex;
+                    tileToMove.currentIndex = emptySlotIndex;
+                    emptySlotIndex = temp;
+                }
+
+                // 무작위 섞기 후, 시작 시 빈칸을 우측 하단의 "보조 주차장" 영역에 강제 귀환시킴
+                while (emptySlotIndex !== gridSize * gridSize) {
+                    const emptyCoords = getCoords(emptySlotIndex);
+                    let nextRow = emptyCoords.row;
+                    let nextCol = emptyCoords.col;
+
+                    // 빈칸이 목적지로 돌아가기 위한 방향 우선순위 계산
+                    if (emptyCoords.col < gridSize - 1) {
+                        nextCol++;
+                    } else if (emptyCoords.row < gridSize - 1) {
+                        nextRow++;
+                    } else {
+                        nextCol++; // 마지막으로 본체에서 우측 주차장으로 한 칸 이동
+                    }
+
+                    // 이동할 칸의 index 계산
+                    let nextIndex;
+                    if (nextRow === gridSize - 1 && nextCol === gridSize) {
+                        nextIndex = gridSize * gridSize;
+                    } else {
+                        nextIndex = nextRow * gridSize + nextCol;
+                    }
+
+                    // 해당 index에 있는 조각과 스왑
+                    const tileToMove = tiles.find(t => t.currentIndex === nextIndex);
+                    tileToMove.currentIndex = emptySlotIndex;
+                    emptySlotIndex = nextIndex;
+                }
+            }
+
+            // 타일 클릭(터치) 핸들러
+            function handleTileClick(tileObj) {
+                if (!isPlaying) return;
+                
+                const tileCoords = getCoords(tileObj.currentIndex);
+                const emptyCoords = getCoords(emptySlotIndex);
+                
+                // 빈칸(가상의 슬롯)과 내가 클릭한 타일이 인접한지 확인
+                const isAdjacent = Math.abs(tileCoords.row - emptyCoords.row) + Math.abs(tileCoords.col - emptyCoords.col) === 1;
+                
+                if (isAdjacent) {
+                    // 위치 교환
+                    const temp = tileObj.currentIndex;
+                    tileObj.currentIndex = emptySlotIndex;
+                    emptySlotIndex = temp;
+                    
+                    renderAll();
+                    checkWin();
+                }
+            }
+
+            // 승리 체크 로직
+            function checkWin() {
+                if (!isPlaying) return;
+                
+                // '모든' 타일이 자신의 원래 자리에 도달했는지 확인
+                const isWin = tiles.every(t => t.currentIndex === t.originalIndex);
+                
+                if (isWin) {
+                    isPlaying = false;
+                    
+                    // 이전처럼 빈칸을 강제로 채울 필요 없음 (이미 사진 100% 채워짐)
+                    setTimeout(() => {
+                        winModal.classList.remove('hidden');
+                        winModal.classList.add('flex');
+                    }, 300);
+                }
+            }
+
+            // 초기 실행
+            initGame();
+        });
+    </script>
+</body>
+</html>

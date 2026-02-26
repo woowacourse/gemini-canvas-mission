@@ -34,7 +34,7 @@ https://gemini.google.com/share/01cef9ab0f79
 마우스 정밀 미로 탈출
 
 ### 배포 링크
-https://gemini.google.com/share/de03435b4422
+https://gemini.google.com/share/eff5322ff214
 
 ### 이 앱을 만든 이유
 

@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spring Boot AI Quiz Master</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+      import {
+        getAuth,
+        signInAnonymously,
+        onAuthStateChanged,
+        signInWithCustomToken,
+      } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+      import {
+        getFirestore,
+        collection,
+        addDoc,
+        query,
+        getDocs,
+        doc,
+        getDoc,
+      } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+      // Firebase Configuration
+      const firebaseConfig = JSON.parse(__firebase_config);
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const appId =
+        typeof __app_id !== "undefined" ? __app_id : "spring-boot-quiz-app";
+
+      let currentUser = null;
+
+      // RULE 3: Auth Before Queries
+      const initAuth = async () => {
+        if (
+          typeof __initial_auth_token !== "undefined" &&
+          __initial_auth_token
+        ) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      };
+
+      onAuthStateChanged(auth, (u) => {
+        currentUser = u;
+        console.log(u ? `Authenticated: ${u.uid}` : "Not authenticated");
+      });
+
+      initAuth();
+
+      // Global State
+      const apiKey = "";
+      let quizData = [];
+      let currentQuestionIndex = 0;
+      let userAnswers = new Array(10).fill(null);
+      let selectedDifficulty = "";
+
+      // UI Helpers
+      window.showScreen = (screenId) => {
+        const screens = [
+          "start-screen",
+          "difficulty-screen",
+          "loading-screen",
+          "quiz-screen",
+          "result-screen",
+          "history-screen",
+          "history-detail-screen",
+        ];
+        screens.forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.classList.add("hidden");
+        });
+        const target = document.getElementById(screenId);
+        if (target) {
+          target.classList.remove("hidden");
+        }
+        window.scrollTo(0, 0);
+      };
+
+      // NEW: Reset app state without reloading page to prevent error pages
+      window.resetApp = () => {
+        quizData = [];
+        currentQuestionIndex = 0;
+        userAnswers = new Array(10).fill(null);
+        selectedDifficulty = "";
+        window.showScreen("start-screen");
+      };
+
+      async function fetchWithRetry(url, options, retries = 5, delay = 1000) {
+        try {
+          const response = await fetch(url, options);
+          if (!response.ok) throw new Error("API request failed");
+          return await response.json();
+        } catch (error) {
+          if (retries > 0) {
+            await new Promise((res) => setTimeout(res, delay));
+            return fetchWithRetry(url, options, retries - 1, delay * 2);
+          }
+          throw error;
+        }
+      }
+
+      window.startDifficultySelection = () =>
+        window.showScreen("difficulty-screen");
+
+      window.fetchQuizData = async (difficulty) => {
+        selectedDifficulty = difficulty;
+        window.showScreen("loading-screen");
+        document.getElementById("loading-text").innerText =
+          "AI가 문제를 생성 중입니다...";
+
+        const systemPrompt = `You are a Spring Boot expert. Create 10 multiple-choice questions in Korean to test knowledge. 
+            Difficulty: ${difficulty}. 
+            Return ONLY a valid JSON array of objects. Each object MUST have:
+            - question: string
+            - options: array of 4 strings
+            - answer: integer (0-3)
+            - explanation: string (in Korean)`;
+
+        const userQuery = `Generate 10 unique Spring Boot quiz questions in Korean with ${difficulty} difficulty.`;
+
+        try {
+          const result = await fetchWithRetry(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: {
+                  responseMimeType: "application/json",
+                  responseSchema: {
+                    type: "ARRAY",
+                    items: {
+                      type: "OBJECT",
+                      properties: {
+                        question: { type: "STRING" },
+                        options: { type: "ARRAY", items: { type: "STRING" } },
+                        answer: { type: "NUMBER" },
+                        explanation: { type: "STRING" },
+                      },
+                      required: [
+                        "question",
+                        "options",
+                        "answer",
+                        "explanation",
+                      ],
+                    },
+                  },
+                },
+              }),
+            },
+          );
+
+          const rawContent = result.candidates?.[0]?.content?.parts?.[0]?.text;
+          quizData = JSON.parse(rawContent);
+          currentQuestionIndex = 0;
+          userAnswers = new Array(10).fill(null);
+
+          window.showScreen("quiz-screen");
+          window.renderQuestion();
+        } catch (error) {
+          console.error(error);
+          alert("문제를 생성하는 중 오류가 발생했습니다.");
+          window.showScreen("start-screen");
+        }
+      };
+
+      window.renderQuestion = () => {
+        const question = quizData[currentQuestionIndex];
+        document.getElementById("progress-text").innerText =
+          `문제 ${currentQuestionIndex + 1} / ${quizData.length}`;
+        document.getElementById("progress-bar").style.width =
+          `${((currentQuestionIndex + 1) / quizData.length) * 100}%`;
+        document.getElementById("question-text").innerText = question.question;
+
+        const container = document.getElementById("options-container");
+        container.innerHTML = "";
+
+        question.options.forEach((option, index) => {
+          const btn = document.createElement("button");
+          const isSelected = userAnswers[currentQuestionIndex] === index;
+          btn.className = `w-full text-left p-4 rounded-xl border-2 transition-all font-medium text-slate-700 flex items-center ${isSelected ? "border-blue-500 bg-blue-50" : "border-slate-100 hover:border-blue-300 hover:bg-slate-50"}`;
+          btn.innerHTML = `<span class="w-8 h-8 rounded-full ${isSelected ? "bg-blue-500 text-white" : "bg-slate-100"} flex items-center justify-center mr-3 text-sm font-bold">${index + 1}</span> ${option}`;
+          btn.onclick = () => {
+            userAnswers[currentQuestionIndex] = index;
+            window.renderQuestion();
+          };
+          container.appendChild(btn);
+        });
+
+        document.getElementById("prev-btn").disabled =
+          currentQuestionIndex === 0;
+        const isLast = currentQuestionIndex === quizData.length - 1;
+        document.getElementById("next-btn").classList.toggle("hidden", isLast);
+        document
+          .getElementById("submit-btn")
+          .classList.toggle("hidden", !isLast);
+      };
+
+      window.goToNextQuestion = () => {
+        if (currentQuestionIndex < quizData.length - 1) {
+          currentQuestionIndex++;
+          window.renderQuestion();
+        }
+      };
+
+      window.goToPrevQuestion = () => {
+        if (currentQuestionIndex > 0) {
+          currentQuestionIndex--;
+          window.renderQuestion();
+        }
+      };
+
+      window.showResults = async () => {
+        const unanswered = userAnswers.indexOf(null);
+        if (unanswered !== -1) {
+          if (
+            !confirm(
+              `아직 풀지 않은 문제가 있습니다. (문제 ${unanswered + 1}) 결과를 보시겠습니까?`,
+            )
+          ) {
+            currentQuestionIndex = unanswered;
+            window.renderQuestion();
+            return;
+          }
+        }
+
+        window.showScreen("loading-screen");
+        document.getElementById("loading-text").innerText =
+          "학습 내역을 저장하고 분석 중입니다...";
+
+        let score = 0;
+        quizData.forEach((q, i) => {
+          if (userAnswers[i] === q.answer) score++;
+        });
+
+        // RULE 3 & RULE 1: Ensure user is authenticated and use strict paths
+        if (currentUser) {
+          try {
+            const historyRef = collection(
+              db,
+              "artifacts",
+              appId,
+              "users",
+              currentUser.uid,
+              "history",
+            );
+            await addDoc(historyRef, {
+              difficulty: selectedDifficulty,
+              score: score,
+              total: quizData.length,
+              quizData: quizData,
+              userAnswers: userAnswers,
+              timestamp: new Date().toISOString(),
+            });
+            console.log("History saved successfully");
+          } catch (e) {
+            console.error("Firestore Save Error:", e);
+          }
+        }
+
+        // Display results
+        window.showScreen("result-screen");
+        document.getElementById("score-badge").innerText =
+          `${score} / ${quizData.length} 점`;
+        const reviewContainer = document.getElementById("review-container");
+        reviewContainer.innerHTML = "";
+
+        quizData.forEach((q, i) => {
+          const isCorrect = userAnswers[i] === q.answer;
+          const item = document.createElement("div");
+          item.className = `p-6 rounded-2xl border-l-4 ${isCorrect ? "bg-green-50 border-green-500" : "bg-red-50 border-red-500"}`;
+          item.innerHTML = `
+                    <p class="font-bold text-slate-800 mb-2">${i + 1}. ${q.question}</p>
+                    <p class="text-sm ${isCorrect ? "text-green-700" : "text-red-700"}">내 답변: ${userAnswers[i] !== null ? q.options[userAnswers[i]] : "미응답"}</p>
+                    ${!isCorrect ? `<p class="text-sm text-green-700">정답: ${q.options[q.answer]}</p>` : ""}
+                    <div class="mt-2 text-xs text-slate-500 italic">해설: ${q.explanation}</div>
+                `;
+          reviewContainer.appendChild(item);
+        });
+      };
+
+      // History Logic
+      window.loadHistory = async () => {
+        if (!currentUser) {
+          alert("인증 정보가 없습니다. 잠시 후 다시 시도해 주세요.");
+          return;
+        }
+        window.showScreen("loading-screen");
+        document.getElementById("loading-text").innerText =
+          "이전 학습 내역을 불러오는 중입니다...";
+
+        try {
+          const historyRef = collection(
+            db,
+            "artifacts",
+            appId,
+            "users",
+            currentUser.uid,
+            "history",
+          );
+          const querySnapshot = await getDocs(historyRef);
+          const historyList = document.getElementById("history-list");
+          historyList.innerHTML = "";
+
+          const docs = [];
+          querySnapshot.forEach((doc) =>
+            docs.push({ id: doc.id, ...doc.data() }),
+          );
+          docs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+          if (docs.length === 0) {
+            historyList.innerHTML =
+              '<div class="text-center p-10 text-slate-400">아직 학습 내역이 없습니다.</div>';
+          } else {
+            docs.forEach((data) => {
+              const dateStr = new Date(data.timestamp).toLocaleString();
+              const card = document.createElement("div");
+              card.className =
+                "glass p-5 rounded-2xl border border-white shadow-sm hover:shadow-md transition-all cursor-pointer flex justify-between items-center";
+              card.onclick = () => window.showHistoryDetail(data);
+              card.innerHTML = `
+                            <div>
+                                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">${data.difficulty}</span>
+                                <h4 class="text-sm font-bold text-slate-800 mt-1">${dateStr}</h4>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-xl font-bold text-blue-600">${data.score}</span>
+                                <span class="text-slate-400">/ ${data.total}</span>
+                            </div>
+                        `;
+              historyList.appendChild(card);
+            });
+          }
+          window.showScreen("history-screen");
+        } catch (e) {
+          console.error("Load History Error:", e);
+          alert("내역을 불러오는 중 오류가 발생했습니다.");
+          window.showScreen("start-screen");
+        }
+      };
+
+      window.showHistoryDetail = (data) => {
+        window.showScreen("history-detail-screen");
+        const dateStr = new Date(data.timestamp).toLocaleDateString();
+        document.getElementById("detail-title").innerText =
+          `${data.difficulty} 복습 (${dateStr})`;
+        const container = document.getElementById("detail-content");
+        container.innerHTML = "";
+
+        data.quizData.forEach((q, i) => {
+          const isCorrect = data.userAnswers[i] === q.answer;
+          const item = document.createElement("div");
+          item.className = `p-6 rounded-2xl border-l-4 ${isCorrect ? "bg-green-50 border-green-500" : "bg-red-50 border-red-500"} mb-4`;
+          item.innerHTML = `
+                    <p class="font-bold text-slate-800 mb-2">${i + 1}. ${q.question}</p>
+                    <p class="text-sm ${isCorrect ? "text-green-700" : "text-red-700"}">내 답변: ${data.userAnswers[i] !== null ? q.options[data.userAnswers[i]] : "미응답"}</p>
+                    <p class="text-sm text-green-700 font-semibold">정답: ${q.options[q.answer]}</p>
+                    <div class="mt-3 pt-3 border-t border-slate-200 text-sm text-slate-600"><strong>해설:</strong> ${q.explanation}</div>
+                `;
+          container.appendChild(item);
+        });
+      };
+    </script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap");
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: #f8fafc;
+      }
+      .glass {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+      }
+      .loader {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3b82f6;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen p-4 md:p-8">
+    <div id="app" class="max-w-3xl mx-auto">
+      <!-- Header -->
+      <header class="text-center mb-10">
+        <h1 class="text-4xl font-bold text-slate-800 mb-2">
+          🍃 Spring Boot Quiz
+        </h1>
+        <p class="text-slate-600 italic">
+          AI가 생성하는 실시간 스프링부트 학습 퀴즈
+        </p>
+      </header>
+
+      <!-- Start Screen -->
+      <div
+        id="start-screen"
+        class="glass rounded-3xl p-8 shadow-xl text-center border border-white"
+      >
+        <div class="mb-8">
+          <div
+            class="w-20 h-20 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4"
+          >
+            <svg
+              class="w-12 h-12 text-green-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              ></path>
+            </svg>
+          </div>
+          <h2 class="text-2xl font-semibold mb-2 text-slate-800">
+            환영합니다!
+          </h2>
+          <p class="text-slate-500">
+            지식을 테스트하거나 이전 기록을 확인해 보세요.
+          </p>
+        </div>
+        <div class="space-y-4">
+          <button
+            onclick="startDifficultySelection()"
+            class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-5 px-8 rounded-2xl transition-all shadow-lg text-xl"
+          >
+            새 퀴즈 시작하기
+          </button>
+          <button
+            onclick="loadHistory()"
+            class="w-full bg-white border border-slate-200 text-slate-700 font-bold py-4 px-8 rounded-2xl hover:bg-slate-50 transition-all flex items-center justify-center"
+          >
+            <svg
+              class="w-5 h-5 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              ></path>
+            </svg>
+            학습 내역 보기
+          </button>
+        </div>
+      </div>
+
+      <!-- Difficulty Selection Screen -->
+      <div
+        id="difficulty-screen"
+        class="hidden glass rounded-3xl p-8 shadow-xl text-center border border-white"
+      >
+        <h2 class="text-2xl font-bold text-slate-800 mb-6">
+          난이도를 선택해 주세요
+        </h2>
+        <div class="grid grid-cols-1 gap-4">
+          <button
+            onclick="fetchQuizData('쉬움')"
+            class="p-6 rounded-2xl bg-blue-50 border-2 border-blue-100 hover:border-blue-400 transition-all text-left"
+          >
+            <span class="block text-xl font-bold text-blue-700">쉬움</span>
+            <span class="text-sm text-blue-600"
+              >기본적인 어노테이션과 설정 개념</span
+            >
+          </button>
+          <button
+            onclick="fetchQuizData('중간')"
+            class="p-6 rounded-2xl bg-yellow-50 border-2 border-yellow-100 hover:border-yellow-400 transition-all text-left"
+          >
+            <span class="block text-xl font-bold text-yellow-700">중간</span>
+            <span class="text-sm text-yellow-600"
+              >JPA 연관관계, 서비스 레이어 및 보안</span
+            >
+          </button>
+          <button
+            onclick="fetchQuizData('어려움')"
+            class="p-6 rounded-2xl bg-red-50 border-2 border-red-100 hover:border-red-400 transition-all text-left"
+          >
+            <span class="block text-xl font-bold text-red-700">어려움</span>
+            <span class="text-sm text-red-600"
+              >MSA 패턴, 트랜잭션 튜닝 및 고급 보안</span
+            >
+          </button>
+        </div>
+        <button
+          onclick="resetApp()"
+          class="mt-6 text-slate-400 hover:text-slate-600 font-medium"
+        >
+          뒤로 가기
+        </button>
+      </div>
+
+      <!-- Loading Screen -->
+      <div
+        id="loading-screen"
+        class="hidden glass rounded-3xl p-12 shadow-xl text-center border border-white"
+      >
+        <div class="flex flex-col items-center">
+          <div class="loader mb-4"></div>
+          <p id="loading-text" class="text-slate-700 font-medium italic">
+            AI가 문제를 생성 중입니다...
+          </p>
+        </div>
+      </div>
+
+      <!-- Quiz Screen -->
+      <div id="quiz-screen" class="hidden">
+        <div class="mb-4 flex justify-between items-center px-2">
+          <span id="progress-text" class="text-sm font-semibold text-slate-500"
+            >문제 1 / 10</span
+          >
+          <div class="h-2 w-32 bg-slate-200 rounded-full overflow-hidden">
+            <div
+              id="progress-bar"
+              class="h-full bg-green-500 transition-all duration-300"
+              style="width: 10%"
+            ></div>
+          </div>
+        </div>
+        <div
+          id="question-card"
+          class="glass rounded-3xl p-8 shadow-xl border border-white mb-6"
+        >
+          <h3
+            id="question-text"
+            class="text-xl font-bold text-slate-800 mb-6 leading-relaxed"
+          >
+            로딩 중...
+          </h3>
+          <div id="options-container" class="space-y-3"></div>
+        </div>
+        <div class="flex justify-between items-center gap-4">
+          <button
+            id="prev-btn"
+            onclick="goToPrevQuestion()"
+            class="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-4 rounded-2xl hover:bg-slate-50 disabled:opacity-30"
+          >
+            이전
+          </button>
+          <button
+            id="next-btn"
+            onclick="goToNextQuestion()"
+            class="flex-1 bg-slate-800 text-white font-bold py-4 rounded-2xl hover:bg-slate-900"
+          >
+            다음
+          </button>
+          <button
+            id="submit-btn"
+            onclick="showResults()"
+            class="hidden flex-1 bg-green-600 text-white font-bold py-4 rounded-2xl hover:bg-green-700 transition-all"
+          >
+            결과 확인
+          </button>
+        </div>
+      </div>
+
+      <!-- Result Screen -->
+      <div
+        id="result-screen"
+        class="hidden glass rounded-3xl p-8 shadow-xl border border-white"
+      >
+        <div class="text-center mb-8">
+          <h2 class="text-3xl font-bold text-slate-800 mb-2">학습 완료!</h2>
+          <div
+            id="score-badge"
+            class="inline-block px-8 py-3 bg-blue-600 text-white rounded-full font-bold text-2xl shadow-md"
+          >
+            0 / 10
+          </div>
+        </div>
+        <div id="review-container" class="space-y-4 mb-8"></div>
+        <!-- Modified button: Uses resetApp instead of location.reload -->
+        <button
+          onclick="resetApp()"
+          class="w-full bg-slate-800 text-white font-bold py-5 rounded-2xl hover:bg-slate-900 transition-all shadow-lg"
+        >
+          홈으로 이동
+        </button>
+      </div>
+
+      <!-- History Screen -->
+      <div id="history-screen" class="hidden">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-2xl font-bold text-slate-800">나의 학습 내역</h2>
+          <button
+            onclick="resetApp()"
+            class="text-slate-500 hover:text-slate-800"
+          >
+            닫기
+          </button>
+        </div>
+        <div id="history-list" class="space-y-4"></div>
+      </div>
+
+      <!-- History Detail Screen -->
+      <div id="history-detail-screen" class="hidden">
+        <div class="flex items-center justify-between mb-6">
+          <h2
+            id="detail-title"
+            class="text-xl font-bold text-slate-800 leading-tight mr-4"
+          >
+            복습하기
+          </h2>
+          <button
+            onclick="loadHistory()"
+            class="flex-shrink-0 text-slate-500 hover:text-slate-800 font-bold"
+          >
+            목록으로
+          </button>
+        </div>
+        <div id="detail-content"></div>
+      </div>
+    </div>
+  </body>
+</html>

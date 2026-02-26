@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WCAG 색상 대비 검사기</title>
+    <style>
+        :root {
+            --transition-speed: 0.3s;
+            --bg-color: #092e20;
+            --fg-color: #ffffff;
+            --card-bg: rgba(255, 255, 255, 0.1);
+            --border-color: rgba(255, 255, 255, 0.2);
+            --text-main: #ffffff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--fg-color);
+            transition: background-color var(--transition-speed), color var(--transition-speed);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            width: 100%;
+            min-height: 100vh;
+        }
+
+        /* 왼쪽 컨테이너 */
+        .left-container {
+            flex: 1;
+            padding: 40px;
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid var(--border-color);
+            overflow-y: auto;
+        }
+
+        /* 오른쪽 컨테이너 */
+        .right-container {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        h1, h2, h3 {
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            margin-bottom: 30px;
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        label {
+            width: 80px;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-family: monospace;
+            font-size: 1.1rem;
+        }
+
+        .slider-container {
+            margin-top: 10px;
+        }
+
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .slider-row span {
+            width: 30px;
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            cursor: pointer;
+        }
+
+        /* 제안 색상 영역 */
+        .suggestions-area {
+            margin-top: 20px;
+        }
+
+        .suggestion-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .suggestion-item {
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            font-size: 0.85rem;
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s;
+        }
+
+        .suggestion-item:hover {
+            transform: translateY(-3px);
+        }
+
+        /* 결과 표시 영역 */
+        .ratio-display {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .ratio-value {
+            font-size: 4rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .ratio-label {
+            font-size: 1.2rem;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-top: 10px;
+            font-size: 1.5rem;
+        }
+
+        /* 리스트 항목 스타일 */
+        .result-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .grade {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .vision-type {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .description {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-bottom: 15px;
+            line-height: 1.4;
+        }
+
+        .preview-box {
+            width: 100%;
+            padding: 25px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+
+        .pass-text { color: #4ade80; }
+        .fail-text { color: #f87171; }
+
+        @media (max-width: 900px) {
+            .main-container { flex-direction: column; }
+            .left-container, .right-container { flex: none; width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-container">
+    <!-- 왼쪽: 입력 및 조절 -->
+    <div class="left-container">
+        <h1>색상 설정</h1>
+        
+        <div class="input-group">
+            <h3>배경색 (Background)</h3>
+            <div class="input-row">
+                <label>HEX</label>
+                <input type="text" id="bg-hex" value="#092E20" maxlength="7">
+            </div>
+            <div class="slider-container">
+                <div class="slider-row"><span>H</span><input type="range" id="bg-h" min="0" max="360" value="158"></div>
+                <div class="slider-row"><span>S</span><input type="range" id="bg-s" min="0" max="100" value="67"></div>
+                <div class="slider-row"><span>L</span><input type="range" id="bg-l" min="0" max="100" value="11"></div>
+            </div>
+        </div>
+
+        <div class="input-group">
+            <h3>전경색 (Foreground)</h3>
+            <div class="input-row">
+                <label>HEX</label>
+                <input type="text" id="fg-hex" value="#FFFFFF" maxlength="7">
+            </div>
+            <div class="slider-container">
+                <div class="slider-row"><span>H</span><input type="range" id="fg-h" min="0" max="360" value="0"></div>
+                <div class="slider-row"><span>S</span><input type="range" id="fg-s" min="0" max="100" value="0"></div>
+                <div class="slider-row"><span>L</span><input type="range" id="fg-l" min="0" max="100" value="100"></div>
+            </div>
+        </div>
+
+        <div id="suggestions" class="suggestions-area">
+            <h3>추천 색상 조합</h3>
+            <p style="font-size: 0.8rem; margin-bottom: 10px; opacity: 0.7;">현재 대비율이 낮을 경우 적합한 색상을 제안합니다.</p>
+            <div id="suggestion-list" class="suggestion-grid">
+                <!-- 제안 아이템들이 여기에 동적 생성됨 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 오른쪽: 결과 및 시뮬레이션 -->
+    <div class="right-container">
+        <div class="ratio-display">
+            <div class="ratio-label">현재 대비율</div>
+            <div class="ratio-value" id="contrast-ratio">21.0:1</div>
+            <div id="overall-status" class="status-badge">Normal</div>
+        </div>
+
+        <div id="results-list">
+            <!-- 시뮬레이션 결과 카드들이 여기에 동적 생성됨 -->
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 유틸리티 함수 ---
+
+    // HEX to RGB
+    function hexToRgb(hex) {
+        let r = 0, g = 0, b = 0;
+        hex = hex.replace('#', '');
+        if (hex.length === 3) {
+            r = parseInt(hex[0] + hex[0], 16);
+            g = parseInt(hex[1] + hex[1], 16);
+            b = parseInt(hex[2] + hex[2], 16);
+        } else {
+            r = parseInt(hex.substring(0, 2), 16);
+            g = parseInt(hex.substring(2, 4), 16);
+            b = parseInt(hex.substring(4, 6), 16);
+        }
+        return { r, g, b };
+    }
+
+    // RGB to HEX
+    function rgbToHex(r, g, b) {
+        const toHex = (n) => {
+            const hex = Math.round(n).toString(16);
+            return hex.length === 1 ? '0' + hex : hex;
+        };
+        return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+    }
+
+    // RGB to HSL
+    function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, l = (max + min) / 2;
+
+        if (max === min) {
+            h = s = 0;
+        } else {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
+        }
+        return { h: h * 360, s: s * 100, l: l * 100 };
+    }
+
+    // HSL to RGB
+    function hslToRgb(h, s, l) {
+        s /= 100; l /= 100; h /= 360;
+        let r, g, b;
+        if (s === 0) {
+            r = g = b = l;
+        } else {
+            const hue2rgb = (p, q, t) => {
+                if (t < 0) t += 1;
+                if (t > 1) t -= 1;
+                if (t < 1/6) return p + (q - p) * 6 * t;
+                if (t < 1/2) return q;
+                if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                return p;
+            };
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            r = hue2rgb(p, q, h + 1/3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1/3);
+        }
+        return { r: r * 255, g: g * 255, b: b * 255 };
+    }
+
+    // 대비율 계산 (WCAG 알고리즘)
+    function getLuminance(r, g, b) {
+        const a = [r, g, b].map(v => {
+            v /= 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        });
+        return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+    }
+
+    function getContrastRatio(rgb1, rgb2) {
+        const lum1 = getLuminance(rgb1.r, rgb1.g, rgb1.b);
+        const lum2 = getLuminance(rgb2.r, rgb2.g, rgb2.b);
+        const brightest = Math.max(lum1, lum2);
+        const darkest = Math.min(lum1, lum2);
+        return (brightest + 0.05) / (darkest + 0.05);
+    }
+
+    // 색맹 시뮬레이션 알고리즘
+    // 비전 타입 정의
+    const visionTypes = [
+        { id: 'normal', name: '일반 시각 (Normal)', desc: '모든 색상을 정상적으로 구분할 수 있는 상태입니다.' },
+        { id: 'protanomaly', name: '제1색약 (Protanomaly)', desc: '빨간색 민감도 저하. 빨강과 초록 구별이 어렵습니다.' },
+        { id: 'protanopia', name: '제1색맹 (Protanopia)', desc: '적색맹. 빨간색을 전혀 볼 수 없습니다.' },
+        { id: 'deuteranomaly', name: '제2색약 (Deuteranomaly)', desc: '초록색 민감도 저하. 가장 흔한 색약 유형입니다.' },
+        { id: 'deuteranopia', name: '제2색맹 (Deuteranopia)', desc: '녹색맹. 초록색을 전혀 볼 수 없습니다.' },
+        { id: 'tritanomaly', name: '제3색약 (Tritanomaly)', desc: '파란색 민감도 저하. 파랑-초록, 노랑-빨강 구별이 어렵습니다.' }
+    ];
+
+    function simulateColor(rgb, type) {
+        // 간소화된 색맹 시뮬레이션 매트릭스
+        let r = rgb.r, g = rgb.g, b = rgb.b;
+        
+        const matrices = {
+            protanomaly: [0.817, 0.183, 0.0, 0.333, 0.667, 0.0, 0.0, 0.125, 0.875],
+            protanopia: [0.567, 0.433, 0.0, 0.558, 0.442, 0.0, 0.0, 0.242, 0.758],
+            deuteranomaly: [0.8, 0.2, 0.0, 0.258, 0.742, 0.0, 0.0, 0.142, 0.858],
+            deuteranopia: [0.625, 0.375, 0.0, 0.7, 0.3, 0.0, 0.0, 0.3, 0.7],
+            tritanomaly: [0.967, 0.033, 0, 0, 0.733, 0.267, 0, 0.183, 0.817]
+        };
+
+        if (type === 'normal') return rgb;
+
+        const m = matrices[type];
+        const nr = r * m[0] + g * m[1] + b * m[2];
+        const ng = r * m[3] + g * m[4] + b * m[5];
+        const nb = r * m[6] + g * m[7] + b * m[8];
+
+        return { r: Math.min(255, nr), g: Math.min(255, ng), b: Math.min(255, nb) };
+    }
+
+    // --- 앱 로직 ---
+
+    const bgHexInput = document.getElementById('bg-hex');
+    const fgHexInput = document.getElementById('fg-hex');
+    const bgSliders = { h: document.getElementById('bg-h'), s: document.getElementById('bg-s'), l: document.getElementById('bg-l') };
+    const fgSliders = { h: document.getElementById('fg-h'), s: document.getElementById('fg-s'), l: document.getElementById('fg-l') };
+    const resultsContainer = document.getElementById('results-list');
+    const suggestionContainer = document.getElementById('suggestion-list');
+
+    function updateApp() {
+        const bgRgb = hexToRgb(bgHexInput.value);
+        const fgRgb = hexToRgb(fgHexInput.value);
+        const ratio = getContrastRatio(bgRgb, fgRgb);
+
+        // 배경 및 글자색 적용
+        document.body.style.backgroundColor = bgHexInput.value;
+        document.body.style.color = fgHexInput.value;
+        document.documentElement.style.setProperty('--bg-color', bgHexInput.value);
+        document.documentElement.style.setProperty('--fg-color', fgHexInput.value);
+
+        // 대비율 표시
+        document.getElementById('contrast-ratio').innerText = ratio.toFixed(2) + ':1';
+        
+        // 등급 판단 (Normal 텍스트 기준)
+        let grade = "FAIL";
+        if (ratio >= 7) grade = "AAA (Pass)";
+        else if (ratio >= 4.5) grade = "AA (Pass)";
+        
+        const statusBadge = document.getElementById('overall-status');
+        statusBadge.innerText = grade;
+        statusBadge.className = 'status-badge ' + (ratio >= 4.5 ? 'pass-text' : 'fail-text');
+
+        // 상세 시뮬레이션 결과 생성
+        renderResults(bgRgb, fgRgb);
+
+        // 추천 색상 생성
+        generateSuggestions(bgRgb, fgRgb, ratio);
+    }
+
+    function renderResults(bgRgb, fgRgb) {
+        resultsContainer.innerHTML = '';
+        visionTypes.forEach(vision => {
+            const simBg = simulateColor(bgRgb, vision.id);
+            const simFg = simulateColor(fgRgb, vision.id);
+            const simRatio = getContrastRatio(simBg, simFg);
+            
+            let status = "Fail";
+            if (simRatio >= 7) status = "AAA";
+            else if (simRatio >= 4.5) status = "AA";
+
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            card.innerHTML = `
+                <div class="card-header">
+                    <span class="vision-type">${vision.name}</span>
+                    <span class="grade ${simRatio >= 4.5 ? 'pass-text' : 'fail-text'}">${status} (${simRatio.toFixed(2)}:1)</span>
+                </div>
+                <div class="description">${vision.desc}</div>
+                <div class="preview-box" style="background-color: ${rgbToHex(simBg.r, simBg.g, simBg.b)}; color: ${rgbToHex(simFg.r, simFg.g, simFg.b)};">
+                    Example Text
+                </div>
+            `;
+            resultsContainer.appendChild(card);
+        });
+    }
+
+    function generateSuggestions(bgRgb, fgRgb, currentRatio) {
+        suggestionContainer.innerHTML = '';
+        if (currentRatio >= 7) {
+            suggestionContainer.innerHTML = '<p style="font-size: 0.9rem; grid-column: 1/-1;">현재 완벽한 대비율을 가지고 있습니다!</p>';
+            return;
+        }
+
+        const bgHsl = rgbToHsl(bgRgb.r, bgRgb.g, bgRgb.b);
+        const fgHsl = rgbToHsl(fgRgb.r, fgRgb.g, fgRgb.b);
+        
+        let candidates = [];
+
+        // 1. 전경색 유지, 배경색 밝기 조절
+        for (let l = 0; l <= 100; l += 5) {
+            let testBg = hslToRgb(bgHsl.h, bgHsl.s, l);
+            let r = getContrastRatio(testBg, fgRgb);
+            if (r >= 4.5) candidates.push({ type: 'bg', hex: rgbToHex(testBg.r, testBg.g, testBg.b), ratio: r });
+        }
+
+        // 2. 배경색 유지, 전경색 밝기 조절
+        for (let l = 0; l <= 100; l += 5) {
+            let testFg = hslToRgb(fgHsl.h, fgHsl.s, l);
+            let r = getContrastRatio(bgRgb, testFg);
+            if (r >= 4.5) candidates.push({ type: 'fg', hex: rgbToHex(testFg.r, testFg.g, testFg.b), ratio: r });
+        }
+
+        // 중복 제거 및 상위 몇 개만 표시
+        const unique = Array.from(new Set(candidates.map(c => c.hex)))
+            .slice(0, 8);
+
+        unique.forEach(hex => {
+            const item = document.createElement('div');
+            item.className = 'suggestion-item';
+            item.style.backgroundColor = hex;
+            // 아이템 안의 텍스트 색상은 배경과 대비되게
+            const itemRgb = hexToRgb(hex);
+            item.style.color = getLuminance(itemRgb.r, itemRgb.g, itemRgb.b) > 0.5 ? '#000' : '#fff';
+            item.innerText = hex;
+            item.onclick = () => {
+                // 어떤 값에 적용할지 판단 (가까운 쪽 혹은 단순히 교체)
+                // 여기서는 제안된 HEX를 보고 배경/전경 중 선택하여 자동 적용
+                if (getContrastRatio(hexToRgb(hex), fgRgb) >= 4.5) {
+                    bgHexInput.value = hex;
+                    updateSlidersFromHex('bg');
+                } else {
+                    fgHexInput.value = hex;
+                    updateSlidersFromHex('fg');
+                }
+                updateApp();
+            };
+            suggestionContainer.appendChild(item);
+        });
+    }
+
+    // --- 이벤트 핸들러 ---
+
+    function updateSlidersFromHex(target) {
+        const hex = target === 'bg' ? bgHexInput.value : fgHexInput.value;
+        if (!/^#[0-9A-F]{6}$/i.test(hex)) return;
+        const rgb = hexToRgb(hex);
+        const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+        
+        bgSliders.h.value = target === 'bg' ? hsl.h : bgSliders.h.value;
+        bgSliders.s.value = target === 'bg' ? hsl.s : bgSliders.s.value;
+        bgSliders.l.value = target === 'bg' ? hsl.l : bgSliders.l.value;
+
+        fgSliders.h.value = target === 'fg' ? hsl.h : fgSliders.h.value;
+        fgSliders.s.value = target === 'fg' ? hsl.s : fgSliders.s.value;
+        fgSliders.l.value = target === 'fg' ? hsl.l : fgSliders.l.value;
+    }
+
+    function updateHexFromSliders(target) {
+        const h = target === 'bg' ? bgSliders.h.value : fgSliders.h.value;
+        const s = target === 'bg' ? bgSliders.s.value : fgSliders.s.value;
+        const l = target === 'bg' ? bgSliders.l.value : fgSliders.l.value;
+        const rgb = hslToRgb(h, s, l);
+        const hex = rgbToHex(rgb.r, rgb.g, rgb.b);
+        
+        if (target === 'bg') bgHexInput.value = hex;
+        else fgHexInput.value = hex;
+    }
+
+    // HEX 입력 이벤트
+    [bgHexInput, fgHexInput].forEach(input => {
+        input.addEventListener('input', (e) => {
+            const target = e.target.id.startsWith('bg') ? 'bg' : 'fg';
+            if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                updateSlidersFromHex(target);
+                updateApp();
+            }
+        });
+    });
+
+    // 슬라이더 이벤트
+    const allSliders = [...Object.values(bgSliders), ...Object.values(fgSliders)];
+    allSliders.forEach(slider => {
+        slider.addEventListener('input', (e) => {
+            const target = e.target.id.startsWith('bg') ? 'bg' : 'fg';
+            updateHexFromSliders(target);
+            updateApp();
+        });
+    });
+
+    // 초기 실행
+    window.onload = updateApp;
+
+</script>
+
+</body>
+</html>

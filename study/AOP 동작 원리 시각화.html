@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring AOP Visualizer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* 트랜지션 부드럽게 처리를 위한 추가 유틸리티 */
+    .fade-enter {
+      animation: fadeIn 0.3s ease-in-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-800 font-sans p-6">
+
+  <header class="max-w-6xl mx-auto mb-8 text-center">
+    <h1 class="text-3xl font-bold text-slate-900 flex items-center justify-center gap-3">
+      <i data-lucide="layers" class="text-blue-600 w-8 h-8"></i>
+      Spring AOP 동작 원리 시각화
+    </h1>
+    <p class="text-slate-500 mt-2">프록시 객체와 어드바이스 체인의 실행 순서를 단계별로 확인해보세요.</p>
+  </header>
+
+  <main class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+    
+    <!-- 왼쪽 패널: 컨트롤 & 코드 -->
+    <div class="lg:col-span-4 space-y-6">
+      
+      <!-- 시나리오 선택 -->
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+          <i data-lucide="box" class="w-5 h-5 text-slate-600"></i>
+          시나리오 선택
+        </h2>
+        <div class="space-y-3">
+          <label id="label-tx-only" class="flex items-center p-3 border rounded-lg cursor-pointer transition-colors bg-blue-50 border-blue-200 ring-1 ring-blue-500">
+            <input type="radio" name="scenario" value="tx_only" class="hidden" checked onchange="handleScenarioChange('tx_only')">
+            <div class="flex-1">
+              <div class="font-semibold text-sm">단일 AOP 적용</div>
+              <div class="text-xs text-slate-500 mt-1">@Transactional 만 사용</div>
+            </div>
+            <i id="check-tx-only" data-lucide="check-circle-2" class="text-blue-500 w-5 h-5"></i>
+          </label>
+          
+          <label id="label-multi-aop" class="flex items-center p-3 border rounded-lg cursor-pointer transition-colors hover:bg-slate-50 border-slate-200">
+            <input type="radio" name="scenario" value="multi_aop" class="hidden" onchange="handleScenarioChange('multi_aop')">
+            <div class="flex-1">
+              <div class="font-semibold text-sm">다중 AOP 적용 (체인)</div>
+              <div class="text-xs text-slate-500 mt-1">@Cacheable + @Transactional</div>
+            </div>
+            <i id="check-multi-aop" data-lucide="check-circle-2" class="text-purple-500 w-5 h-5 hidden"></i>
+          </label>
+        </div>
+      </div>
+
+      <!-- 재생 컨트롤 -->
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+         <div class="flex items-center justify-between mb-4">
+           <h2 class="text-lg font-bold">실행 컨트롤</h2>
+           <span id="step-counter" class="text-xs font-semibold px-2 py-1 bg-slate-100 rounded-full">
+             Step 0 / 5
+           </span>
+         </div>
+         <div class="flex gap-2">
+            <button id="btn-play" onclick="togglePlay()" class="flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700">
+              <i data-lucide="play" class="w-4 h-4"></i> <span>자동 재생</span>
+            </button>
+            <button id="btn-next" onclick="handleNext()" class="flex-1 flex items-center justify-center gap-2 py-2 px-4 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200 transition-colors">
+              <i data-lucide="arrow-right" class="w-4 h-4"></i> 다음 단계
+            </button>
+            <button id="btn-reset" onclick="handleReset()" class="flex items-center justify-center p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors" title="초기화">
+              <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+            </button>
+         </div>
+         
+         <div id="desc-container" class="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200 shadow-sm fade-enter">
+           <!-- 설명 내용이 여기에 동적으로 렌더링 됩니다. -->
+         </div>
+      </div>
+
+      <!-- 코드 뷰어 -->
+      <div class="bg-slate-900 rounded-xl shadow-sm overflow-hidden border border-slate-800">
+        <div class="px-4 py-2 bg-slate-800 border-b border-slate-700 flex items-center gap-2 text-xs text-slate-300 font-mono">
+          <i data-lucide="server" class="w-3 h-3"></i> UserService.java
+        </div>
+        <div id="code-container" class="p-4 text-sm font-mono text-slate-300 leading-relaxed overflow-x-auto">
+          <!-- 코드 내용이 여기에 동적으로 렌더링 됩니다. -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 오른쪽 패널: 아키텍처 다이어그램 -->
+    <div class="lg:col-span-8 bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col relative overflow-hidden min-h-[600px]">
+      
+      <!-- 다이어그램 렌더링 영역 -->
+      <div id="diagram-container" class="flex-1 flex flex-col items-center justify-center w-full py-4 fade-enter">
+         <!-- 다이어그램이 여기에 동적으로 렌더링 됩니다. -->
+      </div>
+
+      <!-- 정보 패널 -->
+      <div class="w-full bg-slate-800 text-slate-200 p-4 rounded-lg text-sm flex gap-3 shadow-lg mt-6">
+        <div class="mt-0.5"><i data-lucide="box" class="w-5 h-5 text-blue-400"></i></div>
+        <div>
+          <p class="font-bold text-white mb-1">💡 Spring AOP 핵심 원리</p>
+          <p>Spring은 Target 객체를 직접 호출하지 않고, 런타임에 <b>Proxy 객체</b>를 생성하여 클라이언트에게 주입합니다. <br/>메서드 호출 시 여러 어드바이스(Advice)가 <b>Chain 형태</b>로 순차적으로 실행되며, `@Order` 설정을 통해 순서를 제어할 수 있습니다. <br/>(일반적으로 데이터 정합성을 위해 Cache가 Transaction보다 먼저 실행되도록 권장합니다.)</p>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // --- 데이터 정의 ---
+    const STEPS_TX_ONLY = [
+      { 
+        id: 0, 
+        activeNodes: ['client'], 
+        title: '대기 중', 
+        desc: [
+          '클라이언트가 서비스 메서드를 호출하기 전 대기 상태입니다.',
+          'Spring은 애플리케이션 실행 시 @Transactional 어노테이션을 감지하고, 실제 대상(Target) 객체 대신 AOP 기능이 적용된 Proxy 객체를 빈(Bean)으로 등록해 두었습니다.'
+        ],
+        codeHighlight: 0
+      },
+      { 
+        id: 1, 
+        activeNodes: ['client', 'proxy'], 
+        title: '1. 프록시 호출', 
+        desc: [
+          '클라이언트가 Target 객체가 아닌 Spring Proxy 객체의 메서드를 먼저 호출합니다.',
+          '프록시는 자신에게 등록된 어드바이스(Advice) 목록을 확인하고 순차적으로 실행할 준비를 합니다.'
+        ],
+        codeHighlight: 4
+      },
+      { 
+        id: 2, 
+        activeNodes: ['proxy', 'tx_interceptor'], 
+        title: '2. 트랜잭션 어드바이스 실행 (Before)', 
+        desc: [
+          '프록시 내부의 TransactionInterceptor가 호출을 가장 먼저 가로챕니다.',
+          'DataSource로부터 DB 커넥션을 획득하고, 커넥션의 setAutoCommit(false)를 호출하여 데이터베이스 트랜잭션 경계를 엽니다.'
+        ],
+        codeHighlight: 2
+      },
+      { 
+        id: 3, 
+        activeNodes: ['target'], 
+        title: '3. 실제 대상(Target) 메서드 실행', 
+        desc: [
+          '어드바이스 작업(Before)이 완료되면, 프록시가 실제 비즈니스 로직을 가진 Target 객체의 메서드를 위임(Delegate)하여 호출합니다.',
+          '이 시점에 JPA 등 영속성 컨텍스트가 활성화되며, 실제 데이터베이스 I/O 처리가 이루어집니다.'
+        ],
+        codeHighlight: 5
+      },
+      { 
+        id: 4, 
+        activeNodes: ['proxy', 'tx_interceptor', 'db'], 
+        title: '4. 트랜잭션 어드바이스 실행 (After/Return)', 
+        desc: [
+          'Target 메서드가 성공적으로 실행을 마치면 제어권이 다시 TransactionInterceptor로 돌아옵니다.',
+          '트랜잭션을 Commit하여 DB에 변경사항을 물리적으로 반영하고 사용한 커넥션을 풀(Pool)에 반환합니다.',
+          '※ 만약 메서드 실행 중 런타임 예외(RuntimeException 등)가 발생했다면 Rollback을 수행합니다.'
+        ],
+        codeHighlight: 2
+      },
+      { 
+        id: 5, 
+        activeNodes: ['client'], 
+        title: '5. 결과 반환', 
+        desc: [
+          '트랜잭션 처리가 모두 안전하게 완료된 후, 프록시가 클라이언트에게 최종 실행 결과를 반환하며 요청 처리를 종료합니다.'
+        ],
+        codeHighlight: 4
+      }
+    ];
+
+    const STEPS_MULTI_AOP = [
+      { 
+        id: 0, 
+        activeNodes: ['client'], 
+        title: '대기 중', 
+        desc: [
+          '@Cacheable과 @Transactional이 함께 적용된 메서드를 호출하기 전 상태입니다.',
+          '여러 AOP가 적용될 경우 프록시 내부에는 여러 인터셉터(Interceptor)들이 체인(Chain) 형태로 구성되어 순서를 가집니다.'
+        ],
+        codeHighlight: 0
+      },
+      { 
+        id: 1, 
+        activeNodes: ['client', 'proxy'], 
+        title: '1. 프록시 객체 호출', 
+        desc: [
+          '클라이언트가 Proxy 객체를 호출합니다.',
+          'Spring은 기본적으로 데이터 정합성을 위해 Cache 어드바이스가 Transaction 어드바이스보다 우선순위가 높도록(@Order) 설정하여 체인을 실행합니다.'
+        ],
+        codeHighlight: 6
+      },
+      { 
+        id: 2, 
+        activeNodes: ['proxy', 'cache_interceptor'], 
+        title: '2. 캐시 어드바이스 실행 (Before)', 
+        desc: [
+          'CacheInterceptor가 가장 먼저 실행됩니다.',
+          '설정된 키 값(예: "#id")을 이용해 캐시 저장소(Redis, Local Memory 등)에 이미 데이터가 존재하는지 확인합니다.',
+          '💡 현재 시나리오는 캐시에 데이터가 존재하지 않는 상황(Cache Miss)이라고 가정합니다.'
+        ],
+        codeHighlight: 2
+      },
+      { 
+        id: 3, 
+        activeNodes: ['proxy', 'tx_interceptor'], 
+        title: '3. 트랜잭션 어드바이스 실행 (Before)', 
+        desc: [
+          '캐시에 데이터가 없으므로 다음 체인인 TransactionInterceptor로 제어가 넘어갑니다.',
+          '어노테이션에 설정된 readOnly = true 속성을 확인하고, 커넥션을 가져와 읽기 전용 트랜잭션을 시작합니다.',
+          '(읽기 전용 모드를 통해 JPA 플러시 처리를 생략하여 메모리 리소스와 성능을 최적화합니다.)'
+        ],
+        codeHighlight: 3
+      },
+      { 
+        id: 4, 
+        activeNodes: ['target', 'db'], 
+        title: '4. 실제 대상(Target) 메서드 실행', 
+        desc: [
+          '프록시가 실제 비즈니스 로직(findById)을 호출합니다.',
+          '실제 데이터베이스에 접근하여 SELECT 쿼리를 수행하고 타겟 데이터를 메모리로 조회해옵니다.'
+        ],
+        codeHighlight: 7
+      },
+      { 
+        id: 5, 
+        activeNodes: ['proxy', 'tx_interceptor'], 
+        title: '5. 트랜잭션 어드바이스 실행 (After)', 
+        desc: [
+          '메서드 반환 후, 다시 TransactionInterceptor가 실행됩니다.',
+          '조회 로직이 정상 종료되었으므로 읽기 전용 트랜잭션을 안전하게 커밋하고 커넥션을 반환한 뒤, 체인을 거슬러 올라가 이전 인터셉터로 제어권을 넘깁니다.'
+        ],
+        codeHighlight: 3
+      },
+      { 
+        id: 6, 
+        activeNodes: ['proxy', 'cache_interceptor', 'cache_store'], 
+        title: '6. 캐시 어드바이스 실행 (After)', 
+        desc: [
+          '제어권을 다시 넘겨받은 CacheInterceptor가 후속 동작을 수행합니다.',
+          'Target 메서드에서 DB로부터 조회해 온 결과를 향후 재사용하기 위해 캐시 저장소에 Put(저장) 처리합니다.',
+          '※ 이후 동일한 조회 요청이 오면 DB 트랜잭션을 아예 시작하지 않고 캐시에서 즉시 반환(Cache Hit)하게 됩니다.'
+        ],
+        codeHighlight: 2
+      },
+      { 
+        id: 7, 
+        activeNodes: ['client'], 
+        title: '7. 결과 반환', 
+        desc: [
+          '캐시 저장 처리까지 모두 종료된 후, 최종적으로 프록시가 클라이언트에게 데이터를 반환합니다.'
+        ],
+        codeHighlight: 6
+      }
+    ];
+
+    // --- 상태 관리 ---
+    let currentScenario = 'tx_only';
+    let currentStep = 0;
+    let isPlaying = false;
+    let playInterval = null;
+
+    // --- DOM 요소 접근 ---
+    const labelTxOnly = document.getElementById('label-tx-only');
+    const labelMultiAop = document.getElementById('label-multi-aop');
+    const checkTxOnly = document.getElementById('check-tx-only');
+    const checkMultiAop = document.getElementById('check-multi-aop');
+    
+    const btnPlay = document.getElementById('btn-play');
+    const btnNext = document.getElementById('btn-next');
+    const stepCounter = document.getElementById('step-counter');
+    const descContainer = document.getElementById('desc-container');
+    const codeContainer = document.getElementById('code-container');
+    const diagramContainer = document.getElementById('diagram-container');
+
+    // --- 초기화 및 메인 렌더링 함수 ---
+    function render() {
+      const steps = currentScenario === 'tx_only' ? STEPS_TX_ONLY : STEPS_MULTI_AOP;
+      const stepData = steps[currentStep];
+      const isLastStep = currentStep === steps.length - 1;
+
+      // 1. 시나리오 라디오 UI 업데이트
+      if (currentScenario === 'tx_only') {
+        labelTxOnly.className = 'flex items-center p-3 border rounded-lg cursor-pointer transition-colors bg-blue-50 border-blue-200 ring-1 ring-blue-500';
+        labelMultiAop.className = 'flex items-center p-3 border rounded-lg cursor-pointer transition-colors hover:bg-slate-50 border-slate-200';
+        checkTxOnly.classList.remove('hidden');
+        checkMultiAop.classList.add('hidden');
+      } else {
+        labelTxOnly.className = 'flex items-center p-3 border rounded-lg cursor-pointer transition-colors hover:bg-slate-50 border-slate-200';
+        labelMultiAop.className = 'flex items-center p-3 border rounded-lg cursor-pointer transition-colors bg-purple-50 border-purple-200 ring-1 ring-purple-500';
+        checkTxOnly.classList.add('hidden');
+        checkMultiAop.classList.remove('hidden');
+      }
+
+      // 2. 컨트롤 버튼 UI 업데이트
+      stepCounter.innerText = `Step ${currentStep} / ${steps.length - 1}`;
+      
+      btnNext.disabled = isPlaying || isLastStep;
+      btnNext.className = `flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium transition-colors ${isPlaying || isLastStep ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`;
+      
+      btnPlay.disabled = isLastStep && !isPlaying;
+      if (isPlaying) {
+        btnPlay.innerHTML = `<span class="flex items-center gap-2"><div class="w-3 h-3 bg-amber-600 rounded-sm animate-pulse"></div> 일시정지</span>`;
+        btnPlay.className = `flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium transition-colors bg-amber-100 text-amber-700 hover:bg-amber-200`;
+      } else {
+        btnPlay.innerHTML = `<i data-lucide="play" class="w-4 h-4"></i> <span>자동 재생</span>`;
+        btnPlay.className = `flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium transition-colors ${isLastStep ? 'bg-blue-300 text-white cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`;
+      }
+
+      // 3. 설명 패널 업데이트
+      let descHtml = `<h3 class="text-sm font-bold text-slate-800 mb-3 pb-2 border-b border-slate-200/60">${stepData.title}</h3>`;
+      descHtml += `<ul class="text-sm text-slate-600 leading-relaxed space-y-1.5 list-disc list-outside ml-4 marker:text-blue-500">`;
+      stepData.desc.forEach(text => { descHtml += `<li>${text}</li>`; });
+      descHtml += `</ul>`;
+      
+      descContainer.innerHTML = descHtml;
+
+      // 애니메이션 리트리거 (DOM 요소 교체 대신 Reflow 방식 사용)
+      descContainer.classList.remove('fade-enter');
+      void descContainer.offsetWidth; 
+      descContainer.classList.add('fade-enter');
+
+      // 4. 코드 뷰어 업데이트
+      let codeHtml = '';
+      if (currentScenario === 'tx_only') {
+        codeHtml = `
+          <div class="${stepData.codeHighlight === 1 ? 'bg-blue-900/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}"><span class="text-pink-400">@Service</span></div>
+          <div class="py-0.5"><span class="text-blue-400">public class</span> UserService {</div>
+          <div class="${stepData.codeHighlight === 2 ? 'bg-blue-900/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}">  <span class="text-pink-400">@Transactional</span></div>
+          <div class="py-0.5">  <span class="text-blue-400">public</span> User <span class="text-green-300">updateUser</span>(User user) {</div>
+          <div class="${stepData.codeHighlight === 4 ? 'bg-blue-900/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}">    <span class="text-slate-500">// 클라이언트 호출 및 반환 지점</span></div>
+          <div class="${stepData.codeHighlight === 5 ? 'bg-blue-900/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}">    userRepository.<span class="text-green-300">save</span>(user); <span class="text-slate-500">// Target 실행</span></div>
+          <div class="py-0.5">    <span class="text-blue-400">return</span> user;</div>
+          <div class="py-0.5">  }</div>
+          <div class="py-0.5">}</div>
+        `;
+      } else {
+        codeHtml = `
+          <div class="${stepData.codeHighlight === 1 ? 'bg-purple-900/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}"><span class="text-pink-400">@Service</span></div>
+          <div class="py-0.5"><span class="text-blue-400">public class</span> UserService {</div>
+          <div class="${stepData.codeHighlight === 2 ? 'bg-purple-900/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}">  <span class="text-pink-400">@Cacheable</span>(value = <span class="text-amber-300">"users"</span>, key = <span class="text-amber-300">"#id"</span>)</div>
+          <div class="${stepData.codeHighlight === 3 ? 'bg-blue-900/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}">  <span class="text-pink-400">@Transactional</span>(<span class="text-amber-300">readOnly = true</span>)</div>
+          <div class="py-0.5">  <span class="text-blue-400">public</span> User <span class="text-green-300">getUser</span>(Long id) {</div>
+          <div class="${stepData.codeHighlight === 6 ? 'bg-purple-900/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}">    <span class="text-slate-500">// 클라이언트 호출 및 반환 지점</span></div>
+          <div class="${stepData.codeHighlight === 7 ? 'bg-slate-700/50 -mx-4 px-4 py-0.5 rounded' : 'py-0.5'}">    <span class="text-blue-400">return</span> userRepository.<span class="text-green-300">findById</span>(id); <span class="text-slate-500">// Target 실행</span></div>
+          <div class="py-0.5">  }</div>
+          <div class="py-0.5">}</div>
+        `;
+      }
+      codeContainer.innerHTML = codeHtml;
+
+      // 5. 다이어그램 업데이트
+      const isActive = (id) => stepData.activeNodes.includes(id);
+      
+      let txStatusHtml = '';
+      if (isActive('tx_interceptor')) {
+        txStatusHtml = `
+          <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-mono">
+            <span class="${currentStep < 4 ? "text-green-600 font-bold" : "text-slate-400"}">BEGIN</span>
+            <span class="${currentStep >= 4 && !isLastStep ? "text-blue-600 font-bold" : "text-slate-400"}">
+              ${currentStep === steps.length - 2 ? "COMMIT" : "..."}
+            </span>
+          </div>
+        `;
+      }
+
+      let diagramHtml = `
+        <div class="w-full max-w-2xl relative flex flex-col items-center">
+          
+          <!-- 클라이언트 영역 -->
+          <div class="transition-all duration-300 z-10 p-4 rounded-xl border-2 flex flex-col items-center justify-center w-40 bg-white ${isActive('client') ? 'border-blue-500 shadow-lg scale-105 ring-4 ring-blue-50' : 'border-slate-300'}">
+            <i data-lucide="user" class="w-8 h-8 mb-2 ${isActive('client') ? 'text-blue-500' : 'text-slate-400'}"></i>
+            <span class="font-bold text-slate-700">Client</span>
+          </div>
+
+          <!-- 연결선 (Client -> Proxy) -->
+          <div class="flex justify-center w-full h-12 relative">
+             <div class="absolute h-full w-1 transition-colors duration-300 ${isActive('proxy') && currentStep === 1 ? 'bg-blue-500 animate-pulse' : isActive('client') && isLastStep ? 'bg-blue-500' : 'bg-slate-200'}"></div>
+             ${isActive('proxy') && currentStep === 1 ? '<i data-lucide="arrow-down" class="absolute bottom-0 text-blue-500 w-5 h-5 translate-y-2 animate-bounce"></i>' : ''}
+             ${isActive('client') && isLastStep ? '<i data-lucide="arrow-down" class="absolute top-0 text-blue-500 w-5 h-5 -translate-y-2 rotate-180 animate-bounce"></i>' : ''}
+          </div>
+
+          <!-- 프록시 영역 -->
+          <div class="w-full max-w-md relative p-6 rounded-2xl border-2 border-dashed transition-all duration-500 ${isActive('proxy') ? 'border-amber-400 bg-amber-50/30' : 'border-slate-300 bg-slate-50/50'}">
+            <div class="absolute -top-3 left-6 bg-white px-2 font-bold text-sm text-amber-600 flex items-center gap-1">
+              <i data-lucide="zap" class="w-4 h-4"></i> Spring AOP Proxy
+            </div>
+
+            <div class="flex flex-col gap-4 relative z-10">
+      `;
+
+      if (currentScenario === 'multi_aop') {
+        diagramHtml += `
+              <!-- Cache Interceptor -->
+              <div class="flex items-center gap-4">
+                <div class="flex-1 transition-all duration-300 p-4 rounded-xl border-2 shadow-sm bg-white ${isActive('cache_interceptor') ? 'border-purple-500 ring-4 ring-purple-50 scale-105' : 'border-slate-200'}">
+                  <div class="text-xs text-purple-600 font-bold mb-1">Advice (Order: 1)</div>
+                  <div class="font-bold text-slate-800">CacheInterceptor</div>
+                  <div class="text-xs text-slate-500 mt-1">@Cacheable 동작 로직</div>
+                </div>
+                
+                <div class="flex flex-col items-center opacity-80">
+                  <i data-lucide="arrow-right" class="w-5 h-5 transition-colors ${isActive('cache_store') ? 'text-purple-500' : 'text-slate-300'}"></i>
+                  ${isActive('cache_store') ? '<i data-lucide="arrow-right" class="w-5 h-5 text-purple-500 rotate-180"></i>' : ''}
+                </div>
+                
+                <div class="w-24 h-24 flex flex-col items-center justify-center rounded-lg border-2 bg-slate-50 transition-all ${isActive('cache_store') ? 'border-purple-500 bg-purple-50' : 'border-slate-200'}">
+                  <i data-lucide="database" class="w-6 h-6 mb-1 ${isActive('cache_store') ? 'text-purple-500' : 'text-slate-400'}"></i>
+                  <span class="text-[10px] font-bold text-slate-600 text-center">Redis /<br/>Local Cache</span>
+                </div>
+              </div>
+
+              <!-- 연결선 (Interceptor 간) -->
+              <div class="flex justify-start pl-20 w-full h-8 relative">
+                <div class="absolute h-full w-1 transition-colors duration-300 ${isActive('tx_interceptor') && currentStep === 3 ? 'bg-blue-500' : 'bg-slate-200'}"></div>
+                ${isActive('tx_interceptor') && currentStep === 3 ? '<i data-lucide="arrow-down" class="absolute bottom-[-10px] -left-[1.5px] text-blue-500 w-4 h-4"></i>' : ''}
+              </div>
+        `;
+      }
+
+      diagramHtml += `
+              <!-- Transaction Interceptor -->
+              <div class="transition-all duration-300 p-4 rounded-xl border-2 shadow-sm bg-white w-full max-w-[280px] ${isActive('tx_interceptor') ? 'border-blue-500 ring-4 ring-blue-50 scale-105' : 'border-slate-200'}">
+                <div class="text-xs text-blue-600 font-bold mb-1">Advice ${currentScenario === 'multi_aop' ? '(Order: 2)' : ''}</div>
+                <div class="font-bold text-slate-800">TransactionInterceptor</div>
+                <div class="text-xs text-slate-500 mt-1">@Transactional 동작 로직</div>
+                ${txStatusHtml}
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 연결선 (Proxy -> Target) -->
+          <div class="flex justify-center w-full h-12 relative">
+             <div class="absolute h-full w-1 transition-colors duration-300 ${isActive('target') ? 'bg-green-500' : 'bg-slate-200'}"></div>
+             ${isActive('target') ? '<i data-lucide="arrow-down" class="absolute bottom-0 text-green-500 w-5 h-5 translate-y-2 animate-bounce"></i>' : ''}
+             ${(currentStep > (currentScenario === 'tx_only' ? 3 : 4) && !isLastStep) ? '<i data-lucide="arrow-down" class="absolute top-0 text-slate-400 w-5 h-5 -translate-y-2 rotate-180"></i>' : ''}
+          </div>
+
+          <!-- Target 영역 및 DB -->
+          <div class="flex items-center gap-6 w-full justify-center">
+            <div class="transition-all duration-300 z-10 p-5 rounded-xl border-2 flex flex-col items-center justify-center w-48 bg-white ${isActive('target') ? 'border-green-500 shadow-lg scale-105 ring-4 ring-green-50' : 'border-slate-300'}">
+              <i data-lucide="server" class="w-8 h-8 mb-2 ${isActive('target') ? 'text-green-500' : 'text-slate-400'}"></i>
+              <span class="font-bold text-slate-700">Target Object</span>
+              <span class="text-xs text-slate-500 mt-1">UserServiceImpl</span>
+            </div>
+
+            <div class="flex items-center opacity-80">
+              <i data-lucide="arrow-right" class="w-5 h-5 transition-colors ${isActive('db') || isActive('target') ? 'text-green-500' : 'text-slate-300'}"></i>
+            </div>
+
+            <div class="w-24 h-24 flex flex-col items-center justify-center rounded-lg border-2 bg-slate-50 transition-all ${isActive('db') || isActive('target') ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}">
+              <i data-lucide="database" class="w-6 h-6 mb-1 ${isActive('db') || isActive('target') ? 'text-blue-500' : 'text-slate-400'}"></i>
+              <span class="text-xs font-bold text-slate-600">RDBMS</span>
+            </div>
+          </div>
+        </div>
+      `;
+      diagramContainer.innerHTML = diagramHtml;
+
+      // 다이어그램 애니메이션 리트리거
+      diagramContainer.classList.remove('fade-enter');
+      void diagramContainer.offsetWidth;
+      diagramContainer.classList.add('fade-enter');
+
+      // 동적 렌더링된 요소들에 아이콘 적용
+      lucide.createIcons();
+    }
+
+    // --- 이벤트 핸들러 ---
+    window.handleScenarioChange = function(newScenario) {
+      if (currentScenario !== newScenario) {
+        currentScenario = newScenario;
+        currentStep = 0;
+        stopPlay();
+        render();
+      }
+    };
+
+    window.handleNext = function() {
+      const steps = currentScenario === 'tx_only' ? STEPS_TX_ONLY : STEPS_MULTI_AOP;
+      if (currentStep < steps.length - 1) {
+        currentStep++;
+        render();
+      } else {
+        stopPlay();
+      }
+    };
+
+    window.handleReset = function() {
+      currentStep = 0;
+      stopPlay();
+      render();
+    };
+
+    window.togglePlay = function() {
+      if (isPlaying) {
+        stopPlay();
+      } else {
+        isPlaying = true;
+        render();
+        playInterval = setInterval(() => {
+          const steps = currentScenario === 'tx_only' ? STEPS_TX_ONLY : STEPS_MULTI_AOP;
+          if (currentStep < steps.length - 1) {
+            currentStep++;
+            render();
+          } else {
+            stopPlay();
+          }
+        }, 2000); // 2초마다 다음 단계 진행
+      }
+    };
+
+    function stopPlay() {
+      isPlaying = false;
+      if (playInterval) {
+        clearInterval(playInterval);
+        playInterval = null;
+      }
+      render();
+    }
+
+    // 초기 렌더링
+    document.addEventListener("DOMContentLoaded", () => {
+      render();
+    });
+  </script>
+</body>
+</html>

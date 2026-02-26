@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON ESCAPE</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050510;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+        }
+        canvas {
+            background-color: #0b0c10;
+            display: block;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            pointer-events: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        .ui-text {
+            text-shadow: 0 0 5px #0ff;
+        }
+        .btn-quit {
+            pointer-events: auto;
+            background: rgba(5, 5, 16, 0.8);
+            border: 1px solid #0ff;
+            color: #0ff;
+            padding: 8px 15px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 0 5px #0ff;
+            transition: all 0.2s;
+        }
+        .btn-quit:hover {
+            background-color: #0ff;
+            color: #050510;
+            box-shadow: 0 0 15px #0ff;
+        }
+        #controls {
+            margin-top: 20px;
+            text-align: center;
+            color: #888;
+            font-size: 14px;
+        }
+        .highlight {
+            color: #0ff;
+            font-weight: bold;
+        }
+        .hazard-text {
+            color: #f0f;
+            font-weight: bold;
+        }
+
+        /* Result Screen UI & Animations */
+        #result-screen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(5, 5, 16, 0.9);
+            z-index: 10;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        
+        @keyframes rainbow {
+            0% { color: #ff0000; text-shadow: 0 0 15px #ff0000; }
+            15% { color: #ff7f00; text-shadow: 0 0 15px #ff7f00; }
+            30% { color: #ffff00; text-shadow: 0 0 15px #ffff00; }
+            45% { color: #00ff00; text-shadow: 0 0 15px #00ff00; }
+            60% { color: #0000ff; text-shadow: 0 0 15px #0000ff; }
+            75% { color: #4b0082; text-shadow: 0 0 15px #4b0082; }
+            90% { color: #9400d3; text-shadow: 0 0 15px #9400d3; }
+            100% { color: #ff0000; text-shadow: 0 0 15px #ff0000; }
+        }
+        .flawless-text {
+            animation: rainbow 1.5s infinite linear;
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .normal-clear {
+            color: #0ff;
+            text-shadow: 0 0 15px #0ff;
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .btn-restart {
+            margin-top: 30px;
+            padding: 10px 30px;
+            font-size: 18px;
+            font-family: inherit;
+            font-weight: bold;
+            color: #050510;
+            background-color: #0ff;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 0 10px #0ff;
+            transition: all 0.2s;
+        }
+        .btn-restart:hover {
+            background-color: #fff;
+            box-shadow: 0 0 20px #fff;
+        }
+
+        /* Start Screen UI */
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(5, 5, 16, 0.85);
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            backdrop-filter: blur(5px); /* 배경의 1스테이지를 흐리게 비추는 효과 */
+        }
+        .main-title {
+            color: #0ff;
+            text-shadow: 0 0 20px #0ff, 0 0 40px #0ff;
+            font-size: 64px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            letter-spacing: 5px;
+        }
+        .sub-title {
+            color: #ccc;
+            font-size: 20px;
+            margin-bottom: 50px;
+            letter-spacing: 2px;
+        }
+        .btn-start {
+            padding: 15px 50px;
+            font-size: 24px;
+            font-family: inherit;
+            font-weight: bold;
+            color: #050510;
+            background-color: #0ff;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 0 15px #0ff;
+            transition: all 0.2s;
+        }
+        .btn-start:hover {
+            background-color: #fff;
+            box-shadow: 0 0 30px #fff;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="ui-layer" style="display: none;">
+            <div class="ui-text">
+                <h2 style="margin:0;">STAGE <span id="stage-display">1</span></h2>
+                <p style="margin:5px 0 0 0;">DEATHS: <span id="death-display">0</span></p>
+            </div>
+            <button class="btn-quit" onclick="quitGame()">[ESC] QUIT</button>
+        </div>
+        
+        <!-- Start Screen -->
+        <div id="start-screen">
+            <h1 class="main-title">NEON ESCAPE</h1>
+            <p class="sub-title">Hardcore Platformer</p>
+            <button class="btn-start" onclick="startGame()">START GAME</button>
+        </div>
+        
+        <!-- Game Clear Result Screen -->
+        <div id="result-screen">
+            <h1 id="result-title" class="normal-clear">GAME CLEAR!</h1>
+            <h2 style="color: #ccc; margin: 10px 0;">Total Deaths: <span id="result-deaths" style="color:#f0f;">0</span></h2>
+            <p id="result-msg" style="color: #fff; margin-top: 15px; font-size: 16px;"></p>
+            <button class="btn-restart" onclick="restartGame()">RESTART</button>
+        </div>
+    </div>
+    
+    <div id="controls">
+        [이동] <span class="highlight">방향키</span> 또는 <span class="highlight">A/D</span> &nbsp;|&nbsp; 
+        [점프/더블점프] <span class="highlight">Space</span> 또는 <span class="highlight">Z</span> &nbsp;|&nbsp; 
+        [대쉬] <span class="highlight">Shift</span> 또는 <span class="highlight">X</span>
+        <span id="up-dash-instruction" style="display:none; color:#ff0;"> &nbsp;|&nbsp; [위로 대쉬] <span class="highlight">↑ + 대쉬</span></span><br>
+        <span class="hazard-text">붉은색(네온 마젠타)</span> 물체에 닿으면 파괴됩니다. <span class="highlight">푸른색 포탈</span>로 이동하세요!
+    </div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI Elements
+    const stageDisplay = document.getElementById('stage-display');
+    const deathDisplay = document.getElementById('death-display');
+
+    // Game State
+    let currentLevel = 0;
+    let deaths = 0;
+    let lastTime = 0;
+    let gameCleared = false;
+    let gameStarted = false; // 추가된 시작 상태 변수
+
+    // Input Handling
+    const keys = {};
+    const justPressed = {};
+
+    window.addEventListener('keydown', (e) => {
+        if (!keys[e.code]) justPressed[e.code] = true;
+        keys[e.code] = true;
+        
+        // ESC 키로 시작 화면으로 돌아가기
+        if (e.code === 'Escape' && gameStarted) {
+            quitGame();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+        justPressed[e.code] = false;
+    });
+
+    function isJustPressed(code) {
+        if (justPressed[code]) {
+            justPressed[code] = false;
+            return true;
+        }
+        return false;
+    }
+
+    // Player Object
+    const player = {
+        x: 50, y: 50, w: 16, h: 24,
+        vx: 0, vy: 0,
+        speed: 250,
+        jumpForce: -450,
+        gravity: 1200,
+        maxFallSpeed: 600,
+        jumps: 0,
+        maxJumps: 2,
+        
+        // Dash mechanics (Celeste style)
+        dashesLeft: 1, // 남은 대쉬 횟수
+        maxDashes: 1,  // 최대 대쉬 횟수 (2장부터 2로 증가)
+        isDashing: false,
+        canUpDash: false, // 위로 대쉬 해금 여부
+        dashSpeed: 700,
+        dashDuration: 0.15, // seconds
+        dashTimer: 0,
+        dashDirX: 1, // 1 for right, -1 for left
+        dashDirY: 0, // -1 for up
+        
+        spawnX: 50, spawnY: 50,
+        
+        reset: function() {
+            this.x = this.spawnX;
+            this.y = this.spawnY;
+            this.vx = 0;
+            this.vy = 0;
+            this.jumps = 0;
+            this.dashesLeft = this.maxDashes; // 대쉬 횟수 초기화
+            this.isDashing = false;
+            this.dashDirY = 0;
+        },
+
+        die: function() {
+            deaths++;
+            deathDisplay.innerText = deaths;
+            this.reset();
+            createParticles(this.x + this.w/2, this.y + this.h/2, '#0ff', 20);
+        }
+    };
+
+    // Level Design (Map Data)
+    // 0: Empty, 1: Platform (Steel), 2: Hazard (Laser/Spikes), 3: Goal (Portal)
+    const levels = [
+        {
+            world: 1, stage: 1,
+            // Level 1: Basics (Jumping and gaps)
+            spawn: {x: 50, y: 500},
+            platforms: [
+                {x: 0, y: 550, w: 300, h: 50},
+                {x: 300, y: 580, w: 200, h: 20, type: 'hazard'}, // Pit hazard
+                {x: 450, y: 450, w: 100, h: 20},
+                {x: 650, y: 350, w: 150, h: 250}
+            ],
+            goal: {x: 700, y: 290, w: 40, h: 60}
+        },
+        {
+            world: 1, stage: 2,
+            // Level 2: Introduction to Dash
+            spawn: {x: 50, y: 100},
+            platforms: [
+                {x: 0, y: 150, w: 150, h: 450},
+                {x: 150, y: 580, w: 500, h: 20, type: 'hazard'}, // Giant laser pit
+                {x: 350, y: 150, w: 20, h: 300, type: 'hazard'}, // Laser wall to force precision dash
+                {x: 650, y: 400, w: 150, h: 200}
+            ],
+            goal: {x: 700, y: 340, w: 40, h: 60}
+        },
+        {
+            world: 1, stage: 3,
+            // Level 3: Hardcore (Tight spaces, double jump + dash combo)
+            spawn: {x: 30, y: 500},
+            platforms: [
+                {x: 0, y: 550, w: 100, h: 50},
+                {x: 100, y: 580, w: 700, h: 20, type: 'hazard'}, // Floor is lava
+                {x: 150, y: 450, w: 50, h: 20},
+                {x: 300, y: 350, w: 50, h: 20},
+                {x: 450, y: 250, w: 50, h: 20},
+                {x: 550, y: 0, w: 20, h: 150, type: 'hazard'}, // Top laser wall
+                {x: 550, y: 250, w: 20, h: 350, type: 'hazard'}, // Bottom laser wall
+                {x: 650, y: 300, w: 150, h: 300}
+            ],
+            goal: {x: 700, y: 240, w: 40, h: 60}
+        },
+        {
+            world: 1, stage: 4,
+            // Level 4: The S-Curve (Constrained jumping, hazard ceilings)
+            spawn: {x: 30, y: 500},
+            platforms: [
+                {x: 0, y: 550, w: 100, h: 50},
+                {x: 100, y: 580, w: 700, h: 20, type: 'hazard'}, // Floor hazard
+                
+                // Bottom path (Left to Right)
+                {x: 150, y: 450, w: 60, h: 20},
+                {x: 350, y: 450, w: 60, h: 20},
+                {x: 550, y: 450, w: 60, h: 20},
+                {x: 100, y: 350, w: 550, h: 20, type: 'hazard'}, // Low ceiling hazard blocks high jumps
+                
+                // Climb up on the right
+                {x: 720, y: 350, w: 60, h: 20},
+                
+                // Middle path (Right to Left)
+                {x: 550, y: 250, w: 60, h: 20},
+                {x: 350, y: 250, w: 60, h: 20},
+                {x: 150, y: 250, w: 60, h: 20},
+                {x: 150, y: 150, w: 650, h: 20, type: 'hazard'}, // Low ceiling hazard
+                
+                // Final climb to goal on the left
+                {x: 0, y: 150, w: 60, h: 20}
+            ],
+            goal: {x: 10, y: 80, w: 40, h: 60}
+        },
+        {
+            world: 1, stage: 5,
+            // Level 5: Precision Drop (Hardcore Version)
+            spawn: {x: 30, y: 50},
+            platforms: [
+                {x: 0, y: 100, w: 120, h: 20}, // Start platform
+                
+                // The vertical drop shaft
+                {x: 120, y: 50, w: 20, h: 400, type: 'hazard'}, // Left wall of shaft
+                {x: 250, y: -50, w: 20, h: 500, type: 'hazard'}, // Right wall of shaft
+                
+                // Zig-zag lasers inside the shaft
+                {x: 140, y: 260, w: 50, h: 20, type: 'hazard'}, // Dodge right
+                {x: 200, y: 380, w: 50, h: 20, type: 'hazard'}, // Dodge left
+                
+                // Floor hazard
+                {x: 0, y: 580, w: 800, h: 20, type: 'hazard'},
+                
+                // Safe landing after drop
+                {x: 330, y: 520, w: 60, h: 20}, 
+                
+                // Ascend
+                {x: 400, y: 300, w: 100, h: 20, type: 'hazard'}, 
+                {x: 450, y: 420, w: 40, h: 20},
+                {x: 550, y: 320, w: 40, h: 20},
+                {x: 450, y: 200, w: 40, h: 20},
+                
+                // Goal area
+                {x: 600, y: 120, w: 150, h: 20}
+            ],
+            goal: {x: 650, y: 60, w: 40, h: 60}
+        },
+        {
+            world: 1, stage: 6,
+            // Level 6: The Ascension (Upward Dash Unlocked!)
+            spawn: {x: 50, y: 500},
+            platforms: [
+                {x: 0, y: 550, w: 800, h: 50}, // Base Floor
+                {x: 200, y: 300, w: 50, h: 250}, // Wall 1
+                {x: 250, y: 550, w: 550, h: 50, type: 'hazard'}, // Lava Pit
+                {x: 300, y: 450, w: 150, h: 20}, // Mid Platform
+                {x: 500, y: 200, w: 50, h: 350}, // Wall 2
+                {x: 550, y: 200, w: 250, h: 350} // Final Platform
+            ],
+            goal: {x: 650, y: 140, w: 40, h: 60}
+        },
+        {
+            world: 1, stage: 7,
+            // Level 7: The J-Hook Fall (Now with moving hazards!)
+            spawn: {x: 30, y: 50},
+            platforms: [
+                {x: 0, y: 100, w: 100, h: 20},
+                
+                // Zig-zag falling
+                {x: 150, y: 200, w: 150, h: 20},
+                {x: 0, y: 300, w: 100, h: 20},
+                {x: 150, y: 400, w: 150, h: 20},
+                
+                // MOVING HAZARDS
+                {x: 100, y: 150, w: 60, h: 20, type: 'hazard', moving: true, axis: 'x', min: 100, max: 250, speed: 120, dir: 1},
+                {x: 50, y: 350, w: 60, h: 20, type: 'hazard', moving: true, axis: 'x', min: 0, max: 150, speed: 150, dir: -1},
+                
+                {x: 350, y: 0, w: 20, h: 480, type: 'hazard'}, 
+                {x: 0, y: 580, w: 350, h: 20, type: 'hazard'}, 
+                {x: 350, y: 580, w: 450, h: 20}, 
+                
+                // MOVING VERTICAL HAZARD
+                {x: 520, y: 250, w: 20, h: 80, type: 'hazard', moving: true, axis: 'y', min: 200, max: 400, speed: 180, dir: 1},
+
+                // Ascend right side
+                {x: 450, y: 450, w: 50, h: 20},
+                {x: 600, y: 350, w: 50, h: 20},
+                {x: 450, y: 250, w: 50, h: 20},
+                {x: 600, y: 150, w: 50, h: 20}
+            ],
+            goal: {x: 605, y: 80, w: 40, h: 60}
+        },
+        // ==========================================
+        // WORLD 2: THE DOUBLE DASH (EXTREME HARDCORE)
+        // ==========================================
+        {
+            world: 2, stage: 1,
+            // Level 2-1: Leap of Faith (Requires chaining vertical and horizontal dashes)
+            spawn: {x: 50, y: 300},
+            platforms: [
+                {x: 0, y: 350, w: 100, h: 50},
+                {x: 100, y: 580, w: 700, h: 20, type: 'hazard'}, // Bottom Lava
+                
+                // Obstacle 1: Go under (Dash down-right or fall and dash right)
+                // 난이도 하향: 첫 번째 장애물의 길이를 줄이고 발판을 조금 위로 올림
+                {x: 250, y: 0, w: 20, h: 400, type: 'hazard'}, 
+                {x: 350, y: 480, w: 60, h: 20}, // Safe spot 1 (도달하기 더 쉬워짐)
+                
+                // Obstacle 2: Go over (Jump + Up Dash + Right Dash)
+                // 난이도 하향: 두 번째 장애물의 높이를 대폭 낮춰 위로 넘어가기 쉽게 수정
+                {x: 500, y: 250, w: 20, h: 350, type: 'hazard'},
+                {x: 550, y: 230, w: 60, h: 20}, // Safe spot 2 (이제 물리적으로 닿습니다!)
+                
+                // Goal
+                {x: 720, y: 300, w: 80, h: 50}
+            ],
+            goal: {x: 740, y: 240, w: 40, h: 60}
+        },
+        {
+            world: 2, stage: 2,
+            // Level 2-2: Aerial Acrobatics (Final Stage)
+            spawn: {x: 50, y: 500},
+            platforms: [
+                {x: 0, y: 550, w: 100, h: 50}, // Start platform
+                {x: 0, y: 580, w: 800, h: 20, type: 'hazard'}, // Bottom Lava
+                
+                // Gap 1: 높은 장애물을 더블 점프로 넘어가기
+                {x: 200, y: 420, w: 20, h: 160, type: 'hazard'}, // Wall top at 420
+                {x: 320, y: 450, w: 80, h: 20}, // Safe spot 1
+                
+                // --- ADDED: Horizontal Moving Hazard ---
+                // 무지성 연속 점프 방지: 맵 중앙 허공을 순찰하는 가로 레이저 장판 추가 (속도 180으로 패트롤)
+                {x: 250, y: 280, w: 80, h: 20, type: 'hazard', moving: true, axis: 'x', min: 200, max: 480, speed: 180, dir: 1},
+                
+                // Gap 2: 더블 점프 후 최고점에서 대쉬 연계
+                {x: 500, y: 400, w: 20, h: 180, type: 'hazard'}, // Wall blocking low path
+                {x: 620, y: 350, w: 80, h: 20}, // Safe spot 2
+                
+                // Gap 3: C자형 점프 (천장을 피해 왼쪽으로 뛰고 더블 점프 + 대쉬로 윗 발판 착지)
+                {x: 600, y: 150, w: 200, h: 20, type: 'hazard'}, // 천장 압박
+                {x: 420, y: 220, w: 80, h: 20}, // Safe spot 3
+                
+                // Final Leap: 움직이는 장애물을 피해 목표지점까지 롱 점프 (더블 점프 + 더블 대쉬 활용)
+                {x: 280, y: 50, w: 20, h: 150, type: 'hazard', moving: true, axis: 'y', min: 50, max: 250, speed: 120, dir: 1},
+                
+                // Goal area
+                {x: 50, y: 150, w: 100, h: 20}
+            ],
+            goal: {x: 80, y: 90, w: 40, h: 60}
+        }
+    ];
+
+    let currentMap = [];
+    let goal = {};
+
+    function loadLevel(index) {
+        if (index >= levels.length) {
+            showResultScreen();
+            return;
+        }
+        const levelData = levels[index];
+        player.spawnX = levelData.spawn.x;
+        player.spawnY = levelData.spawn.y;
+        currentMap = levelData.platforms;
+        goal = levelData.goal;
+        
+        // 월드 2 진입 시 더블 대쉬 해금
+        player.maxDashes = (levelData.world >= 2) ? 2 : 1;
+
+        // 1-6스테이지(전체 인덱스 5)부터 위로 대쉬 해금
+        player.canUpDash = (index >= 5);
+        document.getElementById('up-dash-instruction').style.display = player.canUpDash ? 'inline' : 'none';
+
+        player.reset();
+        stageDisplay.innerText = levelData.world + '-' + levelData.stage;
+        particles = []; // Clear particles on level load
+    }
+
+    // 게임 시작 함수
+    function startGame() {
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('ui-layer').style.display = 'flex';
+        gameStarted = true;
+        
+        deaths = 0;
+        deathDisplay.innerText = deaths;
+        currentLevel = 0;
+        loadLevel(currentLevel);
+    }
+
+    // 시작 화면으로 돌아가기 (Quit) 함수
+    function quitGame() {
+        gameStarted = false;
+        gameCleared = false;
+        document.getElementById('ui-layer').style.display = 'none';
+        document.getElementById('result-screen').style.display = 'none';
+        document.getElementById('start-screen').style.display = 'flex';
+    }
+
+    // 결과 화면 표시 함수
+    function showResultScreen() {
+        gameCleared = true;
+        document.getElementById('result-screen').style.display = 'flex';
+        document.getElementById('result-deaths').innerText = deaths;
+        
+        const titleText = document.getElementById('result-title');
+        const msgText = document.getElementById('result-msg');
+        
+        if (deaths === 0) {
+            titleText.className = 'flawless-text';
+            titleText.innerText = 'PERFECT CLEAR!';
+            msgText.innerHTML = "Flawless Victory.<br>You are a true platformer master.";
+            msgText.style.color = '#ff0';
+            
+            // 0데스 축하 대형 파티클 폭죽 효과
+            createParticles(canvas.width * 0.25, canvas.height/2, '#0ff', 100);
+            createParticles(canvas.width * 0.5, canvas.height/2, '#ff0', 200);
+            createParticles(canvas.width * 0.75, canvas.height/2, '#f0f', 100);
+        } else {
+            titleText.className = 'normal-clear';
+            titleText.innerText = 'MISSION ACCOMPLISHED';
+            msgText.innerHTML = "Congratulations!<br>Can you beat it with 0 deaths?";
+            msgText.style.color = '#fff';
+        }
+    }
+
+    // 게임 재시작 함수
+    function restartGame() {
+        gameCleared = false;
+        document.getElementById('result-screen').style.display = 'none';
+        currentLevel = 0;
+        deaths = 0;
+        deathDisplay.innerText = deaths;
+        loadLevel(currentLevel);
+    }
+
+    // Visual Effects: Particles
+    let particles = [];
+    function createParticles(x, y, color, count) {
+        for (let i = 0; i < count; i++) {
+            particles.push({
+                x: x, y: y,
+                vx: (Math.random() - 0.5) * 400,
+                vy: (Math.random() - 0.5) * 400,
+                life: 1.0,
+                color: color
+            });
+        }
+    }
+
+    function updateParticles(dt) {
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.life -= dt * 2;
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+    }
+
+    // Main Update Loop
+    function update(dt) {
+        if (!gameStarted) {
+            // 시작 화면에서는 배경 파티클만 업데이트하고 게임 로직(물리, 입력)은 정지
+            updateParticles(dt); 
+            return;
+        }
+
+        if (gameCleared) {
+            updateParticles(dt); // 결과 화면에서도 파티클은 렌더링되게 유지
+            return; // 게임이 클리어되면 물리 엔진 업데이트 정지
+        }
+
+        // --- Moving Platforms Logic ---
+        for (let plat of currentMap) {
+            if (plat.moving) {
+                if (plat.axis === 'x') {
+                    plat.x += plat.speed * plat.dir * dt;
+                    if (plat.x > plat.max) { plat.x = plat.max; plat.dir = -1; }
+                    else if (plat.x < plat.min) { plat.x = plat.min; plat.dir = 1; }
+                } else if (plat.axis === 'y') {
+                    plat.y += plat.speed * plat.dir * dt;
+                    if (plat.y > plat.max) { plat.y = plat.max; plat.dir = -1; }
+                    else if (plat.y < plat.min) { plat.y = plat.min; plat.dir = 1; }
+                }
+            }
+        }
+
+        // --- Input & Movement ---
+        
+        // Horizontal Movement logic
+        let moveDir = 0;
+        if (keys['ArrowLeft'] || keys['KeyA']) moveDir -= 1;
+        if (keys['ArrowRight'] || keys['KeyD']) moveDir += 1;
+
+        if (moveDir !== 0 && !player.isDashing) {
+            player.dashDirX = moveDir; // Update dash direction
+        }
+
+        // Jump & Double Jump
+        if (isJustPressed('Space') || isJustPressed('KeyZ') || isJustPressed('ArrowUp')) {
+            if (player.jumps < player.maxJumps) {
+                player.vy = player.jumpForce;
+                player.jumps++;
+                player.isDashing = false; // Cancel dash on jump
+                createParticles(player.x + player.w/2, player.y + player.h, '#fff', 5);
+            }
+        }
+
+        // Dash (Celeste style: sharp horizontal momentum, freeze gravity temporarily)
+        if ((isJustPressed('ShiftLeft') || isJustPressed('ShiftRight') || isJustPressed('KeyX')) && player.dashesLeft > 0) {
+            player.isDashing = true;
+            player.dashesLeft--; // 대쉬 횟수 차감
+            player.dashTimer = player.dashDuration;
+            
+            // 위로 방향키를 누른 상태고, 위로 대쉬가 해금되었다면
+            if (player.canUpDash && (keys['ArrowUp'] || keys['KeyW'])) {
+                player.dashDirX = 0;
+                player.dashDirY = -1;
+            } else {
+                player.dashDirY = 0; // 일반 수평 대쉬
+            }
+
+            // Freeze vertical movement during dash
+            player.vy = 0; 
+            createParticles(player.x + player.w/2, player.y + player.h/2, '#0ff', 10);
+        }
+
+        // Apply velocities based on state
+        if (player.isDashing) {
+            if (player.dashDirY !== 0) {
+                // 수직 대쉬 적용
+                player.vy = player.dashDirY * player.dashSpeed;
+                player.vx = 0;
+            } else {
+                // 수평 대쉬 적용
+                player.vx = player.dashDirX * player.dashSpeed;
+                player.vy = 0;
+            }
+
+            player.dashTimer -= dt;
+            if (player.dashTimer <= 0) {
+                player.isDashing = false;
+                
+                // 윗 방향 대쉬 사기성 너프: 대쉬가 끝난 직후 치솟는 수직 관성을 제거
+                if (player.dashDirY !== 0) {
+                    player.vy *= 0.2; // 남은 속도의 20%만 유지하여 부드럽게 감속
+                }
+            }
+            // Add dash trail effect
+            if (Math.random() > 0.5) {
+                createParticles(player.x + player.w/2, player.y + player.h/2, '#0ff', 1);
+            }
+        } else {
+            // Normal movement
+            player.vx = moveDir * player.speed;
+            
+            // Apply Gravity
+            player.vy += player.gravity * dt;
+            if (player.vy > player.maxFallSpeed) player.vy = player.maxFallSpeed;
+        }
+
+        // --- Collision Detection (AABB) ---
+        // Move X
+        player.x += player.vx * dt;
+        checkCollisions('x');
+
+        // Move Y
+        player.y += player.vy * dt;
+        checkCollisions('y');
+
+        // Boundary checks
+        if (player.y > canvas.height + 50) {
+            player.die(); // Fall out of bounds
+        }
+        if (player.x < 0) player.x = 0;
+        if (player.x + player.w > canvas.width) player.x = canvas.width - player.w;
+
+        // --- Goal check ---
+        if (rectIntersect(player, goal)) {
+            currentLevel++;
+            loadLevel(currentLevel);
+        }
+
+        updateParticles(dt);
+    }
+
+    function rectIntersect(r1, r2) {
+        return (r1.x < r2.x + r2.w && 
+                r1.x + r1.w > r2.x && 
+                r1.y < r2.y + r2.h &&
+                r1.y + r1.h > r2.y);
+    }
+
+    function checkCollisions(axis) {
+        for (let plat of currentMap) {
+            if (rectIntersect(player, plat)) {
+                
+                // Hazard check
+                if (plat.type === 'hazard') {
+                    player.die();
+                    return; // Stop further collision processing this frame
+                }
+
+                // Solid platform resolution
+                if (axis === 'x') {
+                    if (player.vx > 0) { // Moving right
+                        player.x = plat.x - player.w;
+                    } else if (player.vx < 0) { // Moving left
+                        player.x = plat.x + plat.w;
+                    }
+                    if (player.isDashing) player.isDashing = false; // Stop dash on wall hit
+                } else if (axis === 'y') {
+                    if (player.vy > 0) { // Falling
+                        player.y = plat.y - player.h;
+                        player.vy = 0;
+                        player.jumps = 0;      // Reset jumps on ground
+                        player.dashesLeft = player.maxDashes; // Reset dashes on ground
+                    } else if (player.vy < 0) { // Jumping into ceiling
+                        player.y = plat.y + plat.h;
+                        player.vy = 0;
+                        // 위로 대쉬 중 천장에 박으면 대쉬 강제 취소 (벽 뚫기 방지)
+                        if (player.isDashing && player.dashDirY !== 0) player.isDashing = false;
+                    }
+                }
+            }
+        }
+    }
+
+    // Rendering
+    function draw() {
+        // Clear canvas
+        ctx.fillStyle = '#0b0c10';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Grid Background for Sci-Fi feel
+        ctx.strokeStyle = '#1f2833';
+        ctx.lineWidth = 1;
+        for(let i=0; i<canvas.width; i+=40) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+        }
+        for(let i=0; i<canvas.height; i+=40) {
+            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+        }
+
+        // 6스테이지(인덱스 5) 배경 튜토리얼 그래픽 (위로 대쉬 안내)
+        if (currentLevel === 5) {
+            ctx.save();
+            ctx.globalAlpha = 0.25; // 배경에 스며들도록 반투명하게
+            ctx.fillStyle = '#ffff00'; // 네온 옐로우
+            ctx.textAlign = 'center';
+            
+            // 위치: 플레이어 스폰 위치와 첫 번째 벽 사이의 허공 (x: 125, y: 350 부근)
+            const guideX = 125;
+            const guideY = 320;
+
+            // "DASH" 텍스트
+            ctx.font = 'bold 36px Courier New';
+            ctx.fillText('DASH', guideX, guideY + 50);
+
+            // 윗 방향 화살표 그리기
+            ctx.beginPath();
+            ctx.moveTo(guideX, guideY - 40);      // 화살표 끝점
+            ctx.lineTo(guideX - 30, guideY + 10); // 좌측 날개
+            ctx.lineTo(guideX - 10, guideY + 10); // 좌측 안쪽
+            ctx.lineTo(guideX - 10, guideY + 150); // 기둥 좌측 (아래로 길게)
+            ctx.lineTo(guideX + 10, guideY + 150); // 기둥 우측
+            ctx.lineTo(guideX + 10, guideY + 10); // 우측 안쪽
+            ctx.lineTo(guideX + 30, guideY + 10); // 우측 날개
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        }
+        
+        // 2-1스테이지(인덱스 7) 배경 튜토리얼 그래픽 (더블 대쉬 안내)
+        if (currentLevel === 7) {
+            ctx.save();
+            ctx.globalAlpha = 0.25; 
+            ctx.fillStyle = '#ff00ff'; // 네온 마젠타 (더블 대쉬 상징색)
+            ctx.textAlign = 'center';
+            
+            // 위치 최적화: 첫 번째 벽과 두 번째 벽 사이의 빈 공간
+            const guideX = 375;
+            const guideY = 180;
+
+            ctx.font = 'bold 32px Courier New';
+            ctx.fillText('DOUBLE DASH', guideX, guideY);
+            
+            // 더블 화살표 아이콘 (>> 모양)
+            ctx.beginPath();
+            ctx.moveTo(guideX - 15, guideY + 30); ctx.lineTo(guideX + 5, guideY + 50); ctx.lineTo(guideX - 15, guideY + 70);
+            ctx.moveTo(guideX + 15, guideY + 30); ctx.lineTo(guideX + 35, guideY + 50); ctx.lineTo(guideX + 15, guideY + 70);
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = '#ff00ff';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // Draw Goal (Portal)
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#45a29e';
+        ctx.fillStyle = '#66fcf1';
+        // Pulse effect
+        let pulse = Math.abs(Math.sin(Date.now() / 200)) * 10;
+        ctx.fillRect(goal.x - pulse/2, goal.y - pulse/2, goal.w + pulse, goal.h + pulse);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(goal.x + 10, goal.y + 10, goal.w - 20, goal.h - 20);
+        ctx.shadowBlur = 0;
+
+        // Draw Platforms & Hazards
+        for (let plat of currentMap) {
+            if (plat.type === 'hazard') {
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#ff003c';
+                ctx.fillStyle = '#ff003c'; // Neon Magenta/Red
+                ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+                // Draw hazard pattern
+                ctx.fillStyle = '#fff';
+                for(let i=0; i<plat.w; i+=20) {
+                    ctx.fillRect(plat.x + i + 5, plat.y + 5, 10, plat.h - 10);
+                }
+                ctx.shadowBlur = 0;
+            } else {
+                ctx.fillStyle = '#1f2833';
+                ctx.strokeStyle = '#45a29e';
+                ctx.lineWidth = 2;
+                ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+                ctx.strokeRect(plat.x, plat.y, plat.w, plat.h);
+            }
+        }
+
+        // Draw Player
+        ctx.shadowBlur = player.isDashing ? 15 : 5;
+        
+        // 대쉬 남은 횟수에 따른 플레이어 색상 변화 (2번: 마젠타, 1번: 시안, 0번: 회색)
+        let playerColor = player.dashesLeft === 2 ? '#ff00ff' : (player.dashesLeft === 1 ? '#00ffff' : '#555');
+        
+        ctx.shadowColor = playerColor;
+        ctx.fillStyle = playerColor;
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+        
+        // Player eyes (Directional)
+        ctx.fillStyle = '#000';
+        let eyeOffsetX = player.dashDirX === 1 ? 8 : 2;
+        ctx.fillRect(player.x + eyeOffsetX, player.y + 4, 4, 4);
+        ctx.shadowBlur = 0;
+
+        // Draw Particles
+        for (let p of particles) {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life;
+            ctx.fillRect(p.x, p.y, 3, 3);
+        }
+        ctx.globalAlpha = 1.0;
+    }
+
+    // Game Loop
+    function gameLoop(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        let dt = (timestamp - lastTime) / 1000;
+        lastTime = timestamp;
+        
+        // Cap dt to prevent physics breaking on lag
+        if (dt > 0.1) dt = 0.1;
+
+        update(dt);
+        draw();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // Initialize
+    loadLevel(0);
+    requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>

@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jetpack Compose Lifecycle Master</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&display=swap');
+
+    body {
+        font-family: 'Noto Sans KR', sans-serif;
+        background-color: #f0f4f8;
+        color: #1a202c;
+    }
+
+    .lifecycle-node {
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+
+    .lifecycle-node:hover {
+        transform: scale(1.05);
+        filter: brightness(1.1);
+    }
+
+    .active-node {
+        outline: 4px solid #4285F4;
+        box-shadow: 0 0 20px rgba(66, 133, 244, 0.5);
+    }
+
+    .recomposition-ring {
+        animation: ripple 1.5s infinite;
+    }
+
+    @keyframes ripple {
+        0% { transform: scale(0.8); opacity: 1; }
+        100% { transform: scale(1.4); opacity: 0; }
+    }
+
+    .step-card {
+        display: none;
+    }
+
+    .step-card.active {
+        display: block;
+        animation: fadeIn 0.5s ease-out;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .log-entry {
+        border-left: 3px solid #4285F4;
+        animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+        from { opacity: 0; x: -10px; }
+        to { opacity: 1; x: 0; }
+    }
+
+    /* Quiz Styles */
+    .option-btn {
+        transition: all 0.2s;
+    }
+    .option-correct {
+        background-color: #d1fae5 !important;
+        border-color: #10b981 !important;
+        color: #065f46 !important;
+    }
+    .option-wrong {
+        background-color: #fee2e2 !important;
+        border-color: #ef4444 !important;
+        color: #991b1b !important;
+    }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+
+<div class="max-w-5xl mx-auto">
+  <!-- Header -->
+  <header class="text-center mb-12">
+    <h1 class="text-4xl font-bold text-blue-600 mb-2">Jetpack Compose Lifecycle</h1>
+    <p class="text-gray-600">컴포즈의 탄생부터 소멸까지, 생명주기를 시각적으로 학습하세요.</p>
+  </header>
+
+  <!-- Main Content Grid -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+    <!-- Left Panel: Interactive Infographic -->
+    <div class="lg:col-span-2 space-y-8">
+      <div class="bg-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
+        <h2 class="text-xl font-bold mb-6 flex items-center">
+          <span class="w-2 h-6 bg-blue-500 rounded-full mr-2"></span>
+          생명주기 시각화 (Lifecycle Diagram)
+        </h2>
+
+        <!-- Diagram Canvas -->
+        <div class="relative flex flex-col md:flex-row items-center justify-around py-12 gap-8">
+          <!-- Enter Composition -->
+          <div id="node-enter" class="lifecycle-node w-32 h-32 rounded-full bg-green-100 border-4 border-green-500 flex flex-col items-center justify-center text-center p-2" onclick="showStep('enter')">
+            <span class="text-xs font-bold text-green-700">1단계</span>
+            <span class="text-sm font-bold">Enter Composition</span>
+          </div>
+
+          <!-- Recomposition Loop -->
+          <div class="relative">
+            <div id="node-recompose" class="lifecycle-node w-40 h-40 rounded-full bg-blue-100 border-4 border-blue-500 flex flex-col items-center justify-center text-center p-2 z-10" onclick="showStep('recompose')">
+              <div id="recompose-anim" class="hidden absolute inset-0 bg-blue-400 rounded-full recomposition-ring"></div>
+              <span class="text-xs font-bold text-blue-700">2단계</span>
+              <span class="text-sm font-bold">Recomposition</span>
+              <span class="text-[10px] mt-1 text-blue-600">(0회 이상 업데이트)</span>
+            </div>
+            <!-- Loop Arrow SVG -->
+            <svg class="absolute -top-6 -right-6 w-12 h-12 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+          </div>
+
+          <!-- Leave Composition -->
+          <div id="node-leave" class="lifecycle-node w-32 h-32 rounded-full bg-red-100 border-4 border-red-500 flex flex-col items-center justify-center text-center p-2" onclick="showStep('leave')">
+            <span class="text-xs font-bold text-red-700">3단계</span>
+            <span class="text-sm font-bold">Leave Composition</span>
+          </div>
+
+          <!-- Connector Lines (Desktop Only) -->
+          <div class="hidden md:block absolute top-1/2 left-[20%] w-[15%] h-1 bg-gray-200 -z-10"></div>
+          <div class="hidden md:block absolute top-1/2 left-[65%] w-[15%] h-1 bg-gray-200 -z-10"></div>
+        </div>
+
+        <!-- Step Descriptions -->
+        <div class="mt-8 border-t pt-6">
+          <div id="desc-default" class="step-card active text-center text-gray-500 italic">
+            각 원을 클릭하여 해당 단계의 상세 설명을 확인하세요.
+          </div>
+
+          <div id="desc-enter" class="step-card space-y-2">
+            <h3 class="text-lg font-bold text-green-600">컴포지션 시작 (Enter)</h3>
+            <p class="text-sm leading-relaxed text-gray-700">
+              Compose가 처음 실행될 때 발생합니다. <code>remember</code> 블록이 초기화되고, <code>LaunchedEffect</code>가 시작됩니다. UI 트리에 컴포저블이 최초로 추가되는 순간입니다.
+            </p>
+          </div>
+
+          <div id="desc-recompose" class="step-card space-y-2">
+            <h3 class="text-lg font-bold text-blue-600">리컴포지션 (Recomposition)</h3>
+            <p class="text-sm leading-relaxed text-gray-700">
+              관찰 중인 <b>State</b>가 변경될 때 발생합니다. Compose는 변경된 부분의 UI를 다시 그리기 위해 함수를 재실행합니다. 효율성을 위해 변경되지 않은 데이터는 건너뛰며(Skipping), 이 과정은 매우 빈번하게 일어날 수 있습니다.
+            </p>
+          </div>
+
+          <div id="desc-leave" class="step-card space-y-2">
+            <h3 class="text-lg font-bold text-red-600">컴포지션 종료 (Leave)</h3>
+            <p class="text-sm leading-relaxed text-gray-700">
+              화면 전환이나 조건부 UI 출력(if문 등)에 의해 컴포저블이 더 이상 필요하지 않을 때 발생합니다. <code>DisposableEffect</code>의 정리(onDispose) 로직이 실행되며 자원이 해제됩니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Simulation Preview -->
+      <div class="bg-white p-6 rounded-2xl shadow-lg">
+        <h2 class="text-xl font-bold mb-4 flex items-center">
+          <span class="w-2 h-6 bg-purple-500 rounded-full mr-2"></span>
+          실시간 시뮬레이터 (Simulator)
+        </h2>
+
+        <div class="flex flex-col md:flex-row gap-6">
+          <!-- Virtual Device UI -->
+          <div class="w-full md:w-1/2 border-2 border-gray-200 rounded-3xl p-4 bg-gray-50">
+            <div class="bg-white rounded-xl shadow p-6 text-center min-h-[200px] flex flex-col justify-center items-center">
+              <div id="ui-component" class="hidden space-y-4">
+                <p class="text-gray-500 text-xs">Composable Function</p>
+                <div class="text-3xl font-bold text-blue-600" id="counter-display">0</div>
+                <button onclick="triggerRecompose()" class="px-6 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition shadow-md active:scale-95">
+                  State 변경 (Count++)
+                </button>
+              </div>
+              <div id="ui-placeholder" class="text-gray-400">
+                컴포넌트가 아직 생성되지 않았습니다.
+              </div>
+            </div>
+            <div class="mt-4 flex justify-center gap-2">
+              <button onclick="triggerEnter()" id="btn-enter" class="px-4 py-2 bg-green-500 text-white text-sm rounded-lg">Compose 실행</button>
+              <button onclick="triggerLeave()" id="btn-leave" disabled class="px-4 py-2 bg-gray-300 text-white text-sm rounded-lg cursor-not-allowed">제거(Dispose)</button>
+            </div>
+          </div>
+
+          <!-- Event Log -->
+          <div class="w-full md:w-1/2 flex flex-col">
+            <span class="text-sm font-bold text-gray-600 mb-2 uppercase">Lifecycle Logs</span>
+            <div id="log-container" class="bg-gray-900 text-green-400 font-mono text-xs p-3 rounded-lg flex-grow overflow-y-auto max-h-[220px]">
+              <div class="text-gray-500 italic">> 시스템 대기 중...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Quiz & Tips -->
+    <div class="space-y-8">
+      <!-- Quiz Section -->
+      <div class="bg-white p-6 rounded-2xl shadow-lg min-h-[400px]">
+        <h2 class="text-xl font-bold mb-4 flex items-center">
+          <span class="w-2 h-6 bg-yellow-400 rounded-full mr-2"></span>
+          학습 확인 퀴즈 (Quiz)
+        </h2>
+        <div id="quiz-content">
+          <div id="question-box">
+            <p id="quiz-question" class="font-medium text-gray-800 mb-4">학습을 완료했다면 퀴즈를 풀어보세요!</p>
+            <div id="quiz-options" class="space-y-2"></div>
+
+            <!-- Explanation Area (Initially Hidden) -->
+            <div id="quiz-explanation-box" class="hidden mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+              <p class="text-xs font-bold text-blue-600 mb-1 uppercase tracking-wider">해설</p>
+              <p id="quiz-explanation-text" class="text-sm text-gray-700 leading-snug"></p>
+            </div>
+
+            <button onclick="startQuiz()" id="start-quiz-btn" class="w-full mt-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700">퀴즈 시작하기</button>
+            <button onclick="nextQuestion()" id="next-quiz-btn" class="hidden w-full mt-4 py-3 bg-gray-800 text-white rounded-xl font-bold hover:bg-gray-900">다음 문제로</button>
+          </div>
+        </div>
+        <div id="quiz-result" class="hidden text-center py-10">
+          <div class="text-5xl mb-4">🏆</div>
+          <div id="result-score" class="text-3xl font-bold mb-2 text-blue-600"></div>
+          <p id="result-text" class="text-gray-600 mb-6"></p>
+          <button onclick="startQuiz()" class="px-6 py-2 bg-blue-100 text-blue-600 font-bold rounded-full hover:bg-blue-200 transition">다시 도전하기</button>
+        </div>
+      </div>
+
+      <!-- Pro Tips -->
+      <div class="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-lg text-white">
+        <h2 class="text-lg font-bold mb-3 flex items-center">
+          <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          핵심 정리 (Cheatsheet)
+        </h2>
+        <ul class="text-sm space-y-3 opacity-90">
+          <li>• <b>Composition:</b> UI의 구조를 정의합니다.</li>
+          <li>• <b>remember:</b> 리컴포지션 시에도 값을 보존하게 해줍니다.</li>
+          <li>• <b>State&lt;T&gt;:</b> 이 값이 바뀌면 컴포즈는 리컴포지션을 예약합니다.</li>
+          <li>• <b>SideEffect:</b> UI 구성 이외의 작업(네트워크, 로그)을 안전하게 처리합니다.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="mt-12 text-center text-gray-500 text-sm border-t pt-6 pb-12">
+    © 2024 Jetpack Compose Interactive Learning Guide | Designed for Android Beginners
+  </footer>
+</div>
+
+<!-- UI Feedback Message Box -->
+<div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 bg-gray-800 text-white rounded-full opacity-0 pointer-events-none transition-opacity duration-300 z-50">
+  메시지 내용
+</div>
+
+<script>
+  // --- Simulation Logic ---
+  let count = 0;
+  let isComposed = false;
+
+  function addLog(msg, type = 'info') {
+      const container = document.getElementById('log-container');
+      if (!container) return;
+      const entry = document.createElement('div');
+      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      let color = 'text-green-400';
+      if (type === 'recompose') color = 'text-blue-300';
+      if (type === 'leave') color = 'text-red-400';
+
+      entry.className = `log-entry mb-1 pl-2 ${color}`;
+      entry.innerHTML = `<span class="text-gray-500">[${time}]</span> ${msg}`;
+
+      container.appendChild(entry);
+      container.scrollTop = container.scrollHeight;
+  }
+
+  function showStep(step) {
+      document.querySelectorAll('.lifecycle-node').forEach(el => el.classList.remove('active-node'));
+      document.querySelectorAll('.step-card').forEach(el => el.classList.remove('active'));
+
+      const node = document.getElementById(`node-${step}`);
+      const desc = document.getElementById(`desc-${step}`);
+      if (node) node.classList.add('active-node');
+      if (desc) desc.classList.add('active');
+  }
+
+  function triggerEnter() {
+      if (isComposed) return;
+      isComposed = true;
+      count = 0;
+
+      document.getElementById('ui-component').classList.remove('hidden');
+      document.getElementById('ui-placeholder').classList.add('hidden');
+      document.getElementById('counter-display').innerText = count;
+
+      document.getElementById('btn-enter').disabled = true;
+      document.getElementById('btn-enter').className = 'px-4 py-2 bg-gray-300 text-white text-sm rounded-lg cursor-not-allowed';
+      document.getElementById('btn-leave').disabled = false;
+      document.getElementById('btn-leave').className = 'px-4 py-2 bg-red-500 text-white text-sm rounded-lg';
+
+      addLog(">> Composable이 트리에 추가됨 (Enter)");
+      addLog("remember { mutableStateOf(0) } 초기화됨");
+      addLog("LaunchedEffect 실행됨");
+
+      showStep('enter');
+  }
+
+  function triggerRecompose() {
+      if (!isComposed) return;
+      count++;
+      document.getElementById('counter-display').innerText = count;
+
+      const ring = document.getElementById('recompose-anim');
+      ring.classList.remove('hidden');
+      setTimeout(() => ring.classList.add('hidden'), 1000);
+
+      addLog(`>> State 변경 감지: count = ${count}`, 'recompose');
+      addLog("Recomposition 수행 중... (UI 업데이트)", 'recompose');
+
+      showStep('recompose');
+  }
+
+  function triggerLeave() {
+      if (!isComposed) return;
+      isComposed = false;
+
+      document.getElementById('ui-component').classList.add('hidden');
+      document.getElementById('ui-placeholder').classList.remove('hidden');
+
+      document.getElementById('btn-enter').disabled = false;
+      document.getElementById('btn-enter').className = 'px-4 py-2 bg-green-500 text-white text-sm rounded-lg';
+      document.getElementById('btn-leave').disabled = true;
+      document.getElementById('btn-leave').className = 'px-4 py-2 bg-gray-300 text-white text-sm rounded-lg cursor-not-allowed';
+
+      addLog(">> Composable이 트리에서 제거됨 (Leave)", 'leave');
+      addLog("DisposableEffect.onDispose() 실행됨", 'leave');
+
+      showStep('leave');
+  }
+
+  // --- Quiz Logic (Updated with Explanations and Colors) ---
+  const quizData = [
+      {
+          q: "Compose 생명주기의 3단계 중 옳은 순서는?",
+          o: ["Enter -> Recompose -> Leave", "Start -> Stop -> Destroy", "Create -> View -> Dispose", "Init -> Update -> Finish"],
+          a: 0,
+          exp: "컴포즈 생명주기는 컴포지션 시작(Enter), 데이터 변경에 따른 리컴포지션(Recompose), 컴포지션 종료(Leave) 순으로 진행됩니다."
+      },
+      {
+          q: "관찰 중인 'State'가 변경되었을 때 UI를 갱신하는 과정은?",
+          o: ["Redraw", "Invalidate", "Recomposition", "Refresh"],
+          a: 2,
+          exp: "Jetpack Compose는 관찰 가능한 상태가 바뀔 때 해당 컴포저블 함수를 다시 호출하는데, 이를 '리컴포지션'이라고 부릅니다."
+      },
+      {
+          q: "리컴포지션이 일어나도 값을 유지하려면 무엇을 사용해야 하나요?",
+          o: ["val", "remember", "static", "saveState"],
+          a: 1,
+          exp: "remember는 리컴포지션 과정에서도 계산된 값을 메모리에 저장하여 유지할 수 있도록 도와주는 컴포즈의 핵심 키워드입니다."
+      },
+      {
+          q: "컴포저블이 사라질 때 자원을 해제하기 가장 좋은 블록은?",
+          o: ["onCreate", "onDestroy", "onDispose", "onFinish"],
+          a: 2,
+          exp: "DisposableEffect를 사용하면 컴포저블이 컴포지션을 종료(Leave)할 때 실행되는 onDispose 블록을 정의하여 자원을 안전하게 정리할 수 있습니다."
+      }
+  ];
+
+  let currentQuizIndex = 0;
+  let score = 0;
+  let isAnswered = false;
+
+  function startQuiz() {
+      currentQuizIndex = 0;
+      score = 0;
+      isAnswered = false;
+      document.getElementById('quiz-result').classList.add('hidden');
+      document.getElementById('question-box').classList.remove('hidden');
+      document.getElementById('start-quiz-btn').classList.add('hidden');
+      document.getElementById('next-quiz-btn').classList.add('hidden');
+      document.getElementById('quiz-explanation-box').classList.add('hidden');
+      showQuestion();
+  }
+
+  function showQuestion() {
+      isAnswered = false;
+      const quiz = quizData[currentQuizIndex];
+      document.getElementById('quiz-question').innerText = `Q${currentQuizIndex + 1}. ${quiz.q}`;
+      document.getElementById('next-quiz-btn').classList.add('hidden');
+      document.getElementById('quiz-explanation-box').classList.add('hidden');
+
+      const optionsDiv = document.getElementById('quiz-options');
+      optionsDiv.innerHTML = '';
+
+      quiz.o.forEach((opt, idx) => {
+          const btn = document.createElement('button');
+          btn.className = "option-btn w-full text-left p-3 border rounded-lg hover:bg-blue-50 transition text-sm font-medium";
+          btn.innerText = opt;
+          btn.onclick = () => checkAnswer(idx, btn);
+          optionsDiv.appendChild(btn);
+      });
+  }
+
+  function checkAnswer(selectedIdx, clickedBtn) {
+      if (isAnswered) return; // Prevent multiple clicks
+      isAnswered = true;
+
+      const quiz = quizData[currentQuizIndex];
+      const correctIdx = quiz.a;
+      const optionButtons = document.querySelectorAll('.option-btn');
+
+      // Disable all buttons
+      optionButtons.forEach(btn => btn.classList.remove('hover:bg-blue-50'));
+
+      if (selectedIdx === correctIdx) {
+          score++;
+          clickedBtn.classList.add('option-correct');
+          showToast("정답입니다! 🎉");
+      } else {
+          clickedBtn.classList.add('option-wrong');
+          // Also highlight the correct answer in green so the user knows
+          optionButtons[correctIdx].classList.add('option-correct');
+          showToast("오답입니다. 해설을 확인하세요! 😢");
+      }
+
+      // Show explanation
+      const expBox = document.getElementById('quiz-explanation-box');
+      const expText = document.getElementById('quiz-explanation-text');
+      expText.innerText = quiz.exp;
+      expBox.classList.remove('hidden');
+
+      // Show next button
+      const nextBtn = document.getElementById('next-quiz-btn');
+      nextBtn.classList.remove('hidden');
+      if (currentQuizIndex === quizData.length - 1) {
+          nextBtn.innerText = "결과 보기";
+      } else {
+          nextBtn.innerText = "다음 문제로";
+      }
+  }
+
+  function nextQuestion() {
+      currentQuizIndex++;
+      if (currentQuizIndex < quizData.length) {
+          showQuestion();
+      } else {
+          showResult();
+      }
+  }
+
+  function showResult() {
+      document.getElementById('question-box').classList.add('hidden');
+      document.getElementById('quiz-result').classList.remove('hidden');
+      document.getElementById('result-score').innerText = `${score} / ${quizData.length}`;
+
+      let message = "";
+      if (score === quizData.length) message = "모든 생명주기를 완벽하게 이해하셨네요! 최고입니다.";
+      else if (score >= quizData.length / 2) message = "잘 하셨습니다! 헷갈리는 부분만 다시 한번 복습해보세요.";
+      else message = "인포그래픽과 시뮬레이터를 다시 한번 확인해보는 것은 어떨까요?";
+
+      document.getElementById('result-text').innerText = message;
+  }
+
+  function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.classList.remove('opacity-0');
+      setTimeout(() => toast.classList.add('opacity-0'), 2000);
+  }
+
+  window.onload = () => {
+      addLog("시스템 준비 완료.");
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,1198 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>독서 뽀모도로</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+      :root {
+        --primary: #f97316;
+        /* orange-500 */
+        --primary-light: #fdba74;
+        /* orange-300 */
+        --bg-color: #f8fafc;
+        /* slate-50 */
+        --text-main: #0f172a;
+        /* slate-900 */
+      }
+
+      body {
+        background-color: var(--bg-color);
+        color: var(--text-main);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        transition: background-color 0.3s ease;
+        overscroll-behavior-y: none;
+        /* Prevent pull-to-refresh on mobile */
+      }
+
+      /* Screen Blink Animation for subtle notification */
+      @keyframes appBlink {
+        0%,
+        100% {
+          background-color: white;
+        }
+
+        50% {
+          background-color: #fef08a;
+          /* soft yellow */
+        }
+      }
+
+      .app-container.blink-active {
+        animation: appBlink 1s 5;
+        /* 5 times, 1s each */
+      }
+
+      /* Circular Slider Styles */
+      .slider-container {
+        position: relative;
+        width: 240px;
+        height: 240px;
+        margin: 0 auto;
+        touch-action: none;
+        /* Prevent scrolling while adjusting timer */
+      }
+
+      .timer-svg {
+        transform: rotate(-90deg);
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+
+      .timer-track {
+        fill: none;
+        stroke: #e2e8f0;
+        stroke-width: 12;
+      }
+
+      .timer-progress {
+        fill: none;
+        stroke: var(--primary);
+        stroke-width: 12;
+        stroke-linecap: round;
+        transition: stroke-dasharray 0.1s linear;
+      }
+
+      .timer-progress.break-mode {
+        stroke: #10b981;
+        /* emerald-500 for break */
+      }
+
+      .timer-thumb {
+        fill: white;
+        stroke: var(--primary);
+        stroke-width: 4;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+        cursor: pointer;
+        transition: stroke 0.3s ease;
+      }
+
+      .timer-thumb.break-mode {
+        stroke: #10b981;
+      }
+
+      .timer-text-container {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        pointer-events: none;
+      }
+
+      /* Toast Notification */
+      .toast {
+        position: fixed;
+        bottom: 80px;
+        /* Above bottom nav */
+        left: 50%;
+        transform: translateX(-50%) translateY(20px);
+        background-color: rgba(15, 23, 42, 0.9);
+        color: white;
+        padding: 12px 24px;
+        border-radius: 9999px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+        z-index: 100;
+        box-shadow:
+          0 4px 6px -1px rgba(0, 0, 0, 0.1),
+          0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        white-space: nowrap;
+      }
+
+      .toast.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0);
+      }
+
+      /* Custom Scrollbar for Memo */
+      textarea::-webkit-scrollbar,
+      .scrollable-area::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      textarea::-webkit-scrollbar-track,
+      .scrollable-area::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      textarea::-webkit-scrollbar-thumb,
+      .scrollable-area::-webkit-scrollbar-thumb {
+        background-color: #cbd5e1;
+        border-radius: 10px;
+      }
+
+      /* App Container */
+      .app-container {
+        width: 100%;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background-color: white;
+        position: relative;
+      }
+
+      .view-section {
+        display: none;
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+        padding-bottom: 80px;
+        /* Space for bottom nav */
+      }
+
+      .view-section.active {
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Bottom Navigation */
+      .bottom-nav {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 64px;
+        background: white;
+        border-top: 1px solid #f1f5f9;
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        z-index: 10;
+      }
+
+      .nav-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        color: #94a3b8;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: color 0.2s;
+      }
+
+      .nav-item.active {
+        color: var(--primary);
+      }
+
+      .nav-item i {
+        font-size: 1.5rem;
+        margin-bottom: 2px;
+      }
+
+      /* Modal Backdrop */
+      .modal-backdrop {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 50;
+        justify-content: center;
+        align-items: center;
+        padding: 1rem;
+      }
+
+      .modal-backdrop.active {
+        display: flex;
+      }
+
+      .loader {
+        border: 3px solid #f3f3f3;
+        border-radius: 50%;
+        border-top: 3px solid var(--primary);
+        width: 24px;
+        height: 24px;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="app-container">
+      <!-- Header -->
+      <header class="text-center py-4 border-b border-slate-100 bg-white">
+        <h1 class="text-xl font-bold text-orange-500 tracking-tight">
+          <i class="ph ph-book-open-text align-middle mr-1"></i>독서 뽀모도로
+        </h1>
+      </header>
+
+      <!-- VIEW: Home (Book Selection) -->
+      <div id="view-home" class="view-section active">
+        <div
+          class="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full space-y-8"
+        >
+          <div class="text-center">
+            <h2 class="text-2xl font-bold text-slate-800 mb-2">
+              무엇을 읽으실 건가요?
+            </h2>
+            <p class="text-slate-500 text-sm">
+              새로운 책을 입력하거나 기존 책을 선택하세요.
+            </p>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1"
+                >새 책 이름</label
+              >
+              <input
+                type="text"
+                id="new-book-input"
+                placeholder="책 제목을 입력하세요"
+                class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+              />
+            </div>
+
+            <div class="relative flex items-center py-2">
+              <div class="flex-grow border-t border-slate-200"></div>
+              <span class="flex-shrink-0 mx-4 text-slate-400 text-sm"
+                >또는</span
+              >
+              <div class="flex-grow border-t border-slate-200"></div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1"
+                >기록에 있는 책</label
+              >
+              <select
+                id="existing-book-select"
+                class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white transition"
+              >
+                <option value="">책을 선택하세요</option>
+                <!-- Options generated dynamically -->
+              </select>
+            </div>
+          </div>
+
+          <button
+            id="btn-start-session"
+            class="w-full py-4 bg-orange-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-orange-500/30 hover:bg-orange-600 transition active:scale-95"
+          >
+            독서 시작하기
+          </button>
+        </div>
+      </div>
+
+      <!-- VIEW: Timer -->
+      <div id="view-timer" class="view-section">
+        <div
+          class="max-w-5xl mx-auto w-full h-full flex flex-col md:flex-row gap-8"
+        >
+          <!-- Left: Timer -->
+          <div class="flex-1 flex flex-col pt-2">
+            <div class="flex justify-between items-center mb-6 gap-3">
+              <button
+                id="btn-back-home"
+                class="text-slate-500 hover:text-slate-800 transition"
+              >
+                <i class="ph ph-caret-left text-2xl"></i>
+              </button>
+              <h2
+                id="current-book-title"
+                class="flex-1 text-lg font-bold text-slate-800 truncate"
+              >
+                책 제목
+              </h2>
+              <span
+                id="current-mode-badge"
+                class="px-3 py-1 bg-orange-100 text-orange-600 text-xs font-bold rounded-full whitespace-nowrap"
+                >독서 중</span
+              >
+            </div>
+
+            <!-- Circular Timer -->
+            <div class="slider-container my-auto" id="timer-slider">
+              <svg class="timer-svg" viewBox="0 0 100 100">
+                <circle class="timer-track" cx="50" cy="50" r="44"></circle>
+                <circle
+                  class="timer-progress"
+                  id="timer-progress-circle"
+                  cx="50"
+                  cy="50"
+                  r="44"
+                  stroke-dasharray="276.46"
+                  stroke-dashoffset="0"
+                ></circle>
+                <circle
+                  class="timer-thumb"
+                  id="timer-thumb"
+                  cx="94"
+                  cy="50"
+                  r="6"
+                ></circle>
+              </svg>
+              <div class="timer-text-container">
+                <div
+                  id="time-display"
+                  class="text-4xl font-black text-slate-800 font-mono tracking-tighter"
+                >
+                  25:00
+                </div>
+                <div id="time-instruction" class="text-xs text-slate-400 mt-1">
+                  원을 드래그해 시간 조절
+                </div>
+              </div>
+            </div>
+
+            <!-- Timer Controls -->
+            <div class="flex justify-center gap-4 my-8">
+              <button
+                id="btn-timer-reset"
+                class="w-12 h-12 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 transition active:scale-90"
+              >
+                <i class="ph ph-arrow-counter-clockwise text-xl"></i>
+              </button>
+              <button
+                id="btn-timer-playpause"
+                class="w-16 h-16 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-lg shadow-orange-500/30 hover:bg-orange-600 transition active:scale-90"
+              >
+                <i id="playpause-icon" class="ph-fill ph-play text-2xl"></i>
+              </button>
+              <button
+                id="btn-timer-skip"
+                class="w-12 h-12 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 transition active:scale-90"
+              >
+                <i class="ph ph-fast-forward text-xl"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Divider -->
+          <div class="hidden md:block w-px bg-slate-100 my-4"></div>
+
+          <!-- Right: Memo -->
+          <div class="flex-1 flex flex-col">
+            <div class="flex-1 flex flex-col min-h-[200px] md:min-h-[400px]">
+              <label
+                class="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-1"
+              >
+                <i class="ph ph-note-pencil"></i> 메모하기
+              </label>
+              <textarea
+                id="memo-textarea"
+                class="flex-1 w-full p-4 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none text-sm transition"
+                placeholder="독서 중 떠오르는 생각이나 중요한 문장을 기록해보세요..."
+              ></textarea>
+            </div>
+
+            <button
+              id="btn-finish-reading"
+              class="mt-4 w-full py-4 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition active:scale-95 flex items-center justify-center gap-2"
+            >
+              <i class="ph ph-check-circle text-lg"></i> 독서 완료
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW: Records -->
+      <div id="view-records" class="view-section">
+        <div class="max-w-3xl mx-auto w-full">
+          <h2 class="text-2xl font-bold text-slate-800 mb-6">독서 기록</h2>
+          <div id="records-list" class="space-y-4">
+            <!-- Records populated here -->
+            <div class="text-center text-slate-400 py-10 text-sm">
+              기록이 없습니다.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Navigation -->
+      <div class="bottom-nav">
+        <div class="nav-item active" data-target="home">
+          <i class="ph ph-timer"></i>
+          <span>타이머</span>
+        </div>
+        <div class="nav-item" data-target="records">
+          <i class="ph ph-books"></i>
+          <span>기록</span>
+        </div>
+      </div>
+
+      <!-- Modal: Finish Action -->
+      <div id="modal-finish" class="modal-backdrop">
+        <div
+          class="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90vh]"
+        >
+          <h3 class="text-xl font-bold text-slate-800 mb-2">
+            수고하셨습니다! 🎉
+          </h3>
+          <p class="text-sm text-slate-500 mb-4">
+            오늘 작성한 메모를 어떻게 처리할까요?
+          </p>
+
+          <div
+            class="bg-slate-50 border border-slate-100 rounded-xl p-4 mb-6 flex-1 overflow-y-auto scrollable-area min-h-[100px]"
+          >
+            <p
+              id="modal-memo-content"
+              class="text-sm text-slate-700 whitespace-pre-wrap"
+            ></p>
+          </div>
+
+          <div class="space-y-3">
+            <button
+              id="btn-action-copy"
+              class="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition flex items-center justify-center gap-2"
+            >
+              <i class="ph ph-copy"></i> 메모 그대로 복사하기
+            </button>
+            <button
+              id="btn-action-ai"
+              class="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl font-bold hover:opacity-90 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/30"
+            >
+              <i class="ph ph-sparkle"></i> Gemini AI로 정리하기
+            </button>
+            <button
+              id="btn-action-close"
+              class="w-full py-2 text-slate-400 text-sm font-medium hover:text-slate-600 transition mt-2"
+            >
+              건너뛰고 저장
+            </button>
+          </div>
+
+          <!-- AI Loading & Result UI (hidden initially) -->
+          <div
+            id="ai-result-container"
+            class="hidden mt-4 pt-4 border-t border-slate-100"
+          >
+            <div
+              id="ai-loading"
+              class="flex flex-col items-center justify-center py-4 hidden"
+            >
+              <div class="loader mb-3"></div>
+              <span class="text-xs text-indigo-500 font-medium"
+                >AI가 메모를 정리하고 있어요...</span
+              >
+            </div>
+            <div id="ai-content-area" class="hidden">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-bold text-indigo-500"
+                  ><i class="ph ph-sparkle"></i> AI 요약 완료</span
+                >
+                <button
+                  id="btn-copy-ai"
+                  class="text-xs text-slate-500 hover:text-slate-800"
+                >
+                  <i class="ph ph-copy"></i> 복사
+                </button>
+              </div>
+              <div
+                id="ai-summary-text"
+                class="text-sm text-slate-700 bg-indigo-50 p-3 rounded-xl border border-indigo-100 whitespace-pre-wrap max-h-48 overflow-y-auto scrollable-area"
+              ></div>
+              <button
+                id="btn-final-save"
+                class="w-full py-3 mt-4 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition"
+              >
+                기록에 저장하기
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast Message -->
+      <div id="toast" class="toast"></div>
+    </div>
+
+    <script>
+      // --- Configuration & Global Variables ---
+      const apiKey = ""; // API Key for Gemini
+
+      // State
+      const state = {
+        books: [], // List of saved books from localStorage
+        currentBook: "",
+        mode: "reading", // 'reading' or 'break'
+        timerStatus: "idle", // 'idle', 'running', 'paused'
+        duration: { reading: 25, break: 5 }, // in minutes
+        timeLeft: 25 * 60, // in seconds
+        memo: "",
+        timerInterval: null,
+        sessionRecords: [], // Records for current active session before saving
+      };
+
+      // Constants for SVG Circular Slider
+      const CIRCLE_RADIUS = 44;
+      const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * CIRCLE_RADIUS;
+
+      // --- DOM Elements ---
+      const els = {
+        views: document.querySelectorAll(".view-section"),
+        navItems: document.querySelectorAll(".nav-item"),
+
+        // Home
+        newBookInput: document.getElementById("new-book-input"),
+        existingBookSelect: document.getElementById("existing-book-select"),
+        btnStartSession: document.getElementById("btn-start-session"),
+
+        // Timer
+        btnBackHome: document.getElementById("btn-back-home"),
+        currentBookTitle: document.getElementById("current-book-title"),
+        currentModeBadge: document.getElementById("current-mode-badge"),
+        timeDisplay: document.getElementById("time-display"),
+        memoTextarea: document.getElementById("memo-textarea"),
+        btnTimerPlayPause: document.getElementById("btn-timer-playpause"),
+        btnTimerReset: document.getElementById("btn-timer-reset"),
+        btnTimerSkip: document.getElementById("btn-timer-skip"),
+        playPauseIcon: document.getElementById("playpause-icon"),
+        btnFinishReading: document.getElementById("btn-finish-reading"),
+        timeInstruction: document.getElementById("time-instruction"),
+
+        // Slider
+        sliderContainer: document.getElementById("timer-slider"),
+        progressCircle: document.getElementById("timer-progress-circle"),
+        thumb: document.getElementById("timer-thumb"),
+
+        // Finish Modal
+        modalFinish: document.getElementById("modal-finish"),
+        modalMemoContent: document.getElementById("modal-memo-content"),
+        btnActionCopy: document.getElementById("btn-action-copy"),
+        btnActionAi: document.getElementById("btn-action-ai"),
+        btnActionClose: document.getElementById("btn-action-close"),
+        aiResultContainer: document.getElementById("ai-result-container"),
+        aiLoading: document.getElementById("ai-loading"),
+        aiContentArea: document.getElementById("ai-content-area"),
+        aiSummaryText: document.getElementById("ai-summary-text"),
+        btnCopyAi: document.getElementById("btn-copy-ai"),
+        btnFinalSave: document.getElementById("btn-final-save"),
+
+        // Records
+        recordsList: document.getElementById("records-list"),
+      };
+
+      // --- Initialization ---
+      function init() {
+        loadData();
+        setupEventListeners();
+        switchView("home");
+        updateSliderAppearance();
+      }
+
+      // --- Data Management ---
+      function loadData() {
+        const data = localStorage.getItem("reading_pomodoro_records");
+        if (data) {
+          state.books = JSON.parse(data);
+        }
+        updateBookSelect();
+        renderRecords();
+      }
+
+      function saveData() {
+        localStorage.setItem(
+          "reading_pomodoro_records",
+          JSON.stringify(state.books),
+        );
+        updateBookSelect();
+        renderRecords();
+      }
+
+      function updateBookSelect() {
+        els.existingBookSelect.innerHTML =
+          '<option value="">책을 선택하세요</option>';
+        state.books.forEach((book) => {
+          const option = document.createElement("option");
+          option.value = book.title;
+          option.textContent = book.title;
+          els.existingBookSelect.appendChild(option);
+        });
+      }
+
+      // --- Navigation ---
+      function switchView(viewId) {
+        els.views.forEach((view) => view.classList.remove("active"));
+        document.getElementById(`view-${viewId}`).classList.add("active");
+
+        // Update Nav UI
+        els.navItems.forEach((item) => {
+          if (
+            item.dataset.target === viewId ||
+            (viewId === "timer" && item.dataset.target === "home")
+          ) {
+            item.classList.add("active");
+          } else {
+            item.classList.remove("active");
+          }
+        });
+      }
+
+      // --- Event Listeners ---
+      function setupEventListeners() {
+        // Navigation
+        els.navItems.forEach((item) => {
+          item.addEventListener("click", () => {
+            if (item.dataset.target === "home") {
+              // 진행 중인 책(세션)이 있으면 타이머 뷰로, 없으면 홈 뷰로
+              if (state.currentBook) {
+                switchView("timer");
+              } else {
+                switchView("home");
+              }
+            } else {
+              switchView(item.dataset.target);
+              renderRecords();
+            }
+          });
+        });
+
+        // Start Session
+        els.btnStartSession.addEventListener("click", () => {
+          const newBook = els.newBookInput.value.trim();
+          const existingBook = els.existingBookSelect.value;
+
+          const bookTitle = newBook || existingBook;
+          if (!bookTitle) {
+            alert("읽을 책 제목을 입력하거나 선택해주세요.");
+            return;
+          }
+
+          // Init session
+          state.currentBook = bookTitle;
+          els.currentBookTitle.textContent = bookTitle;
+          els.memoTextarea.value = "";
+          state.sessionRecords = [];
+
+          // Set defaults
+          setMode("reading");
+          resetTimerState();
+
+          switchView("timer");
+        });
+
+        // Timer Controls
+        els.btnTimerPlayPause.addEventListener("click", toggleTimer);
+        els.btnTimerReset.addEventListener("click", resetTimerState);
+        els.btnTimerSkip.addEventListener("click", skipCurrentMode);
+
+        // Back to Home
+        els.btnBackHome.addEventListener("click", () => {
+          const hasMemo = els.memoTextarea.value.trim().length > 0;
+          const currentMaxSecs =
+            state.mode === "reading"
+              ? state.duration.reading * 60
+              : state.duration.break * 60;
+          const hasTimerProgress =
+            state.timeLeft < currentMaxSecs || state.timerStatus !== "idle";
+
+          if (hasMemo || hasTimerProgress) {
+            if (
+              !confirm(
+                "현재 진행 중인 타이머와 작성 중인 메모가 있습니다.\n홈으로 돌아가시면 모두 초기화됩니다. 정말 돌아가시겠습니까?",
+              )
+            ) {
+              return;
+            }
+          }
+
+          // Reset session state and go home
+          state.currentBook = "";
+          state.memo = "";
+          clearInterval(state.timerInterval);
+          resetTimerState();
+          switchView("home");
+        });
+
+        // Finish Reading
+        els.btnFinishReading.addEventListener("click", openFinishModal);
+
+        // Modal Actions
+        els.btnActionClose.addEventListener("click", () =>
+          finalizeSession(null),
+        );
+        els.btnActionCopy.addEventListener("click", () => {
+          copyToClipboard(els.memoTextarea.value);
+          showToast("메모가 복사되었습니다.");
+        });
+        els.btnActionAi.addEventListener("click", handleAISummary);
+        els.btnCopyAi.addEventListener("click", () => {
+          copyToClipboard(els.aiSummaryText.textContent);
+          showToast("요약본이 복사되었습니다.");
+        });
+        els.btnFinalSave.addEventListener("click", () =>
+          finalizeSession(els.aiSummaryText.textContent),
+        );
+
+        // Slider Interaction
+        setupSliderEvents();
+      }
+
+      // --- Timer Logic ---
+      function setMode(newMode) {
+        state.mode = newMode;
+        if (newMode === "reading") {
+          els.currentModeBadge.textContent = "독서 중";
+          els.currentModeBadge.className =
+            "px-3 py-1 bg-orange-100 text-orange-600 text-xs font-bold rounded-full";
+          els.progressCircle.classList.remove("break-mode");
+          els.thumb.classList.remove("break-mode");
+          state.timeLeft = state.duration.reading * 60;
+        } else {
+          els.currentModeBadge.textContent = "휴식 시간";
+          els.currentModeBadge.className =
+            "px-3 py-1 bg-emerald-100 text-emerald-600 text-xs font-bold rounded-full";
+          els.progressCircle.classList.add("break-mode");
+          els.thumb.classList.add("break-mode");
+          state.timeLeft = state.duration.break * 60;
+        }
+        updateTimerDisplay();
+        updateSliderAppearance();
+      }
+
+      function toggleTimer() {
+        if (state.timerStatus === "running") {
+          pauseTimer();
+        } else {
+          startTimer();
+        }
+      }
+
+      function startTimer() {
+        if (state.timerStatus === "running") return;
+        state.timerStatus = "running";
+        els.playPauseIcon.className = "ph-fill ph-pause text-2xl";
+        els.timeInstruction.style.opacity = "0"; // Hide slider hint
+        els.sliderContainer.style.pointerEvents = "none"; // Disable drag while running
+
+        state.timerInterval = setInterval(() => {
+          if (state.timeLeft > 0) {
+            state.timeLeft--;
+            updateTimerDisplay();
+          } else {
+            handleTimerEnd();
+          }
+        }, 1000);
+      }
+
+      function pauseTimer() {
+        clearInterval(state.timerInterval);
+        state.timerStatus = "paused";
+        els.playPauseIcon.className = "ph-fill ph-play text-2xl";
+        els.timeInstruction.style.opacity = "1";
+        els.timeInstruction.textContent = "일시정지됨 (시간 조절 가능)";
+        els.sliderContainer.style.pointerEvents = "auto";
+      }
+
+      function resetTimerState() {
+        clearInterval(state.timerInterval);
+        state.timerStatus = "idle";
+        els.playPauseIcon.className = "ph-fill ph-play text-2xl";
+        els.timeInstruction.style.opacity = "1";
+        els.timeInstruction.textContent = "원을 드래그해 시간 조절";
+        els.sliderContainer.style.pointerEvents = "auto";
+        setMode(state.mode); // Reset to current mode's default duration
+      }
+
+      function handleTimerEnd() {
+        clearInterval(state.timerInterval);
+        state.timerStatus = "idle"; // Reset status to allow auto-start
+        triggerScreenBlink();
+
+        if (state.mode === "reading") {
+          // Read -> Break
+          setMode("break");
+          startTimer(); // Auto start break
+        } else {
+          // Break -> Read
+          setMode("reading");
+          startTimer(); // Auto start reading
+        }
+      }
+
+      function skipCurrentMode() {
+        clearInterval(state.timerInterval);
+        state.timerStatus = "idle";
+
+        if (state.mode === "reading") {
+          // Read -> Break
+          setMode("break");
+          startTimer(); // Auto start break
+        } else {
+          // Break -> Read
+          setMode("reading");
+          els.playPauseIcon.className = "ph-fill ph-play text-2xl";
+          els.sliderContainer.style.pointerEvents = "auto";
+        }
+      }
+
+      function triggerScreenBlink() {
+        const appContainer = document.querySelector(".app-container");
+        appContainer.classList.add("blink-active");
+        setTimeout(() => {
+          appContainer.classList.remove("blink-active");
+        }, 5000); // 5 blinks * 1s
+      }
+
+      // --- Slider Math & UI ---
+      function updateTimerDisplay() {
+        const m = Math.floor(state.timeLeft / 60);
+        const s = state.timeLeft % 60;
+        els.timeDisplay.textContent = `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+        updateSliderAppearance();
+      }
+
+      function updateSliderAppearance() {
+        const totalSecs = state.mode === "reading" ? 60 * 60 : 30 * 60; // Reading max 60m, Break max 30m
+        // To allow accurate visual, let's map based on the total max minutes
+        const maxMinutes = state.mode === "reading" ? 60 : 30;
+        const currentMinutes = state.timeLeft / 60;
+
+        let fraction = currentMinutes / maxMinutes;
+        if (fraction > 1) fraction = 1;
+
+        const offset = CIRCLE_CIRCUMFERENCE - fraction * CIRCLE_CIRCUMFERENCE;
+        els.progressCircle.style.strokeDasharray = `${CIRCLE_CIRCUMFERENCE} ${CIRCLE_CIRCUMFERENCE}`;
+        els.progressCircle.style.strokeDashoffset = offset;
+
+        // Thumb position
+        // SVG circle starts at 3 o'clock natively, but we rotated it -90deg so it starts at 12 o'clock.
+        // A fraction of 0 means offset = circumference (empty), thumb at 12 o'clock.
+        const angle = fraction * 2 * Math.PI;
+        // cx = r * cos(a) + center_x
+        // cy = r * sin(a) + center_y
+        // since svg is rotated, mathematical zero is top
+        const x = 50 + CIRCLE_RADIUS * Math.cos(angle);
+        const y = 50 + CIRCLE_RADIUS * Math.sin(angle);
+
+        els.thumb.setAttribute("cx", x);
+        els.thumb.setAttribute("cy", y);
+      }
+
+      function setupSliderEvents() {
+        let isDragging = false;
+        const svgRect = els.sliderContainer;
+
+        const handleStart = (e) => {
+          if (state.timerStatus === "running") return;
+          isDragging = true;
+          handleMove(e);
+        };
+
+        const handleMove = (e) => {
+          if (!isDragging) return;
+          e.preventDefault(); // prevent scrolling
+
+          const rect = svgRect.getBoundingClientRect();
+          const centerX = rect.left + rect.width / 2;
+          const centerY = rect.top + rect.height / 2;
+
+          const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+          const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+          const x = clientX - centerX;
+          const y = clientY - centerY;
+
+          // Calculate angle. atan2 is zero at 3 o'clock.
+          // We rotated SVG -90deg, so 12 o'clock is -PI/2 in native atan2.
+          let angle = Math.atan2(y, x) + Math.PI / 2;
+          if (angle < 0) angle += 2 * Math.PI; // Normalize to 0 - 2PI
+
+          let fraction = angle / (2 * Math.PI);
+          const maxMinutes = state.mode === "reading" ? 60 : 30;
+          let minutes = Math.round(fraction * maxMinutes);
+          if (minutes < 1) minutes = 1;
+
+          // Update state
+          if (state.mode === "reading") {
+            state.duration.reading = minutes;
+          } else {
+            state.duration.break = minutes;
+          }
+          state.timeLeft = minutes * 60;
+          updateTimerDisplay();
+        };
+
+        const handleEnd = () => {
+          isDragging = false;
+        };
+
+        // Attach events
+        els.sliderContainer.addEventListener("mousedown", handleStart);
+        document.addEventListener("mousemove", handleMove);
+        document.addEventListener("mouseup", handleEnd);
+
+        els.sliderContainer.addEventListener("touchstart", handleStart, {
+          passive: false,
+        });
+        document.addEventListener("touchmove", handleMove, { passive: false });
+        document.addEventListener("touchend", handleEnd);
+      }
+
+      // --- Modal & Finish Logic ---
+      function openFinishModal() {
+        pauseTimer();
+        const memo = els.memoTextarea.value.trim();
+        state.memo = memo;
+
+        if (!memo) {
+          els.modalMemoContent.textContent = "작성한 메모가 없습니다.";
+          els.btnActionAi.classList.add("opacity-50", "pointer-events-none");
+          els.btnActionCopy.classList.add("opacity-50", "pointer-events-none");
+        } else {
+          els.modalMemoContent.textContent = memo;
+          els.btnActionAi.classList.remove("opacity-50", "pointer-events-none");
+          els.btnActionCopy.classList.remove(
+            "opacity-50",
+            "pointer-events-none",
+          );
+        }
+
+        // Reset modal state
+        els.btnActionCopy.style.display = "flex";
+        els.btnActionAi.style.display = "flex";
+        els.aiResultContainer.classList.add("hidden");
+        els.aiLoading.classList.add("hidden");
+        els.aiContentArea.classList.add("hidden");
+
+        els.modalFinish.classList.add("active");
+      }
+
+      async function handleAISummary() {
+        // UI Update
+        els.btnActionCopy.style.display = "none";
+        els.btnActionAi.style.display = "none";
+        els.aiResultContainer.classList.remove("hidden");
+        els.aiLoading.classList.remove("hidden");
+
+        const systemPrompt =
+          "당신은 독서 메모를 깔끔하고 명확하게 요약 및 정리해주는 어시스턴트입니다. 사용자가 책을 읽으며 남긴 파편화된 메모들을 맥락에 맞게 재구성하고, 핵심 내용을 요약해주세요. 단, 마크다운(Markdown) 문법(*, **, # 등)을 절대 사용하지 말고 오직 일반 텍스트(Plain text)로만 작성하세요. 리스트가 필요하면 일반 줄표(-)나 숫자만 사용하세요. 인사말이나 부연 설명(예: '요약해 드리겠습니다', '여기 있습니다' 등)은 일절 생략하고 오직 정리된 결과물만 출력하세요.";
+        const userQuery = `책 제목: ${state.currentBook}\n\n사용자 메모:\n${state.memo}\n\n이 내용을 보기 좋게 정리해줘.`;
+
+        const payload = {
+          contents: [{ parts: [{ text: userQuery }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+        };
+
+        try {
+          // Exponential backoff retry logic (simplified)
+          let result = await fetchWithRetry(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            },
+            3,
+          ); // max 3 retries for ux
+
+          const data = await result.json();
+          const text =
+            data.candidates?.[0]?.content?.parts?.[0]?.text ||
+            "요약 결과를 불러올 수 없습니다.";
+
+          els.aiSummaryText.textContent = text;
+
+          els.aiLoading.classList.add("hidden");
+          els.aiContentArea.classList.remove("hidden");
+        } catch (error) {
+          console.error(error);
+          els.aiLoading.classList.add("hidden");
+          alert("AI 요약 중 오류가 발생했습니다.");
+          els.btnActionCopy.style.display = "flex";
+          els.btnActionAi.style.display = "flex";
+        }
+      }
+
+      async function fetchWithRetry(url, options, maxRetries = 5) {
+        let retries = 0;
+        const delays = [1000, 2000, 4000, 8000, 16000];
+        while (retries < maxRetries) {
+          try {
+            const res = await fetch(url, options);
+            if (res.ok) return res;
+            throw new Error(`HTTP error! status: ${res.status}`);
+          } catch (err) {
+            if (retries === maxRetries - 1) throw err;
+            await new Promise((r) => setTimeout(r, delays[retries]));
+            retries++;
+          }
+        }
+      }
+
+      function finalizeSession(aiSummary) {
+        // Find book or create
+        let bookObj = state.books.find((b) => b.title === state.currentBook);
+        if (!bookObj) {
+          bookObj = { title: state.currentBook, sessions: [] };
+          state.books.push(bookObj);
+        }
+
+        // Add session
+        bookObj.sessions.push({
+          date: new Date().toISOString(),
+          memo: state.memo,
+          summary: aiSummary || null,
+        });
+
+        saveData();
+
+        // Close modal and go home
+        els.modalFinish.classList.remove("active");
+
+        // Reset current session state
+        state.currentBook = "";
+        state.memo = "";
+
+        switchView("records");
+      }
+
+      // --- Records View ---
+      function renderRecords() {
+        els.recordsList.innerHTML = "";
+
+        if (state.books.length === 0) {
+          els.recordsList.innerHTML =
+            '<div class="text-center text-slate-400 py-10 text-sm">기록이 없습니다. 새로운 책을 시작해보세요!</div>';
+          return;
+        }
+
+        // Sort books by latest activity (simple implementation: reverse order)
+        const sortedBooks = [...state.books].reverse();
+
+        sortedBooks.forEach((book, index) => {
+          const bookCard = document.createElement("div");
+          bookCard.className =
+            "bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition hover:shadow-md";
+
+          const sessionCount = book.sessions.length;
+          const latestSessionDate =
+            sessionCount > 0
+              ? new Date(
+                  book.sessions[sessionCount - 1].date,
+                ).toLocaleDateString()
+              : "기록 없음";
+
+          bookCard.innerHTML = `
+                <div class="p-4 cursor-pointer flex justify-between items-center bg-slate-50 hover:bg-slate-100 transition" onclick="toggleRecordDetail(${index})">
+                    <div>
+                        <h3 class="font-bold text-slate-800">${book.title}</h3>
+                        <p class="text-xs text-slate-500 mt-1">총 ${sessionCount}회 진행 · 최근: ${latestSessionDate}</p>
+                    </div>
+                    <i class="ph ph-caret-down text-slate-400" id="caret-${index}"></i>
+                </div>
+                <div class="hidden flex-col gap-3 p-4 border-t border-slate-100 bg-white" id="detail-${index}">
+                    ${book.sessions
+                      .slice()
+                      .reverse()
+                      .map(
+                        (session) => `
+                        <div class="border border-slate-100 rounded-xl p-3 bg-slate-50">
+                            <div class="text-xs font-bold text-orange-500 mb-2">${new Date(session.date).toLocaleString()}</div>
+                            ${
+                              session.summary
+                                ? `
+                                <div class="text-xs font-bold text-indigo-500 mb-1"><i class="ph ph-sparkle"></i> AI 요약</div>
+                                <div class="text-sm text-slate-700 whitespace-pre-wrap mb-3 pl-2 border-l-2 border-indigo-200">${session.summary}</div>
+                            `
+                                : ""
+                            }
+                            ${
+                              session.memo
+                                ? `
+                                <div class="text-xs font-bold text-slate-500 mb-1">원본 메모</div>
+                                <div class="text-sm text-slate-600 whitespace-pre-wrap pl-2 border-l-2 border-slate-200">${session.memo}</div>
+                            `
+                                : '<div class="text-sm text-slate-400 italic">메모가 없습니다.</div>'
+                            }
+                        </div>
+                    `,
+                      )
+                      .join("")}
+                </div>
+            `;
+          els.recordsList.appendChild(bookCard);
+        });
+      }
+
+      // Global func for inline onclick
+      window.toggleRecordDetail = function (index) {
+        const detailEl = document.getElementById(`detail-${index}`);
+        const caretEl = document.getElementById(`caret-${index}`);
+
+        if (detailEl.classList.contains("hidden")) {
+          detailEl.classList.remove("hidden");
+          detailEl.classList.add("flex");
+          caretEl.classList.replace("ph-caret-down", "ph-caret-up");
+        } else {
+          detailEl.classList.add("hidden");
+          detailEl.classList.remove("flex");
+          caretEl.classList.replace("ph-caret-up", "ph-caret-down");
+        }
+      };
+
+      // Utils
+      function copyToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand("copy");
+        } catch (err) {
+          console.error("Fallback: Oops, unable to copy", err);
+        }
+        document.body.removeChild(textArea);
+      }
+
+      function showToast(message) {
+        const toast = document.getElementById("toast");
+        toast.textContent = message;
+        toast.classList.add("show");
+        setTimeout(() => {
+          toast.classList.remove("show");
+        }, 3000);
+      }
+
+      // Boot
+      window.onload = init;
+    </script>
+  </body>
+</html>

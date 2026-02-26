@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>걱정마소 - 마음 풀이 조선 AI 상담소</title>
+    <!-- 외부 리소스 주소 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'gukjung-maso-vfinal';
+
+        window.db = db;
+        window.auth = auth;
+        window.appId = appId;
+        window.firestoreUtils = { doc, setDoc, getDoc, collection, onSnapshot, query, deleteDoc, updateDoc };
+
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        };
+        initAuth();
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                window.currentUser = user;
+                loadFavorites(user.uid);
+            }
+        });
+    </script>
+
+    <style>
+        :root {
+            --hanji-color: #f4efdf;
+            --ink-color: #1a1a1b;
+            --stamp-color: #b91c1c;
+        }
+        body {
+            font-family: 'Noto Serif KR', serif;
+            background-color: var(--hanji-color);
+            background-image: url('https://www.transparenttextures.com/patterns/natural-paper.png');
+            color: var(--ink-color);
+            overflow-x: hidden;
+        }
+        .sangso-card {
+            background: #fff;
+            border: 1px solid #d1c7a7;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+            position: relative;
+        }
+        .sangso-card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            border: 1px solid #e2dcc8; margin: 6px; pointer-events: none;
+        }
+        .chat-bubble-ai { 
+            background: #fff; border: 1px solid #d1c7a7;
+            border-radius: 0 16px 16px 16px; box-shadow: 2px 2px 5px rgba(0,0,0,0.03);
+            position: relative;
+        }
+        .chat-bubble-user { 
+            background: #fdfaf2; border: 1px solid var(--stamp-color);
+            border-radius: 16px 0 16px 16px; box-shadow: 2px 2px 5px rgba(0,0,0,0.03);
+        }
+        .markdown-content { line-height: 1.8; font-size: 0.95rem; }
+        .markdown-content p { margin-bottom: 0.8rem; }
+        .markdown-content strong { font-weight: 700; color: var(--stamp-color); border-bottom: 1px dashed var(--stamp-color); }
+        .stamp-btn {
+            background-color: var(--stamp-color); color: white;
+            transition: all 0.2s ease;
+            border: 2px solid var(--stamp-color); font-weight: bold;
+        }
+        .stamp-btn:hover { background-color: transparent; color: var(--stamp-color); }
+        .loading-dots:after {
+            content: '.'; animation: dots 1.2s steps(5, end) infinite;
+        }
+        @keyframes dots { 0%, 20% { content: '.'; } 40% { content: '..'; } 60% { content: '...'; } 80%, 100% { content: ''; } }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-thumb { background: #d1c7a7; border-radius: 4px; }
+        
+        .edit-text-btn {
+            font-size: 0.7rem; font-weight: 700; color: var(--ink-color);
+            border: 1.2px solid var(--ink-color); padding: 3px 8px; border-radius: 4px;
+            white-space: nowrap; transition: all 0.2s; background: rgba(255,255,255,0.5);
+        }
+        .edit-text-btn:hover { background: var(--ink-color); color: #fff; }
+
+        .profile-image-container {
+            width: 48px; height: 48px; flex-shrink: 0; border-radius: 14px;
+            background: #fff; border: 1px solid #d1c7a7; overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 2px 2px 4px rgba(0,0,0,0.05);
+        }
+        .profile-image-container svg {
+            width: 100%; height: 100%; object-fit: contain;
+        }
+
+        .header-logo-container {
+            width: 40px; height: 40px; background: var(--stamp-color); border-radius: 8px;
+            display: flex; align-items: center; justify-content: center; padding: 2px;
+            box-shadow: 1px 1px 4px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <header class="border-b-2 border-double border-slate-700 py-3 px-6 sticky top-0 z-50 bg-[#f4efdf] bg-opacity-95 backdrop-blur-sm">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3 cursor-pointer transition-transform hover:scale-95" onclick="goToHome()">
+                <div class="header-logo-container rotate-[-3deg]">
+                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="50" cy="55" r="30" fill="#FFE0BD" />
+                        <path d="M30 38 L70 38 L65 22 C65 22 50 17 35 22 Z" fill="#222" />
+                        <rect x="44" y="10" width="12" height="8" rx="2" fill="#222" />
+                        <path d="M40 52 Q43 50 46 52" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" />
+                        <path d="M54 52 Q57 50 60 52" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" />
+                        <path d="M42 68 Q50 75 58 68" fill="none" stroke="#333" stroke-width="1.5" />
+                        <path d="M22 80 Q50 95 78 80 L78 100 L22 100 Z" fill="#b91c1c" />
+                        <rect x="38" y="60" width="24" height="15" rx="1" fill="#FFF" stroke="#d1c7a7" stroke-width="0.5" />
+                        <line x1="42" y1="65" x2="58" y2="65" stroke="#d1c7a7" stroke-width="0.5" />
+                        <line x1="42" y1="70" x2="54" y2="70" stroke="#d1c7a7" stroke-width="0.5" />
+                    </svg>
+                </div>
+                <span class="text-slate-900 font-bold text-xl tracking-tighter">걱정마소</span>
+            </div>
+            
+            <div id="header-persona-container" class="hidden flex items-center gap-3">
+                <button id="edit-persona-btn" onclick="openEditPersona()" class="edit-text-btn hidden">
+                    수정하기
+                </button>
+                <button id="favorite-toggle" onclick="toggleFavoriteCurrent()" class="p-1 hover:scale-110 transition-transform">
+                    <svg id="star-icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-4xl w-full mx-auto p-4 md:p-8 flex flex-col">
+        
+        <!-- 홈 화면 -->
+        <section id="screen-home" class="flex-grow space-y-12 fade-in">
+            <div class="text-center py-8 space-y-6">
+                <h2 class="text-4xl font-bold text-slate-900 leading-snug tracking-tight">이제 그만, <br>걱정마소.</h2>
+                <p class="text-base text-slate-600 italic">"한 줄 상소에 담긴 진심이 현자의 혜안을 깨울 것이오."</p>
+            </div>
+            
+            <div id="favorites-section" class="hidden space-y-6">
+                <h3 class="text-lg font-bold border-b-2 border-slate-300 pb-2 flex items-center gap-2">◈ 맺어진 인연</h3>
+                <div id="favorites-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                <button onclick="showFamousSearch()" class="sangso-card group p-8 text-left transition-all hover:border-red-800 hover:shadow-lg">
+                    <div class="text-4xl mb-4">📜</div>
+                    <h3 class="text-xl font-bold mb-2">어른 모시기</h3>
+                    <p class="text-slate-500 text-sm">현자의 지혜를 구합니다.</p>
+                </button>
+                <button onclick="showCustomInput()" class="sangso-card group p-8 text-left transition-all hover:border-slate-800 hover:shadow-lg">
+                    <div class="text-4xl mb-4">🖌️</div>
+                    <h3 class="text-xl font-bold mb-2">내 사람 기록</h3>
+                    <p class="text-slate-500 text-sm">소중한 인연을 모십니다.</p>
+                </button>
+            </div>
+        </section>
+
+        <!-- 인물 검색 화면 -->
+        <section id="screen-famous-search" class="hidden flex-grow fade-in max-w-lg mx-auto w-full">
+            <div class="mb-6"><button onclick="goToHome()" class="text-sm text-slate-500 hover:underline">← 뒤로 물러나기</button></div>
+            <div class="sangso-card p-8 space-y-10">
+                <h2 class="text-2xl font-bold text-center border-b-2 border-slate-100 pb-4">어른 찾기</h2>
+                <div class="space-y-4">
+                    <label class="block text-xs font-bold text-slate-800 tracking-widest uppercase">성함을 적으시오</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="famous-name-input" placeholder="예: 김연경, 이순신..." class="flex-grow px-4 py-3 border-2 border-slate-200 focus:border-red-700 bg-slate-50 outline-none text-sm">
+                        <button onclick="searchFamousFigure()" id="search-btn" class="stamp-btn px-6 py-3 text-sm shadow-md">상고</button>
+                    </div>
+                </div>
+                <div id="search-loading-area" class="hidden py-10 text-center space-y-4">
+                    <div class="text-3xl">🕰️</div>
+                    <p class="text-sm text-slate-600 font-bold loading-dots">현자를 모시는 중이옵니다</p>
+                </div>
+                <div id="verify-area" class="hidden border-t-2 border-slate-100 pt-8 space-y-6">
+                    <div class="p-6 bg-[#fdfdfd] border-l-4 border-red-700 shadow-inner">
+                        <h4 class="font-bold text-xl mb-1" id="verify-name">인물 상고</h4>
+                        <p class="text-slate-600 text-sm italic" id="verify-desc"></p>
+                    </div>
+                    <div class="flex flex-col gap-3">
+                        <button onclick="confirmFamous()" class="stamp-btn w-full py-4 text-base shadow-md">이 분께 걱정을 털어놓겠습니다</button>
+                        <button onclick="resetSearch()" class="w-full py-2 text-xs text-slate-400 font-bold hover:text-slate-700 transition-all">다른 분 모시기</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 덕목 기록 및 수정 화면 -->
+        <section id="screen-custom" class="hidden flex-grow fade-in max-w-lg mx-auto w-full">
+            <div class="mb-6"><button onclick="handleBackFromCustom()" class="text-sm text-slate-500 hover:underline">← 뒤로 물러나기</button></div>
+            <div class="sangso-card p-8 space-y-6">
+                <h2 class="text-2xl font-bold text-center border-b-2 border-slate-100 pb-4" id="custom-screen-title">내 사람 기록</h2>
+                <div class="space-y-4">
+                    <div id="name-input-group">
+                        <label class="block text-xs font-bold text-slate-800 mb-1 tracking-widest">존함 또는 애틋한 호칭</label>
+                        <input type="text" id="custom-name" placeholder="예: 우리 고모, 은사님" class="w-full px-4 py-3 border-2 border-slate-200 focus:border-slate-800 bg-slate-50 outline-none text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-800 mb-1 tracking-widest">성품과 특징 보태기</label>
+                        <div class="flex gap-2">
+                            <textarea id="custom-value-input" rows="1" placeholder="강조하시던 말씀..." class="flex-grow px-4 py-3 border-2 border-slate-200 focus:border-slate-800 bg-slate-50 outline-none resize-none text-sm"></textarea>
+                            <button onclick="addTrait()" class="bg-slate-800 text-white px-4 py-2 text-xs font-bold rounded shadow-sm">보태기</button>
+                        </div>
+                    </div>
+                    <div id="trait-list" class="min-h-[40px] space-y-2 max-h-48 overflow-y-auto pr-2">
+                        <p class="text-center text-slate-400 text-xs py-4 italic" id="empty-trait-msg">아직 기록된 덕목이 없나이다.</p>
+                    </div>
+                    
+                    <!-- 커스텀 페르소나 생성 중 로딩 안내 -->
+                    <div id="custom-generating-area" class="hidden py-6 text-center space-y-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 fade-in">
+                        <div class="text-3xl animate-bounce">🖌️</div>
+                        <p class="text-sm font-bold text-slate-700 loading-dots">그대의 인연을 화폭에 담는 중이옵니다</p>
+                        <p class="text-[10px] text-slate-400">잠시만 기다려 주시오...</p>
+                    </div>
+
+                    <button id="custom-complete-btn" onclick="startCustomChat()" class="stamp-btn w-full py-4 text-base shadow-md mt-4">기록 완료</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 채팅 화면 -->
+        <section id="screen-chat" class="hidden flex flex-col h-[calc(100vh-160px)] fade-in">
+            <div id="chat-messages" class="flex-grow overflow-y-auto space-y-4 pb-8 px-1 scroll-smooth"></div>
+            
+            <div class="sangso-card p-3 flex items-end gap-2 shadow-xl rounded-lg text-sm md:text-base">
+                <textarea id="chat-input" rows="1" placeholder="걱정을 한 줄씩 풀어보세요..." class="flex-grow p-4 bg-transparent focus:outline-none resize-none overflow-hidden max-h-40 leading-relaxed" oninput="autoResize(this)"></textarea>
+                <button id="send-btn" onclick="handleSendMessage()" class="stamp-btn p-4 rounded-lg shadow-md disabled:opacity-50">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast" class="fixed bottom-24 left-1/2 -translate-x-1/2 px-8 py-3 bg-slate-900 text-white font-bold text-xs opacity-0 transition-opacity pointer-events-none z-[100] border-t-2 border-red-700 shadow-xl text-center tracking-widest"></div>
+
+    <script>
+        const apiKey = "";
+        let currentPersona = null;
+        let searchResult = null;
+        let currentFavorites = [];
+        let traitsArray = []; 
+        let isEditing = false; 
+
+        // --- 핵심 통신 함수 ---
+        async function fetchGemini(payload, retries = 5, delay = 1000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error("API Connection Failed");
+                    return await response.json();
+                } catch (e) {
+                    if (i === retries - 1) throw e;
+                    await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+                }
+            }
+        }
+
+        function extractJSON(text) {
+            try {
+                const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                const match = cleaned.match(/\{[\s\S]*\}/);
+                if (!match) throw new Error("No JSON found");
+                return JSON.parse(match[0]);
+            } catch (e) {
+                console.error("JSON 파싱 오류:", text);
+                throw new Error("해석 실패");
+            }
+        }
+
+        // --- Firebase 연동 ---
+        async function loadFavorites(userId) {
+            const favRef = window.firestoreUtils.collection(window.db, 'artifacts', window.appId, 'users', userId, 'favorites');
+            window.firestoreUtils.onSnapshot(favRef, (snapshot) => {
+                const favorites = [];
+                snapshot.forEach(doc => favorites.push({ id: doc.id, ...doc.data() }));
+                currentFavorites = favorites;
+                renderFavorites(favorites);
+                updateStarUI();
+            });
+        }
+
+        async function saveCurrentPersonaToFirebase() {
+            if (!window.currentUser || !currentPersona) return;
+            const docId = btoa(unescape(encodeURIComponent(currentPersona.name.trim())));
+            const favRef = window.firestoreUtils.doc(window.db, 'artifacts', window.appId, 'users', window.currentUser.uid, 'favorites', docId);
+            
+            const dataToSave = {
+                name: currentPersona.name.trim(),
+                type: currentPersona.type || 'custom',
+                category: currentPersona.category || 'scholar',
+                era: currentPersona.era || 'historical',
+                svg_profile: currentPersona.svg_profile || "",
+                prompt: currentPersona.prompt || "",
+                description: currentPersona.description || "",
+                traits: Array.isArray(currentPersona.traits) ? currentPersona.traits : [],
+                timestamp: Date.now()
+            };
+            await window.firestoreUtils.setDoc(favRef, dataToSave);
+        }
+
+        async function toggleFavoriteCurrent() {
+            if (!window.currentUser || !currentPersona) return;
+            const docId = btoa(unescape(encodeURIComponent(currentPersona.name.trim())));
+            const favRef = window.firestoreUtils.doc(window.db, 'artifacts', window.appId, 'users', window.currentUser.uid, 'favorites', docId);
+            const isAlreadyFav = currentFavorites.some(f => f.id === docId);
+
+            try {
+                if (isAlreadyFav) {
+                    await window.firestoreUtils.deleteDoc(favRef);
+                    showToast("명록에서 지웠나이다.");
+                } else {
+                    await saveCurrentPersonaToFirebase();
+                    showToast("명록에 기록하였나이다.");
+                }
+            } catch (error) {
+                showToast("기록에 실패했나이다.");
+            }
+        }
+
+        function updateStarUI() {
+            if (!currentPersona) return;
+            const docId = btoa(unescape(encodeURIComponent(currentPersona.name.trim())));
+            const isFav = currentFavorites.some(f => f.id === docId);
+            const star = document.getElementById('star-icon');
+            if (star) {
+                if (isFav) { star.setAttribute('fill', '#b91c1c'); star.setAttribute('stroke', '#b91c1c'); }
+                else { star.setAttribute('fill', 'none'); star.setAttribute('stroke', 'currentColor'); }
+            }
+        }
+
+        function renderFavorites(favorites) {
+            const list = document.getElementById('favorites-list');
+            const section = document.getElementById('favorites-section');
+            if (!list || !section) return;
+            if (favorites.length === 0) { section.classList.add('hidden'); return; }
+            section.classList.remove('hidden'); list.innerHTML = '';
+            favorites.sort((a, b) => b.timestamp - a.timestamp).forEach(fav => {
+                const card = document.createElement('div');
+                card.className = "sangso-card relative group cursor-pointer p-5 text-center transition-all hover:border-red-700 hover:-translate-y-1";
+                card.onclick = () => { currentPersona = { ...fav }; initChat(true); };
+                card.innerHTML = `
+                    <button onclick="event.stopPropagation(); deleteFavorite('${fav.id}')" class="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                    <div class="w-10 h-10 mx-auto mb-2 bg-white rounded-lg border border-slate-100 overflow-hidden flex items-center justify-center p-1 shadow-inner">${fav.svg_profile || ''}</div>
+                    <div class="font-bold text-slate-800 text-sm truncate px-1">${fav.name}</div>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        async function deleteFavorite(docId) {
+            const favRef = window.firestoreUtils.doc(window.db, 'artifacts', window.appId, 'users', window.currentUser.uid, 'favorites', docId);
+            await window.firestoreUtils.deleteDoc(favRef); showToast("명록에서 삭제하였나이다.");
+        }
+
+        // --- 네비게이션 ---
+        function showScreen(id) {
+            document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
+            const target = document.getElementById(id); if (target) target.classList.remove('hidden');
+            window.scrollTo(0, 0);
+        }
+
+        function goToHome() {
+            currentPersona = null; resetSearch(); traitsArray = []; isEditing = false;
+            const container = document.getElementById('header-persona-container');
+            if (container) container.classList.add('hidden');
+            const messages = document.getElementById('chat-messages');
+            if (messages) messages.innerHTML = ''; 
+            showScreen('screen-home');
+        }
+
+        function resetSearch() {
+            const input = document.getElementById('famous-name-input');
+            const btn = document.getElementById('search-btn');
+            if (input) { input.value = ''; input.disabled = false; }
+            if (btn) btn.disabled = false;
+            document.getElementById('verify-area').classList.add('hidden');
+            document.getElementById('search-loading-area').classList.add('hidden');
+            searchResult = null;
+        }
+
+        // --- 인물 분석 로직 (SVG 프로필 프롬프트 고도화) ---
+        async function searchFamousFigure() {
+            const nameInput = document.getElementById('famous-name-input');
+            const name = nameInput ? nameInput.value.trim() : "";
+            if (!name) return showToast("존함을 적으시오.");
+            
+            const btn = document.getElementById('search-btn');
+            const loadingArea = document.getElementById('search-loading-area');
+            const verifyArea = document.getElementById('verify-area');
+            
+            if (btn) btn.disabled = true;
+            if (nameInput) nameInput.disabled = true;
+            if (verifyArea) verifyArea.classList.add('hidden');
+            if (loadingArea) loadingArea.classList.remove('hidden');
+            
+            const systemPrompt = `Analyze '${name}'. Respond ONLY with JSON. 
+            SVG Profile Style Guide (CRUCIAL):
+            Create a highly customized <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">.
+            MUST include these base elements for consistency with the app logo:
+            - Face: <circle cx="50" cy="55" r="30" fill="#FFE0BD" />
+            - Eyes (Kind arcs): <path d="M40 52 Q43 50 46 52" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" /><path d="M54 52 Q57 50 60 52" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" />
+            - YOU MUST ADD: Distinct clothing, headwear, and 1-2 props that STRONGLY represent the person's profession/identity (e.g., armor/helmet for a general, modern jersey/sports ball for an athlete, modern suit for a politician, royal robes for a king, glasses/book for a scholar). Use appropriate colors.
+            JSON format: {"found": boolean, "name": "Formal Name", "era": "modern"|"historical", "category": "king"|"general"|"scholar"|"woman"|"modern", "description": "Bio", "svg_profile": "<svg>...", "prompt": "Persona guide (Mentor tone, Korean)"}`;
+
+            try {
+                const data = await fetchGemini({ 
+                    contents: [{ parts: [{ text: name }] }], 
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: { responseMimeType: "application/json" } 
+                });
+                const result = extractJSON(data.candidates[0].content.parts[0].text);
+                if (loadingArea) loadingArea.classList.add('hidden');
+                if (result.found) {
+                    searchResult = result;
+                    document.getElementById('verify-name').innerText = result.name;
+                    document.getElementById('verify-desc').innerText = result.description;
+                    document.getElementById('verify-area').classList.remove('hidden');
+                } else { 
+                    showToast("기록을 찾지 못했나이다."); if (btn) btn.disabled = false; if (nameInput) nameInput.disabled = false;
+                }
+            } catch (e) { 
+                if (loadingArea) loadingArea.classList.add('hidden');
+                showToast("상고 중에 오류가 발생했나이다."); if (btn) btn.disabled = false; if (nameInput) nameInput.disabled = false;
+            }
+        }
+
+        function confirmFamous() {
+            if (!searchResult) return;
+            currentPersona = { 
+                ...searchResult, 
+                name: searchResult.name.trim(),
+                type: 'famous', 
+                traits: [] 
+            };
+            initChat();
+        }
+
+        function showFamousSearch() { resetSearch(); showScreen('screen-famous-search'); }
+
+        function showCustomInput() { 
+            isEditing = false; traitsArray = [];
+            const nameInp = document.getElementById('custom-name');
+            if (nameInp) nameInp.value = '';
+            const group = document.getElementById('name-input-group');
+            if (group) group.classList.remove('hidden');
+            const title = document.getElementById('custom-screen-title');
+            if (title) title.innerText = "내 사람 기록";
+            const btn = document.getElementById('custom-complete-btn');
+            if (btn) btn.classList.remove('hidden');
+            const loading = document.getElementById('custom-generating-area');
+            if (loading) loading.classList.add('hidden');
+            updateTraitList(); showScreen('screen-custom'); 
+        }
+
+        function handleBackFromCustom() { if (isEditing) showScreen('screen-chat'); else goToHome(); }
+
+        function openEditPersona() {
+            if (!currentPersona || currentPersona.type !== 'custom') return;
+            isEditing = true;
+            traitsArray = Array.isArray(currentPersona.traits) ? [...currentPersona.traits] : [];
+            const nameInp = document.getElementById('custom-name');
+            if (nameInp) nameInp.value = currentPersona.name || "";
+            const group = document.getElementById('name-input-group');
+            if (group) group.classList.add('hidden'); 
+            const title = document.getElementById('custom-screen-title');
+            if (title) title.innerText = `덕목 수정 (${currentPersona.name})`;
+            const btn = document.getElementById('custom-complete-btn');
+            if (btn) btn.classList.remove('hidden');
+            const loading = document.getElementById('custom-generating-area');
+            if (loading) loading.classList.add('hidden');
+            updateTraitList(); showScreen('screen-custom');
+        }
+
+        function addTrait() {
+            const input = document.getElementById('custom-value-input'); 
+            const trait = input ? input.value.trim() : "";
+            if (!trait) return showToast("내용을 적으시오."); 
+            traitsArray.push(trait); if (input) input.value = ''; updateTraitList();
+        }
+
+        function removeTrait(index) { traitsArray.splice(index, 1); updateTraitList(); }
+
+        function updateTraitList() {
+            const listContainer = document.getElementById('trait-list'); if (!listContainer) return;
+            listContainer.innerHTML = '';
+            if (traitsArray.length === 0) {
+                listContainer.innerHTML = '<p class="text-center text-slate-400 text-xs py-4 italic">아직 기록된 덕목이 없나이다.</p>';
+            } else {
+                traitsArray.forEach((t, i) => {
+                    const tag = document.createElement('div'); tag.className = 'trait-tag fade-in';
+                    tag.innerHTML = `<span class="flex-grow text-xs">${t}</span><button onclick="removeTrait(${i})" class="text-red-700 font-bold ml-2 text-xs">지움</button>`;
+                    listContainer.appendChild(tag);
+                });
+            }
+        }
+
+        function buildPrompt() {
+            if (!currentPersona) return "";
+            const traitsJoined = traitsArray.length > 0 ? traitsArray.map((t, i) => `${i+1}. ${t}`).join('\n') : "항상 따뜻하게 조언하시오.";
+            if (currentPersona.type === 'famous') return `${currentPersona.prompt}\n\n[사용자의 추가 관점]\n${traitsJoined}`;
+            
+            return `당신은 사용자가 그리워하는 인물 '${currentPersona.name}'입니다. 
+            [기록된 성품]:\n${traitsJoined}
+            [지침]: 인물에 맞는 다정하고 현대적인 말투를 사용하되, 인생 선배이자 스승으로서 가르침을 주시오. 극존칭은 피하고 정갈하게 조언하시오. 문단을 나누고 강조 시 볼드체를 쓰시오.`;
+        }
+
+        // --- 내 사람 기록 생성 (SVG 커스터마이징) ---
+        async function startCustomChat() {
+            const nameEl = document.getElementById('custom-name');
+            const nameValue = nameEl ? nameEl.value.trim() : (currentPersona ? currentPersona.name : "");
+            if (!nameValue) return showToast("존함을 적으시오.");
+            if (traitsArray.length === 0) return showToast("덕목을 기록해 주시오.");
+
+            const btn = document.getElementById('custom-complete-btn');
+            const loadingArea = document.getElementById('custom-generating-area');
+            
+            if (btn) btn.classList.add('hidden');
+            if (loadingArea) loadingArea.classList.remove('hidden');
+
+            try {
+                const traitsJoined = traitsArray.map((t, i) => `${i+1}. ${t}`).join('\n');
+                const prompt = `Create a profile for '${nameValue}' (traits: ${traitsJoined}). 
+                Use this base SVG style but add unique clothing/items matching their traits/identity:
+                <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="50" cy="55" r="30" fill="#FFE0BD" />
+                  <path d="M40 52 Q43 50 46 52" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" />
+                  <path d="M54 52 Q57 50 60 52" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" />
+                </svg>
+                JSON only: {"svg_profile": "Full updated <svg> code", "era": "modern"|"historical", "prompt": "Speech guide"}.
+                Ensure era is modern if they are current people/family.`;
+                
+                const data = await fetchGemini({ 
+                    contents: [{ parts: [{ text: prompt }] }], 
+                    generationConfig: { responseMimeType: "application/json" } 
+                });
+                const meta = extractJSON(data.candidates[0].content.parts[0].text);
+                
+                if (isEditing) {
+                    currentPersona.traits = [...traitsArray];
+                    currentPersona.prompt = meta.prompt;
+                    currentPersona.svg_profile = meta.svg_profile;
+                    currentPersona.era = meta.era;
+                    const docId = btoa(unescape(encodeURIComponent(currentPersona.name.trim())));
+                    if (currentFavorites.some(f => f.id === docId)) await saveCurrentPersonaToFirebase();
+                    showScreen('screen-chat'); 
+                    addMessage('ai', meta.era === 'modern' ? "그래, 네 이야기를 잘 기억했어. 계속 이야기해볼까?" : "그대의 덕목을 마음에 다시 새겼다. 번뇌가 있다면 더 나누어 보겠느냐?");
+                } else {
+                    let cat = 'modern';
+                    if (/고모|이모|엄마|언니|부인/.test(nameValue)) cat = 'woman';
+                    else if (/선생님|교수님|스승|부친/.test(nameValue)) cat = 'scholar';
+                    currentPersona = { name: nameValue.trim(), type: 'custom', category: cat, ...meta, traits: [...traitsArray] };
+                    initChat();
+                }
+            } catch (e) { 
+                showToast("생성 중 오류 발생."); 
+                if (btn) btn.classList.remove('hidden');
+                if (loadingArea) loadingArea.classList.add('hidden');
+            }
+        }
+
+        function initChat(isFromHistory = false) {
+            if (!currentPersona) return;
+            const container = document.getElementById('header-persona-container');
+            if (container) container.classList.remove('hidden');
+            const editBtn = document.getElementById('edit-persona-btn');
+            if (editBtn) editBtn.classList.toggle('hidden', currentPersona.type !== 'custom');
+            updateStarUI(); showScreen('screen-chat');
+            if (!isFromHistory) {
+                const greeting = currentPersona.era === 'modern' 
+                    ? `어서 오렴. 네 고민을 내가 정성껏 들어줄게.` 
+                    : `어서 오너라. 그대의 번뇌를 내 정성껏 들어보마.`;
+                addMessage('ai', greeting);
+            }
+        }
+
+        function addMessage(role, text) {
+            const container = document.getElementById('chat-messages'); if (!container) return;
+            const row = document.createElement('div');
+            row.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'} items-start gap-2 mb-4 fade-in`;
+            
+            if (role === 'user') {
+                const inner = document.createElement('div');
+                inner.className = 'max-w-[80%] px-4 py-3 chat-bubble-user text-slate-800 markdown-content shadow-sm text-sm md:text-base';
+                inner.innerHTML = marked.parse(text);
+                row.appendChild(inner);
+            } else {
+                const profileCol = document.createElement('div');
+                profileCol.className = 'flex flex-col items-center gap-1';
+                const profileImg = document.createElement('div');
+                profileImg.className = 'profile-image-container';
+                // AI가 생성한 svg_profile 우선 적용
+                profileImg.innerHTML = currentPersona.svg_profile || '<svg viewBox="0 0 100 100"><circle cx="50" cy="55" r="30" fill="#FFE0BD"/></svg>';
+                
+                const nameLabel = document.createElement('span');
+                nameLabel.className = 'text-[10px] font-bold text-slate-500 w-[55px] text-center truncate';
+                nameLabel.innerText = currentPersona.name;
+                profileCol.appendChild(profileImg);
+                profileCol.appendChild(nameLabel);
+                
+                const bubble = document.createElement('div');
+                bubble.className = 'max-w-[70%] px-4 py-3 chat-bubble-ai text-slate-900 markdown-content shadow-sm text-sm md:text-base';
+                if (text === 'loading') { 
+                    bubble.innerHTML = '<span class="loading-dots text-slate-400 font-bold text-xs md:text-sm">마음을 살피는 중</span>'; 
+                    bubble.id = 'loading-bubble'; 
+                } else {
+                    bubble.innerHTML = marked.parse(text);
+                }
+                row.appendChild(profileCol);
+                row.appendChild(bubble);
+            }
+            container.appendChild(row); container.scrollTop = container.scrollHeight;
+            return document.getElementById('loading-bubble') || row.querySelector('.chat-bubble-ai');
+        }
+
+        async function handleSendMessage() {
+            const input = document.getElementById('chat-input'); const btn = document.getElementById('send-btn');
+            if (!input || !btn || !currentPersona) return;
+            const userMsg = input.value.trim(); if (!userMsg || btn.disabled) return;
+            
+            input.value = ''; input.style.height = 'auto'; addMessage('user', userMsg);
+            const loading = addMessage('ai', 'loading'); btn.disabled = true;
+
+            try {
+                const sysPrompt = (currentPersona.prompt || "") + "\n반드시 한국어로 답변하시오. 인물의 정체성에 몰입하고 제자에게 따뜻하게 조언하시오. 과도한 극존칭은 지양하시오.";
+                const data = await fetchGemini({ 
+                    contents: [{ role: "user", parts: [{ text: userMsg }] }], 
+                    systemInstruction: { parts: [{ text: sysPrompt }] } 
+                });
+                const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "답변을 가져오지 못했습니다.";
+                if (loading) { loading.innerHTML = marked.parse(aiText); loading.id = ''; }
+            } catch (e) { if (loading) loading.innerHTML = '<span class="text-red-700 font-bold text-sm">통신 오류가 발생했나이다.</span>'; }
+            finally { btn.disabled = false; }
+        }
+
+        function autoResize(ta) { if (ta) { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight) + 'px'; } }
+        function showToast(m) { const t = document.getElementById('toast'); if (t) { t.innerText = m; t.style.opacity = '1'; setTimeout(() => t.style.opacity = '0', 3000); } }
+
+        document.getElementById('chat-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { 
+                if (e.isComposing) return; 
+                e.preventDefault(); handleSendMessage(); 
+            }
+        });
+        
+        window.onload = goToHome;
+    </script>
+</body>
+</html>

@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>궁극의 꼬치 달인</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #fef08a; /* 바깥 배경색 지정 (부드러운 노란색 톤) */
+        touch-action: none;
+      }
+      #gameCanvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .recipe-item {
+        transition: all 0.2s ease;
+      }
+      .recipe-item.completed {
+        opacity: 0.3;
+        transform: scale(0.9);
+      }
+      .recipe-item.current {
+        border-color: #ef4444 !important;
+        border-width: 3px !important;
+        transform: scale(1.1);
+        font-weight: bold;
+        box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        z-index: 10;
+      }
+      @keyframes pop {
+        0% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.5);
+          opacity: 0.8;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 0;
+        }
+      }
+      .feedback-text {
+        position: absolute;
+        font-weight: bold;
+        font-size: 1.5rem;
+        pointer-events: none;
+        animation: pop 0.5s ease-out forwards;
+        text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
+        z-index: 50;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-yellow-200 w-screen h-screen overflow-hidden flex justify-center items-center selection:bg-transparent touch-none"
+  >
+    <!-- 게임 화면 컨테이너 (최대 너비 1200px 제한 및 중앙 정렬) -->
+    <div
+      id="gameContainer"
+      class="relative w-full max-w-[1200px] h-full bg-[#f3f4f6] shadow-[0_0_20px_rgba(0,0,0,0.15)] overflow-hidden"
+    >
+      <!-- 상단 UI 영역 -->
+      <div
+        id="uiLayer"
+        class="absolute top-0 w-full p-4 flex justify-between items-start z-10 pointer-events-none hidden"
+      >
+        <!-- 왼쪽: 레시피 -->
+        <div
+          class="bg-white/90 p-3 rounded-xl shadow-lg border-2 border-gray-200 flex flex-col items-center pointer-events-auto shrink-0"
+        >
+          <div class="text-gray-500 text-xs font-bold mb-2">현재 레시피</div>
+          <div
+            id="recipeDisplay"
+            class="flex flex-col-reverse gap-[10px]"
+          ></div>
+        </div>
+
+        <!-- 오른쪽: 최고 점수, 점수 및 시간 -->
+        <div class="flex flex-col items-end gap-3 pointer-events-auto">
+          <div
+            class="bg-white/90 px-4 py-2 rounded-xl shadow-lg border-2 border-gray-200 text-center min-w-[90px]"
+          >
+            <div class="text-gray-500 text-xs font-bold">BEST</div>
+            <div
+              id="highScoreDisplay"
+              class="text-2xl font-black text-purple-600"
+            >
+              0
+            </div>
+          </div>
+          <div
+            class="bg-white/90 px-4 py-2 rounded-xl shadow-lg border-2 border-gray-200 text-center min-w-[90px]"
+          >
+            <div class="text-gray-500 text-xs font-bold">SCORE</div>
+            <div id="scoreDisplay" class="text-3xl font-black text-blue-600">
+              0
+            </div>
+          </div>
+          <div
+            class="bg-white/90 px-4 py-2 rounded-xl shadow-lg border-2 border-gray-200 text-center min-w-[90px]"
+          >
+            <div class="text-gray-500 text-xs font-bold">TIME</div>
+            <div id="timeDisplay" class="text-3xl font-black text-red-500">
+              60
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 캔버스 영역 -->
+      <canvas id="gameCanvas" class="w-full h-full block"></canvas>
+
+      <!-- 시작 화면 -->
+      <div
+        id="startScreen"
+        class="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-sm"
+      >
+        <div
+          class="bg-white p-8 rounded-3xl shadow-2xl text-center max-w-md w-full mx-4 border-4 border-yellow-400"
+        >
+          <h1 class="text-4xl font-black mb-2 text-gray-800">🍢 꼬치 달인</h1>
+          <p class="text-gray-600 mb-6 font-medium">
+            60초 동안 레시피에 맞춰 꼬치를 완성하세요!
+          </p>
+
+          <div
+            class="text-left bg-gray-50 p-4 rounded-xl mb-6 text-sm text-gray-700 space-y-2"
+          >
+            <p>👉 <strong>조작:</strong> 좌우로 드래그하여 꼬치 이동</p>
+            <p>
+              🎯 <strong>캐치:</strong> 꼬치의
+              <strong>뾰족한 끝부분</strong>으로 떨어지는 재료를 받아야 합니다!
+            </p>
+            <p>
+              📝 <strong>규칙:</strong> 좌측 상단의 레시피 순서대로 받아주세요.
+            </p>
+            <p>
+              ⏸️ <strong>일시정지:</strong> 게임 중
+              <kbd class="bg-gray-200 px-1 rounded">ESC</kbd> 키를 누르세요.
+            </p>
+            <p>
+              ❌ <strong>주의:</strong> 잘못된 재료를 받으면 튕겨져 나갑니다!
+            </p>
+          </div>
+
+          <button
+            id="startBtn"
+            class="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-black text-xl py-4 rounded-xl transition-transform active:scale-95 shadow-lg"
+          >
+            게임 시작!
+          </button>
+        </div>
+      </div>
+
+      <!-- 결과 화면 -->
+      <div
+        id="resultScreen"
+        class="absolute inset-0 bg-black/80 flex items-center justify-center z-30 hidden backdrop-blur-md"
+      >
+        <div
+          class="bg-white p-8 rounded-3xl shadow-2xl text-center max-w-md w-full mx-4 border-4 border-orange-500"
+        >
+          <h2 class="text-3xl font-black mb-2 text-gray-800">타임 오버! ⏰</h2>
+          <p class="text-gray-600 mb-4 font-medium">
+            당신의 꼬치 제작 실력은...
+          </p>
+
+          <div class="py-6 mb-6 bg-orange-50 rounded-2xl">
+            <div class="text-sm text-orange-600 font-bold mb-1">최종 점수</div>
+            <div id="finalScore" class="text-6xl font-black text-orange-600">
+              0
+            </div>
+          </div>
+
+          <button
+            id="restartBtn"
+            class="w-full bg-orange-500 hover:bg-orange-600 text-white font-black text-xl py-4 rounded-xl transition-transform active:scale-95 shadow-lg"
+          >
+            다시 도전하기
+          </button>
+        </div>
+      </div>
+
+      <!-- 일시정지 화면 -->
+      <div
+        id="pauseScreen"
+        class="absolute inset-0 bg-black/60 flex items-center justify-center z-30 hidden backdrop-blur-sm"
+      >
+        <div
+          class="bg-white p-8 rounded-3xl shadow-2xl text-center max-w-sm w-full mx-4 border-4 border-yellow-500"
+        >
+          <h2 class="text-3xl font-black mb-6 text-gray-800">일시정지</h2>
+
+          <div class="space-y-4">
+            <button
+              id="continueBtn"
+              class="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-black text-xl py-4 rounded-xl transition-transform active:scale-95 shadow-lg"
+            >
+              계속하기
+            </button>
+            <button
+              id="restartPauseBtn"
+              class="w-full bg-orange-500 hover:bg-orange-600 text-white font-black text-xl py-4 rounded-xl transition-transform active:scale-95 shadow-lg"
+            >
+              다시하기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 카운트다운 화면 -->
+      <div
+        id="countdownScreen"
+        class="absolute inset-0 flex items-center justify-center z-40 hidden pointer-events-none"
+      >
+        <div
+          id="countdownText"
+          class="text-9xl font-black text-yellow-400 drop-shadow-2xl animate-bounce"
+          style="
+            text-shadow: 4px 4px 0 #b45309, -2px -2px 0 #b45309,
+              2px -2px 0 #b45309, -2px 2px 0 #b45309;
+          "
+        >
+          3
+        </div>
+      </div>
+    </div>
+    <!-- // gameContainer 종료 -->
+
+    <script>
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+
+      const uiLayer = document.getElementById('uiLayer');
+      const highScoreDisplay = document.getElementById('highScoreDisplay');
+      const scoreDisplay = document.getElementById('scoreDisplay');
+      const timeDisplay = document.getElementById('timeDisplay');
+      const recipeDisplay = document.getElementById('recipeDisplay');
+
+      const startScreen = document.getElementById('startScreen');
+      const resultScreen = document.getElementById('resultScreen');
+      const pauseScreen = document.getElementById('pauseScreen');
+      const countdownScreen = document.getElementById('countdownScreen');
+
+      const countdownText = document.getElementById('countdownText');
+      const finalScore = document.getElementById('finalScore');
+
+      const startBtn = document.getElementById('startBtn');
+      const restartBtn = document.getElementById('restartBtn');
+      const continueBtn = document.getElementById('continueBtn');
+      const restartPauseBtn = document.getElementById('restartPauseBtn');
+
+      // 재료 데이터
+      const INGREDIENTS = [
+        {
+          id: 0,
+          name: '치즈',
+          height: 15,
+          color: '#FDE047',
+          borderColor: '#CA8A04',
+          textColor: '#000000',
+        },
+        {
+          id: 1,
+          name: '양파',
+          height: 25,
+          color: '#F3E8FF',
+          borderColor: '#A855F7',
+          textColor: '#000000',
+        },
+        {
+          id: 2,
+          name: '고기',
+          height: 35,
+          color: '#78350F',
+          borderColor: '#451A03',
+          textColor: '#FFFFFF',
+        },
+        {
+          id: 3,
+          name: '버섯',
+          height: 40,
+          color: '#E5E7EB',
+          borderColor: '#4B5563',
+          textColor: '#000000',
+        },
+        {
+          id: 4,
+          name: '소시지',
+          height: 45,
+          color: '#EF4444',
+          borderColor: '#991B1B',
+          textColor: '#FFFFFF',
+        },
+        {
+          id: 5,
+          name: '피망',
+          height: 55,
+          color: '#22C55E',
+          borderColor: '#14532D',
+          textColor: '#FFFFFF',
+        },
+      ];
+
+      let gameState = 'start'; // start, playing, paused, gameover, countdown
+      let highScore = 0;
+      let score = 0;
+      let timeLeft = 60;
+      let lastTime = 0;
+      let dropTimer = 0;
+      let gameTimerInterval = null;
+      let countdownInterval = null;
+
+      let playerX = window.innerWidth / 2;
+      const catchWidth = 75;
+      const SKEWER_BASE_OFFSET = 60; // 꼬치 바닥 위치 40px 아래로 (100 -> 60)
+      const SKEWER_LENGTH = 210; // 꼬치 막대의 총 길이
+      const SKEWER_GAP = 10; // 손잡이와 첫 번째 재료 사이의 간격
+      const ITEM_GAP = 10; // 재료 간의 간격
+
+      let currentRecipe = [];
+      let skewerStack = []; // 완성되어 바닥에 쌓인 재료들
+      let slidingItems = []; // 막대기를 타고 내려가고 있는 재료들
+      let fallingItems = []; // 허공에서 떨어지는 재료들
+      let spawnBag = []; // 재료 균등 생성을 위한 주머니
+
+      function resizeCanvas() {
+        const container = document.getElementById('gameContainer');
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        if (gameState === 'start') {
+          playerX = canvas.width / 2;
+        }
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      function updatePlayerPosition(clientX) {
+        // 카운트다운 중에도 꼬치를 움직일 수 있도록 허용
+        if (gameState !== 'playing' && gameState !== 'countdown') return;
+        const rect = canvas.getBoundingClientRect();
+        const relativeX = clientX - rect.left;
+        playerX = Math.max(
+          catchWidth / 2,
+          Math.min(canvas.width - catchWidth / 2, relativeX),
+        );
+      }
+
+      canvas.addEventListener('mousemove', (e) =>
+        updatePlayerPosition(e.clientX),
+      );
+      canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        updatePlayerPosition(e.touches[0].clientX);
+      });
+
+      // ESC 키 일시정지 이벤트 등록
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          if (gameState === 'playing') {
+            pauseGame();
+          } else if (gameState === 'paused') {
+            resumeGame();
+          }
+        }
+      });
+
+      // 일시정지 함수
+      function pauseGame() {
+        if (gameState !== 'playing') return;
+        gameState = 'paused';
+        clearInterval(gameTimerInterval);
+        pauseScreen.classList.remove('hidden');
+        canvas.style.cursor = 'default';
+      }
+
+      // 계속하기(재개) 함수
+      function resumeGame() {
+        if (gameState !== 'paused') return;
+        gameState = 'playing';
+        pauseScreen.classList.add('hidden');
+        startTimer();
+        canvas.style.cursor = 'none';
+      }
+
+      function drawRoundRect(ctx, x, y, width, height, radius, fill, stroke) {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(
+          x + width,
+          y + height,
+          x + width - radius,
+          y + height,
+        );
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+
+        ctx.fillStyle = fill;
+        ctx.fill();
+        if (stroke) {
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = stroke;
+          ctx.stroke();
+        }
+      }
+
+      function generateRecipe() {
+        // 점수에 따라 목표 레시피 길이(난이도) 조절 (최대 5개로 제한)
+        let targetLength;
+        if (score < 30) {
+          targetLength = Math.floor(Math.random() * 2) + 2;
+        } // 초반 0~20점: 2~3개
+        else if (score < 80) {
+          targetLength = Math.floor(Math.random() * 2) + 3;
+        } // 중반 30~70점: 3~4개
+        else {
+          targetLength = Math.floor(Math.random() * 2) + 4;
+        } // 후반 80점 이상: 4~5개
+
+        currentRecipe = [];
+        let currentTotalHeight = SKEWER_GAP;
+
+        for (let i = 0; i < targetLength; i++) {
+          const randomIng =
+            INGREDIENTS[Math.floor(Math.random() * INGREDIENTS.length)];
+          const gap = i === 0 ? 0 : ITEM_GAP;
+
+          // 꼬치 막대 길이(끝 뾰족한 부분 15px 여유)를 초과하지 않는지 물리적 한계 체크
+          if (
+            currentTotalHeight + gap + randomIng.height <=
+            SKEWER_LENGTH - 15
+          ) {
+            currentRecipe.push(randomIng);
+            currentTotalHeight += gap + randomIng.height;
+          } else {
+            // 남은 길이에 들어갈 수 있는 얇은 재료들 탐색
+            let availableIngredients = INGREDIENTS.filter(
+              (ing) =>
+                currentTotalHeight + gap + ing.height <= SKEWER_LENGTH - 15,
+            );
+
+            if (availableIngredients.length > 0) {
+              const fallbackIng =
+                availableIngredients[
+                  Math.floor(Math.random() * availableIngredients.length)
+                ];
+              currentRecipe.push(fallbackIng);
+              currentTotalHeight += gap + fallbackIng.height;
+            } else {
+              break;
+            }
+          }
+        }
+        updateRecipeUI();
+      }
+
+      function updateRecipeUI() {
+        recipeDisplay.innerHTML = '';
+        currentRecipe.forEach((ing, index) => {
+          const el = document.createElement('div');
+          el.className = `recipe-item flex items-center justify-center shadow-sm font-bold text-xs truncate`;
+          el.style.width = `${catchWidth - 10}px`;
+          el.style.height = `${ing.height}px`;
+          el.style.borderRadius = '5px';
+          el.style.backgroundColor = ing.color;
+          el.style.color = ing.textColor;
+          el.style.border = `3px solid ${ing.borderColor}`;
+          el.innerText = ing.name;
+
+          if (index < skewerStack.length) {
+            el.classList.add('completed');
+          } else if (index === skewerStack.length) {
+            el.classList.add('current');
+          }
+
+          recipeDisplay.appendChild(el);
+        });
+      }
+
+      function showFeedback(text, color, targetY = canvas.height / 2) {
+        const el = document.createElement('div');
+        el.className = 'feedback-text';
+        el.style.color = color;
+        el.style.left = `${playerX}px`;
+        el.style.top = `${targetY - 50}px`;
+        el.style.transform = 'translate(-50%, -50%)';
+        el.innerText = text;
+        document.getElementById('gameContainer').appendChild(el);
+        setTimeout(() => {
+          el.remove();
+        }, 600);
+      }
+
+      // 재료 균등 분배를 위한 백(Bag) 시스템
+      function getNextIngredient() {
+        if (spawnBag.length === 0) {
+          for (let i = 0; i < INGREDIENTS.length; i++) {
+            spawnBag.push(INGREDIENTS[i]);
+            spawnBag.push(INGREDIENTS[i]);
+          }
+          for (let i = spawnBag.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [spawnBag[i], spawnBag[j]] = [spawnBag[j], spawnBag[i]];
+          }
+        }
+        return spawnBag.pop();
+      }
+
+      function spawnItem() {
+        const randomIng = getNextIngredient();
+        const x = Math.random() * (canvas.width - catchWidth) + catchWidth / 2;
+        const speed = Math.random() * 3 + 4;
+
+        fallingItems.push({
+          ...randomIng,
+          x: x,
+          y: -50,
+          speed: speed,
+        });
+      }
+
+      function update(deltaTime) {
+        if (gameState !== 'playing') return;
+
+        const skewerBaseY = canvas.height - SKEWER_BASE_OFFSET;
+        const skewerTopY = skewerBaseY - SKEWER_LENGTH;
+
+        dropTimer += deltaTime;
+        if (dropTimer > 500) {
+          spawnItem();
+          dropTimer = 0;
+        }
+
+        // 쌓여있는 재료들의 누적 높이와 간격 계산
+        let currentStackTopY = skewerBaseY - SKEWER_GAP;
+        for (let item of skewerStack) {
+          currentStackTopY -= item.height + ITEM_GAP;
+        }
+
+        // 1. 슬라이딩 중인 재료들 업데이트
+        for (let i = 0; i < slidingItems.length; i++) {
+          let item = slidingItems[i];
+
+          item.x = playerX;
+          item.y += 30;
+
+          // 이 재료가 멈춰야 할 Y좌표 계산
+          let targetBottomY = currentStackTopY;
+          for (let j = 0; j < i; j++) {
+            targetBottomY -= slidingItems[j].height + ITEM_GAP;
+          }
+          let targetY = targetBottomY - item.height;
+
+          if (item.y >= targetY) {
+            item.y = targetY;
+
+            const expectedItem = currentRecipe[skewerStack.length];
+
+            if (item.id === expectedItem.id) {
+              skewerStack.push(item);
+              slidingItems.splice(i, 1);
+              i--;
+
+              showFeedback('GOOD!', '#3B82F6', item.y);
+              updateRecipeUI();
+
+              if (skewerStack.length === currentRecipe.length) {
+                const earnedScore = currentRecipe.length * 10;
+                score += earnedScore;
+                scoreDisplay.innerText = score;
+                showFeedback(
+                  `PERFECT! +${earnedScore}`,
+                  '#22C55E',
+                  item.y - 40,
+                );
+
+                skewerStack = [];
+                slidingItems = [];
+                generateRecipe();
+                break;
+              }
+            } else {
+              showFeedback('X', '#EF4444', item.y);
+              slidingItems.splice(i, 1);
+              i--;
+            }
+          }
+        }
+
+        // 2. 허공에서 떨어지는 재료들 업데이트
+        for (let i = fallingItems.length - 1; i >= 0; i--) {
+          let item = fallingItems[i];
+          item.y += item.speed;
+
+          if (item.y > canvas.height + 100) {
+            fallingItems.splice(i, 1);
+            continue;
+          }
+
+          if (
+            item.y + item.height >= skewerTopY &&
+            item.y + item.height <= skewerTopY + item.speed + 15
+          ) {
+            if (Math.abs(item.x - playerX) < catchWidth / 2) {
+              slidingItems.push(item);
+              fallingItems.splice(i, 1);
+            }
+          }
+        }
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (gameState === 'start') return;
+
+        const skewerBaseY = canvas.height - SKEWER_BASE_OFFSET;
+        const skewerTopY = skewerBaseY - SKEWER_LENGTH;
+
+        // 1. 꼬치 막대 그리기
+        ctx.fillStyle = '#D1D5DB';
+        ctx.fillRect(playerX - 3, skewerTopY, 6, SKEWER_LENGTH);
+        ctx.beginPath();
+        ctx.moveTo(playerX - 3, skewerTopY);
+        ctx.lineTo(playerX + 3, skewerTopY);
+        ctx.lineTo(playerX, skewerTopY - 15);
+        ctx.fill();
+
+        // 2. 꼬치 손잡이 그리기
+        ctx.fillStyle = '#9CA3AF';
+        ctx.fillRect(playerX - 8, skewerBaseY, 16, 60);
+
+        // 아이템 그리기 공통 함수
+        const drawItems = (items, calculateY = null, startY = skewerBaseY) => {
+          let currentY = startY;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const y = calculateY ? calculateY(item, i, currentY) : item.y;
+
+            if (calculateY) currentY = y - ITEM_GAP;
+
+            drawRoundRect(
+              ctx,
+              item.x - catchWidth / 2 + 5,
+              y,
+              catchWidth - 10,
+              item.height,
+              5,
+              item.color,
+              item.borderColor,
+            );
+
+            ctx.fillStyle = item.textColor;
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(item.name, item.x, y + item.height / 2);
+          }
+        };
+
+        // 3. 바닥에 안정적으로 꽂힌 재료들
+        drawItems(
+          skewerStack,
+          (item, i, currentY) => {
+            item.x = playerX;
+            return currentY - item.height;
+          },
+          skewerBaseY - SKEWER_GAP,
+        );
+
+        // 4. 막대를 타고 슬라이딩 중인 재료들
+        drawItems(slidingItems);
+
+        // 5. 허공에서 떨어지는 재료들
+        drawItems(fallingItems);
+      }
+
+      function gameLoop(timestamp) {
+        let deltaTime = timestamp - lastTime;
+        lastTime = timestamp;
+
+        update(deltaTime);
+        draw();
+
+        requestAnimationFrame(gameLoop);
+      }
+
+      function startTimer() {
+        gameTimerInterval = setInterval(() => {
+          timeLeft--;
+          timeDisplay.innerText = timeLeft;
+
+          if (timeLeft <= 10) {
+            timeDisplay.classList.add('animate-pulse', 'text-red-600');
+          }
+
+          if (timeLeft <= 0) {
+            endGame();
+          }
+        }, 1000);
+      }
+
+      function startGame() {
+        if (gameTimerInterval) clearInterval(gameTimerInterval);
+        if (countdownInterval) clearInterval(countdownInterval);
+
+        gameState = 'countdown';
+        score = 0;
+        timeLeft = 60;
+        skewerStack = [];
+        slidingItems = [];
+        fallingItems = [];
+        spawnBag = [];
+
+        scoreDisplay.innerText = '0';
+        timeDisplay.innerText = '60';
+        timeDisplay.classList.remove('animate-pulse', 'text-red-600');
+
+        uiLayer.classList.remove('hidden');
+        startScreen.classList.add('hidden');
+        resultScreen.classList.add('hidden');
+        pauseScreen.classList.add('hidden');
+        countdownScreen.classList.remove('hidden');
+
+        canvas.style.cursor = 'none';
+
+        generateRecipe();
+
+        let count = 3;
+        countdownText.innerText = count;
+        countdownText.classList.remove('text-red-500');
+        countdownText.classList.add('text-yellow-400');
+
+        countdownText.classList.remove('animate-bounce');
+        void countdownText.offsetWidth;
+        countdownText.classList.add('animate-bounce');
+
+        countdownInterval = setInterval(() => {
+          count--;
+          if (count > 0) {
+            countdownText.innerText = count;
+          } else if (count === 0) {
+            countdownText.innerText = 'START!';
+            countdownText.classList.remove('text-yellow-400');
+            countdownText.classList.add('text-red-500');
+          } else {
+            clearInterval(countdownInterval);
+            countdownScreen.classList.add('hidden');
+            gameState = 'playing';
+            startTimer();
+          }
+        }, 1000);
+      }
+
+      function endGame() {
+        gameState = 'gameover';
+        clearInterval(gameTimerInterval);
+
+        if (score > highScore) {
+          highScore = score;
+          highScoreDisplay.innerText = highScore;
+        }
+
+        finalScore.innerText = score;
+        uiLayer.classList.add('hidden');
+        resultScreen.classList.remove('hidden');
+        canvas.style.cursor = 'default';
+      }
+
+      startBtn.addEventListener('click', startGame);
+      restartBtn.addEventListener('click', startGame);
+      continueBtn.addEventListener('click', resumeGame);
+      restartPauseBtn.addEventListener('click', startGame);
+
+      requestAnimationFrame(gameLoop);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>에임의 정석</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 게임 영역 텍스트 드래그 방지 및 커스텀 커서 설정 */
+        body {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #arena {
+            cursor: crosshair; /* 기본 십자선 커서 */
+            background-image: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 타겟 등장 애니메이션 */
+        @keyframes popIn {
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+            70% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+
+        /* 타겟 피격(클릭) 애니메이션 */
+        @keyframes shatter {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+        }
+
+        .target {
+            position: absolute;
+            border-radius: 50%;
+            background-color: #ef4444; /* 빨간색 타겟 */
+            box-shadow: 0 0 15px #ef4444, inset 0 0 10px rgba(0,0,0,0.5);
+            border: 2px solid #fca5a5;
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            /* 타겟 정중앙을 기준으로 좌표를 맞추기 위해 */
+            transform: translate(-50%, -50%);
+        }
+
+        .target.hit {
+            animation: shatter 0.2s ease-out forwards;
+            pointer-events: none; /* 피격 후 다시 클릭 방지 */
+        }
+
+        /* 초록색 타겟 스타일 추가 */
+        .target.green {
+            background-color: #22c55e; /* 초록색 */
+            box-shadow: 0 0 15px #22c55e, inset 0 0 10px rgba(0,0,0,0.5);
+            border: 2px solid #86efac;
+        }
+
+        /* 타겟 중심점 (과녁 느낌) */
+        .target::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 30%;
+            height: 30%;
+            background-color: white;
+            border-radius: 50%;
+            box-shadow: 0 0 5px white;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white font-sans h-screen flex flex-col overflow-hidden">
+
+<!-- 헤더 영역 -->
+<header class="bg-gray-800 p-4 shadow-md flex justify-between items-center z-10">
+    <h1 class="text-xl font-bold text-blue-400">🎯 에임의 정석</h1>
+    <div class="flex space-x-6 text-lg font-semibold hidden" id="hud">
+        <div>남은 시간: <span id="time-display" class="text-yellow-400">30</span>초</div>
+        <div>점수: <span id="score-display" class="text-green-400">0</span></div>
+        <div>정확도: <span id="accuracy-display" class="text-blue-400">100</span>%</div>
+    </div>
+</header>
+
+<!-- 메인 컨텐츠 영역 -->
+<main class="flex-grow relative flex items-center justify-center">
+
+    <!-- 1. 시작 화면 -->
+    <div id="start-screen" class="absolute inset-0 bg-gray-900/90 flex flex-col items-center justify-center z-20 transition-opacity duration-300">
+        <h2 class="text-4xl font-extrabold mb-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
+            에임 능력을 테스트해보세요!
+        </h2>
+        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl max-w-md text-center border border-gray-700">
+            <p class="text-gray-300 mb-4">
+                FPS 게임이 처음이신가요? 걱정 마세요!<br>
+                빨간색 표적이 나타나면 마우스로 클릭하여 파괴하세요.
+            </p>
+
+            <!-- 난이도 선택 영역 추가 -->
+            <div class="mb-6 flex justify-center space-x-4">
+                <label class="cursor-pointer">
+                    <input type="radio" name="difficulty" value="beginner" class="peer sr-only" checked>
+                    <div class="px-4 py-2 rounded-lg bg-gray-700 text-gray-300 peer-checked:bg-blue-600 peer-checked:text-white font-bold transition">초급</div>
+                </label>
+                <label class="cursor-pointer">
+                    <input type="radio" name="difficulty" value="expert" class="peer sr-only">
+                    <div class="px-4 py-2 rounded-lg bg-gray-700 text-gray-300 peer-checked:bg-red-600 peer-checked:text-white font-bold transition">숙련자</div>
+                </label>
+            </div>
+
+            <ul class="text-sm text-gray-400 text-left list-disc list-inside mb-6 space-y-2">
+                <li>제한 시간은 <strong>30초</strong>입니다.</li>
+                <li>표적을 맞추면 <strong>+10점</strong>을 얻습니다.</li>
+                <li>허공을 클릭하면 <strong>정확도가 하락</strong>합니다.</li>
+                <li><span id="desc-green-time" class="text-green-400 font-bold">10초 이하</span>일 때 등장하는 <strong class="text-green-400">초록색 표적</strong>을 맞추면 <strong>-20점</strong> 감점됩니다!</li>
+                <li>종료 후 당신의 에임 티어가 평가됩니다.</li>
+            </ul>
+            <button id="start-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-lg transition transform hover:scale-105 shadow-[0_0_15px_rgba(37,99,235,0.5)]">
+                훈련 시작하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. 게임 영역 (Arena) -->
+    <div id="arena" class="w-full h-full"></div>
+
+    <!-- 3. 결과 화면 -->
+    <div id="result-screen" class="absolute inset-0 bg-gray-900/95 flex flex-col items-center justify-center z-30 hidden">
+        <h2 class="text-5xl font-black mb-2 text-white">훈련 종료!</h2>
+        <p class="text-xl text-gray-400 mb-8">당신의 에임 평가 결과입니다.</p>
+
+        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-lg border border-gray-700 mb-8">
+            <div class="grid grid-cols-2 gap-6 text-center mb-6">
+                <div class="bg-gray-900 p-4 rounded-lg">
+                    <div class="text-gray-400 text-sm mb-1">최종 점수</div>
+                    <div class="text-3xl font-bold text-green-400" id="final-score">0</div>
+                </div>
+                <div class="bg-gray-900 p-4 rounded-lg">
+                    <div class="text-gray-400 text-sm mb-1">명중 / 시도</div>
+                    <div class="text-3xl font-bold text-white"><span id="final-hits">0</span> / <span id="final-clicks">0</span></div>
+                </div>
+                <div class="bg-gray-900 p-4 rounded-lg col-span-2">
+                    <div class="text-gray-400 text-sm mb-1">최종 정확도</div>
+                    <div class="text-4xl font-bold text-blue-400" id="final-accuracy">0%</div>
+                </div>
+            </div>
+
+            <!-- 평가 메시지 영역 -->
+            <div class="text-center p-4 bg-gray-700/50 rounded-lg border border-gray-600">
+                <div class="text-sm text-gray-300 mb-2">종합 평가 등급</div>
+                <div id="rank-title" class="text-2xl font-extrabold mb-2">티어</div>
+                <p id="rank-desc" class="text-gray-200 font-medium"></p>
+            </div>
+        </div>
+
+        <button id="restart-btn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-8 rounded-lg transition transform hover:scale-105 shadow-[0_0_15px_rgba(5,150,105,0.5)]">
+            메인 화면으로
+        </button>
+    </div>
+
+</main>
+
+<script>
+    // --- 게임 상태 변수 ---
+    let score = 0;
+    let hits = 0;
+    let clicks = 0;
+    let timeLeft = 30; // 30초
+    let isPlaying = false;
+    let timerInterval;
+    let spawnInterval;
+
+    // 난이도 관련 변수 추가
+    let currentDifficulty = 'beginner';
+    let currentTargetSize = 60;
+    let greenThreshold = 10;
+
+    // 초보자를 위한 타겟 설정
+    const SPAWN_RATE = 800; // 밀리초 (타겟이 나타나는 주기)
+    const TARGET_LIFESPAN = 2000; // 밀리초 (타겟이 사라지기까지의 시간)
+
+    // --- DOM 요소 ---
+    const arena = document.getElementById('arena');
+    const startScreen = document.getElementById('start-screen');
+    const resultScreen = document.getElementById('result-screen');
+    const hud = document.getElementById('hud');
+
+    const scoreDisplay = document.getElementById('score-display');
+    const timeDisplay = document.getElementById('time-display');
+    const accuracyDisplay = document.getElementById('accuracy-display');
+
+    const startBtn = document.getElementById('start-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const diffRadios = document.querySelectorAll('input[name="difficulty"]');
+    const descGreenTime = document.getElementById('desc-green-time');
+
+    // 난이도 설명 텍스트 동적 변경 (라디오 버튼 클릭 시)
+    diffRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (e.target.value === 'expert') {
+                descGreenTime.innerText = '20초 이하';
+            } else {
+                descGreenTime.innerText = '10초 이하';
+            }
+        });
+    });
+
+    // --- 초기화 및 시작 ---
+    function startGame() {
+        // 변수 초기화
+        score = 0;
+        hits = 0;
+        clicks = 0;
+        timeLeft = 30;
+        isPlaying = true;
+
+        // 선택된 난이도 적용 로직
+        currentDifficulty = document.querySelector('input[name="difficulty"]:checked').value;
+        if (currentDifficulty === 'expert') {
+            currentTargetSize = 30; // 숙련자: 크기 50% (30px)
+            greenThreshold = 20;    // 숙련자: 초록색 표적 20초 남았을 때부터 등장
+        } else {
+            currentTargetSize = 60; // 초급: 기본 크기 (60px)
+            greenThreshold = 10;    // 초급: 초록색 표적 10초 남았을 때부터 등장
+        }
+
+        updateHUD();
+
+        // 화면 전환
+        startScreen.classList.add('hidden');
+        resultScreen.classList.add('hidden');
+        hud.classList.remove('hidden');
+        arena.innerHTML = ''; // 기존 타겟 제거
+
+        // 타이머 시작
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            timeDisplay.innerText = timeLeft;
+
+            if (timeLeft <= 5) {
+                timeDisplay.classList.add('text-red-500', 'animate-pulse');
+            }
+
+            if (timeLeft <= 0) {
+                endGame();
+            }
+        }, 1000);
+
+        // 타겟 생성 시작
+        spawnTarget(); // 첫 타겟 즉시 생성
+        spawnInterval = setInterval(() => {
+            if (isPlaying) {
+                spawnTarget();
+
+                // 남은 시간이 설정된 난이도 시간 이하일 때, 50% 확률로 초록색 타겟(방해물) 추가 생성
+                if (timeLeft <= greenThreshold && Math.random() > 0.5) {
+                    setTimeout(() => spawnTarget(true), 200);
+                }
+            }
+        }, SPAWN_RATE);
+    }
+
+    // --- 타겟 생성 로직 ---
+    function spawnTarget(isGreen = false) {
+        const target = document.createElement('div');
+        target.classList.add('target');
+
+        // 초록색 타겟인 경우 클래스 추가
+        if (isGreen) {
+            target.classList.add('green');
+        }
+
+        // 크기 설정 (난이도에 따른 동적 크기 적용)
+        target.style.width = `${currentTargetSize}px`;
+        target.style.height = `${currentTargetSize}px`;
+
+        // 위치 랜덤 설정 (게임 영역 내부)
+        // 타겟이 잘리지 않도록 여백(패딩)을 고려하여 좌표 계산
+        const padding = currentTargetSize / 2;
+        const maxX = arena.clientWidth - currentTargetSize;
+        const maxY = arena.clientHeight - currentTargetSize;
+
+        const randomX = Math.random() * maxX + padding;
+        const randomY = Math.random() * maxY + padding;
+
+        target.style.left = `${randomX}px`;
+        target.style.top = `${randomY}px`;
+
+        // 마우스 클릭 이벤트 (명중)
+        target.addEventListener('mousedown', (e) => {
+            if (!isPlaying) return;
+
+            // 이벤트 버블링 방지 (arena 클릭으로 인식 안 되게 함)
+            e.stopPropagation();
+
+            if (isGreen) {
+                // 초록색 타겟(오답) 클릭 시: 점수 20점 감점
+                clicks++;
+                score -= 20;
+
+                // 감점 시각 효과 (화면 전체 붉게 깜빡임)
+                arena.style.backgroundColor = 'rgba(239, 68, 68, 0.3)';
+                setTimeout(() => { arena.style.backgroundColor = ''; }, 150);
+            } else {
+                // 빨간색 타겟(정답) 클릭 시
+                hits++;
+                clicks++;
+                score += 10;
+
+                // 초보자를 위해 맞추면 즉시 다음 빨간 타겟 하나 더 생성 (약간의 지연 후)
+                setTimeout(() => {
+                    if (isPlaying && Math.random() > 0.5) spawnTarget();
+                }, 300);
+            }
+
+            // 피격 시각 효과
+            target.classList.add('hit');
+
+            updateHUD();
+
+            // 애니메이션 후 DOM에서 제거
+            setTimeout(() => {
+                if(target.parentNode) target.parentNode.removeChild(target);
+            }, 200);
+        });
+
+        arena.appendChild(target);
+
+        // 일정 시간 후 타겟이 자연스럽게 사라짐 (놓침)
+        setTimeout(() => {
+            if (target.parentNode && !target.classList.contains('hit')) {
+                target.style.opacity = '0';
+                target.style.transform = 'translate(-50%, -50%) scale(0)';
+                target.style.transition = 'all 0.3s ease';
+                setTimeout(() => {
+                    if(target.parentNode) target.parentNode.removeChild(target);
+                }, 300);
+            }
+        }, TARGET_LIFESPAN);
+    }
+
+    // --- 허공 클릭 처리 (빗나감) ---
+    arena.addEventListener('mousedown', (e) => {
+        if (!isPlaying) return;
+        // 타겟이 아닌 arena 배경을 클릭했을 때만
+        if (e.target === arena) {
+            clicks++;
+            updateHUD();
+
+            // 시각적 피드백 (화면 살짝 깜빡임)
+            arena.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'; // 연한 빨간색
+            setTimeout(() => {
+                arena.style.backgroundColor = '';
+            }, 100);
+        }
+    });
+
+    // --- UI 업데이트 ---
+    function updateHUD() {
+        scoreDisplay.innerText = score;
+
+        let accuracy = 0;
+        if (clicks > 0) {
+            accuracy = Math.round((hits / clicks) * 100);
+        } else {
+            accuracy = 100;
+        }
+
+        accuracyDisplay.innerText = accuracy;
+
+        // 정확도에 따른 색상 변화
+        if (accuracy >= 80) accuracyDisplay.className = 'text-blue-400';
+        else if (accuracy >= 50) accuracyDisplay.className = 'text-yellow-400';
+        else accuracyDisplay.className = 'text-red-400';
+    }
+
+    // --- 게임 종료 및 평가 ---
+    function endGame() {
+        isPlaying = false;
+        clearInterval(timerInterval);
+        clearInterval(spawnInterval);
+
+        timeDisplay.classList.remove('text-red-500', 'animate-pulse');
+        hud.classList.add('hidden');
+        resultScreen.classList.remove('hidden');
+
+        const finalAccuracy = clicks > 0 ? Math.round((hits / clicks) * 100) : 0;
+
+        document.getElementById('final-score').innerText = score;
+        document.getElementById('final-hits').innerText = hits;
+        document.getElementById('final-clicks').innerText = clicks;
+        document.getElementById('final-accuracy').innerText = `${finalAccuracy}%`;
+
+        evaluatePerformance(score, finalAccuracy);
+    }
+
+    // --- 에임 평가 시스템 (티어 판정) ---
+    function evaluatePerformance(finalScore, finalAccuracy) {
+        const rankTitle = document.getElementById('rank-title');
+        const rankDesc = document.getElementById('rank-desc');
+
+        if (currentDifficulty === 'expert') {
+            // 숙련자 기준 평가
+            if (finalScore >= 400 && finalAccuracy >= 85) {
+                rankTitle.innerText = "👑 SSS랭크 : 전설적인 에임";
+                rankTitle.className = "text-2xl font-extrabold mb-2 text-purple-500";
+                rankDesc.innerText = "경이롭습니다! 인간의 한계를 초월한 반응 속도와 정확도를 보여주셨습니다.";
+            } else if (finalScore >= 350 && finalAccuracy >= 80) {
+                rankTitle.innerText = "🎖️ SS랭크 : 마스터 요원";
+                rankTitle.className = "text-2xl font-extrabold mb-2 text-red-500";
+                rankDesc.innerText = "완벽에 가까운 솜씨입니다! 어떤 전장에서도 에이스로 활약할 수 있습니다.";
+            } else if (finalScore >= 300 && finalAccuracy >= 75) {
+                rankTitle.innerText = "🏆 S랭크 : 명사수 (Deadeye)";
+                rankTitle.className = "text-2xl font-extrabold mb-2 text-yellow-400";
+                rankDesc.innerText = "매우 뛰어납니다! 작고 까다로운 타겟도 정확하게 꿰뚫는 날카로운 에임을 가지셨군요.";
+            } else {
+                rankTitle.innerText = "🥇 A랭크 : 훌륭한 요원";
+                rankTitle.className = "text-2xl font-extrabold mb-2 text-blue-400";
+                rankDesc.innerText = "숙련자 모드에서도 훌륭한 성적입니다. 조금만 더 다듬으면 최고가 될 수 있습니다.";
+            }
+        } else {
+            // 초급 기준 평가
+            if (finalScore >= 500 && finalAccuracy >= 85) {
+                rankTitle.innerText = "🏆 S랭크 : 명사수 (Deadeye)";
+                rankTitle.className = "text-2xl font-extrabold mb-2 text-yellow-400";
+                rankDesc.innerText = "놀랍습니다! 기초가 완벽하게 잡혀있습니다. 이제 숙련자 모드에 도전해보세요!";
+            } else if (finalScore >= 400 && finalAccuracy >= 75) {
+                rankTitle.innerText = "🥇 A랭크 : 훌륭한 요원";
+                rankTitle.className = "text-2xl font-extrabold mb-2 text-blue-400";
+                rankDesc.innerText = "아주 좋습니다! 마우스 조작에 완벽히 익숙해지셨네요.";
+            } else if (finalScore >= 300 && finalAccuracy >= 65) {
+                rankTitle.innerText = "🥈 B랭크 : 잠재력 있는 신병";
+                rankTitle.className = "text-2xl font-extrabold mb-2 text-emerald-400";
+                rankDesc.innerText = "좋은 출발입니다! 감을 확실히 잡아가고 있습니다. 꾸준히 연습하세요!";
+            } else {
+                rankTitle.innerText = "🥉 C랭크 : 훈련병";
+                rankTitle.className = "text-2xl font-extrabold mb-2 text-gray-400";
+                rankDesc.innerText = "괜찮습니다! 화면 중앙에 집중하고 천천히 정확하게 누르는 연습을 해보세요.";
+            }
+        }
+    }
+
+    // --- 메인 화면으로 돌아가기 ---
+    function returnToMain() {
+        resultScreen.classList.add('hidden');
+        startScreen.classList.remove('hidden');
+        arena.innerHTML = ''; // 잔여 타겟 제거
+    }
+
+    // --- 이벤트 리스너 ---
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', returnToMain);
+
+</script>
+</body>
+</html>

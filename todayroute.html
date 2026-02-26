@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>오늘의 루트</title>
+    <!-- Tailwind CSS (스타일링) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS (지도) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- FontAwesome (아이콘) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f3f4f6; /* 바탕화면 회색 (데스크탑에서 볼 때 배경) */
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* 모바일 앱 뷰 컨테이너 */
+        #app-container {
+            max-width: 480px; /* 모바일 최대 너비 */
+            margin: 0 auto;
+            background: #ffffff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            box-shadow: 0 0 25px rgba(0,0,0,0.1);
+        }
+
+        /* 지도 영역 */
+        #map {
+            flex: 1;
+            width: 100%;
+            z-index: 10;
+        }
+
+        /* 기록 통계 오버레이 */
+        #stats-overlay {
+            position: absolute;
+            top: 60px; /* 상단 GPS 상태바와 겹치지 않게 여백 추가 */
+            left: 5%;
+            width: 90%;
+            z-index: 20;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            border-radius: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        /* 하단 컨트롤 및 네비게이션 */
+        #bottom-area {
+            z-index: 30;
+            background: white;
+            border-top-left-radius: 24px;
+            border-top-right-radius: 24px;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.05);
+        }
+
+        /* 액션 버튼 (시작/종료) */
+        .action-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+
+        .btn-start { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .btn-stop { background: linear-gradient(135deg, #ef4444, #dc2626); }
+
+        /* 하단 네비게이션 아이템 */
+        .nav-item {
+            color: #9ca3af;
+            transition: color 0.2s;
+        }
+        .nav-item.active {
+            color: #3b82f6;
+        }
+
+        /* 커스텀 스크롤바 (기록 뷰) */
+        #history-view {
+            overflow-y: auto;
+            scrollbar-width: none; /* Firefox */
+        }
+        #history-view::-webkit-scrollbar {
+            display: none; /* Chrome, Safari */
+        }
+
+        /* 커스텀 모달 */
+        #custom-modal {
+            display: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+
+    <!-- 뷰 1: 메인 기록 화면 (지도) -->
+    <div id="record-view" class="flex flex-col h-full relative w-full">
+        <!-- GPS 상태 표시 바 -->
+        <div id="gps-indicator" class="absolute top-4 right-4 z-[1000] bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full shadow-md flex items-center gap-2 border border-gray-100 transition-all">
+            <div id="gps-dot" class="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse"></div>
+            <span id="gps-text" class="text-xs font-bold text-gray-700">위치 확인 중</span>
+        </div>
+
+        <!-- 상태 표시줄 (시간, 거리, 속도) -->
+        <div id="stats-overlay" class="p-4 flex justify-between items-center hidden">
+            <div class="text-center flex-1">
+                <div class="text-xs text-gray-500 font-semibold mb-1">시간</div>
+                <div id="time-display" class="text-xl font-bold text-gray-800 tracking-wider">00:00:00</div>
+            </div>
+            <div class="w-px h-8 bg-gray-200"></div>
+            <div class="text-center flex-1">
+                <div class="text-xs text-gray-500 font-semibold mb-1">거리 (km)</div>
+                <div id="distance-display" class="text-xl font-bold text-blue-600 tracking-wider">0.00</div>
+            </div>
+            <div class="w-px h-8 bg-gray-200"></div>
+            <div class="text-center flex-1">
+                <div class="text-xs text-gray-500 font-semibold mb-1">속도 (km/h)</div>
+                <div id="speed-display" class="text-xl font-bold text-green-600 tracking-wider">0.0</div>
+            </div>
+        </div>
+
+        <!-- 지도 컨테이너 -->
+        <div id="map"></div>
+
+        <!-- 하단 컨트롤 영역 -->
+        <div id="bottom-area" class="pb-6 pt-4 px-6 relative">
+
+            <!-- 중앙 떠있는 액션 버튼 -->
+            <div class="absolute -top-10 left-1/2 transform -translate-x-1/2 flex gap-4">
+                <button id="start-btn" class="action-btn btn-start" onclick="toggleRecording()">
+                    <i class="fa-solid fa-play ml-1"></i>
+                </button>
+                <button id="stop-btn" class="action-btn btn-stop hidden" onclick="stopRecording()">
+                    <i class="fa-solid fa-stop"></i>
+                </button>
+            </div>
+
+            <!-- 시뮬레이션 버튼 (테스트용) -->
+            <div class="flex justify-end mt-2 mb-4 gap-2">
+                <button onclick="simulateMovement('walk')" class="text-xs text-gray-400 border border-gray-300 rounded px-2 py-1 flex items-center gap-1 hover:bg-gray-50">
+                    <i class="fa-solid fa-person-walking"></i> 걷기 테스트
+                </button>
+                <button onclick="simulateMovement('run')" class="text-xs text-gray-400 border border-gray-300 rounded px-2 py-1 flex items-center gap-1 hover:bg-gray-50">
+                    <i class="fa-solid fa-person-running"></i> 뛰기 테스트
+                </button>
+            </div>
+
+            <div class="mt-8 text-center">
+                <p id="status-text" class="text-sm text-gray-500 font-medium">버튼을 눌러 러닝을 시작하세요</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 뷰 2: 기록 목록 화면 -->
+    <div id="history-view" class="h-full w-full bg-gray-50 hidden flex-col">
+        <div class="bg-white p-6 shadow-sm z-10">
+            <h2 class="text-2xl font-bold text-gray-800">내 기록</h2>
+            <p class="text-sm text-gray-500 mt-1">지금까지 달린 여정을 확인해보세요.</p>
+        </div>
+
+        <div id="history-list" class="flex-1 p-4 flex flex-col gap-4">
+            <!-- 기록 아이템들이 여기에 추가됩니다 -->
+            <div class="flex flex-col items-center justify-center h-full text-gray-400 gap-3 mt-10">
+                <i class="fa-solid fa-shoe-prints text-4xl"></i>
+                <p>아직 저장된 기록이 없습니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 하단 네비게이션 탭 -->
+    <div class="bg-white border-t border-gray-100 flex justify-around py-3 pb-safe z-40 relative shadow-[0_-4px_15px_rgba(0,0,0,0.03)]">
+        <button onclick="switchTab('record')" id="tab-record" class="nav-item active flex flex-col items-center gap-1 w-1/2">
+            <i class="fa-solid fa-location-dot text-xl"></i>
+            <span class="text-[10px] font-semibold">트래킹</span>
+        </button>
+        <button onclick="switchTab('history')" id="tab-history" class="nav-item flex flex-col items-center gap-1 w-1/2">
+            <i class="fa-solid fa-list text-xl"></i>
+            <span class="text-[10px] font-semibold">기록</span>
+        </button>
+    </div>
+
+</div>
+
+<!-- 커스텀 알림 모달 -->
+<div id="custom-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+    <div class="bg-white rounded-2xl p-6 w-11/12 max-w-sm shadow-2xl transform transition-all">
+        <h3 id="modal-title" class="text-lg font-bold text-gray-900 mb-2">알림</h3>
+        <p id="modal-message" class="text-gray-600 mb-6 text-sm leading-relaxed"></p>
+        <button onclick="closeModal()" class="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition">확인</button>
+    </div>
+</div>
+
+<script>
+    // --- 글로벌 상태 변수 ---
+    let map;
+    let userMarker;
+    let pathPolyline;
+    let positions = []; // 경로 좌표 배열 [{lat, lng}, ...]
+
+    let isRecording = false;
+    let globalWatchId = null; // 전역 GPS 감지 ID
+    let isInitialLocationSet = false; // 최초 위치 설정 여부
+    let startTime = null;
+    let timerInterval = null;
+    let totalDistanceKm = 0;
+    let lastLocationTime = 0; // 속도 계산용 이전 위치 시간
+
+    // 임시 저장소 (브라우저 메모리 - 새로고침시 초기화됨)
+    let sessionHistory = [];
+
+    // 모의 테스트용 변수
+    let simInterval = null;
+    let actualGpsStatus = 'connecting'; // 실제 기기의 GPS 상태를 기억하는 변수
+
+    // --- 초기화 ---
+    window.onload = function() {
+        initMap();
+        startGlobalTracking(); // 실시간 위치 추적 시작
+    };
+
+    // --- 1. 지도 초기화 (Leaflet.js) ---
+    function initMap() {
+        // 기본 서울 시청 좌표로 초기화
+        map = L.map('map', {
+            zoomControl: false // 모바일 화면을 위해 줌 컨트롤 숨김
+        }).setView([37.5665, 126.9780], 15);
+
+        // 오픈스트리트맵 타일 불러오기
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // 경로 선 스타일 설정
+        pathPolyline = L.polyline([], {
+            color: '#3b82f6',
+            weight: 6,
+            opacity: 0.8,
+            lineJoin: 'round'
+        }).addTo(map);
+
+        // 사용자 위치 마커 스타일 (파란색 원)
+        const userIcon = L.divIcon({
+            className: 'custom-user-marker',
+            html: `<div style="width:16px; height:16px; background-color:#3b82f6; border:3px solid white; border-radius:50%; box-shadow:0 0 10px rgba(0,0,0,0.3);"></div>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8]
+        });
+        userMarker = L.marker([37.5665, 126.9780], {icon: userIcon}).addTo(map);
+    }
+
+    // --- 2. 실시간 GPS 상태 UI 업데이트 ---
+    function setGpsStatus(state) {
+        const dot = document.getElementById('gps-dot');
+        const text = document.getElementById('gps-text');
+
+        dot.className = "w-2.5 h-2.5 rounded-full"; // 기본 클래스로 초기화
+
+        if (state === 'connecting') {
+            dot.classList.add('bg-yellow-400', 'animate-pulse');
+            text.innerText = "위치 확인 중";
+        } else if (state === 'connected') {
+            dot.classList.add('bg-green-500');
+            text.innerText = "GPS 연결됨";
+        } else if (state === 'error') {
+            dot.classList.add('bg-red-500');
+            text.innerText = "위치 끊김";
+        }
+    }
+
+    // --- 3. 전역 위치 추적 ---
+    function startGlobalTracking() {
+        actualGpsStatus = 'connecting';
+        if (!simInterval) setGpsStatus('connecting');
+
+        if ("geolocation" in navigator) {
+            globalWatchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    actualGpsStatus = 'connected';
+                    // 시뮬레이션 중이 아닐 때만 UI를 초록색으로 바꾸고 실제 위치를 지도에 반영
+                    if (!simInterval) {
+                        setGpsStatus('connected');
+                        updateLocation(position);
+                    }
+                },
+                (error) => {
+                    console.warn("GPS 오류:", error);
+                    actualGpsStatus = 'error';
+                    // 시뮬레이션 중이 아닐 때만 UI를 빨간색으로 변경
+                    if (!simInterval) setGpsStatus('error');
+
+                    // 구체적인 에러 원인 파악 및 안내 (최초 1회만 표시)
+                    if (!window.hasShownGpsError) {
+                        let errorMsg = "알 수 없는 오류로 위치를 찾을 수 없습니다.";
+                        if (error.code === 1) errorMsg = "브라우저 보안 정책(HTTPS 환경 아님) 또는 권한 거부로 위치를 차단했습니다.";
+                        else if (error.code === 2) errorMsg = "기기에서 위치 정보를 가져올 수 없습니다. (GPS 신호 약함)";
+                        else if (error.code === 3) errorMsg = "위치 정보를 찾는 데 시간이 초과되었습니다.";
+
+                        showModal("GPS 연결 실패", errorMsg + "\n개발/테스트 중이시라면 우측 하단의 [테스트 이동] 버튼을 이용해주세요.");
+                        window.hasShownGpsError = true;
+                    }
+                },
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+            );
+        } else {
+            actualGpsStatus = 'error';
+            if (!simInterval) setGpsStatus('error');
+            showModal("지원하지 않음", "이 기기에서는 위치 추적을 지원하지 않습니다.");
+        }
+    }
+
+    // --- 4. 트래킹 시작 / 일시정지 ---
+    function toggleRecording() {
+        if (!isRecording) {
+            startTracking();
+        }
+    }
+
+    function startTracking() {
+        if (document.getElementById('gps-text').innerText === "위치 끊김") {
+            showModal("알림", "GPS 위치를 찾는 중이거나 끊겼습니다. 신호가 잡히면 다시 시도해주세요.");
+            return;
+        }
+
+        isRecording = true;
+        positions = [];
+        totalDistanceKm = 0;
+        lastLocationTime = Date.now(); // 시작 시간 기록
+        pathPolyline.setLatLngs([]);
+
+        // 시작 시 현재 마커의 위치를 출발점으로 설정
+        const currentLatLng = userMarker.getLatLng();
+        if (currentLatLng && isInitialLocationSet) {
+            positions.push(currentLatLng);
+            pathPolyline.addLatLng(currentLatLng);
+            map.setView(currentLatLng, 16);
+        }
+
+        document.getElementById('stats-overlay').classList.remove('hidden');
+        document.getElementById('speed-display').innerText = "0.0"; // 속도 UI 초기화
+        document.getElementById('start-btn').classList.add('hidden');
+        document.getElementById('stop-btn').classList.remove('hidden');
+        document.getElementById('status-text').innerText = "기록 중입니다...";
+        document.getElementById('status-text').classList.add('text-blue-600', 'animate-pulse');
+
+        // 타이머 시작
+        startTime = Date.now();
+        timerInterval = setInterval(updateTimer, 1000);
+    }
+
+    // --- 5. 위치 업데이트 및 그리기 ---
+    function updateLocation(position) {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const currentTime = position.timestamp || Date.now(); // 현재 시간
+        const newPos = L.latLng(lat, lng);
+
+        // 마커를 항상 내 위치로 이동
+        userMarker.setLatLng(newPos);
+
+        // 앱 실행 후 최초 위치를 잡았을 때만 지도를 내 위치로 포커스
+        if (!isInitialLocationSet) {
+            map.setView(newPos, 16);
+            isInitialLocationSet = true;
+        }
+
+        if (!isRecording) return; // 기록 중이 아니면 선을 그리지 않고 종료
+
+        // 기록 중일 때는 지도가 계속 따라가도록 설정
+        map.panTo(newPos);
+
+        if (positions.length > 0) {
+            const prevPos = positions[positions.length - 1];
+            // 거리 계산 (미터 단위 반환을 km로 변환)
+            const distMeters = newPos.distanceTo(prevPos);
+
+            // 너무 작은 오차(노이즈)는 무시 (예: 1미터 미만 이동)
+            if(distMeters > 1) {
+                totalDistanceKm += distMeters / 1000;
+                positions.push(newPos);
+                pathPolyline.addLatLng(newPos);
+
+                // 속도 계산 (km/h)
+                const timeDiffSec = (currentTime - lastLocationTime) / 1000;
+                if (timeDiffSec > 0) {
+                    let speedKmh = (distMeters / 1000) / (timeDiffSec / 3600);
+
+                    // 기기 GPS에서 직접 제공하는 속도가 있으면 우선 적용 (m/s -> km/h 변환)
+                    if (position.coords.speed !== null && position.coords.speed !== undefined && !simInterval) {
+                        speedKmh = position.coords.speed * 3.6;
+                    }
+
+                    document.getElementById('speed-display').innerText = speedKmh.toFixed(1);
+                }
+                lastLocationTime = currentTime;
+            }
+        } else {
+            positions.push(newPos);
+            pathPolyline.addLatLng(newPos);
+            lastLocationTime = currentTime;
+        }
+
+        // 화면 UI 업데이트
+        document.getElementById('distance-display').innerText = totalDistanceKm.toFixed(2);
+    }
+
+    // --- 6. 기록 종료 및 저장 ---
+    function stopRecording() {
+        isRecording = false;
+        clearInterval(timerInterval);
+
+        // 전역 GPS 감지(globalWatchId)는 종료하지 않음으로써 마커는 계속 내 위치를 표시하도록 유지합니다.
+
+        if (simInterval !== null) {
+            clearInterval(simInterval);
+            simInterval = null;
+            // 시뮬레이션 종료 시 실제 GPS 상태로 배지 복구
+            setGpsStatus(actualGpsStatus);
+        }
+
+        // UI 초기화
+        document.getElementById('start-btn').classList.remove('hidden');
+        document.getElementById('stop-btn').classList.add('hidden');
+        document.getElementById('status-text').innerText = "수고하셨습니다! 기록이 저장되었습니다.";
+        document.getElementById('status-text').classList.remove('text-blue-600', 'animate-pulse');
+
+        // 기록 저장 로직
+        const durationSec = Math.floor((Date.now() - startTime) / 1000);
+
+        if (durationSec > 5 || totalDistanceKm > 0.01) { // 의미 있는 기록만 저장
+            const avgSpeedKmh = durationSec > 0 ? (totalDistanceKm / (durationSec / 3600)) : 0; // 평균 속도(km/h) 계산
+            const record = {
+                id: Date.now(),
+                date: new Date().toLocaleString('ko-KR', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }),
+                distance: totalDistanceKm.toFixed(2),
+                timeStr: formatTime(durationSec),
+                avgSpeed: avgSpeedKmh // 기록에 평균 속도 저장
+            };
+            sessionHistory.unshift(record); // 배열 맨 앞에 추가
+            renderHistory();
+            showModal("기록 저장 완료", `총 ${record.distance}km를 ${record.timeStr} 동안 이동했습니다.`);
+        } else {
+            showModal("알림", "이동 거리가 너무 짧아 기록되지 않았습니다.");
+        }
+
+        // 타이머 및 거리 텍스트 리셋 딜레이
+        setTimeout(() => {
+            document.getElementById('stats-overlay').classList.add('hidden');
+            document.getElementById('time-display').innerText = "00:00:00";
+            document.getElementById('distance-display').innerText = "0.00";
+            document.getElementById('speed-display').innerText = "0.0";
+            pathPolyline.setLatLngs([]); // 지도 경로 초기화
+            totalDistanceKm = 0;
+        }, 3000);
+    }
+
+    // --- 6. 유틸리티 함수 (타이머, 모달, 탭 전환) ---
+    function updateTimer() {
+        const diff = Math.floor((Date.now() - startTime) / 1000);
+        document.getElementById('time-display').innerText = formatTime(diff);
+    }
+
+    function formatTime(totalSeconds) {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    function switchTab(tabName) {
+        // 모든 탭 컨텐츠 숨기기
+        document.getElementById('record-view').classList.add('hidden');
+        document.getElementById('history-view').classList.add('hidden');
+
+        // 네비게이션 아이템 색상 초기화
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+        // 선택한 탭 보이기
+        document.getElementById(`${tabName}-view`).classList.remove('hidden');
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+
+        // 지도 탭으로 돌아왔을 때 지도가 깨지지 않도록 리사이즈 트리거
+        if(tabName === 'record' && map) {
+            setTimeout(() => map.invalidateSize(), 100);
+        }
+    }
+
+    function renderHistory() {
+        const listContainer = document.getElementById('history-list');
+        listContainer.innerHTML = ''; // 초기화
+
+        if (sessionHistory.length === 0) {
+            listContainer.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full text-gray-400 gap-3 mt-10">
+                    <i class="fa-solid fa-shoe-prints text-4xl"></i>
+                    <p>아직 저장된 기록이 없습니다.</p>
+                </div>`;
+            return;
+        }
+
+        sessionHistory.forEach(item => {
+            // 평균 속도가 6 이상이면 뛰기, 미만이면 걷기 아이콘 및 색상 지정
+            const isRunning = item.avgSpeed >= 6;
+            const iconClass = isRunning ? "fa-solid fa-person-running" : "fa-solid fa-person-walking";
+            const bgClass = isRunning ? "bg-blue-50 text-blue-500" : "bg-green-50 text-green-500";
+            const typeText = isRunning ? "러닝" : "산책";
+
+            const card = document.createElement('div');
+            card.className = "bg-white p-4 rounded-xl shadow-[0_2px_10px_rgba(0,0,0,0.05)] border border-gray-100 flex items-center justify-between";
+            card.innerHTML = `
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 ${bgClass} rounded-full flex items-center justify-center text-xl">
+                        <i class="${iconClass}"></i>
+                    </div>
+                    <div>
+                        <div class="font-bold text-gray-800 text-lg">${item.distance} <span class="text-sm font-normal text-gray-500">km</span></div>
+                        <div class="text-xs text-gray-400 mt-1">${item.date} · ${typeText}</div>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="font-bold text-gray-700">${item.timeStr}</div>
+                    <div class="text-xs text-gray-400 mt-1">시간</div>
+                </div>
+            `;
+            listContainer.appendChild(card);
+        });
+    }
+
+    function showModal(title, message) {
+        document.getElementById('modal-title').innerText = title;
+        document.getElementById('modal-message').innerText = message;
+        document.getElementById('custom-modal').style.display = 'flex';
+    }
+
+    function closeModal() {
+        document.getElementById('custom-modal').style.display = 'none';
+    }
+
+    // --- 데스크탑 테스트용 가상 이동 시뮬레이션 ---
+    // 실제 기기가 아닌 곳에서 GPS 위치 변화를 강제로 발생시킵니다.
+    function simulateMovement(type) {
+        if(simInterval) return; // 이미 실행중이면 무시
+
+        // 시뮬레이션 중에는 GPS 상태를 임시로 연결됨으로 표시
+        setGpsStatus('connected');
+
+        // 기록 중이 아니라면 자동으로 기록 시작
+        if(!isRecording) {
+            startTracking();
+        }
+
+        let simLat = userMarker.getLatLng().lat;
+        let simLng = userMarker.getLatLng().lng;
+
+        // 타입에 따른 1초당 이동량 설정 (걷기: 약 4.5km/h, 뛰기: 약 14km/h 수준)
+        const increment = type === 'walk' ? 0.000008 : 0.000025;
+        const modeText = type === 'walk' ? "걷기" : "뛰기";
+
+        simInterval = setInterval(() => {
+            // 위로 조금씩 이동 (가상의 움직임)
+            simLat += increment;
+            simLng += increment;
+
+            // updateLocation 함수와 동일한 형태로 객체를 만들어 전달
+            updateLocation({
+                coords: { latitude: simLat, longitude: simLng, speed: null },
+                timestamp: Date.now()
+            });
+        }, 1000); // 1초마다 이동
+
+        showModal("테스트 모드", `가상의 ${modeText} 이동이 시작되었습니다.\n10초 이상 테스트 후 정지(■) 버튼을 누르고 기록 탭을 확인해보세요.`);
+    }
+</script>
+
+</body>
+</html>

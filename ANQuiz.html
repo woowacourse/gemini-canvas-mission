@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AN Quiz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 스크롤바 숨기기 */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+
+        .code-block {
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .heart-bounce {
+            animation: bounce 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes bounce {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); color: #ef4444; }
+            100% { transform: scale(1); }
+        }
+
+        .loading-spinner {
+            border: 4px solid rgba(139, 92, 246, 0.2);
+            border-left-color: #7c3aed;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+
+<!-- 모바일 앱 컨테이너 -->
+<div id="app" class="w-full h-[100dvh] sm:h-[800px] sm:max-w-[400px] sm:rounded-3xl bg-white shadow-2xl relative flex flex-col overflow-hidden">
+    <!-- 동적으로 콘텐츠가 렌더링되는 영역 -->
+    <div id="content" class="flex-1 flex flex-col h-full overflow-y-auto"></div>
+</div>
+
+<script>
+    // API 설정 (환경에 의해 주입됨)
+    const apiKey = "";
+
+    // --- 초기 10문제 데이터 ---
+    const initialQuizData = [
+        { question: "Kotlin에서 `lateinit`과 `lazy`의 주요 차이점으로 올바른 것은?", code: null, options: ["`lateinit`은 `val`에만 사용할 수 있다.", "`lazy`는 기본 타입(Primitive Type) 프로퍼티에 사용할 수 있다.", "`lateinit`은 `var`에만 사용 가능하며, 초기화 전 접근 시 예외가 발생한다.", "둘 다 Thread-safe를 기본적으로 지원하지 않는다."], answer: 2, explanation: "`lateinit`은 `var`(가변 변수)에만 사용되며, 초기화 전 접근 시 `UninitializedPropertyAccessException`이 발생합니다. 반면 `lazy`는 `val`(불변 변수)에만 사용 가능하며 기본적으로 Thread-safe하게 동작합니다." },
+        { question: "다음 코드의 출력 결과는 무엇인가요?", code: "val list = listOf(1, 2, 3)\nval result = list.map { it * 2 }.filter { it > 4 }\nprintln(result)", options: ["[2, 4, 6]", "[4, 6]", "[6]", "[2, 4]"], answer: 2, explanation: "`map` 함수를 통해 `[2, 4, 6]`이 되고, `filter { it > 4 }` 조건에 의해 4보다 큰 값인 `[6]`만 남게 됩니다." },
+        { question: "Android 코루틴에서 네트워크 요청이나 데이터베이스 접근 등 긴 I/O 작업을 수행할 때 권장되는 Dispatcher는 무엇인가요?", code: null, options: ["Dispatchers.Main", "Dispatchers.IO", "Dispatchers.Default", "Dispatchers.Unconfined"], answer: 1, explanation: "`Dispatchers.IO`는 네트워크, 디스크, 데이터베이스 작업과 같은 I/O 집약적인 작업을 수행하는 데 최적화된 스레드 풀을 사용합니다." },
+        { question: "Android의 ViewModel에 대한 설명으로 가장 적절한 것은?", code: null, options: ["UI 요소의 레이아웃을 직접 그리는 역할을 한다.", "화면 회전(Configuration Change) 시에도 UI 관련 데이터를 안전하게 유지한다.", "모든 코드를 백그라운드 스레드에서만 실행되도록 강제한다.", "SharedPreferences 데이터를 자동으로 암호화하여 저장한다."], answer: 1, explanation: "ViewModel의 주된 목적은 액티비티나 프래그먼트의 생명주기를 고려하여 UI 관련 데이터를 저장하고 관리하는 것입니다. 덕분에 화면 회전과 같은 구성 변경 시에도 데이터가 유지됩니다." },
+        { question: "다음 중 수신 객체(this)를 반환하여 객체 초기화나 설정 시 체이닝(Chaining)에 가장 유용하게 사용되는 코틀린 스코프 함수는?", code: null, options: ["let", "run", "apply", "with"], answer: 2, explanation: "`apply`는 컨텍스트 객체를 `this`로 참조하며, 반환값으로 컨텍스트 객체 자신을 반환하므로 객체의 속성을 초기화하거나 설정할 때 주로 사용됩니다." },
+        { question: "Jetpack Compose에서 상태(State)가 변경될 때 UI를 업데이트하기 위해 해당 컴포저블을 다시 실행하는 과정을 무엇이라고 부르나요?", code: null, options: ["Recomposition (재구성)", "Redrawing (다시 그리기)", "Rendering (렌더링)", "Refreshing (새로고침)"], answer: 0, explanation: "상태(State)가 변경될 때 Compose 프레임워크가 해당 상태를 읽는 컴포저블 함수들을 다시 호출하여 UI를 업데이트하는 과정을 'Recomposition(재구성)'이라고 합니다." },
+        { question: "Kotlin의 `suspend` 함수에 대한 설명으로 올바른 것은?", code: null, options: ["일반 함수 어디서든 자유롭게 호출할 수 있다.", "현재 스레드를 차단(Block)하지 않고 실행을 일시 중단할 수 있다.", "자바의 `synchronized` 키워드와 동일한 역할을 한다.", "오직 메인 스레드에서만 실행되어야 한다."], answer: 1, explanation: "`suspend` 함수는 코루틴 내에서 실행되며, 스레드를 블로킹하지 않고 작업을 일시 중단(suspend)하고 재개(resume)할 수 있게 해줍니다." },
+        { question: "RecyclerView의 성능 최적화를 위해 내부적으로 뷰를 재사용하는 핵심 역할을 하는 클래스는 무엇인가요?", code: null, options: ["ViewAdapter", "LayoutManager", "ViewHolder", "ItemDecoration"], answer: 2, explanation: "`ViewHolder` 패턴은 각 아이템 뷰의 하위 뷰 참조를 캐싱하여, `findViewById`를 매번 호출하는 비용을 줄이고 스크롤 성능을 향상시킵니다." },
+        { question: "Kotlin Flow 중 상태를 유지하고 다수의 구독자에게 상태를 공유할 수 있어 ViewModel에서 LiveData의 대안으로 자주 쓰이는 것은?", code: null, options: ["SharedFlow", "StateFlow", "ColdFlow", "Channel"], answer: 1, explanation: "`StateFlow`는 상태를 가지는 Hot Flow로, 초기값이 필요하며 항상 최신 값을 보존하고 새로운 구독자에게 발행합니다. UI 상태를 표현할 때 LiveData 대신 널리 쓰입니다." },
+        { question: "Jetpack Compose에서 열(세로) 방향으로 UI 컴포넌트들을 배치하기 위해 사용하는 레이아웃 컴포저블은?", code: null, options: ["Row", "Box", "Column", "Stack"], answer: 2, explanation: "`Column`은 자식 컴포저블들을 화면의 위에서 아래로 세로로 배치할 때 사용합니다." }
+    ];
+
+    // --- 상태 관리 ---
+    let quizData = [...initialQuizData];
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let strikes = 0;
+    const maxStrikes = 3;
+    let hasAnswered = false;
+    let difficultyLevel = 1;
+
+    // DOM
+    const contentDiv = document.getElementById('content');
+
+    // --- 렌더링 함수 ---
+
+    // 1. 시작 화면
+    function renderStartScreen() {
+        quizData = [...initialQuizData];
+        currentQuestionIndex = 0;
+        score = 0;
+        strikes = 0;
+        difficultyLevel = 1;
+        hasAnswered = false;
+
+        contentDiv.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full p-6 text-center fade-in bg-white">
+                    <!-- 타이틀 -->
+                    <h1 class="text-5xl font-black mb-4 mt-4 text-gray-900 tracking-tight leading-snug">
+                        AN <span class="text-indigo-600">Quiz</span>
+                    </h1>
+                    <p class="text-gray-500 mb-8 text-base font-medium leading-relaxed">
+                        기회는 단 3번! 10문제마다 AI가<br>더 어려운 문제를 실시간 생성합니다.
+                    </p>
+
+                    <!-- 룰 설명 카드 -->
+                    <div class="bg-gray-50 border border-gray-100 rounded-2xl p-5 mb-10 w-full max-w-[280px] text-left shadow-sm">
+                        <p class="flex items-center gap-3 mb-3 text-sm font-semibold text-gray-700">
+                            <span class="text-red-500 text-lg drop-shadow-sm">❤️</span> 3번 틀리면 게임 종료
+                        </p>
+                        <p class="flex items-center gap-3 mb-3 text-sm font-semibold text-gray-700">
+                            <span class="text-yellow-500 text-lg drop-shadow-sm">📈</span> 10문제마다 난이도 상승
+                        </p>
+                        <p class="flex items-center gap-3 text-sm font-semibold text-gray-700">
+                            <span class="text-green-500 text-lg drop-shadow-sm">🏆</span> 종료 시 상위 % 확인
+                        </p>
+                    </div>
+
+                    <!-- 시작 버튼 -->
+                    <button onclick="startQuiz()" class="w-full max-w-[250px] bg-indigo-600 text-white font-bold py-4 px-8 rounded-2xl shadow-[0_8px_20px_-6px_rgba(79,70,229,0.5)] hover:bg-indigo-700 hover:-translate-y-1 transition-all active:scale-95 text-lg">
+                        도전 시작하기
+                    </button>
+                </div>
+            `;
+    }
+
+    // 2. 문제 화면
+    function renderQuestion() {
+        hasAnswered = false;
+        const q = quizData[currentQuestionIndex];
+
+        // 난이도 레벨 (10문제마다 1씩 증가)
+        const currentLevel = Math.floor(currentQuestionIndex / 10) + 1;
+
+        let codeHtml = '';
+        if (q.code) {
+            codeHtml = `
+                    <div class="mt-4 mb-2 bg-gray-900 rounded-xl p-4 overflow-x-auto shadow-inner">
+                        <pre class="code-block text-green-400 text-sm whitespace-pre"><code>${q.code}</code></pre>
+                    </div>
+                `;
+        }
+
+        let optionsHtml = q.options.map((opt, index) => `
+                <button id="option-${index}" onclick="selectAnswer(${index})" class="w-full text-left p-4 mb-3 border-2 border-gray-200 rounded-xl font-medium text-gray-700 hover:border-indigo-400 hover:bg-indigo-50 transition-colors active:bg-indigo-100">
+                    <span class="inline-block w-6 font-bold text-indigo-500">${index + 1}.</span> ${opt}
+                </button>
+            `).join('');
+
+        // 하트(기회) 렌더링
+        let heartsHtml = '';
+        for(let i=0; i<maxStrikes; i++) {
+            if(i < strikes) heartsHtml += '<span class="text-gray-300 text-xl">🖤</span>';
+            else heartsHtml += '<span class="text-red-500 text-xl drop-shadow-sm">❤️</span>';
+        }
+
+        contentDiv.innerHTML = `
+                <div class="flex flex-col h-full fade-in bg-white">
+                    <!-- 상단 헤더 (스코어, 생명, 레벨) -->
+                    <div class="w-full bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center z-10">
+                        <div class="flex flex-col">
+                            <span class="text-xs text-gray-500 font-bold uppercase tracking-wider">Level ${currentLevel}</span>
+                            <span class="text-lg font-black text-indigo-900">Score: ${score}</span>
+                        </div>
+                        <div id="lives-container" class="flex gap-1">
+                            ${heartsHtml}
+                        </div>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto p-6 pb-24">
+                        <div class="mb-4">
+                            <span class="text-sm font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full">Q. ${currentQuestionIndex + 1}</span>
+                        </div>
+
+                        <h2 class="text-[1.15rem] font-bold text-gray-800 leading-relaxed mb-2 break-keep">${q.question.replace(/`([^`]+)`/g, '<span class="bg-gray-100 text-rose-500 px-1.5 py-0.5 rounded font-mono text-sm">$1</span>')}</h2>
+
+                        ${codeHtml}
+
+                        <div class="mt-6 flex flex-col">
+                            ${optionsHtml}
+                        </div>
+
+                        <!-- 해설 영역 -->
+                        <div id="feedback-area" class="hidden mt-6 p-5 rounded-xl">
+                            <h3 id="feedback-title" class="font-bold text-lg mb-2"></h3>
+                            <p id="feedback-desc" class="text-gray-700 text-sm leading-relaxed"></p>
+                        </div>
+                    </div>
+
+                    <!-- 하단 버튼 영역 -->
+                    <div class="absolute bottom-0 w-full p-4 bg-white/90 backdrop-blur-sm border-t border-gray-100">
+                        <button id="next-btn" onclick="handleNextClick()" disabled class="w-full bg-gray-200 text-gray-400 font-bold py-4 rounded-xl transition-all text-lg cursor-not-allowed">
+                            정답을 선택하세요
+                        </button>
+                    </div>
+                </div>
+            `;
+    }
+
+    // 3. 정답 선택
+    function selectAnswer(selectedIndex) {
+        if (hasAnswered) return;
+        hasAnswered = true;
+
+        const q = quizData[currentQuestionIndex];
+        const isCorrect = selectedIndex === q.answer;
+
+        if (isCorrect) {
+            score++;
+        } else {
+            strikes++;
+            // 하트 애니메이션 효과
+            const livesContainer = document.getElementById('lives-container');
+            let heartsHtml = '';
+            for(let i=0; i<maxStrikes; i++) {
+                if(i < strikes) heartsHtml += '<span class="text-gray-300 text-xl">🖤</span>';
+                else heartsHtml += '<span class="text-red-500 text-xl">❤️</span>';
+            }
+            livesContainer.innerHTML = heartsHtml;
+            livesContainer.classList.add('heart-bounce');
+            setTimeout(() => livesContainer.classList.remove('heart-bounce'), 500);
+        }
+
+        // UI 스타일 업데이트
+        q.options.forEach((_, index) => {
+            const btn = document.getElementById(`option-${index}`);
+            btn.classList.remove('hover:border-indigo-400', 'hover:bg-indigo-50');
+            btn.classList.add('cursor-default');
+
+            if (index === q.answer) {
+                btn.classList.remove('border-gray-200');
+                btn.classList.add('border-green-500', 'bg-green-50', 'text-green-800');
+                btn.innerHTML += `<span class="float-right text-green-500 font-bold">✓ 정답</span>`;
+            } else if (index === selectedIndex && !isCorrect) {
+                btn.classList.remove('border-gray-200');
+                btn.classList.add('border-red-500', 'bg-red-50', 'text-red-800');
+                btn.innerHTML += `<span class="float-right text-red-500 font-bold">✗ 오답</span>`;
+            } else {
+                btn.classList.add('opacity-40');
+            }
+        });
+
+        // 피드백 표시
+        const feedbackArea = document.getElementById('feedback-area');
+        const feedbackTitle = document.getElementById('feedback-title');
+        const feedbackDesc = document.getElementById('feedback-desc');
+
+        feedbackArea.classList.remove('hidden');
+        if (isCorrect) {
+            feedbackArea.classList.add('bg-green-100/50', 'border', 'border-green-200');
+            feedbackTitle.classList.add('text-green-700');
+            feedbackTitle.innerText = "🎉 정답입니다!";
+        } else {
+            feedbackArea.classList.add('bg-red-100/50', 'border', 'border-red-200');
+            feedbackTitle.classList.add('text-red-700');
+            feedbackTitle.innerText = "💥 틀렸습니다!";
+        }
+
+        let formattedExplanation = q.explanation.replace(/`([^`]+)`/g, '<span class="bg-black/5 text-gray-800 px-1 rounded font-mono text-sm">$1</span>');
+        feedbackDesc.innerHTML = formattedExplanation;
+
+        // 스크롤 이동
+        setTimeout(() => {
+            feedbackArea.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }, 100);
+
+        // 다음 버튼 상태 업데이트
+        const nextBtn = document.getElementById('next-btn');
+        nextBtn.disabled = false;
+        nextBtn.classList.remove('bg-gray-200', 'text-gray-400', 'cursor-not-allowed');
+
+        if (strikes >= maxStrikes) {
+            nextBtn.innerText = "결과 보기";
+            nextBtn.classList.add('bg-gray-800', 'text-white', 'hover:bg-gray-900', 'active:scale-95');
+        } else {
+            nextBtn.innerText = "다음 문제";
+            nextBtn.classList.add('bg-indigo-600', 'text-white', 'hover:bg-indigo-700', 'active:scale-95');
+        }
+    }
+
+    // 4. 다음 문제 또는 AI 생성 핸들러
+    async function handleNextClick() {
+        if (!hasAnswered) return;
+
+        if (strikes >= maxStrikes) {
+            renderResultScreen();
+            return;
+        }
+
+        currentQuestionIndex++;
+
+        // 남은 문제가 없으면 AI 호출
+        if (currentQuestionIndex >= quizData.length) {
+            await fetchMoreQuestions();
+        } else {
+            renderQuestion();
+        }
+    }
+
+    // 5. AI 문제 생성 및 로딩
+    async function fetchMoreQuestions() {
+        difficultyLevel++; // 난이도 증가
+        const diffMap = {2: '초중급', 3: '중급', 4: '중고급', 5: '고급', 6: '전문가'};
+        const diffText = diffMap[difficultyLevel] || '매우 어려운 전문가';
+
+        // 로딩 화면
+        contentDiv.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full p-6 text-center bg-white fade-in">
+                    <div class="loading-spinner mb-6"></div>
+                    <h2 class="text-xl font-bold text-gray-800 mb-2">Level ${difficultyLevel} 진입!</h2>
+                    <p class="text-gray-500">AI가 ${diffText} 수준의 새로운<br>문제를 생성하고 있습니다...</p>
+                </div>
+            `;
+
+        const prompt = `안드로이드(Android) 및 코틀린(Kotlin) 개발자를 위한 객관식 퀴즈 10개를 생성해주세요.
+난이도: ${diffText}.
+조건:
+1. 각 문제는 반드시 4개의 보기를 가질 것.
+2. 정답 인덱스(answer)는 0에서 3사이의 정수.
+3. 문제에 코드가 필요하면 'code' 필드에 코틀린 코드 삽입 (없으면 null).
+4. 'explanation' 필드에 왜 그것이 정답인지 상세한 해설 포함.
+5. 마크다운 없이 순수 JSON 배열만 반환할 것.`;
+
+        const payload = {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "ARRAY",
+                    items: {
+                        type: "OBJECT",
+                        properties: {
+                            question: { type: "STRING" },
+                            code: { type: "STRING", nullable: true },
+                            options: { type: "ARRAY", items: { type: "STRING" } },
+                            answer: { type: "INTEGER" },
+                            explanation: { type: "STRING" }
+                        },
+                        required: ["question", "options", "answer", "explanation"]
+                    }
+                }
+            }
+        };
+
+        let success = false;
+        let retryCount = 0;
+        const delays = [1000, 2000, 4000]; // 지수 백오프
+
+        while (!success && retryCount < 4) {
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error("API Request Failed");
+
+                const data = await response.json();
+                const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                const newQuestions = JSON.parse(jsonText);
+
+                if(newQuestions && newQuestions.length > 0) {
+                    quizData = quizData.concat(newQuestions);
+                    success = true;
+                } else {
+                    throw new Error("Empty Array");
+                }
+            } catch (e) {
+                retryCount++;
+                if (retryCount < 4) {
+                    await new Promise(r => setTimeout(r, delays[retryCount-1] || 1000));
+                }
+            }
+        }
+
+        if (success) {
+            renderQuestion();
+        } else {
+            // 실패 시 안전하게 게임 종료 처리
+            contentDiv.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full p-6 text-center bg-white fade-in">
+                        <span class="text-4xl mb-4">📡</span>
+                        <h2 class="text-xl font-bold text-gray-800 mb-2">통신 오류</h2>
+                        <p class="text-gray-500 mb-6">문제 생성 서버와 연결이 끊어졌습니다.<br>현재까지의 점수로 결과를 확인합니다.</p>
+                        <button onclick="renderResultScreen()" class="bg-indigo-600 text-white font-bold py-3 px-8 rounded-xl">
+                            결과 보기
+                        </button>
+                    </div>
+                `;
+        }
+    }
+
+    // 6. 결과 및 통계 화면
+    function renderResultScreen() {
+        // 통계 계산 (가상의 분포 데이터 활용)
+        let percentile = 100;
+        let titleMsg = "";
+        let colorClass = "bg-gray-400";
+
+        if (score === 0) { percentile = 99; titleMsg = "초심자"; colorClass = "bg-gray-400"; }
+        else if (score < 5) { percentile = 80; titleMsg = "견습생"; colorClass = "bg-blue-400"; }
+        else if (score < 10) { percentile = 50; titleMsg = "주니어 개발자"; colorClass = "bg-green-400"; }
+        else if (score < 20) { percentile = 20; titleMsg = "미들급 개발자"; colorClass = "bg-indigo-500"; }
+        else if (score < 30) { percentile = 5; titleMsg = "시니어 개발자"; colorClass = "bg-purple-500"; }
+        else { percentile = 1; titleMsg = "안드로이드 마스터"; colorClass = "bg-rose-500"; }
+
+        // 차트 데이터 (분포도)
+        const chartData = [
+            { label: '0~4', height: 'h-16', active: score < 5 },
+            { label: '5~9', height: 'h-32', active: score >= 5 && score < 10 },
+            { label: '10~19', height: 'h-24', active: score >= 10 && score < 20 },
+            { label: '20~29', height: 'h-10', active: score >= 20 && score < 30 },
+            { label: '30+', height: 'h-4', active: score >= 30 }
+        ];
+
+        const chartHtml = chartData.map(c => `
+                <div class="flex flex-col items-center flex-1">
+                    <div class="w-full flex items-end justify-center h-32 mb-2">
+                        <div class="w-full max-w-[40px] rounded-t-sm transition-all duration-1000 ${c.active ? colorClass : 'bg-gray-200'} ${c.height} ${c.active ? 'shadow-lg relative' : ''}">
+                            ${c.active ? `<div class="absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-bold text-gray-800 bg-white px-2 py-1 rounded shadow-md whitespace-nowrap">You</div>` : ''}
+                        </div>
+                    </div>
+                    <span class="text-[10px] text-gray-400 font-medium">${c.label}</span>
+                </div>
+            `).join('');
+
+        contentDiv.innerHTML = `
+                <div class="flex flex-col items-center h-full p-6 bg-gray-50 fade-in overflow-y-auto pb-10">
+                    <h2 class="text-2xl font-black text-gray-800 mt-8 mb-2">Game Over</h2>
+                    <p class="text-gray-500 font-medium mb-8">모든 기회를 소진했습니다.</p>
+
+                    <!-- 스코어 보드 -->
+                    <div class="bg-white rounded-3xl p-8 w-full shadow-lg border border-gray-100 mb-8 text-center relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-full h-2 ${colorClass}"></div>
+                        <p class="text-sm font-bold text-gray-400 tracking-widest uppercase mb-1">${titleMsg}</p>
+                        <div class="text-6xl font-black text-gray-800 mb-2">${score}<span class="text-2xl text-gray-400 font-medium ml-1">점</span></div>
+                        <p class="text-indigo-600 font-bold bg-indigo-50 inline-block px-4 py-1.5 rounded-full mt-2">
+                            상위 ${percentile}% 수준입니다!
+                        </p>
+                    </div>
+
+                    <!-- 분포 차트 -->
+                    <div class="w-full bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-8">
+                        <h3 class="text-sm font-bold text-gray-700 mb-6 text-center">전체 참가자 분포도</h3>
+                        <div class="flex items-end justify-between gap-1 h-40">
+                            ${chartHtml}
+                        </div>
+                        <p class="text-xs text-center text-gray-400 mt-4">* 본 데이터는 가상의 시뮬레이션 결과입니다.</p>
+                    </div>
+
+                    <button onclick="renderStartScreen()" class="w-full max-w-[250px] bg-gray-900 text-white font-bold py-4 px-8 rounded-2xl shadow-xl hover:bg-black transition-colors active:scale-95 text-lg">
+                        새로 도전하기
+                    </button>
+                </div>
+            `;
+    }
+
+    // --- 앱 시작 ---
+    function startQuiz() {
+        renderQuestion();
+    }
+
+    renderStartScreen();
+
+</script>
+</body>
+</html>

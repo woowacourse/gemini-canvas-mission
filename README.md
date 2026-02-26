@@ -13,7 +13,7 @@ Gemini Canvas 미션 결과물을 관리하는 저장소입니다.
 ### 앱 이름
 우아한 핑계
 ### 배포 링크
-https://gemini.google.com/share/536a3dcd87cc
+https://gemini.google.com/share/cb398ef58bfa
 ### 이 앱을 만든 이유
 
 - 어떤 문제/불편함을 해결하려고 했나요?
@@ -44,7 +44,7 @@ Gemini API를 활용한 텍스트 생성 기능을 추가했습니다.
 ### 앱 이름
 우아한 레이싱
 ### 배포 링크
-https://gemini.google.com/share/446d278a9321
+https://gemini.google.com/share/af8b09855e3a
 ### 이 앱을 만든 이유
 
 - 어떤 문제/불편함을 해결하려고 했나요?
@@ -86,7 +86,7 @@ https://gemini.google.com/share/446d278a9321
 ### 앱 이름
 우아한 알고리즘
 ### 배포 링크
-https://gemini.google.com/share/67838a0b1631
+https://gemini.google.com/share/3861fa8bbf8c
 ### 이 앱을 만든 이유
 개발자 취준생 입장에서 알고리즘이 제일 공부하기 싫고 어려웠습니다.
 문제를 풀려고 달려들면 막히고, 계속 막히다보면 진이 빠지는 경험을 많이 해봤습니다.

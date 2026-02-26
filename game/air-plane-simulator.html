@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Wanderer - 3D Flight Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
+        }
+        #webgl-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            pointer-events: none;
+        }
+        #intro-screen {
+            position: absolute;
+            inset: 0;
+            z-index: 50;
+            background-color: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s ease;
+            pointer-events: auto;
+        }
+        .pointer-events-auto {
+            pointer-events: auto;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            color: #ffffff;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            transition: all 0.5s ease;
+        }
+        .night-mode-ui {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #e2e8f0;
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            margin-top: -8px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 3px;
+        }
+        /* 스킨 버튼 활성화 상태 */
+        .skin-active {
+            border-color: #ffffff;
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body>
+
+<div id="webgl-container"></div>
+
+<!-- 진입 화면 -->
+<div id="intro-screen">
+    <div class="glass-panel p-8 w-[380px] flex flex-col gap-6 shadow-2xl">
+        <h1 class="text-3xl font-bold text-center">Cloud Wanderer</h1>
+
+        <!-- 맵 선택 -->
+        <div class="flex flex-col gap-2">
+            <label class="text-sm font-bold uppercase tracking-wider">Select Map</label>
+            <select id="map-select" class="bg-black/30 border border-white/30 rounded p-2 text-white outline-none cursor-pointer">
+                <option value="forest" class="text-black">🌲 Green Forest (Trees)</option>
+                <option value="desert" class="text-black">🏜️ Sandy Desert (Pyramids)</option>
+                <option value="snow" class="text-black">❄️ Snowy Mountain (Pines)</option>
+                <option value="city" class="text-black">🏙️ Night City (Buildings)</option>
+            </select>
+        </div>
+
+        <!-- 비행기 타입 & 스킨 선택 -->
+        <div class="flex flex-col gap-2">
+            <label class="text-sm font-bold uppercase tracking-wider">Airplane Type & Skin</label>
+            <div class="flex gap-4 justify-center" id="skin-select-container">
+                <button class="skin-btn w-12 h-12 rounded-lg bg-[#e63946] border-4 skin-active cursor-pointer transition-transform" data-color="0xe63946" data-type="classic" title="Classic Red"></button>
+                <button class="skin-btn w-12 h-12 rounded-lg bg-[#457b9d] border-4 border-transparent cursor-pointer transition-transform" data-color="0x457b9d" data-type="jet" title="Blue Jet"></button>
+                <button class="skin-btn w-12 h-12 rounded-lg bg-[#e9c46a] border-4 border-transparent cursor-pointer transition-transform" data-color="0xe9c46a" data-type="glider" title="Yellow Glider"></button>
+                <button class="skin-btn w-12 h-12 rounded-lg bg-[#2b2d42] border-4 border-transparent cursor-pointer transition-transform" data-color="0x2b2d42" data-type="stealth" title="Dark Stealth"></button>
+            </div>
+        </div>
+
+        <!-- 비행 시작 버튼 -->
+        <button id="btn-start" class="mt-4 bg-white text-black font-bold text-lg py-3 rounded hover:bg-gray-200 active:scale-95 transition-all shadow-lg">
+            Start Flight ✈️
+        </button>
+    </div>
+</div>
+
+<!-- 인게임 UI -->
+<div id="ui-layer" class="p-6 flex justify-between items-start opacity-0 transition-opacity duration-1000">
+    <div id="hud-panel" class="glass-panel p-4 flex flex-col gap-2 min-w-[150px]">
+        <h1 class="text-xl font-bold mb-1">Cloud Wanderer</h1>
+        <div class="flex justify-between items-center">
+            <span class="text-sm uppercase tracking-wider opacity-80">ALTITUDE</span>
+            <span id="alt-value" class="font-mono font-bold text-lg">0</span>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-sm uppercase tracking-wider opacity-80">SPEED</span>
+            <span id="speed-value" class="font-mono font-bold text-lg">0</span>
+        </div>
+        <div class="mt-2 text-xs opacity-70">
+            WASD / Arrows : Move
+        </div>
+    </div>
+
+    <div class="flex flex-col gap-4 items-end">
+        <button id="toggle-time-btn" class="glass-panel pointer-events-auto px-6 py-3 font-bold hover:bg-white/30 active:scale-95 transition-transform cursor-pointer">
+            🌙 Night Mode
+        </button>
+
+        <div id="throttle-panel" class="glass-panel pointer-events-auto p-4 flex flex-col items-center gap-2 w-40">
+            <label class="text-sm font-bold uppercase tracking-wider">Throttle</label>
+            <input type="range" id="throttle-slider" min="0.2" max="1.5" step="0.01" value="0.5">
+            <div class="text-xs opacity-70">Space / Shift</div>
+        </div>
+    </div>
+
+    <!-- 우측 하단 홈 버튼 (누락된 DOM 요소 추가) -->
+    <button id="btn-home" class="glass-panel pointer-events-auto absolute bottom-6 right-6 px-6 py-3 font-bold hover:bg-white/30 active:scale-95 transition-transform cursor-pointer shadow-lg">
+        🏠 Home
+    </button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+    class CloudWanderer {
+        constructor() {
+            this.state = {
+                isPlaying: false,
+                speed: 0.5,
+                isNight: false,
+                colorProgress: 0,
+                currentMap: 'forest',
+                airplaneType: 'classic',
+                airplaneColor: 0xe63946
+            }
+
+            this.mapThemes = {
+                forest: { ground: 0x2e5c3a, day: 0x87CEEB, night: 0x0a1128 },
+                desert: { ground: 0xd4a373, day: 0xffb703, night: 0x280000 },
+                snow: { ground: 0xf8f9fa, day: 0xade8f4, night: 0x03045e },
+                city: { ground: 0x2b2b2b, day: 0x788e96, night: 0x111b24 } // 도시 테마 추가
+            }
+
+            this.config = {
+                baseSpeed: 0.5,
+                maxSpeed: 1.5,
+                minSpeed: 0.2,
+                turnSpeed: 0.02,
+                pitchSpeed: 0.015,
+                cameraOffset: new THREE.Vector3(0, 6, -15),
+                minHeight: 15,
+                dayColor: new THREE.Color(0x87CEEB),
+                nightColor: new THREE.Color(0x0a1128),
+                dayLightInt: 1.0,
+                nightLightInt: 0.2
+            }
+
+            this.initEngine()
+
+            // 그룹 초기화
+            this.airplane = new THREE.Group()
+            this.airplane.position.set(0, 50, 0)
+            this.scene.add(this.airplane)
+
+            this.sceneryGroup = new THREE.Group()
+            this.scene.add(this.sceneryGroup)
+
+            this.rotations = { pitch: 0, roll: 0, yaw: 0 }
+            this.sceneryObjects = []
+            this.propeller = null // 프로펠러가 없는 제트기를 위해 널러블 처리
+
+            this.buildAirplane(this.state.airplaneType, this.state.airplaneColor)
+            this.initEnvironment()
+            this.buildScenery(this.state.currentMap) // 맵에 맞는 지형지물 생성
+            this.initInput()
+            this.initUI()
+
+            this.animate()
+        }
+
+        initEngine() {
+            this.container = document.getElementById('webgl-container')
+
+            this.scene = new THREE.Scene()
+            this.scene.background = new THREE.Color(this.config.dayColor)
+            this.scene.fog = new THREE.Fog(this.config.dayColor, 50, 500) // 가시거리 조금 증가
+
+            this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1500)
+
+            this.renderer = new THREE.WebGLRenderer({ antialias: true })
+            this.renderer.setSize(window.innerWidth, window.innerHeight)
+            this.renderer.setPixelRatio(window.devicePixelRatio)
+            this.container.appendChild(this.renderer.domElement)
+
+            window.addEventListener('resize', this.onWindowResize.bind(this))
+        }
+
+        // 메모리 누수 방지용: Group 내부의 Mesh 리소스 완전 해제
+        clearGroup(group) {
+            while (group.children.length > 0) {
+                const child = group.children[0]
+                group.remove(child)
+                if (child.geometry) child.geometry.dispose()
+                if (child.material) child.material.dispose()
+            }
+        }
+
+        // 비행기 외형(Geometry)과 색상 재조립 (Recomposition)
+        buildAirplane(type, hexColor) {
+            this.clearGroup(this.airplane)
+            this.propeller = null
+
+            const bodyMat = new THREE.MeshPhongMaterial({ color: hexColor, flatShading: true })
+            const wingMat = new THREE.MeshPhongMaterial({ color: 0xf1faee, flatShading: true })
+            const darkMat = new THREE.MeshPhongMaterial({ color: 0x1d3557, flatShading: true })
+
+            if (type === 'classic') {
+                // 클래식 프로펠러기
+                const bodyGeo = new THREE.BoxGeometry(2, 2, 8)
+                const body = new THREE.Mesh(bodyGeo, bodyMat)
+
+                const wingGeo = new THREE.BoxGeometry(12, 0.4, 3)
+                const wing = new THREE.Mesh(wingGeo, wingMat)
+                wing.position.set(0, 0, 1)
+
+                const tailV = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.5, 2), bodyMat)
+                tailV.position.set(0, 1.5, -3.5)
+
+                const tailH = new THREE.Mesh(new THREE.BoxGeometry(4, 0.2, 1.5), wingMat)
+                tailH.position.set(0, 0.5, -3.5)
+
+                this.propeller = new THREE.Group()
+                this.propeller.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), darkMat))
+                this.propeller.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 6, 0.4), darkMat))
+                this.propeller.position.set(0, 0, 4.2)
+
+                this.airplane.add(body, wing, tailV, tailH, this.propeller)
+
+            } else if (type === 'jet') {
+                // 제트기 (삼각 날개, 후퇴익, 프로펠러 없음)
+                const bodyGeo = new THREE.CylinderGeometry(0.8, 1.5, 10, 8)
+                bodyGeo.rotateX(Math.PI / 2)
+                const body = new THREE.Mesh(bodyGeo, bodyMat)
+
+                // 후퇴익 느낌을 주기 위해 날개를 뒤로 빼고 각도를 줌
+                const wingGeo = new THREE.BoxGeometry(14, 0.4, 4)
+                const wing = new THREE.Mesh(wingGeo, wingMat)
+                wing.position.set(0, -0.2, -1)
+                wing.rotation.x = 0.1
+
+                const tailV = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3, 3), bodyMat)
+                tailV.position.set(0, 1.5, -4)
+                tailV.rotation.x = -0.3
+
+                // 제트 엔진 2개
+                const engineGeo = new THREE.CylinderGeometry(0.6, 0.6, 3, 8)
+                engineGeo.rotateX(Math.PI / 2)
+                const engineL = new THREE.Mesh(engineGeo, darkMat)
+                engineL.position.set(-2, -0.5, -2)
+                const engineR = new THREE.Mesh(engineGeo, darkMat)
+                engineR.position.set(2, -0.5, -2)
+
+                this.airplane.add(body, wing, tailV, engineL, engineR)
+
+            } else if (type === 'glider') {
+                // 글라이더 (매우 긴 날개, 얇은 동체)
+                const bodyGeo = new THREE.BoxGeometry(1, 1, 10)
+                const body = new THREE.Mesh(bodyGeo, bodyMat)
+
+                const wingGeo = new THREE.BoxGeometry(24, 0.2, 1.5)
+                const wing = new THREE.Mesh(wingGeo, wingMat)
+                wing.position.set(0, 0.5, 1)
+
+                const tailV = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2, 1), bodyMat)
+                tailV.position.set(0, 1, -4.5)
+
+                const tailH = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 1), wingMat)
+                tailH.position.set(0, 0.5, -4.5)
+
+                this.airplane.add(body, wing, tailV, tailH)
+
+            } else if (type === 'stealth') {
+                // 스텔스기 (각진 삼각형 형태)
+                const bodyGeo = new THREE.ConeGeometry(5, 12, 4)
+                bodyGeo.rotateX(Math.PI / 2)
+                bodyGeo.rotateY(Math.PI / 4) // 마름모 형태로 회전
+                const body = new THREE.Mesh(bodyGeo, bodyMat)
+
+                const cockpitGeo = new THREE.BoxGeometry(2, 1, 3)
+                const cockpit = new THREE.Mesh(cockpitGeo, darkMat)
+                cockpit.position.set(0, 1, 1)
+
+                this.airplane.add(body, cockpit)
+            }
+        }
+
+        // 팩토리 패턴: 맵 테마에 따른 지면 풍경(나무, 산, 빌딩) 생성
+        buildScenery(mapType) {
+            this.clearGroup(this.sceneryGroup)
+            this.sceneryObjects = []
+
+            const count = mapType === 'city' ? 100 : 80 // 도시는 건물을 더 빽빽하게
+
+            for (let i = 0; i < count; i++) {
+                const group = new THREE.Group()
+
+                if (mapType === 'forest') {
+                    // 소나무 (원뿔 + 원기둥)
+                    const isMountain = Math.random() > 0.8
+                    if (isMountain) {
+                        const mtn = new THREE.Mesh(
+                            new THREE.ConeGeometry(30 + Math.random() * 20, 60 + Math.random() * 40, 4),
+                            new THREE.MeshPhongMaterial({ color: 0x1b4332, flatShading: true })
+                        )
+                        mtn.position.y = 30
+                        group.add(mtn)
+                    } else {
+                        const trunk = new THREE.Mesh(
+                            new THREE.CylinderGeometry(1, 1, 5),
+                            new THREE.MeshPhongMaterial({ color: 0x5c4033 })
+                        )
+                        trunk.position.y = 2.5
+                        const leaves = new THREE.Mesh(
+                            new THREE.ConeGeometry(4, 10, 5),
+                            new THREE.MeshPhongMaterial({ color: 0x2d6a4f, flatShading: true })
+                        )
+                        leaves.position.y = 10
+                        group.add(trunk, leaves)
+                    }
+                } else if (mapType === 'desert') {
+                    // 피라미드와 바위
+                    const isPyramid = Math.random() > 0.7
+                    if (isPyramid) {
+                        const pyr = new THREE.Mesh(
+                            new THREE.ConeGeometry(20, 30, 4),
+                            new THREE.MeshPhongMaterial({ color: 0xe9c46a, flatShading: true })
+                        )
+                        pyr.position.y = 15
+                        group.add(pyr)
+                    } else {
+                        const rock = new THREE.Mesh(
+                            new THREE.DodecahedronGeometry(3 + Math.random() * 5),
+                            new THREE.MeshPhongMaterial({ color: 0x8a817c, flatShading: true })
+                        )
+                        rock.position.y = 2
+                        group.add(rock)
+                    }
+                } else if (mapType === 'snow') {
+                    // 눈 덮인 산
+                    const mtn = new THREE.Mesh(
+                        new THREE.ConeGeometry(20 + Math.random() * 15, 40 + Math.random() * 40, 5),
+                        new THREE.MeshPhongMaterial({ color: 0xffffff, flatShading: true })
+                    )
+                    mtn.position.y = 20
+                    group.add(mtn)
+                } else if (mapType === 'city') {
+                    // 고층 빌딩 (다양한 높이의 Box)
+                    const height = 20 + Math.random() * 80
+                    const width = 10 + Math.random() * 15
+                    const buildingMat = new THREE.MeshPhongMaterial({
+                        color: 0x4a4e69,
+                        flatShading: true,
+                        // 도시는 밤에 빛나도록 에미시브(발광) 설정
+                        emissive: Math.random() > 0.5 ? 0x22223b : 0x000000,
+                        emissiveIntensity: 0.5
+                    })
+                    const building = new THREE.Mesh(
+                        new THREE.BoxGeometry(width, height, width),
+                        buildingMat
+                    )
+                    building.position.y = height / 2
+                    group.add(building)
+                }
+
+                this.resetSceneryPosition(group)
+                // 초기화를 위해 위치를 사방에 분산
+                group.position.x = this.airplane.position.x + (Math.random() - 0.5) * 1000
+                group.position.z = this.airplane.position.z + (Math.random() - 0.5) * 1000
+
+                this.sceneryGroup.add(group)
+                this.sceneryObjects.push(group)
+            }
+        }
+
+        initEnvironment() {
+            this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8)
+            this.hemiLight.position.set(0, 200, 0)
+            this.scene.add(this.hemiLight)
+
+            this.dirLight = new THREE.DirectionalLight(0xffffff, 0.8)
+            this.dirLight.position.set(100, 100, 50)
+            this.scene.add(this.dirLight)
+
+            const groundGeo = new THREE.PlaneGeometry(3000, 3000) // 바닥을 더 넓게
+            this.groundMat = new THREE.MeshPhongMaterial({ color: 0x2e5c3a, flatShading: true })
+            this.ground = new THREE.Mesh(groundGeo, this.groundMat)
+            this.ground.rotation.x = -Math.PI / 2
+            this.ground.position.y = 0
+            this.scene.add(this.ground)
+
+            this.clouds = []
+            const cloudGeo = new THREE.BoxGeometry(10, 10, 10)
+            const cloudMat = new THREE.MeshPhongMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.7,
+                flatShading: true
+            })
+
+            for (let i = 0; i < 60; i++) {
+                const cloudGroup = new THREE.Group()
+                const partsCount = 3 + Math.floor(Math.random() * 4)
+
+                for (let j = 0; j < partsCount; j++) {
+                    const part = new THREE.Mesh(cloudGeo, cloudMat)
+                    part.position.set(
+                        (Math.random() - 0.5) * 15,
+                        (Math.random() - 0.5) * 5,
+                        (Math.random() - 0.5) * 15
+                    )
+                    part.scale.set(1 + Math.random(), 0.5 + Math.random(), 1 + Math.random())
+                    cloudGroup.add(part)
+                }
+
+                this.resetCloudPosition(cloudGroup)
+                cloudGroup.position.z = (Math.random() - 0.5) * 1000
+                this.scene.add(cloudGroup)
+                this.clouds.push(cloudGroup)
+            }
+        }
+
+        initInput() {
+            this.keys = {
+                w: false, a: false, s: false, d: false,
+                ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
+                ' ': false, Shift: false
+            }
+
+            window.addEventListener('keydown', (e) => {
+                const key = e.key === ' ' ? ' ' : e.key
+                if (this.keys.hasOwnProperty(key)) this.keys[key] = true
+            })
+
+            window.addEventListener('keyup', (e) => {
+                const key = e.key === ' ' ? ' ' : e.key
+                if (this.keys.hasOwnProperty(key)) this.keys[key] = false
+            })
+        }
+
+        initUI() {
+            this.altValue = document.getElementById('alt-value')
+            this.speedValue = document.getElementById('speed-value')
+            this.hudPanel = document.getElementById('hud-panel')
+            this.throttleSlider = document.getElementById('throttle-slider')
+            this.throttlePanel = document.getElementById('throttle-panel')
+            this.uiLayer = document.getElementById('ui-layer')
+
+            this.throttleSlider.addEventListener('input', (e) => {
+                this.state.speed = parseFloat(e.target.value)
+            })
+
+            // 맵 선택 및 팩토리 패턴 호출
+            const mapSelect = document.getElementById('map-select')
+            mapSelect.addEventListener('change', (e) => {
+                this.state.currentMap = e.target.value
+                const theme = this.mapThemes[this.state.currentMap]
+
+                this.config.dayColor.setHex(theme.day)
+                this.config.nightColor.setHex(theme.night)
+                this.groundMat.color.setHex(theme.ground)
+
+                if (!this.state.isNight) {
+                    this.scene.background = this.config.dayColor
+                    this.scene.fog.color = this.config.dayColor
+                }
+
+                // 맵이 변경되면 배경 오브젝트 재성성
+                this.buildScenery(this.state.currentMap)
+            })
+
+            // 스킨 및 타입 선택
+            const skinBtns = document.querySelectorAll('.skin-btn')
+            skinBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    skinBtns.forEach(b => {
+                        b.classList.remove('skin-active')
+                        b.classList.add('border-transparent')
+                    })
+                    btn.classList.remove('border-transparent')
+                    btn.classList.add('skin-active')
+
+                    this.state.airplaneType = btn.dataset.type
+                    this.state.airplaneColor = parseInt(btn.dataset.color)
+
+                    // 비행기 리컴포지션
+                    this.buildAirplane(this.state.airplaneType, this.state.airplaneColor)
+                })
+            })
+
+            const startBtn = document.getElementById('btn-start')
+            startBtn.addEventListener('click', () => {
+                document.getElementById('intro-screen').style.opacity = '0'
+                setTimeout(() => {
+                    document.getElementById('intro-screen').style.display = 'none'
+                    this.uiLayer.style.opacity = '1'
+                    this.state.isPlaying = true
+
+                    // 도시 맵 선택 시 시작부터 야간 모드로 연출
+                    if (this.state.currentMap === 'city' && !this.state.isNight) {
+                        document.getElementById('toggle-time-btn').click()
+                    }
+                }, 500)
+            })
+
+            const toggleBtn = document.getElementById('toggle-time-btn')
+            toggleBtn.addEventListener('click', () => {
+                this.state.isNight = !this.state.isNight
+                toggleBtn.innerText = this.state.isNight ? "☀️ Day Mode" : "🌙 Night Mode"
+
+                if (this.state.isNight) {
+                    this.hudPanel.classList.add('night-mode-ui')
+                    this.throttlePanel.classList.add('night-mode-ui')
+                    toggleBtn.classList.add('night-mode-ui')
+                    document.getElementById('btn-home').classList.add('night-mode-ui')
+                } else {
+                    this.hudPanel.classList.remove('night-mode-ui')
+                    this.throttlePanel.classList.remove('night-mode-ui')
+                    toggleBtn.classList.remove('night-mode-ui')
+                    document.getElementById('btn-home').classList.remove('night-mode-ui')
+                }
+            })
+
+            // 홈 버튼 이벤트: 안드로이드의 popBackStack()과 유사한 뷰 리셋
+            const homeBtn = document.getElementById('btn-home')
+            homeBtn.addEventListener('click', () => {
+                this.state.isPlaying = false
+                this.uiLayer.style.opacity = '0'
+
+                const introScreen = document.getElementById('intro-screen')
+                introScreen.style.display = 'flex'
+
+                // 디스플레이 속성 변경 후 브라우저 렌더링을 기다린 뒤 투명도를 조절해야 애니메이션이 적용됩니다
+                setTimeout(() => {
+                    introScreen.style.opacity = '1'
+                }, 50)
+            })
+        }
+
+        onWindowResize() {
+            this.camera.aspect = window.innerWidth / window.innerHeight
+            this.camera.updateProjectionMatrix()
+            this.renderer.setSize(window.innerWidth, window.innerHeight)
+        }
+
+        resetCloudPosition(cloud) {
+            const distance = 300 + Math.random() * 400
+            const angle = (Math.random() - 0.5) * Math.PI
+            const planeYaw = this.airplane.rotation.y
+
+            cloud.position.x = this.airplane.position.x + Math.sin(planeYaw + angle) * distance
+            cloud.position.z = this.airplane.position.z + Math.cos(planeYaw + angle) * distance
+            cloud.position.y = 40 + Math.random() * 150
+        }
+
+        // 지상 오브젝트 재배치 (RecyclerView의 Item 재사용과 같은 원리)
+        resetSceneryPosition(obj) {
+            const distance = 400 + Math.random() * 600
+            const angle = (Math.random() - 0.5) * Math.PI
+            const planeYaw = this.airplane.rotation.y
+
+            obj.position.x = this.airplane.position.x + Math.sin(planeYaw + angle) * distance
+            obj.position.z = this.airplane.position.z + Math.cos(planeYaw + angle) * distance
+        }
+
+        updateAirplane() {
+            if (this.keys[' ']) {
+                this.state.speed = Math.min(this.config.maxSpeed, this.state.speed + 0.01)
+                this.throttleSlider.value = this.state.speed
+            } else if (this.keys['Shift']) {
+                this.state.speed = Math.max(this.config.minSpeed, this.state.speed - 0.01)
+                this.throttleSlider.value = this.state.speed
+            }
+
+            let targetPitch = 0
+            let targetRoll = 0
+
+            if (this.keys.w || this.keys.ArrowUp) targetPitch = -Math.PI / 4
+            if (this.keys.s || this.keys.ArrowDown) targetPitch = Math.PI / 4
+
+            // 피드백 반영: 조작 반전. 이제 A를 누르면 왼쪽(-)으로 기울고, D를 누르면 오른쪽(+)으로 기웁니다.
+            if (this.keys.a || this.keys.ArrowLeft) targetRoll = -Math.PI / 3
+            if (this.keys.d || this.keys.ArrowRight) targetRoll = Math.PI / 3
+
+            if (this.airplane.position.y < this.config.minHeight) {
+                const emergencyFactor = (this.config.minHeight - this.airplane.position.y) / this.config.minHeight
+                targetPitch = -Math.PI / 3 * emergencyFactor
+
+                // 빌딩 맵에서는 최저 고도를 조금 더 높여서 부딪히는 느낌 방지
+                const floorY = this.state.currentMap === 'city' ? 30 : 5
+                if (this.airplane.position.y < floorY) {
+                    this.airplane.position.y = floorY
+                }
+            }
+
+            this.rotations.pitch += (targetPitch - this.rotations.pitch) * 0.05
+            this.rotations.roll += (targetRoll - this.rotations.roll) * 0.05
+            // Roll에 의한 Yaw 발생 방향도 직관성을 위해 동기화
+            this.rotations.yaw -= this.rotations.roll * this.config.turnSpeed
+
+            this.airplane.rotation.set(this.rotations.pitch, this.rotations.yaw, this.rotations.roll, 'YXZ')
+
+            const direction = new THREE.Vector3(0, 0, 1)
+            direction.applyQuaternion(this.airplane.quaternion)
+
+            this.airplane.position.addScaledVector(direction, this.state.speed)
+
+            // 프로펠러가 있는 기체만 회전 적용
+            if (this.propeller) {
+                this.propeller.rotation.z += this.state.speed * 0.5
+            }
+        }
+
+        updateCamera() {
+            const idealOffset = this.config.cameraOffset.clone()
+            idealOffset.applyQuaternion(this.airplane.quaternion)
+            idealOffset.add(this.airplane.position)
+
+            this.camera.position.lerp(idealOffset, 0.1)
+            this.camera.lookAt(this.airplane.position)
+        }
+
+        updateEnvironment() {
+            this.ground.position.x = this.airplane.position.x
+            this.ground.position.z = this.airplane.position.z
+
+            this.clouds.forEach(cloud => {
+                if (cloud.position.distanceTo(this.airplane.position) > 800) {
+                    this.resetCloudPosition(cloud)
+                }
+            })
+
+            // 지형 오브젝트 거리 체크 및 재사용 풀링
+            this.sceneryObjects.forEach(obj => {
+                if (obj.position.distanceTo(this.airplane.position) > 1000) {
+                    this.resetSceneryPosition(obj)
+                }
+            })
+
+            const targetProgress = this.state.isNight ? 1 : 0
+            this.state.colorProgress += (targetProgress - this.state.colorProgress) * 0.02
+
+            const currentColor = new THREE.Color()
+            currentColor.lerpColors(this.config.dayColor, this.config.nightColor, this.state.colorProgress)
+            this.scene.background = currentColor
+            this.scene.fog.color = currentColor
+
+            const intensityDiff = this.config.dayLightInt - this.config.nightLightInt
+            this.dirLight.intensity = this.config.dayLightInt - (intensityDiff * this.state.colorProgress)
+            this.hemiLight.intensity = this.config.dayLightInt - (intensityDiff * this.state.colorProgress * 0.8)
+        }
+
+        updateUI() {
+            const altitude = Math.floor(this.airplane.position.y)
+            const speedDisplay = Math.floor((this.state.speed / this.config.maxSpeed) * 300)
+
+            this.altValue.innerText = `${altitude} FT`
+            this.speedValue.innerText = `${speedDisplay} KTS`
+        }
+
+        animate() {
+            requestAnimationFrame(this.animate.bind(this))
+
+            if (this.state.isPlaying) {
+                this.updateAirplane()
+            } else if (this.propeller) {
+                this.propeller.rotation.z += 0.05
+            }
+
+            this.updateCamera()
+            this.updateEnvironment()
+            this.updateUI()
+
+            this.renderer.render(this.scene, this.camera)
+        }
+    }
+
+    window.onload = () => {
+        const app = new CloudWanderer()
+    }
+</script>
+</body>
+</html>

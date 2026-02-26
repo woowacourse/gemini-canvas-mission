@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우테코 생활 가이드북 챗봇</title>
+    <style>
+        /* [디자인 근거]
+          Gemini 서비스의 미니멀하고 깔끔한 UI를 벤치마킹하기 위해 CSS 변수를 활용한 테마 시스템을 구축했습니다.
+          Flexbox를 적극 활용하여 사이드바와 메인 채팅창의 반응형 레이아웃을 구성했습니다.
+        */
+        :root {
+          --bg-color: #f0f4f9;
+          --sidebar-bg: #e3e8ee;
+          --chat-bg: #ffffff;
+          --text-primary: #1f1f1f;
+          --text-secondary: #444746;
+          --user-msg-bg: #e3e3e3;
+          --model-msg-bg: #ffffff;
+          --input-bg: #f0f4f9;
+          --border-color: #e0e0e0;
+          --accent-color: #0b57d0;
+          --font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+        }
+
+        /* [근거] 다크모드 대응을 위한 CSS 변수 덮어쓰기 로직입니다. */
+        [data-theme="dark"] {
+          --bg-color: #131314;
+          --sidebar-bg: #1e1f20;
+          --chat-bg: #131314;
+          --text-primary: #e3e3e3;
+          --text-secondary: #c4c7c5;
+          --user-msg-bg: #444746;
+          --model-msg-bg: #131314;
+          --input-bg: #1e1f20;
+          --border-color: #444746;
+          --accent-color: #a8c7fa;
+        }
+
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+
+        body {
+          font-family: var(--font-family);
+          background-color: var(--bg-color);
+          color: var(--text-primary);
+          display: flex;
+          height: 100vh;
+          overflow: hidden;
+        }
+
+        /* 사이드바 영역 */
+        .sidebar {
+          width: 260px;
+          background-color: var(--sidebar-bg);
+          padding: 20px;
+          display: flex;
+          flex-direction: column;
+          border-right: 1px solid var(--border-color);
+          transition: transform 0.3s ease;
+        }
+
+        .sidebar-title {
+          font-size: 1.2rem;
+          font-weight: 700;
+          margin-bottom: 30px;
+          color: var(--text-primary);
+        }
+
+        .sidebar-section {
+          font-weight: 700;
+          font-size: 0.95rem;
+          color: var(--text-secondary);
+          margin-top: 16px;
+          margin-bottom: 8px;
+          padding-left: 5px;
+        }
+
+        .sidebar-menu {
+          list-style: none;
+          overflow-y: auto;
+          flex: 1;
+        }
+
+        .sidebar-menu li {
+          padding: 8px 15px;
+          margin-bottom: 4px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 0.9rem;
+          font-weight: 500;
+          background-color: transparent;
+          transition: background-color 0.2s;
+        }
+
+        .sidebar-menu li:hover {
+          background-color: rgba(0,0,0,0.08);
+        }
+
+        /* 메인 채팅 영역 */
+        .main-content {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          background-color: var(--chat-bg);
+          position: relative;
+        }
+
+        .header {
+          padding: 20px 30px;
+          border-bottom: 1px solid var(--border-color);
+          display: flex;
+          align-items: center;
+        }
+
+        .header h1 {
+          font-size: 1.5rem;
+          font-weight: 600;
+        }
+
+        .chat-container {
+          flex: 1;
+          overflow-y: auto;
+          padding: 30px;
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
+          scroll-behavior: smooth;
+        }
+
+        .message-wrapper {
+          display: flex;
+          flex-direction: column;
+          max-width: 800px;
+          margin: 0 auto;
+          width: 100%;
+        }
+
+        .message {
+          padding: 16px 20px;
+          border-radius: 12px;
+          line-height: 1.6;
+          font-size: 1rem;
+          word-break: keep-all;
+        }
+
+        .message.user {
+          align-self: flex-end;
+          background-color: var(--user-msg-bg);
+          color: var(--text-primary);
+          border-bottom-right-radius: 4px;
+          max-width: 80%;
+        }
+
+        .message.model {
+          align-self: flex-start;
+          background-color: var(--model-msg-bg);
+          color: var(--text-primary);
+          max-width: 90%;
+        }
+
+        .message.model p {
+          margin-bottom: 12px;
+        }
+        .message.model p:last-child {
+          margin-bottom: 0;
+        }
+        .message.model ul, .message.model ol {
+          margin-left: 20px;
+          margin-bottom: 12px;
+        }
+        .message.model li {
+          margin-bottom: 4px;
+        }
+        .message.model strong {
+          font-weight: 700;
+        }
+
+        /* 액션 버튼 영역 (복사, 수정) */
+        .action-container {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 8px;
+        }
+
+        .icon-btn {
+          background: none;
+          border: none;
+          color: var(--text-secondary);
+          cursor: pointer;
+          padding: 6px 10px;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 0.85rem;
+          transition: background-color 0.2s, color 0.2s;
+        }
+
+        .icon-btn:hover {
+          background-color: rgba(0, 0, 0, 0.05);
+          color: var(--text-primary);
+        }
+
+        [data-theme="dark"] .icon-btn:hover {
+          background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .header-actions {
+          margin-left: auto;
+        }
+
+        /* 입력 영역 */
+        .input-container {
+          padding: 20px 30px;
+          background-color: var(--chat-bg);
+          display: flex;
+          justify-content: center;
+        }
+
+        .input-box {
+          width: 100%;
+          max-width: 800px;
+          background-color: var(--input-bg);
+          border-radius: 24px;
+          padding: 8px 16px;
+          display: flex;
+          align-items: center;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+          border: 1px solid transparent;
+          transition: border-color 0.2s;
+        }
+
+        .input-box:focus-within {
+          border-color: var(--accent-color);
+        }
+
+        .input-box textarea {
+          flex: 1;
+          background: transparent;
+          border: none;
+          outline: none;
+          resize: none;
+          padding: 12px 8px;
+          font-size: 1rem;
+          font-family: inherit;
+          color: var(--text-primary);
+          max-height: 150px;
+          min-height: 24px;
+          overflow-y: hidden;
+        }
+
+        .send-btn {
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 10px;
+          color: var(--accent-color);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          transition: background-color 0.2s;
+        }
+
+        .send-btn:hover {
+          background-color: rgba(11, 87, 208, 0.1);
+        }
+
+        .send-btn:disabled {
+          color: #aaa;
+          cursor: not-allowed;
+        }
+
+        /* 로딩 인디케이터 */
+        .loading {
+          display: none;
+          align-self: flex-start;
+          padding: 16px 20px;
+          color: var(--text-secondary);
+          font-style: italic;
+        }
+        .loading.active {
+          display: block;
+        }
+
+        /* 반응형 레이아웃 */
+        @media (max-width: 768px) {
+          .sidebar {
+            display: none;
+          }
+          .input-box {
+            border-radius: 16px;
+          }
+        }
+    </style>
+</head>
+<body>
+
+<aside class="sidebar">
+    <div class="sidebar-title">우테코 챗봇</div>
+    <div id="sidebarMenuContainer" style="display: flex; flex-direction: column; height: 100%; overflow: hidden;">
+        <!-- JS에서 목차가 렌더링됩니다 -->
+    </div>
+</aside>
+
+<main class="main-content">
+    <header class="header">
+        <h1>테크코스 생활 가이드북 (판교ver)</h1>
+        <div class="header-actions">
+            <button id="themeToggleBtn" class="icon-btn" aria-label="테마 변경">
+                🌗 테마 변경
+            </button>
+        </div>
+    </header>
+
+    <div class="chat-container" id="chatContainer">
+        <div class="message-wrapper">
+            <div class="message model">
+                <p>반가워요 크루! 우아한테크코스 판교 캠퍼스 생활 가이드북 챗봇입니다.</p>
+                <p>생활 규칙, 출결, 시설 이용 등 궁금한 점을 질문해 주시면 가이드북에 기반하여 상세하게 답변해 드리겠습니다.</p>
+            </div>
+        </div>
+        <!-- 메시지가 추가되는 영역 -->
+        <div class="loading" id="loadingIndicator">답변을 작성하고 있습니다...</div>
+    </div>
+
+    <div class="input-container">
+        <div class="input-box">
+            <textarea id="userInput" rows="1" placeholder="가이드북 내용 중 궁금한 점을 질문해 주세요."></textarea>
+            <button id="sendBtn" class="send-btn" aria-label="메시지 보내기">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+</main>
+
+<script>
+    /* [데이터 구조화 근거]
+      피드백을 반영하여 목차(TOC) 구조로 데이터를 세분화했습니다.
+      사이드바에서 직접 내용을 출력할 수 있도록 객체 배열 형태로 관리하며,
+      LLM에게 전달할 때도 상세한 정보 추출이 가능하도록 구성했습니다.
+      배열과 객체의 후행 쉼표(Trailing Comma)는 철저히 배제했습니다.
+    */
+    const GUIDEBOOK_TOC = [
+      {
+        section: "1. 테크코스 생활 준비",
+        items: [
+          {
+            title: "교육 진행 일정",
+            content: "교육 시간은 월~금, 10시~18시입니다.\n\n각 레벨이 끝난 후, 1주 혹은 2주의 방학이 주어집니다. (단, 레벨4와 레벨5 사이는 방학 없음)\n휴교일은 토요일, 일요일, 법정공휴일입니다.\n\n[진행 일정]\n- 레벨1 (3~4월, 8주), 방학 (1주 또는 2주)\n- 레벨2 (5~6월, 9주), 방학\n- 레벨3 (7~8월, 8주), 방학\n- 레벨4 (9~10월, 9주)\n- 레벨5 (11~12월, 4주) 및 수료식"
+          },
+          {
+            title: "수료 조건",
+            content: "레벨별 주어지는 미션을 완료해야 수료할 수 있습니다. (미션 완료 기준은 강의 전 공유)\n\n프로그래밍 미션뿐만 아니라, 소프트 스킬 미션 또한 완료해야 수료할 수 있습니다.\n중도에 레벨을 포기하거나, 미션을 완료하지 못하는 경우 다음 레벨로 넘어갈 수 없습니다.\n출석 일수 및 생활 규칙을 포함한 Honor Code를 위반한 학생들은 제적 조치되며, 그에 따라 수료 또한 불가능합니다."
+          },
+          {
+            title: "네트워크 설정하기",
+            content: "1. 알쓸크잡 시트 > 네트워크 계정 탭에 접속합니다.\n2. 본인의 ID/비밀번호를 확인합니다.\n3. 와이파이 woowanet에 해당 ID/비밀번호로 연결합니다. (CA 인증서는 인증 안 함으로 설정)\n\n[주의사항]\n- 출결 시스템을 이용하려면 사전에 모바일 디바이스로 네트워크 연결 필수\n- 1계정당 장비 3대 제한\n- 타인 계정 사용, 불법 행위 및 해킹, 과도한 트래픽 유발 금지\n- macOS Sequoia (15) 버전은 Wi-Fi 주소 순환 옵션 해제 필수"
+          },
+          {
+            title: "닉네임(별칭) 만들기",
+            content: "우아한테크코스 크루 및 코치들은 이름이 아닌 닉네임을 사용합니다.\n자연스러운 소통을 위해 본인만의 개성 있는 닉네임을 만들어 주세요.\n- 글자수: 2-4자 한글 권장 (검색 용이 목적)\n- 예시: 포비, 제이슨, 워니, 브라운, 네오 등"
+          },
+          {
+            title: "Slack 메신저 사용하기",
+            content: "크루 및 코치와의 소통 메신저로 슬랙(Slack)을 사용합니다.\n- 주소: woowacourse.slack.com\n- 이름 설정 규칙: 닉네임(이름) 예: 포비(박재성)\n- username: Github ID(소문자)로 설정\n- 원활한 소통을 위해 모바일 앱 설치를 강력히 권장합니다."
+          },
+          {
+            title: "Zoom 사용하기",
+            content: "상황에 맞추어 온라인으로 강의를 진행 시 Zoom을 사용합니다.\n- 강의 시작 5분 전 세팅 완료 (지각 금지)\n- 참여 이름 형식: 과정_닉네임 (예: BE_워니, FE_준)\n- 강의 중 비디오(카메라) On 유지, 마이크 Off 유지\n- 질문이 있다면 '손들기' 기능을 사용"
+          }
+        ]
+      },
+      {
+        section: "2. 테크코스 생활 규칙",
+        items: [
+          {
+            title: "판교 캠퍼스 이용 규칙",
+            content: "판교 캠퍼스는 11층~14층을 사용할 수 있습니다. 주중 및 토요일만 이용 가능하며, 방학 중에는 이용이 제한됩니다.\n\n- 이용 가능 시간: 주중 및 토요일 8:00~23:00 (되도록 23시 이전 하교)\n- 18:00 이후 및 토요일은 11층만 사용 가능\n- 이석 시 짐은 배정된 사물함에 보관\n- 첫 입실자/마지막 퇴실자는 슬랙 'n기-왔다감' 채널에 보고 의무 (마지막 퇴실자는 소등 및 에어컨 확인 필수, 누락 시 페널티)"
+          },
+          {
+            title: "출입증 사용",
+            content: "출입증은 항상 소지해야 하며 본인 출입증만 사용해야 합니다.\n- 분실/파손 시 재발급 비용: 6,000원 (본인 부담)\n- 재발급 소요 시간: 약 3주\n- 비용은 우아한형제들 계좌에 직접 입금 후 코치에게 보고"
+          },
+          {
+            title: "셔틀버스",
+            content: "셔틀버스 운행 시작일: 2026년 2월 24일~\n\n[노선 및 시간]\n- 등교 (판교역 1번 출구 -> 판교 캠퍼스): 8시 50분, 9시 30분 각각 2대 운행\n- 하교 (판교 캠퍼스 -> 판교역 1번 출구): 18시 30분, 19시 20분 1대씩 운행"
+          },
+          {
+            title: "구내식당",
+            content: "구내식당(E동 지하1층) 운영 정보입니다.\n- 운영 시간: 평일 중식 11시 20분~13시 (배식 마감 13시)\n- 급식 단가: 7,500원 (VAT 포함)\n- 이용 방법: GourmetPlace 앱 결제 후 QR 인증 또는 입구 키오스크 현장 결제 후 식권 제출"
+          },
+          {
+            title: "출결 관리 규칙",
+            content: "교육 시간(월~금, 10시~18시)을 반드시 준수해야 합니다.\n\n[출결 페널티 기준]\n- 10:01~10:30 등교: 무단 지각 1회 (제적 점수 1점)\n- 무단 지각 3회: 결석 1회로 간주 (제적 점수 3점)\n- 10:31 이후 등교: 무단 결석 1회 (제적 점수 3점)\n- 제적 점수 12점 이상: 채용 프로세스 시 기업 피드백에 기록 전달\n- 제적 점수 15점 초과: 퇴소 (우테코 채용 지원 불가)\n- 공식 종료 시간 이전 무단 조퇴 금지 (병가 등은 사전 승인 필수)"
+          },
+          {
+            title: "원온원 규칙",
+            content: "코치별 원온원 신청 방법을 확인 후 신청합니다.\n- 원온원 하루 전까지 사전 설문 제출 필수\n- 사전 설문 미제출 시 원온원 자동 취소"
+          },
+          {
+            title: "생활 규칙 핵심",
+            content: "1. 물리적 폭력, 언어 폭력, 성폭력 발생 시 즉시 퇴소\n2. 물품 절도 시 즉시 퇴소\n3. 음주 후 교육장 출입 금지\n4. 허가 장소 외 흡연 금지 (반복 시 퇴소)\n5. 교육시간 내 PC/모바일 게임 금지\n6. 교육장 내 취사/취침 금지"
+          }
+        ]
+      },
+      {
+        section: "3. 테크코스 플랫폼",
+        items: [
+          {
+            title: "찜꽁 (회의실 예약)",
+            content: "회의실과 페어룸 예약은 '찜꽁' 플랫폼을 이용합니다.\n- 최대 예약 가능 시간: 1시간\n- 레벨 3~4 팀 단위 예약: 하루 최대 2시간 (연속 어뷰징 금지)\n- 노쇼(No-show) 발생 시 일주일간 예약 불가 페널티 부과\n- 미사용 시 사전 예약 취소 필수"
+          }
+        ]
+      },
+      {
+        section: "4. Honor Code",
+        items: [
+          {
+            title: "Honor Code",
+            content: "크루들은 우아한테크코스와 자신의 명예를 위해 스스로의 양심을 지킵니다.\n1. 모든 말과 행동에 책임을 진다.\n2. 정직하고 성실해야 한다.\n3. 어떤 종류의 차별도 하지 않는다.\n4. 구성원의 인격과 권리를 존중한다.\n5. 사사로운 이익을 위해 배려와 기여에 감사하고 부정한 행위를 하지 않는다.\n6. 자산을 소중히 여기며 부당하게 사용하지 않는다."
+          }
+        ]
+      }
+    ];
+
+    /*
+      [API 클라이언트 객체 설계 근거]
+      Gemini 2.5 API 스펙을 충족하기 위한 통신 로직입니다.
+      재시도(Exponential Backoff) 로직을 포함하여 안정적인 네트워크 통신을 보장합니다.
+    */
+    const APIClient = {
+      apiKey: "", // 실행 환경에서 런타임에 주입됨
+      endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent",
+
+      async generate(messageHistory) {
+        const url = `${this.endpoint}?key=${this.apiKey}`;
+
+        // 데이터 배열을 문자열로 변환하여 컨텍스트로 제공
+        const contextData = JSON.stringify(GUIDEBOOK_TOC, null, 2);
+
+        // PODO님을 위한 환각 방지 및 상세 답변 유도 시스템 프롬프트
+        const systemPrompt = `
+당신은 우아한테크코스 판교 캠퍼스 크루들을 돕는 '생활 가이드북 챗봇'입니다.
+다음 [제공된 가이드북 데이터]만을 바탕으로 사용자의 질문에 한국어로 대답하세요.
+
+[규칙]
+1. 가이드북 데이터에 명시된 내용으로만 답변을 구성하세요. 없는 내용은 단호하게 "가이드북에 명시되어 있지 않습니다."라고 거절하세요.
+2. 답변은 매우 상세하고 구체적으로 작성하세요. 모호한 답변을 피하고 가이드북의 수치, 시간, 징계 기준 등을 빠짐없이 포함하세요.
+3. 사용자에게 가독성 높은 형태(불릿 포인트 '-', 번호 매기기 등)로 정리하여 친절한 어투(~입니다, ~합니다)로 답변하세요.
+4. 사용자를 지칭할 때는 항상 "크루"라고 부르며, 절대로 반말을 사용하지 마세요. (예: 반가워요 크루!)
+
+[제공된 가이드북 데이터]
+${contextData}
+        `.trim();
+
+        const payload = {
+          contents: messageHistory,
+          systemInstruction: {
+            parts: [{ text: systemPrompt }]
+          }
+        };
+
+        return this.fetchWithRetry(url, payload);
+      },
+
+      async fetchWithRetry(url, payload, retries = 5) {
+        const delays = [1000, 2000, 4000, 8000, 16000];
+        for (let i = 0; i < retries; i++) {
+          try {
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text) throw new Error("유효한 응답 텍스트가 없습니다.");
+
+            return text;
+          } catch (error) {
+            if (i === retries - 1) throw error;
+            await new Promise(resolve => setTimeout(resolve, delays[i]));
+          }
+        }
+      }
+    };
+
+    /*
+      [UI 및 상태 관리 클래스 설계 근거]
+      DOM 조작 로직을 하나의 클래스로 묶어 전역 변수 오염을 막고 상태(state) 관리를 명확하게 합니다.
+      챗봇의 맥락(Context)을 유지하기 위해 history 배열을 관리합니다.
+    */
+    class ChatApp {
+      constructor() {
+        this.history = [];
+        this.lastUserTurn = null; // 가장 최근 프롬프트 상태를 추적하기 위한 변수
+        this.initDOM();
+        this.initTheme();
+        this.renderSidebar();
+        this.bindEvents();
+      }
+
+      initDOM() {
+        this.chatContainer = document.getElementById('chatContainer');
+        this.loadingIndicator = document.getElementById('loadingIndicator');
+        this.userInput = document.getElementById('userInput');
+        this.sendBtn = document.getElementById('sendBtn');
+        this.sidebarMenuContainer = document.getElementById('sidebarMenuContainer');
+        this.themeToggleBtn = document.getElementById('themeToggleBtn');
+      }
+
+      initTheme() {
+        // [근거] 사용자의 마지막 테마 선택을 localStorage에서 불러와 UX 일관성을 유지합니다.
+        const savedTheme = localStorage.getItem('chat-theme');
+        if (savedTheme === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+
+        this.themeToggleBtn.addEventListener('click', () => {
+          const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+          if (isDark) {
+            document.documentElement.removeAttribute('data-theme');
+            localStorage.setItem('chat-theme', 'light');
+          } else {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            localStorage.setItem('chat-theme', 'dark');
+          }
+        });
+      }
+
+      renderSidebar() {
+        const ul = document.createElement('ul');
+        ul.className = 'sidebar-menu';
+
+        GUIDEBOOK_TOC.forEach(sectionGroup => {
+          const sectionTitle = document.createElement('div');
+          sectionTitle.className = 'sidebar-section';
+          sectionTitle.textContent = sectionGroup.section;
+          ul.appendChild(sectionTitle);
+
+          sectionGroup.items.forEach(item => {
+            const li = document.createElement('li');
+            li.textContent = item.title;
+            li.addEventListener('click', () => {
+              this.handleSidebarDirectOutput(item.title, item.content);
+            });
+            ul.appendChild(li);
+          });
+        });
+
+        this.sidebarMenuContainer.innerHTML = '';
+        this.sidebarMenuContainer.appendChild(ul);
+      }
+
+      handleSidebarDirectOutput(title, content) {
+        // 사이드바 버튼 클릭 시 이전 수정 버튼 무효화
+        if (this.lastUserTurn && this.lastUserTurn.editBtnElement) {
+          this.lastUserTurn.editBtnElement.remove();
+          this.lastUserTurn = null;
+        }
+
+        const query = `${title} 섹션 내용 보여줘`;
+        this.userInput.value = '';
+        this.userInput.style.height = 'auto';
+        this.appendMessage('user', query);
+
+        // LLM을 거치지 않고 내용을 바로 출력하여 신속하고 정확한 정보 제공
+        const formattedContent = `<strong>[${title}]</strong>\n\n${content}`;
+
+        this.history.push(
+          { role: "user", parts: [{ text: query }] },
+          { role: "model", parts: [{ text: formattedContent }] }
+        );
+
+        this.appendMessage('model', formattedContent);
+      }
+
+      bindEvents() {
+        this.sendBtn.addEventListener('click', () => this.handleSend());
+        this.userInput.addEventListener('keydown', (e) => {
+          // 모바일 엔터와 데스크톱 엔터를 구분하여 Shift+Enter 시 줄바꿈 적용
+          if (e.key === 'Enter' && !e.shiftKey && !this.isMobile()) {
+            e.preventDefault();
+            this.handleSend();
+          }
+        });
+
+        this.userInput.addEventListener('input', () => {
+          this.adjustTextareaHeight();
+        });
+      }
+
+      isMobile() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      }
+
+      adjustTextareaHeight() {
+        this.userInput.style.height = 'auto';
+        this.userInput.style.height = (this.userInput.scrollHeight) + 'px';
+      }
+
+      setExampleQuery(text) {
+        this.userInput.value = text;
+        this.adjustTextareaHeight();
+        this.handleSend();
+      }
+
+      parseMarkdown(text) {
+        // 간단한 마크다운 파싱 (볼드체, 불릿 리스트)
+        let html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+        // 줄바꿈을 p 태그 또는 br 태그로 변환
+        const paragraphs = html.split('\n\n');
+        const formattedParagraphs = paragraphs.map(p => {
+          // 불릿 포인트 변환
+          if (p.includes('\n- ') || p.startsWith('- ')) {
+            const items = p.split('\n').map(line => {
+              if (line.trim().startsWith('- ')) {
+                return `<li>${line.replace(/^- /, '')}</li>`;
+              }
+              return line;
+            }).join('');
+            return `<ul>${items}</ul>`;
+          }
+          return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+        });
+
+        return formattedParagraphs.join('');
+      }
+
+      appendMessage(role, text) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper';
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${role}`;
+
+        if (role === 'model') {
+          msgDiv.innerHTML = this.parseMarkdown(text);
+
+          // [근거] 챗봇의 응답 하단에 복사하기 버튼을 추가하여 정보 공유 편의성 증대
+          const actionContainer = document.createElement('div');
+          actionContainer.className = 'action-container';
+
+          const copyBtn = document.createElement('button');
+          copyBtn.className = 'icon-btn';
+          copyBtn.innerHTML = '📋 복사하기';
+          copyBtn.addEventListener('click', () => this.handleCopy(text, copyBtn));
+
+          actionContainer.appendChild(copyBtn);
+          msgDiv.appendChild(actionContainer);
+        } else {
+          msgDiv.textContent = text;
+        }
+
+        wrapper.appendChild(msgDiv);
+        this.chatContainer.insertBefore(wrapper, this.loadingIndicator);
+        this.scrollToBottom();
+
+        return wrapper;
+      }
+
+      handleCopy(text, btnElement) {
+        // [근거] iFrame 등 제한적인 환경에서도 클립보드 복사를 보장하기 위해 execCommand 폴백 사용
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          document.execCommand('copy');
+          const originalText = btnElement.innerHTML;
+          btnElement.innerHTML = '✅ 복사 완료';
+          setTimeout(() => {
+            btnElement.innerHTML = originalText;
+          }, 2000);
+        } catch (err) {
+          console.error('복사 실패', err);
+        }
+        document.body.removeChild(textarea);
+      }
+
+      scrollToBottom() {
+        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+      }
+
+      setLoading(isLoading) {
+        if (isLoading) {
+          this.loadingIndicator.classList.add('active');
+          this.sendBtn.disabled = true;
+          this.userInput.disabled = true;
+        } else {
+          this.loadingIndicator.classList.remove('active');
+          this.sendBtn.disabled = false;
+          this.userInput.disabled = false;
+          this.userInput.focus();
+        }
+        this.scrollToBottom();
+      }
+
+      async handleSend() {
+        const text = this.userInput.value.trim();
+        if (!text) return;
+
+        // UI 초기화
+        this.userInput.value = '';
+        this.userInput.style.height = 'auto';
+
+        // [근거] '가장 최근 프롬프트에 제한' 조건 충족을 위해 이전 버튼 제거
+        if (this.lastUserTurn && this.lastUserTurn.editBtnElement) {
+          this.lastUserTurn.editBtnElement.remove();
+        }
+
+        // 히스토리 롤백을 위한 현재 길이 저장
+        const historyLengthBefore = this.history.length;
+        const userWrapper = this.appendMessage('user', text);
+
+        // 유저 메시지 버블 안에 수정 버튼 생성
+        const editBtn = document.createElement('button');
+        editBtn.className = 'icon-btn';
+        editBtn.style.marginTop = '8px';
+        editBtn.innerHTML = '✏️ 질문 수정';
+        editBtn.addEventListener('click', () => this.handleEditLastPrompt());
+        userWrapper.querySelector('.message.user').appendChild(editBtn);
+
+        // 현재 턴의 상태 저장
+        this.lastUserTurn = {
+          text: text,
+          userWrapper: userWrapper,
+          modelWrapper: null,
+          editBtnElement: editBtn,
+          historyLengthBefore: historyLengthBefore
+        };
+
+        this.setLoading(true);
+
+        // 컨텍스트에 추가
+        this.history.push({
+          role: "user",
+          parts: [{ text: text }]
+        });
+
+        try {
+          const responseText = await APIClient.generate(this.history);
+
+          // 모델 응답 컨텍스트에 추가
+          this.history.push({
+            role: "model",
+            parts: [{ text: responseText }]
+          });
+
+          const modelWrapper = this.appendMessage('model', responseText);
+          if (this.lastUserTurn) {
+            this.lastUserTurn.modelWrapper = modelWrapper;
+          }
+        } catch (error) {
+          console.error("API 연동 에러:", error);
+          const errorWrapper = this.appendMessage('model', '네트워크 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+          if (this.lastUserTurn) {
+            this.lastUserTurn.modelWrapper = errorWrapper;
+          }
+          // 오류 발생 시 사용자 질문 내역 롤백
+          this.history.pop();
+        } finally {
+          this.setLoading(false);
+        }
+      }
+
+      handleEditLastPrompt() {
+        if (!this.lastUserTurn) return;
+
+        // [근거] 질문을 수정할 때 기존 텍스트를 입력창에 복구하여 재입력 수고 절감
+        this.userInput.value = this.lastUserTurn.text;
+        this.adjustTextareaHeight();
+        this.userInput.focus();
+
+        // UI(DOM)에서 가장 최근의 대화 노드 제거
+        if (this.lastUserTurn.userWrapper) {
+          this.lastUserTurn.userWrapper.remove();
+        }
+        if (this.lastUserTurn.modelWrapper) {
+          this.lastUserTurn.modelWrapper.remove();
+        }
+
+        // [근거] 환각을 막기 위해 LLM에게 전달될 history 배열을 질문 이전 상태로 롤백
+        this.history = this.history.slice(0, this.lastUserTurn.historyLengthBefore);
+        this.lastUserTurn = null;
+      }
+    }
+
+    // 앱 초기화
+    const app = new ChatApp();
+</script>
+</body>
+</html>

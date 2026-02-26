@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyHub - 올인원 스터디 허브</title>
+    
+    <!-- Tailwind CSS & Typography Plugin (for Markdown) -->
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Marked.js (Markdown Parser) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- DOMPurify (for safe Markdown rendering) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: {} }
+        }
+    </script>
+
+    <style>
+        /* 커스텀 스크롤바 */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background-color: #e4e4e7; border-radius: 20px; }
+        ::-webkit-scrollbar-thumb:hover { background-color: #d4d4d8; }
+        
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 로딩 스피너 애니메이션 */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="flex flex-col h-screen w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans overflow-hidden transition-colors">
+
+    <!-- 1. 상단 글로벌 네비게이션 & AI 입력 바 -->
+    <header class="h-16 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between px-6 shrink-0 z-10 shadow-sm transition-colors">
+        <div class="w-1/5 flex items-center gap-2">
+            <div class="bg-indigo-600 p-1.5 rounded-lg">
+                <i data-lucide="book-open" class="w-5 h-5 text-white"></i>
+            </div>
+            <span class="font-bold text-lg tracking-tight dark:text-zinc-100">Study<span class="text-indigo-600 dark:text-indigo-400">Hub</span></span>
+            <button id="btn-theme-toggle" class="ml-2 p-1.5 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="다크모드 전환">
+                <i data-lucide="sun" class="w-4 h-4 hidden dark:block"></i>
+                <i data-lucide="moon" class="w-4 h-4 block dark:hidden"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 flex justify-center max-w-3xl px-4">
+            <form id="global-ask-form" class="w-full relative group">
+                <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400 group-focus-within:text-indigo-500 transition-colors"></i>
+                <input 
+                    type="text"
+                    id="global-ask-input"
+                    placeholder="AI에게 질문하거나 위키백과를 검색해보세요 (Enter로 전송)"
+                    class="w-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200/80 dark:hover:bg-zinc-700 focus:bg-white dark:focus:bg-zinc-900 rounded-full pl-12 pr-4 py-2.5 text-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:shadow-md border border-transparent focus:border-indigo-200 dark:focus:border-indigo-500 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500"
+                />
+            </form>
+        </div>
+
+        <div class="w-1/5 flex justify-end gap-2">
+           <button 
+                id="btn-layout-split"
+                class="p-2 rounded-md transition-colors bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
+                title="기본 분할 뷰 (4:4)"
+            >
+                <i data-lucide="columns" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- 2. 메인 워크스페이스 -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- ================= 좌측 사이드바 (20%) ================= -->
+        <aside class="w-1/5 h-full bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col shrink-0 transition-colors">
+            
+            <!-- 음악 플레이어 위젯 -->
+            <div class="p-4 border-b border-zinc-200 dark:border-zinc-800">
+                <div class="bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-4 overflow-hidden relative group transition-colors">
+                    <audio id="audio-player" loop></audio>
+                    
+                    <div class="flex items-center gap-3 mb-3">
+                        <div id="disk-cover" class="w-10 h-10 rounded-full bg-gradient-to-tr from-green-400 to-emerald-600 flex items-center justify-center shadow-inner transition-transform duration-700">
+                            <i data-lucide="music" class="w-4 h-4 text-white"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 id="track-title" class="text-sm font-semibold truncate dark:text-zinc-100">1. Focus Beat 1</h3>
+                            <p id="track-artist" class="text-xs text-zinc-500 dark:text-zinc-400 truncate">SoundHelix</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex flex-col gap-3">
+                        <div class="flex items-center justify-center gap-3">
+                            <button id="btn-prev-track" class="w-8 h-8 flex items-center justify-center text-zinc-500 dark:text-zinc-400 hover:text-green-600 dark:hover:text-green-400 transition-colors">
+                                <i data-lucide="skip-back" class="w-4 h-4"></i>
+                            </button>
+                            <button id="btn-play-pause" class="w-10 h-10 flex items-center justify-center bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 text-green-600 dark:text-green-400 rounded-full transition-colors">
+                                <span id="wrapper-play" class="flex items-center justify-center"><i data-lucide="play" class="w-5 h-5 ml-0.5"></i></span>
+                                <span id="wrapper-pause" class="hidden items-center justify-center"><i data-lucide="pause" class="w-5 h-5"></i></span>
+                            </button>
+                            <button id="btn-next-track" class="w-8 h-8 flex items-center justify-center text-zinc-500 dark:text-zinc-400 hover:text-green-600 dark:hover:text-green-400 transition-colors">
+                                <i data-lucide="skip-forward" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i id="icon-vol-mute" data-lucide="volume-x" class="w-4 h-4 text-zinc-400 hidden"></i>
+                            <i id="icon-vol-on" data-lucide="volume-2" class="w-4 h-4 text-zinc-400"></i>
+                            <input 
+                                type="range" 
+                                id="volume-slider"
+                                min="0" max="1" step="0.05" value="0.5"
+                                class="w-full h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 노트 리스트 -->
+            <div class="flex-1 overflow-y-auto p-3">
+                <div class="flex items-center justify-between mb-2 px-2">
+                    <span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">내 문서</span>
+                    <button id="btn-new-note" class="p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-colors">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div id="note-list-container" class="space-y-1">
+                    <!-- Notes will be injected here via JS -->
+                </div>
+            </div>
+        </aside>
+
+        <!-- ================= 중앙 에디터 영역 (40% -> 확장시 80%) ================= -->
+        <section id="panel-editor" class="w-2/5 h-full bg-white dark:bg-zinc-950 flex flex-col transition-all duration-300">
+            <!-- 에디터 툴바 -->
+            <div class="h-12 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between px-6 shrink-0 transition-colors">
+                <div class="flex items-center gap-2">
+                    <div class="bg-zinc-100 dark:bg-zinc-800 p-1 rounded-md flex gap-1">
+                        <button id="tab-write" class="px-3 py-1 text-xs font-medium rounded bg-white dark:bg-zinc-700 shadow-sm text-zinc-800 dark:text-zinc-100 transition-colors">작성</button>
+                        <button id="tab-preview" class="px-3 py-1 text-xs font-medium rounded text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors">마크다운 미리보기</button>
+                    </div>
+                    <span id="save-status" class="text-xs text-zinc-400 dark:text-zinc-500 ml-2">저장됨</span>
+                </div>
+                <button id="btn-maximize-editor" class="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded text-zinc-500 dark:text-zinc-400 transition-colors" title="에디터 전체화면">
+                    <i data-lucide="maximize-2" class="w-4 h-4" id="icon-max-editor"></i>
+                </button>
+            </div>
+
+            <!-- 에디터 본문 -->
+            <div class="flex-1 overflow-y-auto px-10 py-8 relative">
+                <div class="max-w-3xl mx-auto flex flex-col h-full">
+                    <input
+                        type="text"
+                        id="editor-title"
+                        placeholder="제목 없음"
+                        class="w-full text-4xl font-bold text-zinc-800 dark:text-zinc-100 placeholder-zinc-300 dark:placeholder-zinc-600 border-none focus:outline-none focus:ring-0 mb-6 bg-transparent"
+                    />
+                    
+                    <!-- Write Mode -->
+                    <textarea
+                        id="editor-content"
+                        placeholder="마크다운(Markdown) 형식으로 내용을 입력하세요..."
+                        class="w-full flex-1 resize-none text-zinc-700 dark:text-zinc-300 text-base leading-relaxed placeholder-zinc-400 dark:placeholder-zinc-600 border-none focus:outline-none focus:ring-0 bg-transparent"
+                    ></textarea>
+                    
+                    <!-- Preview Mode -->
+                    <div id="editor-preview" class="w-full flex-1 hidden prose prose-indigo dark:prose-invert max-w-none text-zinc-800 dark:text-zinc-200">
+                        <!-- Markdown will be rendered here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= 우측 검색/AI 패널 (40% -> 확장시 80%) ================= -->
+        <section id="panel-right" class="w-2/5 h-full bg-zinc-50 dark:bg-zinc-950 border-l border-zinc-200 dark:border-zinc-800 flex flex-col transition-all duration-300">
+            <!-- 우측 패널 탭 (Gemini vs 위키백과) -->
+            <div class="h-12 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between px-4 bg-white dark:bg-zinc-900 shrink-0 transition-colors">
+                <div class="flex gap-1 bg-zinc-100 dark:bg-zinc-800 p-1 rounded-md">
+                    <button id="tab-gemini" class="px-3 py-1 text-xs font-medium rounded bg-white dark:bg-zinc-700 shadow-sm text-zinc-800 dark:text-zinc-100 transition-colors flex items-center gap-1.5">
+                        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400"></i> AI 검색
+                    </button>
+                    <button id="tab-wiki" class="px-3 py-1 text-xs font-medium rounded text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors flex items-center gap-1.5">
+                        <i data-lucide="book" class="w-3.5 h-3.5"></i> 위키백과
+                    </button>
+                </div>
+                
+                <button id="btn-maximize-right" class="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded text-zinc-500 dark:text-zinc-400 transition-colors" title="패널 전체화면">
+                    <i data-lucide="maximize-2" class="w-4 h-4" id="icon-max-right"></i>
+                </button>
+            </div>
+
+            <!-- === 1. Mini Gemini AI 뷰 === -->
+            <div id="view-gemini" class="flex-1 flex flex-col overflow-hidden relative">
+                <!-- 대화 기록 영역 -->
+                <div id="gemini-chat-history" class="flex-1 overflow-y-auto p-4 space-y-4">
+                    <div class="flex items-start gap-3">
+                        <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center shrink-0">
+                            <i data-lucide="bot" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i>
+                        </div>
+                        <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl rounded-tl-none px-4 py-3 shadow-sm text-sm text-zinc-700 dark:text-zinc-300 max-w-[90%] transition-colors">
+                            안녕하세요! 학습 도우미 Gemini입니다. 항상 최신 웹 정보를 기반으로 답변해 드립니다. <br/><br/>
+                            예: <i>"현재 한국의 기준 금리는 얼마야?"</i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 질문 입력창 -->
+                <div class="p-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 transition-colors">
+                    <form id="local-ask-form" class="relative flex items-end gap-2">
+                        <textarea 
+                            id="local-ask-input"
+                            rows="1"
+                            placeholder="메시지 입력..."
+                            class="w-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200/50 dark:hover:bg-zinc-700 focus:bg-zinc-50 dark:focus:bg-zinc-900 rounded-2xl pl-4 pr-12 py-3 text-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none hide-scrollbar text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500"
+                        ></textarea>
+                        <button type="submit" id="btn-send-gemini" class="absolute right-2 bottom-2 p-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- === 2. 위키백과 뷰 === -->
+            <div id="view-wiki" class="flex-1 hidden bg-white dark:bg-zinc-950 relative">
+                <div id="wiki-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-600 bg-zinc-50 dark:bg-zinc-950 transition-colors">
+                    <i data-lucide="search" class="w-12 h-12 mb-3 opacity-20"></i>
+                    <p class="text-sm">상단 검색창에 검색어를 입력하면 위키백과 결과가 표시됩니다.</p>
+                </div>
+                <iframe id="wiki-iframe" class="w-full h-full border-none hidden" src="about:blank"></iframe>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- App Logic -->
+    <script>
+        // === Gemini API 설정 ===
+        const apiKey = ""; // 런타임에서 주입됨
+        
+        // === 상태 관리 (State) ===
+        const state = {
+            layoutMode: 'split', // 'split', 'editor-only', 'right-only'
+            editorMode: 'write', // 'write', 'preview'
+            rightTab: 'gemini',  // 'gemini', 'wiki'
+            
+            notes: [
+                {
+                    id: 1,
+                    title: '최신 정보 리서치 노트',
+                    content: '## 스터디 자료\n\n- 우측 AI 패널에서 필요한 정보를 질문하고 웹 검색 결과를 받아보세요.\n- 위키백과 탭으로 전환하여 원문 문서를 함께 읽을 수 있습니다.\n\n### 참조 자료\nAI가 제공한 하단의 출처(Reference) 링크들을 클릭하여 사실 여부를 확인하는 습관을 들이세요!',
+                    date: new Date().toISOString()
+                }
+            ],
+            activeNoteId: 1,
+            
+            // 음악 플레이어 - 재생 보장용 신뢰할 수 있는 SoundHelix 저작권 무료(CC BY) 음원 5곡 적용
+            tracks: [
+                { title: '1. Focus Beat 1', artist: 'SoundHelix', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
+                { title: '2. Chill Synth 2', artist: 'SoundHelix', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
+                { title: '3. Study Flow 3', artist: 'SoundHelix', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3' },
+                { title: '4. Deep Work 4', artist: 'SoundHelix', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3' },
+                { title: '5. Relax Mind 5', artist: 'SoundHelix', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3' }
+            ],
+            currentTrackIndex: 0,
+            isPlaying: false,
+            volume: 0.5,
+            
+            isGenerating: false
+        };
+
+        // === DOM 엘리먼트 ===
+        const els = {
+            // Layout
+            panelEditor: document.getElementById('panel-editor'),
+            panelRight: document.getElementById('panel-right'),
+            btnLayoutSplit: document.getElementById('btn-layout-split'),
+            btnMaxEditor: document.getElementById('btn-maximize-editor'),
+            btnMaxRight: document.getElementById('btn-maximize-right'),
+            
+            // Music
+            audio: document.getElementById('audio-player'),
+            btnPlayPause: document.getElementById('btn-play-pause'),
+            wrapperPlay: document.getElementById('wrapper-play'),
+            wrapperPause: document.getElementById('wrapper-pause'),
+            btnPrev: document.getElementById('btn-prev-track'),
+            btnNext: document.getElementById('btn-next-track'),
+            volSlider: document.getElementById('volume-slider'),
+            iconVolOn: document.getElementById('icon-vol-on'),
+            iconVolMute: document.getElementById('icon-vol-mute'),
+            trackTitle: document.getElementById('track-title'),
+            trackArtist: document.getElementById('track-artist'),
+            diskCover: document.getElementById('disk-cover'),
+
+            // Notes
+            noteList: document.getElementById('note-list-container'),
+            btnNewNote: document.getElementById('btn-new-note'),
+            
+            // Editor
+            edTitle: document.getElementById('editor-title'),
+            edContent: document.getElementById('editor-content'),
+            edPreview: document.getElementById('editor-preview'),
+            tabWrite: document.getElementById('tab-write'),
+            tabPreview: document.getElementById('tab-preview'),
+            saveStatus: document.getElementById('save-status'),
+
+            // Right Panel Tabs & Views
+            tabGeminiBtn: document.getElementById('tab-gemini'),
+            tabWikiBtn: document.getElementById('tab-wiki'),
+            viewGemini: document.getElementById('view-gemini'),
+            viewWiki: document.getElementById('view-wiki'),
+            wikiIframe: document.getElementById('wiki-iframe'),
+            wikiPlaceholder: document.getElementById('wiki-placeholder'),
+
+            // Gemini
+            globalForm: document.getElementById('global-ask-form'),
+            globalInput: document.getElementById('global-ask-input'),
+            localForm: document.getElementById('local-ask-form'),
+            localInput: document.getElementById('local-ask-input'),
+            btnSendGemini: document.getElementById('btn-send-gemini'),
+            chatHistory: document.getElementById('gemini-chat-history'),
+            
+            // Theme
+            btnThemeToggle: document.getElementById('btn-theme-toggle')
+        };
+
+        // === 초기화 ===
+        function init() {
+            // marked 옵션 설정 (안전한 렌더링)
+            marked.setOptions({ breaks: true, gfm: true });
+            
+            // 다크모드 테마 초기 설정
+            if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+            
+            updateTrackUI();
+            els.audio.volume = state.volume;
+
+            renderNotes();
+            renderEditor();
+            bindEvents();
+            
+            lucide.createIcons(); // 초기 아이콘 렌더링
+        }
+
+        // === 이벤트 바인딩 ===
+        function bindEvents() {
+            // Theme Events
+            els.btnThemeToggle.addEventListener('click', () => {
+                document.documentElement.classList.toggle('dark');
+                localStorage.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+            });
+
+            // Layout Events
+            els.btnLayoutSplit.addEventListener('click', () => setLayout('split'));
+            els.btnMaxEditor.addEventListener('click', () => setLayout(state.layoutMode === 'editor-only' ? 'split' : 'editor-only'));
+            els.btnMaxRight.addEventListener('click', () => setLayout(state.layoutMode === 'right-only' ? 'split' : 'right-only'));
+
+            // Right Panel Tab Events
+            els.tabGeminiBtn.addEventListener('click', () => setRightTab('gemini'));
+            els.tabWikiBtn.addEventListener('click', () => setRightTab('wiki'));
+
+            // Editor Events
+            els.edTitle.addEventListener('input', (e) => updateActiveNote('title', e.target.value));
+            els.edContent.addEventListener('input', (e) => updateActiveNote('content', e.target.value));
+            
+            els.tabWrite.addEventListener('click', () => setEditorMode('write'));
+            els.tabPreview.addEventListener('click', () => setEditorMode('preview'));
+            
+            els.btnNewNote.addEventListener('click', createNewNote);
+
+            // Music Events
+            els.btnPlayPause.addEventListener('click', togglePlay);
+            els.btnNext.addEventListener('click', () => changeTrack(1));
+            els.btnPrev.addEventListener('click', () => changeTrack(-1));
+            els.volSlider.addEventListener('input', (e) => {
+                state.volume = parseFloat(e.target.value);
+                els.audio.volume = state.volume;
+                updateVolumeUI();
+            });
+
+            // Search/Gemini Events
+            els.globalForm.addEventListener('submit', (e) => { 
+                e.preventDefault(); 
+                const query = els.globalInput.value.trim();
+                if(query) {
+                    executeGlobalSearch(query);
+                    els.globalInput.value = ''; 
+                }
+            });
+
+            els.localForm.addEventListener('submit', (e) => { 
+                e.preventDefault(); 
+                handleGeminiSubmit(els.localInput.value); 
+                els.localInput.value = ''; 
+            });
+            
+            // Textarea auto-resize
+            els.localInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    els.localForm.dispatchEvent(new Event('submit'));
+                }
+            });
+            els.localInput.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = (this.scrollHeight < 150 ? this.scrollHeight : 150) + 'px';
+            });
+        }
+
+        // === 공통 검색 실행 함수 ===
+        function executeGlobalSearch(query) {
+            // 1. 위키백과 URL 업데이트
+            els.wikiIframe.src = `https://ko.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(query)}`;
+            els.wikiIframe.classList.remove('hidden');
+            els.wikiPlaceholder.classList.add('hidden');
+            
+            // 2. Gemini에게 질문 전송
+            setRightTab('gemini');
+            handleGeminiSubmit(query);
+        }
+
+        // === 레이아웃 & 탭 함수 ===
+        function setLayout(mode) {
+            state.layoutMode = mode;
+            
+            // 버튼 상태 스타일 초기화
+            els.btnLayoutSplit.classList.remove('bg-indigo-50', 'dark:bg-indigo-900/30', 'text-indigo-600', 'dark:text-indigo-400');
+            els.btnLayoutSplit.classList.add('text-zinc-500');
+            els.btnMaxEditor.innerHTML = '<i data-lucide="maximize-2" class="w-4 h-4"></i>';
+            els.btnMaxRight.innerHTML = '<i data-lucide="maximize-2" class="w-4 h-4"></i>';
+
+            if (mode === 'split') {
+                els.panelEditor.className = "h-full bg-white dark:bg-zinc-950 flex flex-col transition-all duration-300 w-2/5";
+                els.panelRight.className = "h-full bg-zinc-50 dark:bg-zinc-950 border-l border-zinc-200 dark:border-zinc-800 flex flex-col transition-all duration-300 w-2/5";
+                els.btnLayoutSplit.classList.add('bg-indigo-50', 'dark:bg-indigo-900/30', 'text-indigo-600', 'dark:text-indigo-400');
+                els.btnLayoutSplit.classList.remove('text-zinc-500');
+            } else if (mode === 'editor-only') {
+                els.panelEditor.className = "h-full bg-white dark:bg-zinc-950 flex flex-col transition-all duration-300 w-4/5";
+                els.panelRight.className = "h-full bg-zinc-50 dark:bg-zinc-950 border-l border-zinc-200 dark:border-zinc-800 flex flex-col transition-all duration-300 w-0 hidden";
+                els.btnMaxEditor.innerHTML = '<i data-lucide="minimize-2" class="w-4 h-4"></i>';
+            } else if (mode === 'right-only') {
+                els.panelEditor.className = "h-full bg-white dark:bg-zinc-950 flex flex-col transition-all duration-300 w-0 hidden";
+                els.panelRight.className = "h-full bg-zinc-50 dark:bg-zinc-950 border-l border-zinc-200 dark:border-zinc-800 flex flex-col transition-all duration-300 w-4/5 border-l-0";
+                els.btnMaxRight.innerHTML = '<i data-lucide="minimize-2" class="w-4 h-4"></i>';
+            }
+            lucide.createIcons();
+        }
+
+        function setRightTab(tab) {
+            state.rightTab = tab;
+            
+            if(tab === 'gemini') {
+                els.tabGeminiBtn.className = "px-3 py-1 text-xs font-medium rounded bg-white dark:bg-zinc-700 shadow-sm text-zinc-800 dark:text-zinc-100 transition-colors flex items-center gap-1.5";
+                els.tabWikiBtn.className = "px-3 py-1 text-xs font-medium rounded text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors flex items-center gap-1.5";
+                els.viewGemini.classList.remove('hidden');
+                els.viewWiki.classList.add('hidden');
+            } else {
+                els.tabGeminiBtn.className = "px-3 py-1 text-xs font-medium rounded text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors flex items-center gap-1.5";
+                els.tabWikiBtn.className = "px-3 py-1 text-xs font-medium rounded bg-white dark:bg-zinc-700 shadow-sm text-zinc-800 dark:text-zinc-100 transition-colors flex items-center gap-1.5";
+                els.viewGemini.classList.add('hidden');
+                els.viewWiki.classList.remove('hidden');
+            }
+            // 패널이 닫혀있다면 열기
+            if (state.layoutMode === 'editor-only') setLayout('split');
+        }
+
+        // === 음악 플레이어 함수 ===
+        function updateTrackUI() {
+            const track = state.tracks[state.currentTrackIndex];
+            els.audio.src = track.src;
+            els.trackTitle.textContent = track.title;
+            els.trackArtist.textContent = track.artist;
+        }
+
+        function togglePlay() {
+            if (state.isPlaying) {
+                els.audio.pause();
+                els.wrapperPlay.classList.replace('hidden', 'flex');
+                els.wrapperPause.classList.replace('flex', 'hidden');
+                els.diskCover.classList.remove('animate-[spin_4s_linear_infinite]');
+            } else {
+                els.audio.play().catch(e => console.error("오디오 재생 오류", e));
+                els.wrapperPlay.classList.replace('flex', 'hidden');
+                els.wrapperPause.classList.replace('hidden', 'flex');
+                els.diskCover.classList.add('animate-[spin_4s_linear_infinite]');
+            }
+            state.isPlaying = !state.isPlaying;
+        }
+
+        function changeTrack(direction) {
+            state.currentTrackIndex += direction;
+            if (state.currentTrackIndex < 0) state.currentTrackIndex = state.tracks.length - 1;
+            if (state.currentTrackIndex >= state.tracks.length) state.currentTrackIndex = 0;
+            
+            updateTrackUI();
+            
+            if (state.isPlaying) {
+                els.audio.play();
+            }
+        }
+
+        function updateVolumeUI() {
+            if (state.volume === 0) {
+                els.iconVolOn.classList.add('hidden');
+                els.iconVolMute.classList.remove('hidden');
+            } else {
+                els.iconVolOn.classList.remove('hidden');
+                els.iconVolMute.classList.add('hidden');
+            }
+        }
+
+        // === 노트 (Editor) 함수 ===
+        function renderNotes() {
+            els.noteList.innerHTML = '';
+            
+            state.notes.forEach(note => {
+                const isActive = note.id === state.activeNoteId;
+                const btn = document.createElement('div');
+                btn.className = `group w-full flex items-center justify-between p-2.5 rounded-lg text-left transition-colors cursor-pointer ${isActive ? 'bg-white dark:bg-zinc-800 shadow-sm border border-zinc-200 dark:border-zinc-700 text-indigo-600 dark:text-indigo-400' : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-transparent'}`;
+                
+                const clickArea = document.createElement('div');
+                clickArea.className = "flex-1 min-w-0 flex items-start gap-3";
+                clickArea.onclick = () => {
+                    state.activeNoteId = note.id;
+                    renderNotes();
+                    renderEditor();
+                };
+                
+                const dateStr = new Date(note.date).toLocaleDateString([], {month: 'numeric', day: 'numeric'});
+                
+                clickArea.innerHTML = `
+                    <i data-lucide="file-text" class="w-4 h-4 mt-0.5 shrink-0 ${isActive ? 'text-indigo-500' : 'text-zinc-400'}"></i>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium truncate">${note.title || '제목 없음'}</p>
+                        <p class="text-xs text-zinc-400 mt-0.5 flex items-center gap-1">
+                            <i data-lucide="clock" class="w-3 h-3"></i> ${dateStr}
+                        </p>
+                    </div>
+                `;
+                
+                const delBtn = document.createElement('button');
+                delBtn.className = `p-1.5 rounded text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100`;
+                delBtn.title = "문서 삭제";
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    deleteNote(note.id);
+                };
+                delBtn.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i>';
+
+                btn.appendChild(clickArea);
+                btn.appendChild(delBtn);
+                els.noteList.appendChild(btn);
+            });
+            lucide.createIcons();
+        }
+
+        function renderEditor() {
+            const activeNote = state.notes.find(n => n.id === state.activeNoteId);
+            if (!activeNote) return;
+
+            els.edTitle.value = activeNote.title;
+            els.edContent.value = activeNote.content;
+            
+            const timeStr = new Date(activeNote.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            els.saveStatus.textContent = `${timeStr} 저장됨`;
+
+            setEditorMode(state.editorMode);
+        }
+
+        function updateActiveNote(field, value) {
+            const activeNote = state.notes.find(n => n.id === state.activeNoteId);
+            if (activeNote) {
+                activeNote[field] = value;
+                activeNote.date = new Date().toISOString();
+                const timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                els.saveStatus.textContent = `${timeStr} 저장됨`;
+                if (field === 'title') renderNotes();
+            }
+        }
+
+        function createNewNote() {
+            const newNote = {
+                id: Date.now(),
+                title: '',
+                content: '',
+                date: new Date().toISOString()
+            };
+            state.notes.unshift(newNote);
+            state.activeNoteId = newNote.id;
+            state.editorMode = 'write';
+            renderNotes();
+            renderEditor();
+            els.edTitle.focus();
+        }
+
+        function deleteNote(id) {
+            state.notes = state.notes.filter(n => n.id !== id);
+            if (state.notes.length === 0) {
+                state.notes.push({ id: Date.now(), title: '새 문서', content: '', date: new Date().toISOString() });
+            }
+            if (state.activeNoteId === id) {
+                state.activeNoteId = state.notes[0].id;
+            }
+            renderNotes();
+            renderEditor();
+        }
+
+        function setEditorMode(mode) {
+            state.editorMode = mode;
+            if (mode === 'write') {
+                els.edContent.classList.remove('hidden');
+                els.edPreview.classList.add('hidden');
+                els.tabWrite.className = "px-3 py-1 text-xs font-medium rounded bg-white dark:bg-zinc-700 shadow-sm text-zinc-800 dark:text-zinc-100 transition-colors";
+                els.tabPreview.className = "px-3 py-1 text-xs font-medium rounded text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors";
+            } else {
+                els.edContent.classList.add('hidden');
+                els.edPreview.classList.remove('hidden');
+                const rawMarkdown = els.edContent.value;
+                const htmlStr = DOMPurify.sanitize(marked.parse(rawMarkdown || '*내용이 없습니다.*'), { ADD_ATTR: ['target'] });
+                els.edPreview.innerHTML = htmlStr;
+                els.tabWrite.className = "px-3 py-1 text-xs font-medium rounded text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors";
+                els.tabPreview.className = "px-3 py-1 text-xs font-medium rounded bg-white dark:bg-zinc-700 shadow-sm text-zinc-800 dark:text-zinc-100 transition-colors";
+            }
+        }
+
+        // === Gemini API 연동 (검색 및 출처 포함) ===
+        async function fetchGeminiWithRetry(query, retries = 5) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: query }] }],
+                systemInstruction: {
+                    parts: [{ text: "당신은 유능한 학습 도우미입니다. 사용자의 질문에 항상 구글 웹 검색을 수행하여 가장 최신 정보를 바탕으로 상세하고 정확하게 답변하세요." }]
+                },
+                tools: [{ google_search: {} }] // 구글 검색 도구 활성화
+            };
+
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.error?.message || 'API 요청 실패');
+                    }
+                    
+                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!text) throw new Error("응답을 생성할 수 없습니다.");
+                    
+                    // Grounding Metadata(출처) 파싱
+                    const attributions = data.candidates?.[0]?.groundingMetadata?.groundingAttributions?.map(a => ({
+                        uri: a.web?.uri,
+                        title: a.web?.title
+                    })).filter(a => a.uri && a.title) || [];
+
+                    return { text, attributions };
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
+                }
+            }
+        }
+
+        async function handleGeminiSubmit(query) {
+            query = query.trim();
+            if (!query || state.isGenerating) return;
+
+            setRightTab('gemini'); // AI 탭으로 자동 전환
+
+            // 1. 사용자 메시지 UI 추가
+            appendGeminiMessage(query, 'user');
+            
+            // 2. 상태 업데이트
+            state.isGenerating = true;
+            els.btnSendGemini.disabled = true;
+            els.localInput.style.height = 'auto';
+
+            // 3. 로딩 메시지 UI 추가
+            const loadingId = appendGeminiMessage('<div class="loader"></div>', 'bot', true);
+            scrollToBottom();
+
+            try {
+                // API 호출
+                const result = await fetchGeminiWithRetry(query);
+                
+                // 4. 마크다운 변환
+                let htmlContent = DOMPurify.sanitize(marked.parse(result.text), { ADD_ATTR: ['target'] });
+                
+                // 5. 출처(References) 블록 구성
+                if (result.attributions && result.attributions.length > 0) {
+                    // 중복 링크 제거
+                    const uniqueSources = Array.from(new Set(result.attributions.map(a => a.uri)))
+                        .map(uri => result.attributions.find(a => a.uri === uri));
+
+                    let refHtml = `<div class="mt-4 pt-3 border-t border-zinc-200/60 dark:border-zinc-700">`;
+                    refHtml += `<p class="text-xs font-bold text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-1"><i data-lucide="link" class="w-3 h-3"></i> 검색 출처 (References)</p>`;
+                    refHtml += `<ul class="space-y-1.5">`;
+                    uniqueSources.forEach((source, index) => {
+                        refHtml += `
+                            <li>
+                                <a href="${escapeHtml(source.uri)}" target="_blank" class="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline flex items-start gap-1 line-clamp-1" title="${escapeHtml(source.uri)}">
+                                    <span class="text-zinc-400 dark:text-zinc-500">[${index + 1}]</span> ${escapeHtml(source.title)}
+                                </a>
+                            </li>
+                        `;
+                    });
+                    refHtml += `</ul></div>`;
+                    htmlContent += refHtml;
+                }
+
+                // UI 교체
+                updateGeminiMessage(loadingId, htmlContent);
+
+            } catch (error) {
+                updateGeminiMessage(loadingId, `<span class="text-red-500 font-medium">오류가 발생했습니다: ${error.message}</span>`);
+            } finally {
+                state.isGenerating = false;
+                els.btnSendGemini.disabled = false;
+                els.localInput.focus();
+                lucide.createIcons(); // 새로 렌더링된 아이콘(출처 링크 등) 적용
+                scrollToBottom();
+            }
+        }
+
+        // 대화 메시지 렌더링 헬퍼
+        function appendGeminiMessage(content, sender, isRawHtml = false) {
+            const id = 'msg-' + Date.now();
+            const wrapper = document.createElement('div');
+            wrapper.id = id;
+            wrapper.className = `flex items-start gap-3 ${sender === 'user' ? 'flex-row-reverse' : ''}`;
+            
+            const avatarHtml = sender === 'user' 
+                ? `<div class="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center shrink-0"><i data-lucide="user" class="w-5 h-5 text-zinc-500 dark:text-zinc-300"></i></div>`
+                : `<div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center shrink-0"><i data-lucide="bot" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i></div>`;
+            
+            const bubbleClasses = sender === 'user'
+                ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none px-4 py-3 shadow-sm text-sm max-w-[90%] whitespace-pre-wrap'
+                : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl rounded-tl-none px-4 py-3 shadow-sm text-sm text-zinc-800 dark:text-zinc-200 max-w-[90%] prose prose-sm prose-indigo dark:prose-invert w-full';
+
+            // HTML 문자열 생성 시, \n(줄바꿈) 등으로 인한 불필요한 여백이 발생하지 않도록 코드를 한 줄로 붙여서 입력합니다.
+            wrapper.innerHTML = `
+                ${avatarHtml}
+                <div class="${bubbleClasses} msg-content">${isRawHtml ? content : escapeHtml(content)}</div>
+            `;
+            
+            els.chatHistory.appendChild(wrapper);
+            lucide.createIcons({ root: wrapper });
+            scrollToBottom();
+            return id;
+        }
+
+        function updateGeminiMessage(id, rawHtmlContent) {
+            const wrapper = document.getElementById(id);
+            if (wrapper) {
+                const contentEl = wrapper.querySelector('.msg-content');
+                contentEl.innerHTML = rawHtmlContent;
+            }
+        }
+
+        function scrollToBottom() {
+            els.chatHistory.scrollTop = els.chatHistory.scrollHeight;
+        }
+
+        function escapeHtml(unsafe) {
+            return String(unsafe)
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        // 실행
+        window.onload = init;
+
+    </script>
+</body>
+</html>

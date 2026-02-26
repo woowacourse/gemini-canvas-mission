@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>미니 카트라이더 닷지</title>
+    <!-- Tailwind CSS for UI styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;700&display=swap');
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a202c; /* bg-gray-900 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Noto Sans KR', sans-serif;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 600px;
+            max-height: 800px;
+            background-color: #2d3748; /* fallback */
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Title Font */
+        .title-font {
+            font-family: 'Black Han Sans', sans-serif;
+        }
+
+        /* Overlay UI */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 10;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Simple button animation */
+        .btn-play {
+            transition: all 0.1s ease-in-out;
+        }
+        .btn-play:hover {
+            transform: scale(1.05);
+        }
+        .btn-play:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="600" height="800"></canvas>
+
+    <!-- Main Menu UI -->
+    <div id="menu-ui" class="ui-layer">
+        <h1 class="text-6xl text-yellow-400 title-font mb-4 text-center drop-shadow-lg">미니<br>카트라이더</h1>
+        <p class="text-white mb-8 text-center text-lg">방향키(←↑↓→)로 장애물을 피하세요!<br>스페이스바(Space)로 장애물을 점프해 넘으세요!<br>도로 밖 잔디를 밟으면 안됩니다!</p>
+        <button id="start-btn" class="btn-play bg-blue-500 text-white title-font text-3xl py-4 px-10 rounded-full shadow-[0_5px_0_#2b6cb0]">
+            게임 시작
+        </button>
+        
+        <!-- Leaderboard (Menu) -->
+        <div class="mt-8 bg-gray-800 bg-opacity-80 p-4 rounded-xl w-3/4 max-w-sm border border-gray-600">
+            <h2 class="text-xl text-yellow-300 title-font text-center mb-2">🏆 명예의 전당 (Top 5) 🏆</h2>
+            <ul id="menu-leaderboard" class="text-gray-200 text-sm space-y-1">
+                <li class="text-center text-gray-400">아직 기록이 없습니다.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Game Over UI -->
+    <div id="game-over-ui" class="ui-layer hidden">
+        <h1 class="text-5xl text-red-500 title-font mb-2 drop-shadow-lg">GAME OVER</h1>
+        <p id="crash-reason" class="text-white text-lg mb-4 text-center">장애물에 부딪혔습니다!</p>
+        
+        <div class="bg-white bg-opacity-90 p-6 rounded-2xl text-center shadow-2xl mb-4 w-3/4 max-w-sm">
+            <h2 class="text-gray-800 font-bold text-xl mb-4 border-b pb-2">이번 게임 기록</h2>
+            <div class="flex justify-between text-lg mb-1">
+                <span class="text-gray-600">점수:</span>
+                <span id="final-score" class="font-bold text-blue-600">0</span>
+            </div>
+            <div class="flex justify-between text-lg">
+                <span class="text-gray-600">생존 시간:</span>
+                <span id="final-time" class="font-bold text-blue-600">0.0초</span>
+            </div>
+        </div>
+
+        <!-- Nickname Input Section -->
+        <div id="record-input-area" class="w-3/4 max-w-sm flex flex-col mb-6">
+            <input type="text" id="nickname" placeholder="닉네임 (최대 8자)" maxlength="8" class="w-full p-3 rounded-lg text-black text-center text-lg outline-none font-bold mb-2 shadow-inner border-2 border-gray-300 focus:border-blue-500 transition-colors">
+            <button id="save-score-btn" class="btn-play w-full bg-blue-600 text-white title-font text-2xl py-2 rounded-lg shadow-[0_4px_0_#2b6cb0]">기록 등록하기</button>
+        </div>
+
+        <button id="restart-btn" class="btn-play bg-green-500 text-white title-font text-2xl py-3 px-8 rounded-full shadow-[0_5px_0_#2f855a] mb-6">
+            다시 하기
+        </button>
+
+        <!-- Leaderboard (Game Over) -->
+        <div class="bg-gray-800 bg-opacity-90 p-4 rounded-xl w-3/4 max-w-sm border border-gray-600">
+            <h2 class="text-xl text-yellow-300 title-font text-center mb-2">📈 최고 기록 순위 📈</h2>
+            <ul id="gameover-leaderboard" class="text-gray-200 text-sm space-y-1">
+                <!-- Records will be injected here -->
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 1. 기본 설정 및 캔버스 준비 ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI Elements
+    const menuUI = document.getElementById('menu-ui');
+    const gameOverUI = document.getElementById('game-over-ui');
+    const startBtn = document.getElementById('start-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const saveScoreBtn = document.getElementById('save-score-btn');
+    const recordInputArea = document.getElementById('record-input-area');
+    const nicknameInput = document.getElementById('nickname');
+    
+    const finalScoreEl = document.getElementById('final-score');
+    const finalTimeEl = document.getElementById('final-time');
+    const crashReasonEl = document.getElementById('crash-reason');
+    const menuLeaderboardEl = document.getElementById('menu-leaderboard');
+    const gameoverLeaderboardEl = document.getElementById('gameover-leaderboard');
+
+    // 게임 상태 관리 ('MENU', 'PLAYING', 'CRASHING', 'GAMEOVER')
+    let gameState = 'MENU';
+    let animationId;
+    let lastTime = 0;
+
+    // --- 2. 게임 데이터 모델 ---
+    const GAME_WIDTH = canvas.width;  // 600
+    const GAME_HEIGHT = canvas.height; // 800
+
+    // 키보드 입력 상태 (방향키 및 스페이스바)
+    const keys = {
+        ArrowUp: false,
+        ArrowDown: false,
+        ArrowLeft: false,
+        ArrowRight: false,
+        Space: false
+    };
+
+    // 플레이어(카트) 상태
+    let player = {
+        x: GAME_WIDTH / 2,
+        y: GAME_HEIGHT - 150,
+        width: 45,
+        height: 65,
+        speed: 400, // 픽셀/초
+        emoji: '🏎️',
+        scale: 1,
+        baseScale: 1,
+        rotation: 0,
+        shakeX: 0,
+        shakeY: 0,
+        isJumping: false,
+        jumpTimer: 0,
+        jumpDuration: 0.8, // 0.8초 체공
+        jumpCooldown: 0,
+        maxJumpCooldown: 8.0 // 8초 쿨타임
+    };
+
+    // 게임 환경 및 진행 데이터
+    let gameEnv = {
+        speed: 600,        // 초기 도로 스크롤 속도 (빠르게 수정)
+        baseSpeed: 600,
+        timeElapsed: 0,    // 초 단위
+        score: 0,          // 점수
+        distance: 0,       // 이동 거리 (점수 배율용)
+        roadOffsetY: 0,    // 차선 애니메이션용
+        crashTimer: 0,     // 크래시 애니메이션 타이머
+        crashedObstacle: null // 부딪힌 장애물 타입
+    };
+
+    let obstacles = [];
+    let particles = [];
+    
+    // 리더보드 (세션 메모리 유지)
+    let leaderboard = [];
+
+    // --- 3. 컨트롤 이벤트 설정 ---
+    window.addEventListener('keydown', (e) => {
+        if (keys.hasOwnProperty(e.key)) {
+            keys[e.key] = true;
+            e.preventDefault(); // 스크롤 방지
+        }
+        if (e.code === 'Space') {
+            keys['Space'] = true;
+            e.preventDefault();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (keys.hasOwnProperty(e.key)) {
+            keys[e.key] = false;
+            e.preventDefault();
+        }
+        if (e.code === 'Space') {
+            keys['Space'] = false;
+            e.preventDefault();
+        }
+    });
+
+    // --- 4. 초기화 및 시작 로직 ---
+    function initGame() {
+        player = {
+            x: GAME_WIDTH / 2,
+            y: GAME_HEIGHT - 150,
+            width: 45,
+            height: 65,
+            speed: 400,
+            emoji: '🏎️',
+            scale: 1,
+            baseScale: 1,
+            rotation: 0,
+            shakeX: 0,
+            shakeY: 0,
+            isJumping: false,
+            jumpTimer: 0,
+            jumpDuration: 0.8,
+            jumpCooldown: 0,
+            maxJumpCooldown: 8.0
+        };
+
+        gameEnv = {
+            speed: 600, // 시작 속도 상향
+            baseSpeed: 600,
+            timeElapsed: 0,
+            score: 0,
+            distance: 0,
+            roadOffsetY: 0,
+            crashTimer: 0,
+            crashedObstacle: null
+        };
+
+        obstacles = [];
+        particles = [];
+        
+        // 키 초기화
+        for(let key in keys) keys[key] = false;
+
+        gameState = 'PLAYING';
+        menuUI.classList.add('hidden');
+        gameOverUI.classList.add('hidden');
+        
+        // 기록 입력창 초기화
+        recordInputArea.classList.remove('hidden');
+        nicknameInput.value = '';
+        
+        lastTime = performance.now();
+        if(animationId) cancelAnimationFrame(animationId);
+        animationId = requestAnimationFrame(gameLoop);
+    }
+
+    startBtn.addEventListener('click', initGame);
+    restartBtn.addEventListener('click', initGame);
+
+    // 기록 등록 버튼 이벤트
+    saveScoreBtn.addEventListener('click', () => {
+        const nickname = nicknameInput.value.trim() || '익명 라이더';
+        const finalScoreNum = Math.floor(gameEnv.score);
+        const finalTimeStr = gameEnv.timeElapsed.toFixed(1);
+        
+        updateLeaderboard(nickname, finalScoreNum, finalTimeStr);
+        
+        // 저장 후 입력 영역 숨기기
+        recordInputArea.classList.add('hidden');
+    });
+
+    // --- 5. 장애물 시스템 ---
+    const OBSTACLE_TYPES = [
+        { type: 'hole', emoji: '🕳️', width: 60, height: 60, isStatic: true, reason: '구멍에 빠졌습니다!' },
+        { type: 'ice', emoji: '🧊', width: 60, height: 60, isStatic: true, reason: '빙판길에 미끄러졌습니다!' },
+        { type: 'rock', emoji: '🪨', width: 50, height: 50, isStatic: true, reason: '바위에 강하게 충돌했습니다!' },
+        { type: 'car', emoji: '🚕', width: 45, height: 65, isStatic: false, reason: '움직이는 자동차와 추돌했습니다!' },
+        { type: 'animal', emoji: '🦌', width: 45, height: 45, isStatic: false, reason: '갑자기 튀어나온 야생동물과 충돌했습니다!' }
+    ];
+
+    function spawnObstacle() {
+        // 속도가 빠를수록 자주 소환되도록 확률 조정
+        let spawnChance = 0.015 + (gameEnv.speed / 25000); 
+        if (Math.random() > spawnChance) return;
+
+        const template = OBSTACLE_TYPES[Math.floor(Math.random() * OBSTACLE_TYPES.length)];
+        let obs = { ...template, x: 0, y: -100, vx: 0, vy: 0 };
+
+        if (template.type === 'animal') {
+            const fromLeft = Math.random() > 0.5;
+            obs.x = fromLeft ? -50 : GAME_WIDTH + 50;
+            obs.y = player.y - 200 - Math.random() * 300; 
+            obs.vx = fromLeft ? 250 : -250; 
+            obs.vy = gameEnv.speed; 
+        } else if (template.type === 'car') {
+            obs.x = 50 + Math.random() * (GAME_WIDTH - 100);
+            obs.vy = gameEnv.speed * (0.6 + Math.random() * 0.3); 
+        } else {
+            obs.x = 50 + Math.random() * (GAME_WIDTH - 100);
+            obs.vy = gameEnv.speed;
+        }
+
+        // 겹침 방지 간단 체크
+        let overlap = obstacles.some(existing => Math.abs(existing.x - obs.x) < 60 && Math.abs(existing.y - obs.y) < 60);
+        if (!overlap) {
+            obstacles.push(obs);
+        }
+    }
+
+    // --- 6. 게임 로직 업데이트 ---
+    function update(dt) {
+        if (gameState === 'PLAYING') {
+            // 시간 및 거리 업데이트
+            gameEnv.timeElapsed += dt;
+            gameEnv.distance += gameEnv.speed * dt;
+            
+            // 난이도 및 점수 증가 (초반엔 적게, 나중엔 거리에 비례하여 빠르게 증가)
+            gameEnv.speed += 15 * dt; // 속도 증가량
+            let scoreMultiplier = 1 + (gameEnv.distance / 10000); 
+            gameEnv.score += (gameEnv.speed / 100) * scoreMultiplier * dt * 10; 
+
+            // 차선 애니메이션
+            gameEnv.roadOffsetY = (gameEnv.roadOffsetY + gameEnv.speed * dt) % 100;
+
+            // 점프 쿨타임 감소
+            if (player.jumpCooldown > 0) {
+                player.jumpCooldown -= dt;
+            }
+
+            // 점프 트리거 (스페이스바 입력, 현재 점프 중 아님, 쿨타임 완료)
+            if (keys['Space'] && !player.isJumping && player.jumpCooldown <= 0) {
+                player.isJumping = true;
+                player.jumpTimer = 0;
+                player.jumpCooldown = player.maxJumpCooldown;
+            }
+
+            // 점프 상태 업데이트 (포물선 크기 변화로 입체감 표현)
+            if (player.isJumping) {
+                player.jumpTimer += dt;
+                let progress = player.jumpTimer / player.jumpDuration;
+                if (progress >= 1) {
+                    player.isJumping = false;
+                    player.scale = player.baseScale;
+                } else {
+                    // 크기가 최대 0.6배 커졌다가 작아지는 효과
+                    let jumpHeight = 4 * 0.6 * progress * (1 - progress);
+                    player.scale = player.baseScale + jumpHeight;
+                }
+            }
+
+            // 플레이어 조작 (오직 방향키)
+            if (keys.ArrowLeft) player.x -= player.speed * dt;
+            if (keys.ArrowRight) player.x += player.speed * dt;
+            if (keys.ArrowUp) player.y -= player.speed * dt;
+            if (keys.ArrowDown) player.y += player.speed * dt;
+
+            // 상하 화면 이탈 방지
+            player.y = Math.max(player.height/2, Math.min(GAME_HEIGHT - player.height/2, player.y));
+            
+            // 좌우 잔디밭 충돌 검사 (잔디 너비: 30) - 점프 중에도 잔디 이탈은 금지
+            if (player.x - player.width / 2 < 30) {
+                triggerCrash({ type: 'grass', reason: '도로를 벗어나 잔디밭에 빠졌습니다!' });
+            } else if (player.x + player.width / 2 > GAME_WIDTH - 30) {
+                triggerCrash({ type: 'grass', reason: '도로를 벗어나 잔디밭에 빠졌습니다!' });
+            }
+
+            // 장애물 업데이트 및 충돌 검사
+            spawnObstacle();
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                
+                obs.x += obs.vx * dt;
+                obs.y += obs.vy * dt;
+
+                // 충돌 검사 (AABB Box Collision)
+                let marginX = 10;
+                let marginY = 15;
+                
+                // 점프 중이지 않을 때만 장애물 충돌 판정
+                if (!player.isJumping) {
+                    if (
+                        player.x - player.width/2 + marginX < obs.x + obs.width/2 - marginX &&
+                        player.x + player.width/2 - marginX > obs.x - obs.width/2 + marginX &&
+                        player.y - player.height/2 + marginY < obs.y + obs.height/2 - marginY &&
+                        player.y + player.height/2 - marginY > obs.y - obs.height/2 + marginY
+                    ) {
+                        triggerCrash(obs);
+                        break;
+                    }
+                }
+
+                if (obs.y > GAME_HEIGHT + 100 || obs.x < -100 || obs.x > GAME_WIDTH + 100) {
+                    obstacles.splice(i, 1);
+                }
+            }
+        } 
+        else if (gameState === 'CRASHING') {
+            gameEnv.crashTimer += dt;
+            const t = gameEnv.crashTimer;
+
+            if (gameEnv.crashedObstacle.type === 'hole') {
+                player.scale = Math.max(0, 1 - t * 1.5);
+                player.rotation += 5 * dt;
+            } 
+            else if (gameEnv.crashedObstacle.type === 'ice' || gameEnv.crashedObstacle.type === 'grass') {
+                // 잔디 또는 빙판길 모션: 빙글빙글 미끄러짐
+                player.rotation += 10 * dt;
+                player.y -= gameEnv.speed * dt * 0.3; // 관성으로 살짝 밀림
+            } 
+            else {
+                // 자동차, 바위, 동물: 강력한 충돌 이펙트
+                player.shakeX = (Math.random() - 0.5) * 20 * (1 - t);
+                player.shakeY = (Math.random() - 0.5) * 20 * (1 - t);
+                if (t < 0.1) {
+                    particles.push({x: player.x + (Math.random()-0.5)*20, y: player.y, emoji: '💥', life: 1});
+                }
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].life -= dt * 2;
+                if (particles[i].life <= 0) particles.splice(i, 1);
+            }
+
+            // 1.5초 후 게임 오버
+            if (t > 1.5) {
+                endGame();
+            }
+        }
+    }
+
+    function triggerCrash(obs) {
+        gameState = 'CRASHING';
+        gameEnv.crashTimer = 0;
+        gameEnv.crashedObstacle = obs;
+        crashReasonEl.textContent = obs.reason;
+    }
+
+    function endGame() {
+        gameState = 'GAMEOVER';
+        
+        const finalScoreNum = Math.floor(gameEnv.score);
+        const finalTimeStr = gameEnv.timeElapsed.toFixed(1);
+
+        finalScoreEl.textContent = finalScoreNum.toLocaleString() + ' 점';
+        finalTimeEl.textContent = finalTimeStr + ' 초';
+
+        // 렌더링 갱신
+        renderLeaderboard(gameoverLeaderboardEl);
+        gameOverUI.classList.remove('hidden');
+    }
+
+    // --- 7. 리더보드 로직 ---
+    function updateLeaderboard(nickname, score, time) {
+        leaderboard.push({ 
+            nickname: nickname,
+            score: score, 
+            time: parseFloat(time), 
+            date: new Date().toLocaleTimeString() 
+        });
+        
+        // 점수 기준 내림차순 정렬
+        leaderboard.sort((a, b) => b.score - a.score);
+        
+        // 무조건 상위 5개까지만 유지
+        leaderboard = leaderboard.slice(0, 5);
+        
+        renderLeaderboard(menuLeaderboardEl);
+        renderLeaderboard(gameoverLeaderboardEl);
+    }
+
+    function renderLeaderboard(container) {
+        container.innerHTML = '';
+        if (leaderboard.length === 0) {
+            container.innerHTML = '<li class="text-center text-gray-400">아직 기록이 없습니다.</li>';
+            return;
+        }
+
+        leaderboard.forEach((record, index) => {
+            let medal = '';
+            if (index === 0) medal = '🥇';
+            else if (index === 1) medal = '🥈';
+            else if (index === 2) medal = '🥉';
+            else medal = `<span class="inline-block w-5 text-center font-bold text-gray-400">${index+1}</span>`;
+
+            const li = document.createElement('li');
+            li.className = 'flex justify-between items-center py-2 border-b border-gray-700 last:border-0';
+            li.innerHTML = `
+                <div class="flex items-center space-x-2 truncate w-1/2">
+                    <span class="flex-shrink-0">${medal}</span>
+                    <span class="font-bold text-gray-100 truncate">${record.nickname}</span>
+                </div>
+                <div class="text-right flex-shrink-0">
+                    <span class="font-bold text-yellow-400">${record.score.toLocaleString()}점</span>
+                    <span class="text-gray-400 text-xs ml-1 block sm:inline">(${record.time.toFixed(1)}초)</span>
+                </div>
+            `;
+            container.appendChild(li);
+        });
+    }
+
+    // --- 8. 렌더링(그리기) ---
+    function draw() {
+        // 1. 도로 배경
+        ctx.fillStyle = '#4a5568';
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+        // 잔디밭 가장자리 (너비 30)
+        ctx.fillStyle = '#2f855a';
+        ctx.fillRect(0, 0, 30, GAME_HEIGHT);
+        ctx.fillRect(GAME_WIDTH - 30, 0, 30, GAME_HEIGHT);
+
+        // 차선 그리기
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.setLineDash([30, 70]); 
+        
+        const numLanes = 3;
+        const laneWidth = (GAME_WIDTH - 60) / numLanes;
+
+        ctx.beginPath();
+        for (let i = 1; i < numLanes; i++) {
+            let x = 30 + i * laneWidth;
+            ctx.lineDashOffset = -gameEnv.roadOffsetY;
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, GAME_HEIGHT);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]); 
+
+        // 2. 장애물 그리기
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        obstacles.forEach(obs => {
+            ctx.font = `${obs.width * 0.8}px Arial`;
+            ctx.fillText(obs.emoji, obs.x, obs.y);
+        });
+
+        // 3. 파티클
+        particles.forEach(p => {
+            ctx.globalAlpha = p.life;
+            ctx.font = '50px Arial';
+            ctx.fillText(p.emoji, p.x, p.y);
+            ctx.globalAlpha = 1.0;
+        });
+
+        // 4. 플레이어
+        if (player.scale > 0) {
+            ctx.save();
+            
+            // 점프 시 위로 떠오르는 시각적 효과 오프셋 계산
+            let jumpVisualOffset = 0;
+            if (player.isJumping) {
+                jumpVisualOffset = (player.scale - player.baseScale) * 80;
+            }
+
+            ctx.translate(player.x + player.shakeX, player.y + player.shakeY - jumpVisualOffset);
+            ctx.rotate(player.rotation);
+            ctx.scale(player.scale, player.scale);
+            
+            ctx.font = `${player.width}px Arial`;
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            
+            // 점프 높이에 따라 그림자가 퍼지고 멀어지도록 설정
+            ctx.shadowBlur = 10 + jumpVisualOffset * 0.3;
+            ctx.shadowOffsetY = 5 + jumpVisualOffset;
+            
+            ctx.fillText(player.emoji, 0, 0);
+            ctx.restore();
+        }
+
+        // 5. 상단 UI
+        if (gameState === 'PLAYING' || gameState === 'CRASHING') {
+            // --- 오른쪽 점수 및 시간 UI ---
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(GAME_WIDTH - 180, 10, 170, 70);
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            
+            ctx.font = 'bold 24px "Noto Sans KR"';
+            ctx.fillStyle = '#fbd38d'; 
+            ctx.fillText(`${Math.floor(gameEnv.score).toLocaleString()} 점`, GAME_WIDTH - 20, 30);
+            
+            ctx.font = '18px "Noto Sans KR"';
+            ctx.fillStyle = '#e2e8f0'; 
+            ctx.fillText(`${gameEnv.timeElapsed.toFixed(1)} 초`, GAME_WIDTH - 20, 60);
+
+            // --- 위쪽 중앙 점프 쿨타임 UI ---
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(GAME_WIDTH / 2 - 110, 10, 220, 70);
+            
+            ctx.textAlign = 'center';
+            if (player.jumpCooldown <= 0) {
+                ctx.font = 'bold 20px "Noto Sans KR"';
+                ctx.fillStyle = '#48bb78'; // Tailwind green-500
+                ctx.fillText('🚀 SPACE 점프 가능!', GAME_WIDTH / 2, 45);
+            } else {
+                ctx.font = 'bold 16px "Noto Sans KR"';
+                ctx.fillStyle = '#fc8181'; // Tailwind red-400
+                ctx.fillText(`점프 쿨타임: ${player.jumpCooldown.toFixed(1)}초`, GAME_WIDTH / 2, 35);
+                
+                // 쿨타임 게이지 바
+                ctx.fillStyle = '#4a5568'; // gray-600
+                ctx.fillRect(GAME_WIDTH / 2 - 90, 55, 180, 8);
+                ctx.fillStyle = '#4299e1'; // blue-500
+                let ratio = 1 - (player.jumpCooldown / player.maxJumpCooldown);
+                ctx.fillRect(GAME_WIDTH / 2 - 90, 55, 180 * ratio, 8);
+            }
+        }
+    }
+
+    // --- 9. 루프 ---
+    function gameLoop(timestamp) {
+        let dt = (timestamp - lastTime) / 1000;
+        if (dt > 0.1) dt = 0.1; 
+        lastTime = timestamp;
+
+        update(dt);
+        draw();
+
+        if (gameState !== 'GAMEOVER') {
+            animationId = requestAnimationFrame(gameLoop);
+        }
+    }
+
+    draw();
+</script>
+</body>
+</html>

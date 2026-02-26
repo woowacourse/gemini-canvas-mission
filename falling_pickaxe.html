@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Endless Falling Pickaxe VS AI</title>
+    <style>
+        :root {
+            --wall-bg: #3e271a;
+            --grid-bg: #121215;
+            --ui-bg: #2b2b36;
+            --font-family: 'Courier New', Courier, monospace;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0d0805;
+            overflow: hidden;
+            user-select: none;
+            touch-action: none;
+            font-family: var(--font-family);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        /* 메인 레이아웃 (1인 모드 / 2인 모드 가변 지원) */
+        #app-container {
+            display: flex;
+            flex-direction: row;
+            width: 100vw;
+            height: 100vh;
+            max-width: 1300px;
+            background-color: #0d0805;
+            box-sizing: border-box;
+            overflow: hidden;
+            gap: 10px;
+            padding: 10px;
+            transition: max-width 0.3s ease;
+        }
+
+        /* 싱글 모드일 때는 중앙 정렬 */
+        #app-container.single-mode {
+            max-width: 600px;
+        }
+
+        /* 개별 게임 화면(나, AI) 컨테이너 */
+        .game-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: row;
+            background-color: var(--grid-bg);
+            position: relative;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+            border: 2px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* 양옆 벽면 스타일 */
+        .side-wall {
+            flex: 1;
+            align-self: stretch;
+            min-width: 10px;
+            background-color: var(--wall-bg);
+            background-image: 
+                radial-gradient(rgba(0,0,0,0.35) 2px, transparent 2px),
+                radial-gradient(rgba(0,0,0,0.35) 2px, transparent 2px);
+            background-size: 24px 24px;
+            background-position: 0 0, 12px 12px;
+            z-index: 10;
+        }
+
+        .left-wall { border-right: 4px solid #110a05; box-shadow: inset -10px 0 20px rgba(0,0,0,0.5); }
+        .right-wall { border-left: 4px solid #110a05; box-shadow: inset 10px 0 20px rgba(0,0,0,0.5); }
+
+        /* 캔버스 영역 */
+        .canvas-container {
+            position: relative;
+            height: 100%;
+            /* 세로 기준 7:16 비율 제한 */
+            max-width: calc(100vh * (7 / 16)); 
+            aspect-ratio: 7 / 16;
+            background-color: var(--grid-bg); 
+            box-shadow: inset 0 0 30px rgba(0,0,0,0.9);
+            flex-shrink: 1;
+        }
+
+        .canvas-container::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* 시작 오버레이 */
+        #start-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        #start-overlay h1 {
+            color: #00ffff;
+            text-shadow: 2px 2px 0px #008888;
+            font-size: 32px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        /* 버튼 텍스트 잘림 방지를 위해 너비/공백 처리 수정 */
+        .mode-btn {
+            margin: 10px;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+            background-color: #55aa55;
+            border: 4px solid #336633;
+            cursor: pointer;
+            font-family: inherit;
+            box-shadow: 4px 4px 0px #111;
+            transition: transform 0.1s;
+            min-width: 250px;
+            white-space: nowrap; /* 글자가 다음 줄로 넘어가는 것을 방지 */
+        }
+
+        .mode-btn:active {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px #111;
+        }
+
+        .btn-vs { background-color: #aa5555; border-color: #663333; }
+
+        /* 중앙 타이머 및 점수 보드 (VS 모드용) */
+        #center-hud {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 20px 10px;
+            width: 120px;
+            background-color: #1a1a1a;
+            border-radius: 8px;
+            border: 2px solid #333;
+        }
+
+        .timer-box {
+            font-size: 32px;
+            font-weight: bold;
+            color: #ff5555;
+            text-shadow: 2px 2px 0 #000;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .score-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #2b2b36;
+            border-radius: 4px;
+        }
+        
+        .score-title { font-size: 12px; color: #888; margin-bottom: 5px; }
+        .score-value { font-size: 20px; font-weight: bold; color: #55ff55; }
+        .ai-score { color: #ff5555; }
+
+        /* HUD 좌측: 인벤토리 및 심도 */
+        .hud-top-left {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .player-label {
+            font-size: 14px; font-weight: bold; margin-bottom: 5px; color: #aaa; background: rgba(0,0,0,0.5); padding: 2px 5px; border-radius: 4px;
+        }
+
+        .inv-item {
+            display: flex; align-items: center; margin-bottom: 4px; font-size: 14px; font-weight: bold;
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+        }
+        .inv-icon { width: 14px; height: 14px; margin-right: 6px; border: 2px solid #000; box-sizing: border-box; }
+        .y-level { margin-top: 10px; font-size: 16px; font-weight: bold; color: #ddd; text-shadow: 2px 2px 0 #000; }
+
+        /* 콤보 UI 시스템 */
+        .combo-container {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            z-index: 10;
+            text-align: center;
+            pointer-events: none;
+            display: none;
+        }
+
+        .combo-text {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ffaa00;
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+            margin-bottom: 5px;
+            font-style: italic;
+            transition: transform 0.1s;
+        }
+
+        .combo-bar-bg {
+            width: 100%;
+            height: 10px;
+            background-color: rgba(0,0,0,0.7);
+            border: 2px solid #111;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .combo-bar-fill {
+            height: 100%;
+            background-color: #ffaa00;
+            width: 100%;
+        }
+
+        /* 스킬 패널 */
+        .hud-right {
+            width: 110px; 
+            flex-shrink: 0;
+            background-color: var(--ui-bg);
+            border-left: 2px solid #111;
+            padding: 8px 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            overflow-y: auto;
+            overflow-x: hidden; 
+            box-sizing: border-box; 
+            z-index: 10;
+        }
+
+        /* AI 패널은 붉은 톤 */
+        .ai-hud { background-color: #3e2222; }
+
+        .skill-title {
+            color: #55ff55; font-size: 13px; font-weight: bold; text-shadow: 1px 1px 0 #000; text-align: center; margin-bottom: -3px; word-break: keep-all;
+        }
+
+        /* 스킬 버튼 색상 및 스타일 */
+        .skill-btn {
+            background-color: #4caf50; border-top: 3px solid #81c784; border-left: 3px solid #81c784; border-bottom: 3px solid #2e7d32; border-right: 3px solid #2e7d32;
+            color: #fff; font-weight: bold; font-size: 12px; padding: 8px 2px; cursor: pointer; font-family: inherit; position: relative; width: 100%; 
+            box-sizing: border-box; 
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .skill-btn:active:not(:disabled) {
+            border-top: 3px solid #2e7d32; border-left: 3px solid #2e7d32; border-bottom: 3px solid #81c784; border-right: 3px solid #81c784; padding: 9px 1px 7px 3px;
+        }
+
+        .skill-btn:disabled { 
+            background-color: #555; border-top: 3px solid #777; border-left: 3px solid #777; border-bottom: 3px solid #333; border-right: 3px solid #333;
+            color: #ccc; cursor: not-allowed; 
+        }
+        
+        /* 봉인(침묵) 당했을 때의 버튼 색상 강제 */
+        .skill-btn.silenced {
+            background-color: #8b0000 !important; border-color: #ff0000 #4d0000 #4d0000 #ff0000 !important; color: #ffcccc !important;
+        }
+
+        /* 잔여 쿨타임 감소 시각 이펙트 (번쩍임) */
+        @keyframes skill-flash-anim {
+            0% { box-shadow: inset 0 0 20px #ffaa00; outline: 3px solid #ffaa00; outline-offset: -2px; }
+            100% { box-shadow: inset 0 0 0 transparent; outline: 3px solid transparent; outline-offset: -2px; }
+        }
+        
+        .skill-btn.flash-effect {
+            animation: skill-flash-anim 0.3s ease-out !important;
+        }
+
+        .cooldown-bar { position: absolute; bottom: -3px; left: -3px; height: 4px; background-color: #00ff00; width: 0%; transition: width 0.1s linear; }
+        .skill-btn.active-skill .cooldown-bar { background-color: #ff3333; }
+
+        /* 결과 오버레이 */
+        #result-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        #result-title { font-size: 48px; font-weight: bold; margin-bottom: 20px; text-shadow: 2px 2px 0 #000; }
+        .result-score { font-size: 24px; margin: 10px; }
+
+        /* 일시정지 오버레이 */
+        #pause-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+        #pause-overlay h1 {
+            font-size: 48px;
+            color: #ffff55;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- 시작 오버레이 -->
+    <div id="start-overlay">
+        <h1>FALLING PICKAXE</h1>
+        <button class="mode-btn" id="btn-solo">혼자 하기 (무한)</button>
+        <button class="mode-btn btn-vs" id="btn-vs">AI와 1분 타임어택</button>
+    </div>
+
+    <!-- 결과 오버레이 -->
+    <div id="result-overlay">
+        <div id="result-title">TIME UP!</div>
+        <div class="result-score" id="result-player">PLAYER 가치: 0</div>
+        <div class="result-score" id="result-ai" style="color: #ff5555;">AI 가치: 0</div>
+        <button class="mode-btn" style="margin-top:30px;" id="btn-result-restart">다시 하기</button>
+    </div>
+
+    <!-- 일시정지 오버레이 (다시 하기 버튼 추가) -->
+    <div id="pause-overlay">
+        <h1>PAUSED</h1>
+        <button class="mode-btn" id="btn-resume">계속 하기</button>
+        <button class="mode-btn" id="btn-restart" style="background-color: #5555aa; border-color: #333366;">다시 하기</button>
+        <button class="mode-btn" id="btn-menu" style="background-color: #aa5555; border-color: #663333;">메인 메뉴로</button>
+    </div>
+
+    <!-- 게임 컨테이너 -->
+    <div id="app-container" class="single-mode">
+        
+        <!-- 플레이어(나) 화면 -->
+        <div class="game-wrapper" id="player-wrapper">
+            <div class="side-wall left-wall"></div>
+            <div class="canvas-container">
+                <div class="hud-top-left">
+                    <div class="player-label">PLAYER</div>
+                    <div id="player-inv"></div>
+                    <div class="y-level" id="player-y">Y: 0</div>
+                </div>
+                <canvas id="canvas-player"></canvas>
+                <!-- 콤보 UI -->
+                <div class="combo-container" id="player-combo-container">
+                    <div class="combo-text" id="player-combo-text">0 COMBO!</div>
+                    <div class="combo-bar-bg">
+                        <div class="combo-bar-fill" id="player-combo-fill"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="side-wall right-wall"></div>
+            <div class="hud-right">
+                <button id="p-btn-pause" class="skill-btn" style="margin-bottom: 5px; background-color: #ffaa00; border-color: #cc8800; padding: 6px 2px;">PAUSE</button>
+                <div class="skill-title">Cmds</div>
+                <button id="p-btn-tnt" class="skill-btn">TNT<div class="cooldown-bar" id="p-cd-tnt"></div></button>
+                <button id="p-btn-fast" class="skill-btn">FAST<div class="cooldown-bar" id="p-cd-fast"></div></button>
+                <button id="p-btn-big" class="skill-btn">BIG<div class="cooldown-bar" id="p-cd-big"></div></button>
+                <button id="p-btn-clone" class="skill-btn">환영<div class="cooldown-bar" id="p-cd-clone"></div></button>
+                <button id="p-btn-reduce" class="skill-btn">-1초<div class="cooldown-bar" id="p-cd-reduce"></div></button>
+                <button id="p-btn-reset" class="skill-btn">초기화<div class="cooldown-bar" id="p-cd-reset"></div></button>
+                <!-- 혼자 하기 시 이 버튼들은 숨김 처리됨 -->
+                <button id="p-btn-invincible" class="skill-btn" style="background-color: #0077ff; border-color: #0055cc;">무적<div class="cooldown-bar" id="p-cd-invincible"></div></button>
+                <button id="p-btn-silence" class="skill-btn" style="background-color: #7700ff; border-color: #5500cc;">봉인<div class="cooldown-bar" id="p-cd-silence"></div></button>
+            </div>
+        </div>
+
+        <!-- 중앙 HUD (VS 모드 전용) -->
+        <div id="center-hud" class="hidden">
+            <div class="timer-box" id="game-timer">60.0</div>
+            <div class="score-box">
+                <div class="score-title">PLAYER VALUE</div>
+                <div class="score-value" id="score-player">0</div>
+            </div>
+            <div class="score-box">
+                <div class="score-title">AI VALUE</div>
+                <div class="score-value ai-score" id="score-ai">0</div>
+            </div>
+        </div>
+
+        <!-- AI 화면 -->
+        <div class="game-wrapper hidden" id="ai-wrapper">
+            <div class="side-wall left-wall"></div>
+            <div class="canvas-container">
+                <div class="hud-top-left">
+                    <div class="player-label" style="background: rgba(255,0,0,0.5);">GEMINI AI</div>
+                    <div id="ai-inv"></div>
+                    <div class="y-level" id="ai-y">Y: 0</div>
+                </div>
+                <canvas id="canvas-ai"></canvas>
+                <!-- 콤보 UI -->
+                <div class="combo-container" id="ai-combo-container">
+                    <div class="combo-text" id="ai-combo-text">0 COMBO!</div>
+                    <div class="combo-bar-bg">
+                        <div class="combo-bar-fill" id="ai-combo-fill"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="side-wall right-wall"></div>
+            <div class="hud-right ai-hud">
+                <div class="skill-title" style="color:#ffaa55;">AI Auto</div>
+                <button id="a-btn-tnt" class="skill-btn" disabled>TNT<div class="cooldown-bar" id="a-cd-tnt"></div></button>
+                <button id="a-btn-fast" class="skill-btn" disabled>FAST<div class="cooldown-bar" id="a-cd-fast"></div></button>
+                <button id="a-btn-big" class="skill-btn" disabled>BIG<div class="cooldown-bar" id="a-cd-big"></div></button>
+                <button id="a-btn-clone" class="skill-btn" disabled>환영<div class="cooldown-bar" id="a-cd-clone"></div></button>
+                <button id="a-btn-reduce" class="skill-btn" disabled>-1초<div class="cooldown-bar" id="a-cd-reduce"></div></button>
+                <button id="a-btn-reset" class="skill-btn" disabled>초기화<div class="cooldown-bar" id="a-cd-reset"></div></button>
+                <button id="a-btn-invincible" class="skill-btn" disabled style="background-color: #0077ff;">무적<div class="cooldown-bar" id="a-cd-invincible"></div></button>
+                <button id="a-btn-silence" class="skill-btn" disabled style="background-color: #7700ff;">봉인<div class="cooldown-bar" id="a-cd-silence"></div></button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /**
+         * ==========================================
+         * 1. Gemini API 설정 (LLM AI)
+         * ==========================================
+         */
+        const apiKey = ""; 
+        
+        async function fetchGeminiDecision(gameStateString) {
+            const prompt = `
+너는 마인크래프트 스타일 곡괭이 낙하 게임의 천재 인공지능 플레이어야. 목표는 60초 안에 최대한 돌을 부숴 가치를 얻는 것.
+현재 너의 상태와 상대방의 상태(OpponentState):
+[ ${gameStateString} ]
+
+[스킬 콤보(Combo) 및 방해 최적화 전략 - 반드시 숙지할 것]
+1. 'TNT'는 쿨타임(READY)이 될 때마다 항상 최우선으로 사용해.
+2. 'FAST'와 'BIG', 'CLONE'(환영)은 무조건 같이 써야 시너지가 폭발해. (FAST, BIG, CLONE 동시 발동)
+3. 가장 빠르게 돌을 부수는 최강의 폭딜 콤보 순서: "FAST, BIG, CLONE, RESET, REDUCE, FAST, BIG, CLONE"
+4. [카운터/무적] 상대방(OpponentState)이 FAST와 BIG을 동시에 사용 중(ACTIVE)일 때 'INVINCIBLE'(무적)을 사용해. 상대의 돌멩이를 2초간 타격 불가로 만들어 폭딜을 완벽히 흡수할 수 있어.
+5. [카운터/봉인] 상대방이 FAST, BIG, CLONE 중 하나라도 사용 중(ACTIVE)일 때 'SILENCE'(봉인)를 사용해. 3초간 상대의 스킬 사용을 막아 추가 콤보 연계를 억제할 수 있어.
+6. 너는 한 번의 턴에 여러 스킬을 연속으로(매크로처럼) 누를 수 있어. 순서대로 쉼표(,)로 구분해서 대답해. (예: SILENCE, FAST, BIG, CLONE, INVINCIBLE, RESET)
+
+오직 사용할 스킬 이름만 순서대로 쉼표로 구분해서 출력해. (예: TNT, FAST, BIG, CLONE, RESET, REDUCE, INVINCIBLE, SILENCE)
+쓸 스킬이 없으면 NONE 이라고만 대답해.
+`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: "너는 게임 플레이어 AI야. 출력은 반드시 오직 사용할 스킬들을 쉼표로 구분한 영문 문자열이어야 해." }] }
+            };
+
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error("API Request Failed");
+                    const data = await response.json();
+                    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "NONE";
+                    
+                    text = text.replace(/[^A-Za-z, ]/g, '').toUpperCase();
+                    
+                    let skills = text.split(',').map(s => s.trim()).filter(s => ["TNT", "FAST", "BIG", "CLONE", "REDUCE", "RESET", "INVINCIBLE", "SILENCE"].includes(s));
+                    
+                    if (skills.length > 0) return skills;
+                    return ["NONE"];
+                } catch (e) {
+                    if (i === 4) return ["NONE"];
+                    await new Promise(r => setTimeout(r, delays[i]));
+                }
+            }
+            return ["NONE"];
+        }
+
+
+        /**
+         * ==========================================
+         * 2. 시드 기반 난수 생성기
+         * ==========================================
+         */
+        function seededRandom(seed) {
+            return function() {
+                var t = seed += 0x6D2B79F5;
+                t = Math.imul(t ^ t >>> 15, t | 1);
+                t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            }
+        }
+
+
+        /**
+         * ==========================================
+         * 3. 게임 데이터 설정
+         * ==========================================
+         */
+        const CONFIG = {
+            cellSize: 40,
+            physics: {
+                gravity: 0.35, bounce: 0.5, maxFallSpeed: 12, maxUpSpeed: 8, maxHorizontalSpeed: 3, friction: 0.99
+            },
+            pickaxe: {
+                radius: 12, baseDamage: 1, bigRadius: 28, bigDamage: 20, hitCooldown: 300
+            }
+        };
+
+        const ORE_TYPES = [
+            { id: 'stone', name: 'Stone', baseHp: 3, prob: 700, bg: '#595959', pColor: null, value: 1 },
+            { id: 'coal', name: 'Coal', baseHp: 6, prob: 120, bg: '#4d4d4d', pColor: '#1a1a1a', value: 2 },
+            { id: 'iron', name: 'Iron', baseHp: 10, prob: 80, bg: '#666666', pColor: '#d8af93', value: 5 },
+            { id: 'gold', name: 'Gold', baseHp: 15, prob: 50, bg: '#525252', pColor: '#fcee4e', value: 15 },
+            { id: 'redstone', name: 'Redstone', baseHp: 12, prob: 40, bg: '#454545', pColor: '#ff0000', value: 10 },
+            { id: 'diamond', name: 'Diamond', baseHp: 30, prob: 15, bg: '#6e6e6e', pColor: '#4eedda', value: 50 },
+            { id: 'emerald', name: 'Emerald', baseHp: 40, prob: 5, bg: '#5c5c5c', pColor: '#41f44d', value: 100 },
+            { id: 'obsidian', name: 'Obsidian', baseHp: 150, prob: 2, bg: '#262626', pColor: '#36245e', value: 200 }
+        ];
+
+        const SKILL_DEF = {
+            tnt: { cd: 5000 },
+            fast: { cd: 12000, duration: 4000 },
+            big: { cd: 15000, duration: 5000 },
+            clone: { cd: 15000, duration: 4000 },
+            reduce: { cd: 8000 },
+            reset: { cd: 25000 },
+            invincible: { cd: 22000, duration: 2000 },
+            silence: { cd: 25000, duration: 3000 }
+        };
+
+        const TEXTURES = {};
+        const CRACK_TEXTURES = [];
+        let pickaxeImg;
+
+        function generateTextures() {
+            ORE_TYPES.forEach(ore => {
+                const c = document.createElement('canvas');
+                c.width = CONFIG.cellSize; c.height = CONFIG.cellSize;
+                const ctx = c.getContext('2d');
+                ctx.fillStyle = ore.bg; ctx.fillRect(0, 0, c.width, c.height);
+                for(let i=0; i<60; i++) {
+                    let x = Math.floor(Math.random() * (c.width/2)) * 2;
+                    let y = Math.floor(Math.random() * (c.height/2)) * 2;
+                    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)';
+                    ctx.fillRect(x, y, 2, 2);
+                }
+                if (ore.pColor) {
+                    for(let i=0; i<12; i++) {
+                        let x = Math.floor(Math.random() * (c.width/4 - 1)) * 4 + 2;
+                        let y = Math.floor(Math.random() * (c.height/4 - 1)) * 4 + 2;
+                        ctx.fillStyle = ore.pColor; ctx.fillRect(x, y, 4, 4);
+                        ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(x, y, 2, 2);
+                    }
+                }
+                ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; ctx.strokeRect(0, 0, c.width, c.height);
+                TEXTURES[ore.id] = c;
+            });
+
+            for(let stage=1; stage<=4; stage++) {
+                const c = document.createElement('canvas'); c.width = CONFIG.cellSize; c.height = CONFIG.cellSize;
+                const ctx = c.getContext('2d'); ctx.strokeStyle = 'rgba(20,20,20,0.9)'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath();
+                for(let i=0; i<stage*4; i++) { ctx.moveTo(Math.random()*c.width, Math.random()*c.height); ctx.lineTo(Math.random()*c.width, Math.random()*c.height); }
+                ctx.stroke(); CRACK_TEXTURES.push(c);
+            }
+            
+            pickaxeImg = document.createElement('canvas'); pickaxeImg.width = 32; pickaxeImg.height = 16;
+            const pxCtx = pickaxeImg.getContext('2d');
+            const pxData = [
+                "00000000000132222310000000000000", "00000000033333333333330000000000", "00133333333333333333333333333100", 
+                "13310000000013333310000000001331", "10000000000001331000000000000001", "00000000000001221000000000000000", 
+                "00000000000001221000000000000000", "00000000000001221000000000000000", "00000000000001221000000000000000", 
+                "00000000000001221000000000000000", "00000000000001221000000000000000", "00000000000001221000000000000000",
+                "00000000000001221000000000000000", "00000000000001221000000000000000", "00000000000001221000000000000000",
+                "00000000000001221000000000000000", "00000000000001221000000000000000",
+            ];
+            const pal = { '0': null, '1': '#000000', '2': '#5c3317', '3': '#00e5ff' };
+            for (let y = 0; y < 16; y++) {
+                for (let x = 0; x < 32; x++) {
+                    const c = pal[pxData[y][x]];
+                    if (c) { pxCtx.fillStyle = c; pxCtx.fillRect(x, y, 1, 1); }
+                }
+            }
+        }
+
+
+        /**
+         * ==========================================
+         * 4. 오디오 시스템
+         * ==========================================
+         */
+        let audioCtx;
+        function initAudio() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+        function playHitSound() {
+            if (!audioCtx) return;
+            let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(150 + Math.random()*100, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.05);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.05);
+        }
+        function playBreakSound() {
+            if (!audioCtx) return;
+            let bufferSize = audioCtx.sampleRate * 0.1; let buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            let data = buffer.getChannelData(0); for(let i=0; i<bufferSize; i++) data[i] = Math.random() * 2 - 1; 
+            let noise = audioCtx.createBufferSource(); noise.buffer = buffer;
+            let filter = audioCtx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 800;
+            let gain = audioCtx.createGain(); gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination); noise.start();
+        }
+        function playExplosionSound() {
+            if (!audioCtx) return;
+            let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'square'; osc.frequency.setValueAtTime(100, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.4);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+        }
+
+
+        /**
+         * ==========================================
+         * 5. 게임 인스턴스 클래스
+         * ==========================================
+         */
+        class GameInstance {
+            constructor(canvasId, prefix, seed, isAI) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.prefix = prefix;
+                this.isAI = isAI;
+                
+                this.prng = seededRandom(seed);
+                
+                this.cols = 7;
+                this.canvas.width = this.cols * CONFIG.cellSize;
+                this.canvas.height = 16 * CONFIG.cellSize;
+
+                this.chunk = new Map();
+                this.inventory = {};
+                this.totalValue = 0;
+                
+                this.pickaxe = { x: this.canvas.width/2, y: 80, vx: 0, vy: -2.5, angle: 0, angularVelocity: 0.2, lastHitTime: 0 };
+                this.pickaxe.vx = (Math.random() - 0.5) * 5;
+                
+                this.clones = [];
+
+                this.particles = [];
+                this.tnts = [];
+                this.cameraY = 0;
+                this.shakeTime = 0;
+                this.currentYLevel = 0;
+
+                this.combo = 0;
+                this.blocksBrokenForReduce = 0;
+                this.lastComboTime = 0;
+                this.comboDuration = 3000; 
+                this.comboReduceEffectTime = 0;
+
+                this.skills = {
+                    tnt: { cd: SKILL_DEF.tnt.cd, lastUsed: 0 },
+                    fast: { cd: SKILL_DEF.fast.cd, duration: SKILL_DEF.fast.duration, activeUntil: 0, lastUsed: 0 },
+                    big: { cd: SKILL_DEF.big.cd, duration: SKILL_DEF.big.duration, activeUntil: 0, lastUsed: 0 },
+                    clone: { cd: SKILL_DEF.clone.cd, duration: SKILL_DEF.clone.duration, lastUsed: 0 },
+                    reduce: { cd: SKILL_DEF.reduce.cd, lastUsed: 0 },
+                    reset: { cd: SKILL_DEF.reset.cd, lastUsed: 0 },
+                    invincible: { cd: SKILL_DEF.invincible.cd, lastUsed: 0 },
+                    silence: { cd: SKILL_DEF.silence.cd, lastUsed: 0 }
+                };
+
+                this.debuffs = {
+                    invincibleUntil: 0,
+                    silenceUntil: 0
+                };
+
+                ORE_TYPES.forEach(ore => this.inventory[ore.id] = 0);
+                
+                for(let r = 8; r < Math.ceil(this.canvas.height / CONFIG.cellSize) + 5; r++) {
+                    this.chunk.set(r, this.generateRow(r));
+                }
+                
+                this.updateInventoryUI();
+                
+                // 플레이어 버튼 클릭 이벤트 중복 방지를 위해 onclick 속성으로 할당
+                if (!this.isAI) {
+                    document.getElementById('p-btn-tnt').onclick = () => this.useSkill('tnt');
+                    document.getElementById('p-btn-fast').onclick = () => this.useSkill('fast');
+                    document.getElementById('p-btn-big').onclick = () => this.useSkill('big');
+                    document.getElementById('p-btn-clone').onclick = () => this.useSkill('clone');
+                    document.getElementById('p-btn-reduce').onclick = () => this.useSkill('reduce');
+                    document.getElementById('p-btn-reset').onclick = () => this.useSkill('reset');
+                    document.getElementById('p-btn-invincible').onclick = () => this.useSkill('invincible');
+                    document.getElementById('p-btn-silence').onclick = () => this.useSkill('silence');
+                }
+            }
+
+            generateRow(r) {
+                let rowArr = new Array(this.cols).fill(null);
+                let depthBonus = Math.max(0, r * 0.5); 
+                
+                for(let c=0; c<this.cols; c++) {
+                    if (this.prng() < 0.05 + Math.min(0.2, r * 0.001)) continue; 
+
+                    let rand = this.prng() * 1000;
+                    let selected = ORE_TYPES[0];
+                    let cumulative = 0;
+                    
+                    for(let ore of ORE_TYPES) {
+                        let prob = ore.prob;
+                        if (ore.id === 'diamond' || ore.id === 'emerald') prob += depthBonus * 0.2;
+                        if (ore.id === 'obsidian') prob += depthBonus * 0.3;
+                        if (ore.id === 'stone') prob -= depthBonus * 0.5;
+                        
+                        cumulative += Math.max(1, prob);
+                        if (rand < cumulative) { selected = ore; break; }
+                    }
+                    rowArr[c] = { id: selected.id, hp: selected.baseHp, maxHp: selected.baseHp };
+                }
+                return rowArr;
+            }
+
+            getBlock(c, r) {
+                if (c < 0 || c >= this.cols) return null;
+                let rowObj = this.chunk.get(r);
+                if (!rowObj) {
+                    rowObj = this.generateRow(r);
+                    this.chunk.set(r, rowObj);
+                }
+                return rowObj[c];
+            }
+
+            spawnParticles(x, y, oreId, isExplosion = false) {
+                const ore = ORE_TYPES.find(o => o.id === oreId);
+                const color = (ore && ore.pColor) ? ore.pColor : '#999';
+                const count = isExplosion ? 10 : 3;
+                
+                for(let i=0; i<count; i++) {
+                    let a = Math.random() * Math.PI * 2;
+                    let v = Math.random() * (isExplosion ? 8 : 4) + 1;
+                    this.particles.push({
+                        x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+                        color: Math.random() > 0.5 ? color : '#fff', life: 1.0, decay: Math.random() * 0.05 + 0.02
+                    });
+                }
+            }
+
+            reduceAllCooldowns() {
+                const now = Date.now();
+                ['tnt', 'fast', 'big', 'clone', 'reduce', 'reset', 'invincible', 'silence'].forEach(id => {
+                    if (now - this.skills[id].lastUsed < this.skills[id].cd) {
+                        this.skills[id].lastUsed -= 1000; 
+                        this.flashSkill(id);
+                    }
+                });
+            }
+
+            flashSkill(id) {
+                let pref = this.prefix === 'player' ? 'p' : 'a';
+                const btn = document.getElementById(`${pref}-btn-${id}`);
+                if (btn) {
+                    btn.classList.remove('flash-effect');
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            btn.classList.add('flash-effect');
+                        });
+                    });
+                }
+            }
+
+            hitBlock(c, r, dmg) {
+                const now = Date.now();
+                if (now < this.debuffs.invincibleUntil) {
+                    playHitSound(); 
+                    return false;
+                }
+
+                let rowObj = this.chunk.get(r);
+                if(rowObj && rowObj[c]) {
+                    const block = rowObj[c];
+                    block.hp -= dmg;
+                    
+                    let cx = c * CONFIG.cellSize + CONFIG.cellSize/2;
+                    let cy = r * CONFIG.cellSize + CONFIG.cellSize/2;
+                    
+                    playHitSound();
+                    this.spawnParticles(cx, cy, block.id);
+                    
+                    if(block.hp <= 0) {
+                        this.inventory[block.id]++;
+                        const oreData = ORE_TYPES.find(o => o.id === block.id);
+                        if (oreData) this.totalValue += oreData.value;
+                        
+                        this.updateInventoryUI();
+                        playBreakSound();
+                        this.spawnParticles(cx, cy, block.id, true);
+                        rowObj[c] = null; 
+
+                        if (now - this.lastComboTime <= this.comboDuration) {
+                            this.combo++;
+                            this.blocksBrokenForReduce++;
+                        } else {
+                            this.combo = 1;
+                            this.blocksBrokenForReduce = 1;
+                        }
+                        this.lastComboTime = now;
+
+                        while (this.blocksBrokenForReduce >= 50) {
+                            this.reduceAllCooldowns();
+                            this.blocksBrokenForReduce -= 50;
+                            this.comboReduceEffectTime = now; 
+                        }
+
+                        return true; 
+                    }
+                }
+                return false;
+            }
+
+            useSkill(type) {
+                const now = Date.now();
+                
+                if (now < this.debuffs.silenceUntil) return;
+
+                const skill = this.skills[type];
+                if (!skill || now - skill.lastUsed < skill.cd) return; 
+
+                skill.lastUsed = now;
+                if (type === 'tnt') {
+                    this.tnts.push({
+                        x: this.pickaxe.x, y: this.pickaxe.y - 10,
+                        vx: (Math.random()-0.5)*2.5, vy: -2.5, spawnTime: now
+                    });
+                } else if (type === 'fast' || type === 'big') {
+                    skill.activeUntil = now + skill.duration;
+                } else if (type === 'clone') {
+                    for(let i=0; i<2; i++) {
+                        this.clones.push({
+                            x: this.pickaxe.x, y: this.pickaxe.y,
+                            vx: (Math.random() - 0.5) * 8, vy: -4,
+                            angle: this.pickaxe.angle, angularVelocity: (Math.random() - 0.5) * 1,
+                            lastHitTime: 0, spawnTime: now
+                        });
+                    }
+                } else if (type === 'reduce') {
+                    this.reduceAllCooldowns();
+                } else if (type === 'reset') {
+                    ['tnt', 'fast', 'big', 'clone', 'reduce'].forEach(id => {
+                        this.skills[id].lastUsed = 0; 
+                    });
+                } else if (type === 'invincible') {
+                    const opponent = this.prefix === 'player' ? aiGame : playerGame;
+                    if (opponent) opponent.debuffs.invincibleUntil = now + SKILL_DEF.invincible.duration;
+                } else if (type === 'silence') {
+                    const opponent = this.prefix === 'player' ? aiGame : playerGame;
+                    if (opponent) opponent.debuffs.silenceUntil = now + SKILL_DEF.silence.duration;
+                }
+
+                this.updateSkillUI();
+            }
+
+            getGameStateString(opponent = null) {
+                const now = Date.now();
+                const yLevel = Math.floor(this.pickaxe.y / CONFIG.cellSize);
+                const c = Math.floor(this.pickaxe.x / CONFIG.cellSize);
+                const blockBelow = this.getBlock(c, yLevel + 1);
+                
+                let blockStr = blockBelow ? `${blockBelow.id}(HP:${Math.floor(blockBelow.hp)})` : "Empty";
+                
+                let tntStat = (now - this.skills.tnt.lastUsed >= this.skills.tnt.cd) ? "READY" : "COOLDOWN";
+                let fastStat = (now - this.skills.fast.lastUsed >= this.skills.fast.cd) ? "READY" : "COOLDOWN";
+                let bigStat = (now - this.skills.big.lastUsed >= this.skills.big.cd) ? "READY" : "COOLDOWN";
+                let cloneStat = (now - this.skills.clone.lastUsed >= this.skills.clone.cd) ? "READY" : "COOLDOWN";
+                let reduceStat = (now - this.skills.reduce.lastUsed >= this.skills.reduce.cd) ? "READY" : "COOLDOWN";
+                let resetStat = (now - this.skills.reset.lastUsed >= this.skills.reset.cd) ? "READY" : "COOLDOWN";
+                let invStat = (now - this.skills.invincible.lastUsed >= this.skills.invincible.cd) ? "READY" : "COOLDOWN";
+                let silStat = (now - this.skills.silence.lastUsed >= this.skills.silence.cd) ? "READY" : "COOLDOWN";
+
+                let oppStateStr = "None";
+                if (opponent) {
+                    let oppFast = now < opponent.skills.fast.activeUntil ? "ACTIVE" : "INACTIVE";
+                    let oppBig = now < opponent.skills.big.activeUntil ? "ACTIVE" : "INACTIVE";
+                    let oppClone = opponent.clones.length > 0 ? "ACTIVE" : "INACTIVE";
+                    oppStateStr = `[FAST:${oppFast}, BIG:${oppBig}, CLONE:${oppClone}]`;
+                }
+
+                return `Depth: ${yLevel}, BlockBelow: ${blockStr}, TNT: ${tntStat}, FAST: ${fastStat}, BIG: ${bigStat}, CLONE: ${cloneStat}, REDUCE: ${reduceStat}, RESET: ${resetStat}, INVINCIBLE: ${invStat}, SILENCE: ${silStat} | OpponentState: ${oppStateStr}`;
+            }
+
+            updatePhysics() {
+                const now = Date.now();
+                const isBig = now < this.skills.big.activeUntil;
+                const isFast = now < this.skills.fast.activeUntil;
+                const radius = isBig ? CONFIG.pickaxe.bigRadius : CONFIG.pickaxe.radius;
+                const damage = isBig ? CONFIG.pickaxe.bigDamage : CONFIG.pickaxe.baseDamage;
+                const loops = isFast ? 2 : 1; 
+
+                for(let i=0; i<loops; i++) {
+                    
+                    this.clones = this.clones.filter(c => now - c.spawnTime < SKILL_DEF.clone.duration);
+                    let activePickaxes = [this.pickaxe, ...this.clones];
+
+                    for(let p of activePickaxes) {
+                        p.vy += CONFIG.physics.gravity;
+                        p.vx *= CONFIG.physics.friction;
+                        p.vy *= CONFIG.physics.friction;
+
+                        if (p.vy > CONFIG.physics.maxFallSpeed) p.vy = CONFIG.physics.maxFallSpeed;
+                        if (p.vy < -CONFIG.physics.maxUpSpeed) p.vy = -CONFIG.physics.maxUpSpeed;
+                        if (Math.abs(p.vx) > CONFIG.physics.maxHorizontalSpeed) {
+                            p.vx = Math.sign(p.vx) * CONFIG.physics.maxHorizontalSpeed;
+                        }
+                        
+                        p.x += p.vx;
+                        p.y += p.vy;
+                        
+                        p.angle += p.angularVelocity;
+                        p.angularVelocity *= 0.3;
+                        if (Math.abs(p.angularVelocity) < 0.05) p.angularVelocity += (Math.random() - 0.5) * 0.02; 
+
+                        if (p.x - radius < 0) {
+                            p.x = radius; p.vx *= -CONFIG.physics.bounce; p.angularVelocity = (Math.random() - 0.5) * 0.4;
+                        } else if (p.x + radius > this.canvas.width) {
+                            p.x = this.canvas.width - radius; p.vx *= -CONFIG.physics.bounce; p.angularVelocity = (Math.random() - 0.5) * 0.4;
+                        }
+
+                        const minCol = Math.max(0, Math.floor((p.x - radius) / CONFIG.cellSize));
+                        const maxCol = Math.min(this.cols - 1, Math.floor((p.x + radius) / CONFIG.cellSize));
+                        const minRow = Math.floor((p.y - radius) / CONFIG.cellSize);
+                        const maxRow = Math.floor((p.y + radius) / CONFIG.cellSize);
+
+                        let hitBlocks = [];
+                        for(let c = minCol; c <= maxCol; c++) {
+                            for(let r = minRow; r <= maxRow; r++) {
+                                if (this.getBlock(c, r)) {
+                                    let testX = p.x; let testY = p.y;
+                                    let bx = c * CONFIG.cellSize; let by = r * CONFIG.cellSize;
+                                    if (p.x < bx) testX = bx; else if (p.x > bx + CONFIG.cellSize) testX = bx + CONFIG.cellSize;
+                                    if (p.y < by) testY = by; else if (p.y > by + CONFIG.cellSize) testY = by + CONFIG.cellSize;
+                                    
+                                    let distX = p.x - testX; let distY = p.y - testY;
+                                    let distance = Math.hypot(distX, distY);
+                                    if (distance <= radius) hitBlocks.push({ c, r, testX, testY, distX, distY, distance });
+                                }
+                            }
+                        }
+
+                        if (hitBlocks.length > 0) {
+                            hitBlocks.sort((a, b) => a.distance - b.distance);
+                            let hit = hitBlocks[0];
+                            let blockDestroyed = false; 
+
+                            const currentCooldown = isFast ? 5 : CONFIG.pickaxe.hitCooldown;
+                            if (now - p.lastHitTime >= currentCooldown) {
+                                hitBlocks.forEach(b => { if (this.hitBlock(b.c, b.r, damage)) blockDestroyed = true; });
+                                p.lastHitTime = now;
+                            }
+
+                            if (hit.distance > 0) {
+                                let nx = hit.distX / hit.distance; let ny = hit.distY / hit.distance;
+                                if (!blockDestroyed) {
+                                    p.x = hit.testX + nx * (radius + 0.1); p.y = hit.testY + ny * (radius + 0.1);
+                                    p.angularVelocity = (Math.random() - 0.5) * 0.6; 
+                                    if (Math.abs(nx) > Math.abs(ny)) { if (p.vx * nx < 0) p.vx *= -CONFIG.physics.bounce; } 
+                                    else { if (p.vy * ny < 0) p.vy *= -CONFIG.physics.bounce; }
+                                    if (Math.abs(p.vx) < 0.5) p.vx += (Math.random() - 0.5) * 1.5;
+                                } else {
+                                    p.vy *= 0.90; p.vx *= 0.95;
+                                }
+                            } else {
+                                if (!blockDestroyed) { p.vy *= -CONFIG.physics.bounce; p.angularVelocity = (Math.random() - 0.5) * 0.5; }
+                            }
+                        }
+                    }
+
+                    for(let j=this.tnts.length-1; j>=0; j--) {
+                        let tnt = this.tnts[j];
+                        tnt.vy += CONFIG.physics.gravity; tnt.x += tnt.vx; tnt.y += tnt.vy;
+                        if(tnt.x < 0 || tnt.x > this.canvas.width) tnt.vx *= -1;
+                        let tc = Math.floor(tnt.x / CONFIG.cellSize); let tr = Math.floor(tnt.y / CONFIG.cellSize);
+                        if(this.getBlock(tc, tr)) { tnt.y -= tnt.vy; tnt.vy *= -0.5; tnt.vx *= 0.8; }
+                        if(now - tnt.spawnTime > 2000) { this.explodeTNT(tnt.x, tnt.y); this.tnts.splice(j, 1); }
+                    }
+
+                    for(let j=this.particles.length-1; j>=0; j--) {
+                        let p = this.particles[j];
+                        p.vy += CONFIG.physics.gravity * 0.5; p.x += p.vx; p.y += p.vy; p.life -= p.decay;
+                        if(p.life <= 0) this.particles.splice(j, 1);
+                    }
+                }
+
+                let targetCameraY = this.pickaxe.y - this.canvas.height * 0.3;
+                this.cameraY += (targetCameraY - this.cameraY) * 0.1;
+                
+                const maxVisibleRow = Math.floor((this.cameraY + this.canvas.height) / CONFIG.cellSize) + 10;
+                for(let r = Math.floor(this.cameraY / CONFIG.cellSize); r <= maxVisibleRow; r++) {
+                    if (!this.chunk.has(r)) this.chunk.set(r, this.generateRow(r));
+                }
+                
+                let newY = -Math.floor(this.cameraY / CONFIG.cellSize);
+                if(newY !== this.currentYLevel) {
+                    this.currentYLevel = newY;
+                    document.getElementById(this.prefix + '-y').innerText = `Y: ${newY}`;
+                }
+
+                const minVisibleRow = Math.floor(this.cameraY / CONFIG.cellSize) - 10;
+                this.chunk.forEach((_, key) => { if (key < minVisibleRow) this.chunk.delete(key); });
+                if (this.shakeTime > 0) this.shakeTime--;
+                
+                if (gameMode === 'vs') document.getElementById('score-' + this.prefix).innerText = this.totalValue.toLocaleString();
+            }
+
+            explodeTNT(x, y) {
+                playExplosionSound();
+                this.shakeTime = 30; 
+                
+                const now = Date.now();
+                if (now < this.debuffs.invincibleUntil) return; 
+
+                const centerC = Math.floor(x / CONFIG.cellSize); const centerR = Math.floor(y / CONFIG.cellSize);
+                for(let dc = -3; dc <= 3; dc++) {
+                    for(let dr = -3; dr <= 3; dr++) {
+                        if(dc*dc + dr*dr <= 9) { 
+                            let c = centerC + dc; let r = centerR + dr;
+                            if(this.getBlock(c, r)) this.hitBlock(c, r, 999);
+                        }
+                    }
+                }
+            }
+
+            draw() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.imageSmoothingEnabled = false;
+                this.ctx.save();
+                
+                let shakeX = this.shakeTime > 0 ? (Math.random()-0.5)*10 : 0;
+                let shakeY = this.shakeTime > 0 ? (Math.random()-0.5)*10 : 0;
+                this.ctx.translate(shakeX, -this.cameraY + shakeY);
+
+                const startRow = Math.max(0, Math.floor(this.cameraY / CONFIG.cellSize));
+                const endRow = Math.floor((this.cameraY + this.canvas.height) / CONFIG.cellSize) + 1;
+
+                for(let r = startRow; r <= endRow; r++) {
+                    let rowObj = this.chunk.get(r);
+                    if(!rowObj) continue;
+                    for(let c = 0; c < this.cols; c++) {
+                        let block = rowObj[c];
+                        if(block) {
+                            let bx = c * CONFIG.cellSize; let by = r * CONFIG.cellSize;
+                            this.ctx.drawImage(TEXTURES[block.id], bx, by);
+                            if(block.hp < block.maxHp) {
+                                let ratio = 1 - (block.hp / block.maxHp);
+                                let stage = Math.min(3, Math.floor(ratio * 4));
+                                this.ctx.drawImage(CRACK_TEXTURES[stage], bx, by);
+                            }
+                        }
+                    }
+                }
+
+                const now = Date.now();
+                if (now < this.debuffs.invincibleUntil) {
+                    this.ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
+                    this.ctx.fillRect(0, this.cameraY, this.canvas.width, this.canvas.height);
+                    this.ctx.save();
+                    this.ctx.setTransform(1, 0, 0, 1, 0, 0); 
+                    this.ctx.fillStyle = 'rgba(0, 255, 255, 0.8)';
+                    this.ctx.font = 'bold 28px monospace';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.fillText('무적 방패 작동중!', this.canvas.width / 2, this.canvas.height / 2);
+                    this.ctx.restore();
+                }
+
+                this.particles.forEach(p => {
+                    this.ctx.globalAlpha = Math.max(0, p.life); this.ctx.fillStyle = p.color; this.ctx.fillRect(p.x, p.y, 4, 4);
+                });
+                this.ctx.globalAlpha = 1.0;
+
+                this.tnts.forEach(tnt => {
+                    let flash = Math.sin(now / 50) > 0;
+                    this.ctx.fillStyle = flash ? '#ffffff' : '#ff0000'; this.ctx.fillRect(tnt.x - 12, tnt.y - 12, 24, 24);
+                    this.ctx.fillStyle = flash ? '#ff0000' : '#ffffff'; this.ctx.font = 'bold 10px monospace'; this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; this.ctx.fillText('TNT', tnt.x, tnt.y);
+                });
+
+                const isBig = now < this.skills.big.activeUntil;
+                let size = isBig ? 64 : 32; 
+
+                let allPickaxes = [this.pickaxe, ...this.clones];
+                allPickaxes.forEach(p => {
+                    this.ctx.save();
+                    this.ctx.translate(p.x, p.y);
+                    this.ctx.rotate(p.angle);
+                    this.ctx.drawImage(pickaxeImg, -size/2, -size/2, size, size);
+                    this.ctx.restore();
+                });
+                
+                this.ctx.restore();
+            }
+
+            updateComboUI() {
+                const now = Date.now();
+                const comboContainer = document.getElementById(this.prefix + '-combo-container');
+                const comboText = document.getElementById(this.prefix + '-combo-text');
+                const comboFill = document.getElementById(this.prefix + '-combo-fill');
+                
+                if (!comboContainer || !comboText || !comboFill) return;
+
+                if (this.combo > 0) {
+                    let elapsed = now - this.lastComboTime;
+                    if (elapsed > this.comboDuration) {
+                        this.combo = 0;
+                        this.blocksBrokenForReduce = 0;
+                        comboContainer.style.display = 'none';
+                    } else {
+                        comboContainer.style.display = 'block';
+                        
+                        let ratio = 1 - (elapsed / this.comboDuration);
+                        comboFill.style.width = `${ratio * 100}%`;
+                        
+                        if (now - this.comboReduceEffectTime < 500) {
+                            comboText.style.color = '#55ff55';
+                            comboFill.style.backgroundColor = '#55ff55';
+                            comboText.style.transform = 'scale(1.2)';
+                            comboText.innerText = `${this.combo} COMBO! (-1s CD)`;
+                        } else {
+                            comboText.style.color = '#ffaa00';
+                            comboFill.style.backgroundColor = '#ffaa00';
+                            comboText.style.transform = 'scale(1)';
+                            comboText.innerText = `${this.combo} COMBO!`;
+                        }
+                    }
+                } else {
+                    comboContainer.style.display = 'none';
+                }
+            }
+
+            updateInventoryUI() {
+                const list = document.getElementById(this.prefix + '-inv');
+                list.innerHTML = '';
+                ORE_TYPES.forEach(ore => {
+                    const cnt = this.inventory[ore.id] || 0;
+                    if(cnt > 0 || ore.id === 'stone' || ore.id === 'diamond') {
+                        let div = document.createElement('div'); div.className = 'inv-item';
+                        let iconBg = ore.pColor ? ore.pColor : ore.bg; 
+                        div.innerHTML = `<div class="inv-icon" style="background-color: ${iconBg};"></div><span>${cnt.toLocaleString()}</span>`;
+                        list.appendChild(div);
+                    }
+                });
+            }
+
+            updateSkillUI() {
+                const now = Date.now();
+                const isSilenced = now < this.debuffs.silenceUntil; 
+
+                let pref = this.prefix === 'player' ? 'p' : 'a';
+                ['tnt', 'fast', 'big', 'clone', 'reduce', 'reset', 'invincible', 'silence'].forEach(id => {
+                    const skill = this.skills[id];
+                    const btn = document.getElementById(`${pref}-btn-${id}`);
+                    const bar = document.getElementById(`${pref}-cd-${id}`);
+                    if (!btn) return;
+                    
+                    const elapsed = now - skill.lastUsed;
+                    
+                    let baseName = id.toUpperCase();
+                    if(id === 'clone') baseName = '환영';
+                    if(id === 'reduce') baseName = '-1초';
+                    if(id === 'reset') baseName = '초기화';
+                    if(id === 'invincible') baseName = '무적';
+                    if(id === 'silence') baseName = '봉인';
+
+                    if (isSilenced) {
+                        btn.disabled = true;
+                        btn.classList.remove('active-skill');
+                        btn.classList.add('silenced');
+                        btn.childNodes[0].nodeValue = `[봉인됨]`;
+                        bar.style.width = `0%`;
+                    } 
+                    else if(elapsed < skill.cd) {
+                        btn.disabled = true; 
+                        btn.classList.remove('active-skill');
+                        btn.classList.remove('silenced');
+                        
+                        let remaining = ((skill.cd - elapsed) / 1000).toFixed(1);
+                        btn.childNodes[0].nodeValue = `${baseName} (${remaining}s)`;
+                        
+                        if(skill.activeUntil && now < skill.activeUntil) {
+                            btn.classList.add('active-skill');
+                            bar.style.width = `${((skill.activeUntil - now) / skill.duration) * 100}%`;
+                        } else {
+                            bar.style.width = `${(elapsed / skill.cd) * 100}%`;
+                        }
+                    } else {
+                        if (!this.isAI) btn.disabled = false;
+                        btn.classList.remove('active-skill'); 
+                        btn.classList.remove('silenced');
+                        bar.style.width = '100%';
+                        btn.childNodes[0].nodeValue = `${baseName}`; 
+                    }
+                });
+            }
+        }
+
+
+        /**
+         * ==========================================
+         * 6. 메인 게임 컨트롤러
+         * ==========================================
+         */
+        let gameMode = 'solo'; 
+        let playerGame, aiGame;
+        let isRunning = false;
+        
+        let isPaused = false;
+        let pauseStartTime = 0;
+
+        let gameStartTime = 0;
+        let timeLeft = 60.0;
+        const MAX_TIME = 60.0;
+        let aiBrainInterval;
+        let animationFrameId;
+
+        function startGame(mode) {
+            cancelAnimationFrame(animationFrameId);
+            gameMode = mode;
+            document.getElementById('start-overlay').style.display = 'none';
+            document.getElementById('result-overlay').style.display = 'none';
+            
+            // 싱글 모드일 경우 방해 스킬 숨김 처리
+            const debuffDisplay = mode === 'vs' ? 'block' : 'none';
+            document.getElementById('p-btn-invincible').style.display = debuffDisplay;
+            document.getElementById('p-btn-silence').style.display = debuffDisplay;
+
+            generateTextures(); 
+            initAudio();
+            
+            const mapSeed = Math.floor(Math.random() * 1000000);
+            
+            playerGame = new GameInstance('canvas-player', 'player', mapSeed, false);
+            
+            if (mode === 'vs') {
+                document.getElementById('app-container').classList.remove('single-mode');
+                document.getElementById('ai-wrapper').classList.remove('hidden');
+                document.getElementById('center-hud').classList.remove('hidden');
+                aiGame = new GameInstance('canvas-ai', 'ai', mapSeed, true);
+                
+                gameStartTime = Date.now();
+                
+                clearInterval(aiBrainInterval);
+                aiBrainInterval = setInterval(async () => {
+                    if (!isRunning || !aiGame || isPaused) return; 
+                    const stateStr = aiGame.getGameStateString(playerGame);
+                    const decisions = await fetchGeminiDecision(stateStr);
+                    
+                    if (decisions[0] !== "NONE") {
+                        decisions.forEach((decision, index) => {
+                            setTimeout(() => {
+                                if (isRunning && !isPaused && aiGame) {
+                                    aiGame.useSkill(decision.toLowerCase());
+                                }
+                            }, index * 150);
+                        });
+                    }
+                }, 3000);
+            } else {
+                document.getElementById('app-container').classList.add('single-mode');
+                document.getElementById('ai-wrapper').classList.add('hidden');
+                document.getElementById('center-hud').classList.add('hidden');
+                clearInterval(aiBrainInterval);
+                aiGame = null;
+            }
+            
+            isRunning = true;
+            isPaused = false;
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function gameLoop() {
+            if (!isRunning) return;
+            
+            if (!isPaused) {
+                if (gameMode === 'vs') {
+                    const now = Date.now();
+                    timeLeft = Math.max(0, MAX_TIME - (now - gameStartTime) / 1000);
+                    document.getElementById('game-timer').innerText = timeLeft.toFixed(1);
+                    
+                    if (timeLeft <= 0) {
+                        endGame();
+                        return;
+                    }
+                }
+                
+                if (playerGame) { playerGame.updatePhysics(); playerGame.updateSkillUI(); playerGame.updateComboUI(); playerGame.draw(); }
+                if (aiGame) { aiGame.updatePhysics(); aiGame.updateSkillUI(); aiGame.updateComboUI(); aiGame.draw(); }
+            }
+            
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            isRunning = false;
+            clearInterval(aiBrainInterval);
+            
+            const overlay = document.getElementById('result-overlay');
+            const title = document.getElementById('result-title');
+            
+            document.getElementById('result-player').innerText = `PLAYER 가치: ${playerGame.totalValue.toLocaleString()}`;
+            document.getElementById('result-ai').innerText = `AI 가치: ${aiGame.totalValue.toLocaleString()}`;
+            
+            if (playerGame.totalValue > aiGame.totalValue) {
+                title.innerText = "YOU WIN!";
+                title.style.color = "#55ff55";
+            } else if (playerGame.totalValue < aiGame.totalValue) {
+                title.innerText = "AI WINS!";
+                title.style.color = "#ff5555";
+            } else {
+                title.innerText = "DRAW";
+                title.style.color = "#ffff55";
+            }
+            
+            overlay.style.display = 'flex';
+        }
+
+        document.getElementById('p-btn-pause').addEventListener('click', () => {
+            if (!isRunning || isPaused) return;
+            isPaused = true;
+            pauseStartTime = Date.now();
+            document.getElementById('pause-overlay').style.display = 'flex';
+        });
+
+        document.getElementById('btn-resume').addEventListener('click', () => {
+            if (!isPaused) return;
+            isPaused = false;
+            document.getElementById('pause-overlay').style.display = 'none';
+            
+            const pauseDuration = Date.now() - pauseStartTime;
+            
+            if (gameMode === 'vs') {
+                gameStartTime += pauseDuration; 
+            }
+
+            const adjustGameTimers = (game) => {
+                if (!game) return;
+                ['tnt', 'fast', 'big', 'clone', 'reduce', 'reset', 'invincible', 'silence'].forEach(id => {
+                    if (game.skills[id].lastUsed > 0) game.skills[id].lastUsed += pauseDuration;
+                    if (game.skills[id].activeUntil && game.skills[id].activeUntil > 0) game.skills[id].activeUntil += pauseDuration;
+                });
+                game.tnts.forEach(tnt => tnt.spawnTime += pauseDuration);
+                game.clones.forEach(c => c.spawnTime += pauseDuration);
+                game.pickaxe.lastHitTime += pauseDuration;
+                game.clones.forEach(c => c.lastHitTime += pauseDuration);
+                game.lastComboTime += pauseDuration;
+                if(game.comboReduceEffectTime > 0) game.comboReduceEffectTime += pauseDuration;
+                
+                if(game.debuffs.invincibleUntil > 0) game.debuffs.invincibleUntil += pauseDuration;
+                if(game.debuffs.silenceUntil > 0) game.debuffs.silenceUntil += pauseDuration;
+            };
+
+            adjustGameTimers(playerGame);
+            adjustGameTimers(aiGame);
+        });
+
+        document.getElementById('btn-restart').onclick = () => {
+            isPaused = false;
+            document.getElementById('pause-overlay').style.display = 'none';
+            startGame(gameMode);
+        };
+
+        document.getElementById('btn-result-restart').onclick = () => {
+            startGame(gameMode);
+        };
+
+        document.getElementById('btn-menu').addEventListener('click', () => {
+            location.reload(); 
+        });
+
+        document.getElementById('btn-solo').addEventListener('click', () => startGame('solo'));
+        document.getElementById('btn-vs').addEventListener('click', () => startGame('vs'));
+
+    </script>
+</body>
+</html>

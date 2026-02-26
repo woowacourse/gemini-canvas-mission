@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 대환장 경마 게임</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #87ceeb;
+            user-select: none;
+        }
+        
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* UI Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* Let clicks pass through to UI elements */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .panel {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            pointer-events: auto;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            backdrop-filter: blur(5px);
+        }
+
+        h1, h2 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        textarea {
+            width: 100%;
+            height: 120px;
+            margin: 10px 0;
+            padding: 10px;
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            resize: none;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        /* 3D Labels */
+        #labels-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        .racer-label {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            transition: transform 0.1s linear;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        /* Result List */
+        #result-list {
+            list-style-type: none;
+            padding: 0;
+            margin: 20px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            text-align: left;
+        }
+
+        #result-list li {
+            padding: 10px;
+            margin-bottom: 5px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            font-size: 18px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        #result-list li span:first-child {
+            color: #e67e22;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .event-text {
+            position: absolute;
+            font-size: 12px;
+            color: #ff3333;
+            font-weight: bold;
+            text-shadow: 1px 1px white;
+            pointer-events: none;
+            transition: opacity 0.5s;
+            opacity: 0;
+        }
+
+        /* Commentary Box */
+        #commentary-box {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 15px 30px;
+            border-radius: 30px;
+            font-size: 22px;
+            font-weight: bold;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 20;
+            text-align: center;
+            border: 2px solid #f1c40f;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            white-space: nowrap;
+        }
+
+        /* Sub-Monitor (PIP) & Event Logs */
+        #sub-monitor-frame {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            border: 4px solid #ff3333;
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: none;
+            z-index: 15;
+            box-shadow: 0 0 20px rgba(255, 51, 51, 0.8);
+            background: rgba(0, 0, 0, 0.2); /* Tint for empty areas */
+        }
+        
+        #sub-monitor-title {
+            position: absolute;
+            top: -28px;
+            left: -4px;
+            background: #ff3333;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 4px 4px 0 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .blink-dot {
+            width: 8px; height: 8px; background: white; border-radius: 50%;
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        #event-log-container {
+            position: absolute;
+            right: 20px;
+            width: 250px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 15;
+            pointer-events: none;
+        }
+
+        /* Live Ranking Board */
+        #live-ranking {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 10;
+            display: none;
+            pointer-events: none;
+            min-width: 150px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            border: 2px solid #3498db;
+        }
+
+        #live-ranking h3 { 
+            margin: 0 0 10px 0; 
+            font-size: 16px; 
+            border-bottom: 1px solid #555; 
+            padding-bottom: 5px; 
+            color: #f1c40f; 
+            text-align: center; 
+        }
+
+        .live-rank-item { 
+            font-size: 14px; 
+            margin-bottom: 5px; 
+            font-weight: bold; 
+            display: flex; 
+            justify-content: space-between; 
+        }
+
+        .live-rank-1 { color: #f1c40f; }
+        .live-rank-2 { color: #bdc3c7; }
+        .live-rank-3 { color: #cd7f32; }
+
+        .event-log-item {
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 12px;
+            border-left: 5px solid #ff3333;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            animation: slideInRight 0.3s ease-out forwards;
+            word-break: keep-all;
+        }
+
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="game-container"></div>
+    <div id="labels-container"></div>
+
+    <div id="ui-layer">
+        <!-- Start Panel -->
+        <div id="start-panel" class="panel">
+            <h1>🎲 3D 대환장 레이싱 🎲</h1>
+            <p>참가자 이름을 줄바꿈으로 입력하세요.</p>
+            <p style="font-size:12px; color:#666;">*돌발 상황: 넘어짐, 물구나무, 사람이 뛰기 등</p>
+            <textarea id="participants-input">김철수
+이영희
+박지성
+손흥민
+말티즈
+호랑이</textarea>
+            <button id="start-btn">경주 시작!</button>
+        </div>
+
+        <!-- Result Panel -->
+        <div id="result-panel" class="panel hidden">
+            <h2>🏆 경주 결과 🏆</h2>
+            <ul id="result-list"></ul>
+            <button id="restart-btn">다시 하기</button>
+        </div>
+
+        <!-- Commentary Box -->
+        <div id="commentary-box">경주가 시작되었습니다!</div>
+
+        <!-- Sub-Monitor Overlay -->
+        <div id="sub-monitor-frame">
+            <div id="sub-monitor-title"><div class="blink-dot"></div> LIVE: 돌발 카메라</div>
+        </div>
+        <div id="event-log-container"></div>
+
+        <!-- Live Ranking Board -->
+        <div id="live-ranking">
+            <h3>📊 실시간 순위</h3>
+            <div id="live-ranking-list"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Variables ---
+        let scene, camera, renderer, subCamera;
+        let racers = [];
+        let isRacing = false;
+        let rankings = [];
+        let activeEvents = []; // 진행 중인 이벤트들 추적
+        let eventLogCount = 0;
+
+        let laneLines = []; // 트랙선 관리 배열
+        let trackCameras = []; // 트랙별 사이드 카메라 모델 배열
+        let pipCamPos = new THREE.Vector3(); // 사이드 카메라 부드러운 이동용
+        let pipCamTarget = new THREE.Vector3();
+        let isPipActive = false;
+        let frameCount = 0;
+
+        // 누락되었던 필수 설정 변수 및 DOM 요소 연결 복구
+        const finishLineX = 400; 
+        const trackWidth = 40;
+        const colors = [0xe74c3c, 0x3498db, 0xf1c40f, 0x2ecc71, 0x9b59b6, 0xe67e22, 0x1abc9c, 0x34495e];
+
+        const startPanel = document.getElementById('start-panel');
+        const resultPanel = document.getElementById('result-panel');
+        const labelsContainer = document.getElementById('labels-container');
+        const resultList = document.getElementById('result-list');
+        const commentaryBox = document.getElementById('commentary-box');
+
+        let currentLeaderName = "";
+        let commentTimeout;
+        let lastCommentTime = 0;
+
+        // --- Three.js Initialization ---
+        function init() {
+            const container = document.getElementById('game-container');
+
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb); // Sky blue
+            scene.fog = new THREE.Fog(0x87ceeb, 50, 300);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(-20, 30, 0);
+            camera.lookAt(10, 0, 0);
+
+            // Sub Camera Setup (PIP용)
+            subCamera = new THREE.PerspectiveCamera(50, 1.5, 0.1, 500);
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.autoClear = false; // PIP 다중 렌더링을 위해 자동 클리어 방지
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(50, 100, 50);
+            dirLight.castShadow = true;
+            dirLight.shadow.camera.top = 100;
+            dirLight.shadow.camera.bottom = -100;
+            dirLight.shadow.camera.left = -100;
+            dirLight.shadow.camera.right = 100;
+            scene.add(dirLight);
+
+            // Build Environment
+            createEnvironment();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize, false);
+            document.getElementById('start-btn').addEventListener('click', startRace);
+            document.getElementById('restart-btn').addEventListener('click', resetGame);
+
+            // Start Animation Loop
+            animate();
+        }
+
+        function createEnvironment() {
+            const trackLength = finishLineX + 200;
+            const centerX = finishLineX / 2;
+
+            // Ground (Grass)
+            const groundGeo = new THREE.PlaneGeometry(trackLength, 200);
+            const groundMat = new THREE.MeshLambertMaterial({ color: 0x55aa55 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.x = centerX;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Track Dirt
+            const trackGeo = new THREE.PlaneGeometry(trackLength, trackWidth + 10);
+            const trackMat = new THREE.MeshLambertMaterial({ color: 0xc2b280 }); // Sand/Dirt
+            const track = new THREE.Mesh(trackGeo, trackMat);
+            track.rotation.x = -Math.PI / 2;
+            track.position.y = 0.05;
+            track.position.x = centerX;
+            track.receiveShadow = true;
+            scene.add(track);
+
+            // Start Line
+            const lineGeo = new THREE.PlaneGeometry(2, trackWidth + 10);
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const startLine = new THREE.Mesh(lineGeo, lineMat);
+            startLine.rotation.x = -Math.PI / 2;
+            startLine.position.set(0, 0.1, 0);
+            scene.add(startLine);
+
+            // Finish Line
+            const finishLine = new THREE.Mesh(lineGeo, new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+            finishLine.rotation.x = -Math.PI / 2;
+            finishLine.position.set(finishLineX, 0.1, 0);
+            scene.add(finishLine);
+
+            // Fences / Decorations
+            for (let i = -50; i <= finishLineX + 50; i += 20) {
+                createFencePost(i, trackWidth / 2 + 6);
+                createFencePost(i, -trackWidth / 2 - 6);
+            }
+        }
+
+        function createFencePost(x, z) {
+            const geo = new THREE.CylinderGeometry(0.5, 0.5, 5);
+            const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+            const post = new THREE.Mesh(geo, mat);
+            post.position.set(x, 2.5, z);
+            post.castShadow = true;
+            scene.add(post);
+        }
+
+        // 트랙별 사이드 카메라 모델 생성 함수 (추가10)
+        function createBroadcastCamera(x, z, lookAtX, lookAtZ) {
+            const group = new THREE.Group();
+            
+            // 삼각대
+            const mat = new THREE.MeshLambertMaterial({color: 0x333333});
+            const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 4), mat);
+            leg1.rotation.z = 0.3; leg1.position.set(-0.5, 2, 0);
+            group.add(leg1);
+            const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 4), mat);
+            leg2.rotation.z = -0.3; leg2.position.set(0.5, 2, 0);
+            group.add(leg2);
+            
+            // 카메라 바디
+            const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1, 2), new THREE.MeshLambertMaterial({color: 0x111111}));
+            body.position.set(0, 4, 0);
+            group.add(body);
+            
+            // 렌즈
+            const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1), new THREE.MeshLambertMaterial({color: 0x555555}));
+            lens.rotation.x = Math.PI/2;
+            lens.position.set(0, 4, 1);
+            group.add(lens);
+            
+            group.position.set(x, 0, z);
+            group.lookAt(lookAtX, 4, lookAtZ);
+            scene.add(group);
+            trackCameras.push(group);
+        }
+
+        // --- Model Creation ---
+        function createHorse(color) {
+            const group = new THREE.Group();
+            const mat = new THREE.MeshLambertMaterial({ color: color });
+            
+            // Body
+            const body = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 2), mat);
+            body.position.y = 3;
+            body.castShadow = true;
+            group.add(body);
+
+            // Head/Neck
+            const head = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.5, 1.5), mat);
+            head.position.set(2, 4.5, 0);
+            head.castShadow = true;
+            group.add(head);
+
+            // Legs (simplified)
+            const legGeo = new THREE.BoxGeometry(0.6, 2.5, 0.6);
+            const positions = [
+                [-1.5, 1.25, 0.7], [1.5, 1.25, 0.7],
+                [-1.5, 1.25, -0.7], [1.5, 1.25, -0.7]
+            ];
+            
+            group.legs = [];
+            positions.forEach(pos => {
+                const leg = new THREE.Mesh(legGeo, new THREE.MeshLambertMaterial({color: 0x333333}));
+                leg.position.set(...pos);
+                leg.castShadow = true;
+                group.add(leg);
+                group.legs.push(leg);
+            });
+
+            return group;
+        }
+
+        // 추가7: 말을 타고 있는 사람 모델 생성 (누락된 함수 복구)
+        function createRiderOnHorse(color) {
+            const group = new THREE.Group();
+            
+            // 말 부분 (기존 재사용)
+            const horse = createHorse(color);
+            group.add(horse);
+            group.horse = horse; // 애니메이션을 위해 참조 저장
+
+            // 사람(기수) 부분 (옷 색상을 고유 색상으로 변경)
+            const riderBody = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.8, 0.8, 2), 
+                new THREE.MeshLambertMaterial({ color: color }) // 기존 파란색(0x3498db) 대신 참가자 고유 색상 적용
+            );
+            riderBody.position.set(0, 5.5, 0); // 말 위에 안착
+            riderBody.castShadow = true;
+            group.add(riderBody);
+
+            const riderHead = new THREE.Mesh(
+                new THREE.SphereGeometry(0.8), 
+                new THREE.MeshLambertMaterial({ color: 0xffccaa }) // 피부색
+            );
+            riderHead.position.set(0, 7, 0);
+            riderHead.castShadow = true;
+            group.add(riderHead);
+
+            group.rider = riderBody; // 애니메이션 참조용
+            group.riderHead = riderHead;
+
+            return group;
+        }
+
+        // 추가7: 5% 확률로 등장하는 호랑이 모델 생성 (색상 동기화 추가)
+        function createTiger(color) {
+            const group = new THREE.Group();
+            const mat = new THREE.MeshLambertMaterial({ color: color }); // 참가자 고유 색상 적용
+            const stripeMat = new THREE.MeshLambertMaterial({ color: 0x111111 }); // 검은 무늬/다리
+
+            // Body
+            const body = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.8, 2), mat);
+            body.position.y = 2.5;
+            body.castShadow = true;
+            group.add(body);
+
+            // Head
+            const head = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.8, 1.8), mat);
+            head.position.set(2.5, 3.5, 0);
+            head.castShadow = true;
+            group.add(head);
+
+            // Ears
+            const earGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const ear1 = new THREE.Mesh(earGeo, stripeMat);
+            ear1.position.set(2.5, 4.5, 0.6);
+            group.add(ear1);
+            const ear2 = new THREE.Mesh(earGeo, stripeMat);
+            ear2.position.set(2.5, 4.5, -0.6);
+            group.add(ear2);
+
+            // Legs
+            const legGeo = new THREE.BoxGeometry(0.7, 2, 0.7);
+            const positions = [
+                [-1.5, 1, 0.8], [1.5, 1, 0.8],
+                [-1.5, 1, -0.8], [1.5, 1, -0.8]
+            ];
+            
+            group.legs = [];
+            positions.forEach(pos => {
+                const leg = new THREE.Mesh(legGeo, stripeMat);
+                leg.position.set(...pos);
+                leg.castShadow = true;
+                group.add(leg);
+                group.legs.push(leg);
+            });
+
+            return group;
+        }
+
+        // --- Game Logic ---
+        function startRace() {
+            const text = document.getElementById('participants-input').value;
+            const names = text.split('\n').map(n => n.trim()).filter(n => n);
+            
+            if (names.length === 0) return alert('최소 1명의 참가자를 입력하세요.');
+
+            startPanel.classList.add('hidden');
+            labelsContainer.innerHTML = ''; // Clear labels
+            document.getElementById('live-ranking').style.display = 'block'; // 실시간 순위판 표시 (추가12)
+            
+            // Clear existing racers from scene
+            racers.forEach(r => scene.remove(r.mesh));
+            racers = [];
+            rankings = [];
+            activeEvents = [];
+            isPipActive = false;
+
+            // 기존 트랙선 및 카메라 모델 초기화
+            laneLines.forEach(line => scene.remove(line));
+            laneLines = [];
+            trackCameras.forEach(cam => scene.remove(cam));
+            trackCameras = [];
+
+            const spacing = trackWidth / (names.length + 1);
+            let startZ = -trackWidth / 2 + spacing;
+
+            // 트랙선 긋기 및 각 트랙별 사이드 카메라 설치 (추가8, 추가10)
+            for (let i = 0; i <= names.length + 1; i++) {
+                const lineZ = -trackWidth / 2 + (spacing * i) - (spacing / 2);
+                
+                // 트랙 내부에만 하얀선 그리기
+                if (lineZ > -trackWidth / 2 - 1 && lineZ < trackWidth / 2 + 1) {
+                    const geo = new THREE.PlaneGeometry(finishLineX + 100, 0.5);
+                    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+                    const line = new THREE.Mesh(geo, mat);
+                    line.rotation.x = -Math.PI / 2;
+                    line.position.set((finishLineX + 100) / 2 - 50, 0.06, lineZ);
+                    scene.add(line);
+                    laneLines.push(line);
+                }
+
+                // 각 레인(트랙)별 감시용 물리적 사이드 카메라 설치
+                if (i <= names.length && lineZ < trackWidth / 2) {
+                    const camZ = lineZ + (spacing / 2); // 해당 레인 중앙
+                    // 트랙 중간(1/2 지점)과 결승선 부근 외곽에 사이드 카메라 모델 배치
+                    createBroadcastCamera(finishLineX / 2, -trackWidth / 2 - 15, finishLineX / 2 + 10, camZ);
+                    createBroadcastCamera(finishLineX - 20, trackWidth / 2 + 15, finishLineX, camZ);
+                }
+            }
+
+            names.forEach((name, index) => {
+                const color = colors[index % colors.length];
+                const colorHex = '#' + color.toString(16).padStart(6, '0'); // Hex 색상 코드 생성
+                
+                // 추가7: 기본은 말을 탄 사람, 5% 확률로 호랑이
+                const isTiger = Math.random() < 0.05;
+                const mesh = isTiger ? createTiger(color) : createRiderOnHorse(color); // 호랑이에게도 색상 부여
+                
+                mesh.position.set(0, 0, startZ);
+                scene.add(mesh);
+
+                // Create HTML Label
+                const label = document.createElement('div');
+                label.className = 'racer-label';
+                label.innerText = isTiger ? `🐅 ${name}` : `🏇 ${name}`;
+                label.style.backgroundColor = colorHex;
+                labelsContainer.appendChild(label);
+
+                // Create Event Text element
+                const eventText = document.createElement('div');
+                eventText.className = 'event-text';
+                labelsContainer.appendChild(eventText);
+
+                racers.push({
+                    name: name,
+                    mesh: mesh,
+                    label: label,
+                    eventText: eventText,
+                    colorHex: colorHex, // 색상 정보 저장
+                    baseSpeed: 0.3 + Math.random() * 0.2,
+                    currentSpeed: 0,
+                    state: 'running', // running, fallen, handstand, banana, eaten
+                    stateTimer: 0,
+                    finished: false,
+                    isTiger: isTiger,
+                    rank: 0,
+                    runCycle: Math.random() * Math.PI * 2
+                });
+
+                startZ += spacing;
+            });
+
+            // Reset Camera
+            camera.position.set(-20, 30, 0);
+            camera.lookAt(10, 0, 0);
+
+            // Start countdown or immediately
+            setTimeout(() => {
+                isRacing = true;
+                setCommentary("🏁 경주가 시작되었습니다!! 과연 1위는 누가 될까요?", 3000, true);
+            }, 1000);
+        }
+
+        function checkEndGame() {
+            if (rankings.length === racers.length) {
+                isRacing = false;
+                setTimeout(showResults, 1500);
+            }
+        }
+
+        function showResults() {
+            resultList.innerHTML = '';
+            rankings.forEach((racer, idx) => {
+                const li = document.createElement('li');
+                let medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}위`;
+                li.innerHTML = `<span>${medal}</span> 
+                                <span style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="display:inline-block; width:16px; height:16px; background-color:${racer.colorHex}; border-radius:4px; border: 1px solid #ccc;"></span>
+                                    ${racer.name}
+                                </span>`;
+                resultList.appendChild(li);
+            });
+            resultPanel.classList.remove('hidden');
+        }
+
+        function resetGame() {
+            resultPanel.classList.add('hidden');
+            startPanel.classList.remove('hidden');
+            document.getElementById('live-ranking').style.display = 'none'; // 순위판 숨김
+            camera.position.set(-20, 30, 0);
+            camera.lookAt(10, 0, 0);
+            commentaryBox.style.opacity = 0;
+            currentLeaderName = "";
+            activeEvents = [];
+            isPipActive = false;
+            document.getElementById('event-log-container').innerHTML = '';
+        }
+
+        function showEventText(racer, text) {
+            racer.eventText.innerText = text;
+            racer.eventText.style.opacity = 1;
+            setTimeout(() => { racer.eventText.style.opacity = 0; }, 1500);
+        }
+
+        function setCommentary(text, duration = 2500, force = false) {
+            const now = Date.now();
+            // 코멘트가 너무 자주 덮어씌워지지 않도록 조절 (force가 true면 무조건 우선 출력)
+            if (!force && now - lastCommentTime < 1500) return; 
+
+            commentaryBox.innerText = text;
+            commentaryBox.style.opacity = 1;
+            lastCommentTime = now;
+
+            clearTimeout(commentTimeout);
+            commentTimeout = setTimeout(() => {
+                commentaryBox.style.opacity = 0;
+            }, duration);
+        }
+
+        function triggerEvent(racer, type, shortText, longText, durationFrames, durationMs) {
+            racer.state = type;
+            racer.stateTimer = durationFrames;
+            showEventText(racer, shortText);
+            setCommentary(longText, 2500, true);
+            
+            // 서브모니터용 이벤트 등록
+            const eventId = ++eventLogCount;
+            activeEvents.push({ id: eventId, racer: racer, type: type });
+            
+            // 이벤트 로그 UI 추가
+            const logContainer = document.getElementById('event-log-container');
+            const logItem = document.createElement('div');
+            logItem.className = 'event-log-item';
+            logItem.id = `log-${eventId}`;
+            logItem.innerText = `🚨 ${longText}`;
+            logContainer.appendChild(logItem);
+            
+            // 타이머 종료 시 큐와 로그에서 제거
+            setTimeout(() => {
+                activeEvents = activeEvents.filter(e => e.id !== eventId);
+                const logToRemove = document.getElementById(`log-${eventId}`);
+                if (logToRemove) {
+                    logToRemove.style.opacity = 0;
+                    setTimeout(() => logToRemove.remove(), 300);
+                }
+            }, durationMs);
+        }
+
+        // --- Update & Animation ---
+        function updateLabels() {
+            racers.forEach(racer => {
+                // Project 3D position to 2D screen coordinates
+                const vector = racer.mesh.position.clone();
+                vector.y += 8; // Offset above the character를 좀 더 높게 수정
+                vector.project(camera);
+
+                const x = (vector.x * .5 + .5) * window.innerWidth;
+                const y = (vector.y * -.5 + .5) * window.innerHeight;
+
+                racer.label.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
+                
+                // Sync event text position
+                const evVector = racer.mesh.position.clone();
+                evVector.y += 8;
+                evVector.project(camera);
+                const evX = (evVector.x * .5 + .5) * window.innerWidth;
+                const evY = (evVector.y * -.5 + .5) * window.innerHeight;
+                racer.eventText.style.transform = `translate(-50%, -50%) translate(${evX}px, ${evY}px)`;
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 렌더링 전 화면 초기화
+            renderer.clear();
+            frameCount++;
+
+            if (isRacing) {
+                let leadX = 0;
+                let currentLeader = null;
+
+                // 실시간 순위판 업데이트 (매 5프레임마다 연산 최적화) (추가12, 13)
+                if (frameCount % 5 === 0) {
+                    let currentStandings = [...racers].sort((a, b) => {
+                        if (a.finished && !b.finished) return -1;
+                        if (!a.finished && b.finished) return 1;
+                        if (a.finished && b.finished) return a.rank - b.rank; // 둘 다 끝났으면 들어온 순서대로
+                        return b.mesh.position.x - a.mesh.position.x; // 진행중이면 x좌표(위치) 기준 정렬
+                    });
+                    
+                    let html = '';
+                    currentStandings.forEach((r, idx) => {
+                        let rankClass = '';
+                        let medal = `${idx + 1}위`;
+                        if (idx === 0) { rankClass = 'live-rank-1'; medal = '🥇'; }
+                        else if (idx === 1) { rankClass = 'live-rank-2'; medal = '🥈'; }
+                        else if (idx === 2) { rankClass = 'live-rank-3'; medal = '🥉'; }
+                        
+                        // 이름 옆에 캐릭터와 동일한 색상의 컬러 박스 추가
+                        html += `<div class="live-rank-item ${rankClass}">
+                                    <span>${medal}</span> 
+                                    <span style="display: flex; align-items: center; gap: 6px;">
+                                        <span style="display:inline-block; width:12px; height:12px; background-color:${r.colorHex}; border-radius:3px; border: 1px solid #fff;"></span>
+                                        ${r.name}
+                                    </span>
+                                 </div>`;
+                    });
+                    document.getElementById('live-ranking-list').innerHTML = html;
+                }
+
+                racers.forEach(racer => {
+                    if (racer.finished) return;
+
+                    racer.runCycle += 0.2;
+                    // Base speed
+                    racer.currentSpeed = racer.baseSpeed + (Math.sin(Date.now() * 0.001 + racer.mesh.position.z) * 0.1);
+
+                    // --- State Machine & Unexpected Events (Condition 2, 추가4, 추가6) ---
+                    if (racer.stateTimer > 0) {
+                        racer.stateTimer--;
+                        
+                        // 추가6: 상태별 모션 차별화 및 프레임 업데이트
+                        if (racer.state === 'fallen') {
+                            racer.currentSpeed = 0;
+                            racer.mesh.rotation.z = -Math.PI / 2; // 옆으로 눕기
+                            
+                            // 추가9: 크게 넘어질 때 땅 아래로 묻히지 않도록 y축 보정
+                            racer.mesh.position.y = 1.5; 
+                            if (racer.mesh.rider) {
+                                racer.mesh.rider.position.y = 1.5; // 기수도 땅에 붙게 보정
+                                racer.mesh.riderHead.position.y = 2.5;
+                            }
+                        } else if (racer.state === 'handstand') {
+                            racer.currentSpeed *= 0.4;
+                            racer.mesh.rotation.z = Math.PI; // 180도 뒤집기
+                            racer.mesh.position.y = 6;
+                        } else if (racer.state === 'boost') {
+                            racer.currentSpeed *= 2.5;
+                            racer.mesh.position.y = Math.abs(Math.sin(racer.runCycle)) * 1; // 뜀박질 유지
+                        } else if (racer.state === 'banana') {
+                            racer.currentSpeed = 0.5; // 느리게 미끄러짐
+                            racer.mesh.rotation.y += 0.4; // Y축으로 팽이처럼 빙글빙글 회전
+                            racer.mesh.position.y = 0;
+                        } else if (racer.state === 'eaten') {
+                            racer.currentSpeed = 0; // 공포로 멈춤
+                            racer.mesh.rotation.z = Math.sin(Date.now() * 0.05) * 0.2; // 덜덜 떨기 모션
+                            if (racer.mesh.horse) {
+                                racer.mesh.horse.scale.set(0.001, 0.001, 0.001); // 말이 잡아먹힘(사라짐)
+                            }
+                            if (racer.mesh.rider && racer.mesh.riderHead) {
+                                racer.mesh.rider.position.y = 1.5; // 기수가 바닥으로 주저앉음
+                                racer.mesh.riderHead.position.y = 3;
+                            }
+                        } else if (racer.state === 'roar') {
+                            racer.currentSpeed = 0;
+                            racer.mesh.position.y = Math.abs(Math.sin(Date.now() * 0.01)) * 3; // 호랑이 위협 펄쩍
+                        }
+
+                        if (racer.stateTimer <= 0) {
+                            // Recover from event
+                            racer.state = 'running';
+                            racer.mesh.rotation.set(0, 0, 0); 
+                            racer.mesh.position.y = 0;
+                            
+                            // 호랑이에게 말이 먹히고 난 후 기수 혼자 뜀
+                            if (racer.mesh.rider && racer.mesh.horse && racer.mesh.horse.scale.x < 1) {
+                                racer.mesh.rider.position.y = 3; 
+                                racer.mesh.riderHead.position.y = 4.5;
+                            }
+                        }
+                    } else {
+                        // 정상 달리기 (상하 바운스)
+                        racer.mesh.position.y = Math.abs(Math.sin(racer.runCycle)) * 1;
+
+                        // Random chance to trigger an event (발생 확률 및 종류 추가)
+                        if (Math.random() < 0.003 && racer.mesh.position.x > 10 && racer.mesh.position.x < finishLineX - 20) {
+                            const eventType = Math.random();
+                            
+                            // 추가5: PIP 유지시간 길게 (3000ms -> 5000~6000ms 로 증가)
+                            if (eventType < 0.25) {
+                                // 25% chance: Fall down (꽈당)
+                                triggerEvent(racer, 'fallen', "💥 꽈당!", `앗! ${racer.name} 크게 넘어짐!`, 300, 5000);
+                            } else if (eventType < 0.45) {
+                                // 20% chance: Handstand (물구나무)
+                                triggerEvent(racer, 'handstand', "🤸 물구나무!", `${racer.name} 돌발 물구나무!`, 300, 5000);
+                            } else if (eventType < 0.65) {
+                                // 20% chance: Banana Spin (바나나 미끄러짐) - 추가4
+                                triggerEvent(racer, 'banana', "🍌 쭈우욱!", `${racer.name} 바나나를 밟고 빙글빙글!!`, 300, 5000);
+                            } else if (eventType < 0.85) {
+                                // 20% chance: Sudden boost (폭주)
+                                triggerEvent(racer, 'boost', "🔥 폭주!", `${racer.name} 엄청난 스퍼트!`, 240, 4000);
+                            } else {
+                                // 15% chance: Tiger Event - 추가4
+                                if (!racer.isTiger) {
+                                    triggerEvent(racer, 'eaten', "🐅 으악!", `야생 호랑이가 ${racer.name}의 말을 잡아먹었습니다!!`, 360, 6000);
+                                } else {
+                                    // 호랑이 본인은 포효
+                                    triggerEvent(racer, 'roar', "🐯 어흥!", `${racer.name} 호랑이의 맹렬한 포효!`, 180, 3000);
+                                }
+                            }
+                        }
+                    }
+
+                    // 이동 적용
+                    racer.mesh.position.x += racer.currentSpeed;
+
+                    // --- Animations ---
+                    if (racer.state === 'running' || racer.state === 'boost') {
+                        // Leg animation (호랑이인지 말인지 구분해서 다리 애니메이션 적용)
+                        let targetLegs = racer.isTiger ? racer.mesh.legs : (racer.mesh.horse ? racer.mesh.horse.legs : null);
+                        
+                        if (targetLegs) {
+                            targetLegs[0].rotation.z = Math.sin(racer.runCycle) * 0.5;
+                            targetLegs[1].rotation.z = -Math.sin(racer.runCycle) * 0.5;
+                            targetLegs[2].rotation.z = -Math.sin(racer.runCycle) * 0.5;
+                            targetLegs[3].rotation.z = Math.sin(racer.runCycle) * 0.5;
+                        }
+                    }
+
+                    // Track leader for camera
+                    if (racer.mesh.position.x > leadX) {
+                        leadX = racer.mesh.position.x;
+                        currentLeader = racer;
+                    }
+
+                    // --- Finish Line Check ---
+                    if (racer.mesh.position.x >= finishLineX) {
+                        racer.finished = true;
+                        racer.mesh.position.x = finishLineX + (Math.random() * 5); // Stop just past line
+                        racer.mesh.rotation.z = 0;
+                        racer.mesh.position.y = 0;
+                        rankings.push(racer); // 순위 배열에 racer 객체 전체를 저장
+                        racer.rank = rankings.length; // 순위 저장
+                        
+                        // Change label to rank
+                        racer.label.innerText += ` (${rankings.length}위)`;
+                        racer.label.style.backgroundColor = '#2c3e50';
+
+                        if (rankings.length === 1) {
+                            setCommentary(`🎉 ${racer.name} 선수, 1위로 결승선 통과!!`, 3500, true);
+                        } else {
+                            setCommentary(`${racer.name}, ${rankings.length}위 통과!`, 1500);
+                        }
+
+                        checkEndGame();
+                    }
+                });
+
+                // 코멘터리: 선두 변경 알림
+                if (currentLeader && currentLeader.name !== currentLeaderName && currentLeader.mesh.position.x > 30 && currentLeader.mesh.position.x < finishLineX - 30) {
+                    currentLeaderName = currentLeader.name;
+                    // 선두가 바뀌었을 때 50% 확률로 코멘트 출력
+                    if (Math.random() < 0.5) {
+                        setCommentary(`현재 선두는 ${currentLeaderName}!! 무섭게 치고 나갑니다!`, 2000);
+                    }
+                }
+
+                // --- Camera Follow ---
+                // Move camera to follow the pack/leader smoothly
+                const targetCameraX = Math.max(-20, leadX - 30);
+                camera.position.x += (targetCameraX - camera.position.x) * 0.05;
+                camera.lookAt(camera.position.x + 30, 0, 0);
+            }
+
+            updateLabels();
+
+            // 1. 메인 화면 렌더링
+            renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+            renderer.setScissorTest(false);
+            renderer.render(scene, camera);
+
+            // 2. 서브 모니터 (PIP) 렌더링
+            const frame = document.getElementById('sub-monitor-frame');
+            const logContainer = document.getElementById('event-log-container');
+
+            if (activeEvents.length > 0 && isRacing) {
+                // 가장 최근에 발생한 이벤트 캐릭터 포커스
+                const currentFocusRacer = activeEvents[activeEvents.length - 1].racer;
+                
+                // 모니터 크기 반응형 계산
+                const subW = Math.min(300, window.innerWidth * 0.4);
+                const subH = subW * 0.66;
+                const subX = window.innerWidth - subW - 20;
+                const subY = window.innerHeight - subH - 20;
+
+                // UI 프레임 위치 및 크기 동기화
+                frame.style.display = 'block';
+                frame.style.width = subW + 'px';
+                frame.style.height = subH + 'px';
+                logContainer.style.top = (20 + subH + 20) + 'px'; // 모니터 바로 아래 위치
+
+                // 서브 카메라 뷰 설정: 측면(사이드)에서 바라보도록 목표 좌표 설정
+                const targetPos = new THREE.Vector3(
+                    currentFocusRacer.mesh.position.x + 5, 
+                    currentFocusRacer.mesh.position.y + 8, 
+                    currentFocusRacer.mesh.position.z + 20 // Z축으로 띄워서 측면 뷰 확보
+                );
+
+                if (!isPipActive) {
+                    // 최초 활성화 시 즉시 이동
+                    pipCamPos.copy(targetPos);
+                    pipCamTarget.copy(currentFocusRacer.mesh.position);
+                    isPipActive = true;
+                } else {
+                    // 추가11: 사이드 카메라 포커스 전환 속도를 부드럽게(Lerp) 줄임
+                    // 수치가 낮을수록 목표지점까지 천천히(부드럽게) 이동합니다.
+                    pipCamPos.lerp(targetPos, 0.03); 
+                    pipCamTarget.lerp(currentFocusRacer.mesh.position, 0.05);
+                }
+
+                subCamera.aspect = subW / subH;
+                subCamera.updateProjectionMatrix();
+                subCamera.position.copy(pipCamPos);
+                subCamera.lookAt(pipCamTarget);
+
+                // 화면 특정 영역에만 렌더링
+                renderer.setViewport(subX, subY, subW, subH);
+                renderer.setScissor(subX, subY, subW, subH);
+                renderer.setScissorTest(true);
+                renderer.clearDepth(); // 메인 화면의 깊이 값 지우기 (오버레이 보장)
+                renderer.render(scene, subCamera);
+            } else {
+                isPipActive = false;
+                frame.style.display = 'none';
+                logContainer.style.top = '20px'; // 모니터가 없으면 위로 당김
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Run Initialization
+        window.onload = init;
+
+    </script>
+</body>
+</html>

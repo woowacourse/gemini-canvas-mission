@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elemental Sandbox - Magic Visualizer</title>
+    <style>
+        :root {
+            --bg-color: #050508;
+            --fire-color: #ff4d00;
+            --water-color: #0088ff;
+            --wind-color: #00ffcc;
+            --earth-color: #a0522d;
+            --lightning-color: #ffff00;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: 'Pretendard', sans-serif;
+            color: white;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 30px;
+            box-sizing: border-box;
+        }
+
+        header {
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            letter-spacing: 4px;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            margin: 0;
+        }
+
+        .instructions {
+            font-size: 0.9rem;
+            color: #aaa;
+            margin-top: 10px;
+        }
+
+        #element-bar {
+            pointer-events: auto;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .element-node {
+            width: 65px;
+            height: 65px;
+            border-radius: 50%;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8rem;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .element-node:active {
+            cursor: grabbing;
+            transform: scale(0.9);
+        }
+
+        .node-fire { background: radial-gradient(circle, #ff8c00, #ff4d00); box-shadow: 0 0 20px rgba(255, 77, 0, 0.6); }
+        .node-water { background: radial-gradient(circle, #00d4ff, #0088ff); box-shadow: 0 0 20px rgba(0, 136, 255, 0.6); }
+        .node-wind { background: radial-gradient(circle, #e0ffff, #00ffcc); box-shadow: 0 0 20px rgba(0, 255, 204, 0.6); }
+        .node-earth { background: radial-gradient(circle, #d2b48c, #8b4513); box-shadow: 0 0 20px rgba(139, 69, 19, 0.6); }
+        .node-lightning { background: radial-gradient(circle, #ffffcc, #ffff00); box-shadow: 0 0 20px rgba(255, 255, 0, 0.6); color: #333; }
+
+        #combo-text {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 4rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            font-style: italic;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s, transform 0.3s;
+            text-shadow: 0 0 30px rgba(255, 255, 255, 0.8);
+            white-space: nowrap;
+            z-index: 10;
+        }
+
+        #combo-text.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="canvas"></canvas>
+
+    <div id="ui-layer">
+        <header>
+            <h1>ELEMENTAL SYNTHESIS</h1>
+            <div class="instructions">원소를 드래그하여 중앙 마법진에 넣으세요</div>
+        </header>
+
+        <div id="combo-text">COMBO!</div>
+
+        <div id="element-bar">
+            <div class="element-node node-fire" data-type="fire">불</div>
+            <div class="element-node node-water" data-type="water">물</div>
+            <div class="element-node node-wind" data-type="wind">바람</div>
+            <div class="element-node node-earth" data-type="earth">땅</div>
+            <div class="element-node node-lightning" data-type="lightning">번개</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const comboText = document.getElementById('combo-text');
+
+        let width, height;
+        let particles = [];
+        let magicCircle = { x: 0, y: 0, radius: 120, activeElements: [] };
+        let screenShake = 0;
+        let flashOpacity = 0;
+
+        let draggedElement = null;
+        let mouseX = 0;
+        let mouseY = 0;
+        let isDragging = false;
+
+        // 알파벳 순 정렬 기준: earth, fire, lightning, water, wind
+        const COMBOS = {
+            'fire_wind': { name: 'DARK FIRE TORNADO!', color: '#bf00ff' }, 
+            'water_wind': { name: 'ICE STORM!', color: '#e0f7ff' },
+            'fire_water': { name: 'STEAM BLAST!', color: '#cccccc' },
+            'earth_fire': { name: 'VOLCANIC ERUPTION!', color: '#ff4400' },
+            'earth_water': { name: 'NATURE\'S GROWTH!', color: '#44ffaa' },
+            'earth_wind': { name: 'SAND STORM!', color: '#d2b48c' },
+            
+            // 번개 조합
+            'fire_lightning': { name: 'PLASMA OVERLOAD!', color: '#ff00ff' },
+            'lightning_water': { name: 'SUPER CONDUCTOR!', color: '#00ffff' },
+            'lightning_wind': { name: 'THUNDERSTORM!', color: '#ffffcc' },
+            'earth_lightning': { name: 'ELECTRO-MAGNETISM!', color: '#ffaa00' },
+            
+            // 동일 원소 조합 (Ultimate)
+            'fire_fire': { name: 'HELLFIRE EXPLOSION!', color: '#ff0000' },
+            'water_water': { name: 'GREAT TIDAL WAVE!', color: '#0044ff' },
+            'wind_wind': { name: 'DIVINE TYPHOON!', color: '#ffffff' },
+            'earth_earth': { name: 'GRAND CATASTROPHE!', color: '#5c3a21' },
+            'lightning_lightning': { name: 'GOD\'S JUDGMENT!', color: '#99ffff' },
+
+            // 단일 원소 색상
+            'fire': { color: '#ff4d00' },
+            'water': { color: '#0088ff' },
+            'wind': { color: '#00ffcc' },
+            'earth': { color: '#a0522d' },
+            'lightning': { color: '#ffff00' }
+        };
+
+        class Particle {
+            constructor(x, y, color, type) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.type = type;
+                
+                const angle = Math.random() * Math.PI * 2;
+                let speed = Math.random() * 8 + 2;
+                
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                
+                this.size = Math.random() * 6 + 3;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.015 + 0.005;
+                this.gravity = 0;
+                this.friction = 0.97;
+                this.angle = angle;
+                
+                // 번개 특수 변수
+                this.isLightning = this.type.includes('lightning');
+                this.zigzag = 0;
+
+                this.initSpecialBehavior();
+            }
+
+            initSpecialBehavior() {
+                if (this.type === 'fire_wind') {
+                    this.vx *= 0.5; this.vy = -Math.random() * 12 - 6;
+                    this.size *= 1.5; this.decay = 0.008;
+                } else if (this.type === 'fire_fire') {
+                    this.vx *= 3; this.vy *= 3; this.decay = 0.015; this.size *= 2.5;
+                } else if (this.type === 'lightning_lightning') {
+                    this.vx = (Math.random() - 0.5) * 5;
+                    this.vy = Math.random() * 20 + 10;
+                    this.y = -100; // 위에서 아래로
+                    this.size = 2;
+                    this.decay = 0.01;
+                } else if (this.type === 'lightning_water') {
+                    this.friction = 0.99;
+                    this.size *= 0.5;
+                } else if (this.type === 'earth_lightning') {
+                    this.friction = 1.02; // 자기장 중심부로 모였다가 튕겨나가는 느낌
+                    this.decay = 0.01;
+                } else if (this.isLightning) {
+                    this.vx *= 2; this.vy *= 2;
+                }
+            }
+
+            update() {
+                if (this.type === 'fire_wind') {
+                    const spiralRadius = (1.0 - this.life) * 150;
+                    this.x = magicCircle.x + Math.sin(Date.now() * 0.01 + this.y * 0.05) * spiralRadius;
+                    this.y += this.vy;
+                } else if (this.type === 'lightning_lightning') {
+                    this.y += this.vy;
+                    this.x += (Math.random() - 0.5) * 30; // 심판의 낙뢰 지그재그
+                } else if (this.isLightning && Math.random() > 0.7) {
+                    // 번개 지그재그 움직임
+                    this.x += (Math.random() - 0.5) * 20;
+                    this.y += (Math.random() - 0.5) * 20;
+                } else if (this.type === 'earth_lightning') {
+                    const dx = magicCircle.x - this.x;
+                    const dy = magicCircle.y - this.y;
+                    this.vx += dx * 0.01;
+                    this.vy += dy * 0.01;
+                    this.x += this.vx;
+                    this.y += this.vy;
+                } else {
+                    this.vx *= this.friction;
+                    this.vy *= this.friction;
+                    this.vy += this.gravity;
+                    this.x += this.vx;
+                    this.y += this.vy;
+                }
+
+                this.life -= this.decay;
+                if (this.life < 0) this.life = 0;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                
+                const isSpecial = this.type.includes('_');
+                ctx.shadowBlur = this.isLightning ? 35 : (isSpecial ? 20 : 10);
+                ctx.shadowColor = this.color;
+                
+                if (this.isLightning) {
+                    // 번개는 선 형태
+                    ctx.beginPath();
+                    ctx.lineWidth = this.size;
+                    ctx.strokeStyle = this.color;
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x + this.vx, this.y + this.vy);
+                    ctx.stroke();
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        function init() {
+            resize();
+            animate();
+            setupEventListeners();
+        }
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            magicCircle.x = width / 2;
+            magicCircle.y = height / 2;
+        }
+
+        function createEffect(type, count = 100) {
+            const data = COMBOS[type] || { color: '#ffffff' };
+            const color = data.color;
+            
+            if (data.name) {
+                showComboText(data.name, color);
+                screenShake = type.includes('lightning') ? 50 : 25;
+                if (type.includes('lightning')) flashOpacity = 0.5; // 번개 발동 시 플래시
+                count = type.split('_')[0] === type.split('_')[1] ? count * 1.5 : count;
+            }
+
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle(magicCircle.x, magicCircle.y, color, type));
+            }
+        }
+
+        function showComboText(text, color) {
+            comboText.innerText = text;
+            comboText.style.color = color;
+            comboText.classList.remove('visible');
+            void comboText.offsetWidth;
+            comboText.classList.add('visible');
+            setTimeout(() => comboText.classList.remove('visible'), 1800);
+        }
+
+        function drawMagicCircle() {
+            const time = Date.now() * 0.002;
+            ctx.save();
+            ctx.translate(magicCircle.x, magicCircle.y);
+            
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, magicCircle.radius + Math.sin(time) * 5, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.rotate(time * 0.3);
+            for(let i=0; i<3; i++) {
+                ctx.rotate(Math.PI * 2 / 3);
+                ctx.strokeRect(-magicCircle.radius*0.7, -magicCircle.radius*0.7, magicCircle.radius*1.4, magicCircle.radius*1.4);
+            }
+
+            magicCircle.activeElements.forEach((el, idx) => {
+                const color = COMBOS[el].color;
+                ctx.fillStyle = color;
+                ctx.shadowBlur = 25;
+                ctx.shadowColor = color;
+                ctx.beginPath();
+                const ang = (idx * Math.PI) - (time * 2.5);
+                const dx = Math.cos(ang) * 75;
+                const dy = Math.sin(ang) * 75;
+                ctx.arc(dx, dy, 24, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.restore();
+        }
+
+        function animate() {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = 'rgba(5, 5, 8, 0.25)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 플래시 효과
+            if (flashOpacity > 0) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${flashOpacity})`;
+                ctx.fillRect(0, 0, width, height);
+                flashOpacity -= 0.05;
+            }
+
+            ctx.save();
+            if (screenShake > 0) {
+                ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
+                screenShake *= 0.9;
+            }
+
+            drawMagicCircle();
+
+            ctx.globalCompositeOperation = 'lighter';
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+            ctx.restore();
+
+            if (isDragging && draggedElement) {
+                ctx.save();
+                ctx.globalAlpha = 0.7;
+                ctx.fillStyle = COMBOS[draggedElement].color;
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = COMBOS[draggedElement].color;
+                ctx.beginPath();
+                ctx.arc(mouseX, mouseY, 35, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        function setupEventListeners() {
+            window.addEventListener('resize', resize);
+            const nodes = document.querySelectorAll('.element-node');
+            nodes.forEach(node => {
+                const startDrag = (x, y) => {
+                    isDragging = true;
+                    draggedElement = node.dataset.type;
+                    mouseX = x; mouseY = y;
+                };
+                node.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
+                node.addEventListener('touchstart', (e) => {
+                    startDrag(e.touches[0].clientX, e.touches[0].clientY);
+                    e.preventDefault();
+                }, {passive: false});
+            });
+
+            window.addEventListener('mousemove', (e) => { if (isDragging) { mouseX = e.clientX; mouseY = e.clientY; } });
+            window.addEventListener('touchmove', (e) => { if (isDragging) { mouseX = e.touches[0].clientX; mouseY = e.touches[0].clientY; } }, {passive: false});
+            window.addEventListener('mouseup', endDrag);
+            window.addEventListener('touchend', endDrag);
+        }
+
+        function endDrag() {
+            if (!isDragging) return;
+            const dist = Math.hypot(mouseX - magicCircle.x, mouseY - magicCircle.y);
+            if (dist < magicCircle.radius + 60) addElementToCircle(draggedElement);
+            isDragging = false;
+            draggedElement = null;
+        }
+
+        function addElementToCircle(type) {
+            magicCircle.activeElements.push(type);
+            createEffect(type, 40);
+            if (magicCircle.activeElements.length === 2) {
+                const comboKey = [...magicCircle.activeElements].sort().join('_');
+                setTimeout(() => {
+                    createEffect(comboKey, 450);
+                    magicCircle.activeElements = [];
+                }, 200);
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

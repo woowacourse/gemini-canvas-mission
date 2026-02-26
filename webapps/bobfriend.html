@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>우테코 밥친구 매칭</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Custom CSS Animations (React의 animate-in 대체용) -->
+  <style>
+    @keyframes fadeInZoom {
+      0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @keyframes fadeInSlideDown {
+      0% { opacity: 0; transform: translateY(-10px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    .animate-in {
+      animation: fadeInZoom 0.4s ease-out forwards;
+    }
+    .slide-in-from-top-4 {
+      animation: fadeInSlideDown 0.4s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+  
+  <!-- 메인 렌더링 컨테이너 -->
+  <div id="app"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // ==========================================
+    // 1. 상수 및 유틸리티 설정
+    // ==========================================
+
+    const CREW_LIST = [
+      "로미", "커비", "아키", "아오", "사무엘", "하로", "볼트", "호이", "스마일", "바드",
+      "엠버", "구름", "별터", "모스", "투핸더", "허닛", "엘리", "조디악", "주황이", "코브",
+      "도넛", "지오", "이스타", "벤지", "비비빙", "안톨리니", "포도", "아지", "두부", "디움",
+      "콘티", "피트", "이현", "해니", "유월", "먼지", "루멘", "라바", "찰리", "클라우디",
+      "레스", "윤돌", "애니", "파라디", "봉구스", "시오", "제이크", "루디", "영기", "티뉴",
+      "티모", "티온", "그해", "레서", "에버", "아이큐", "서여", "고래", "우디", "보예",
+      "캐모", "제이콥", "글렌", "라이", "나무", "캐리", "라텔", "누누", "러로", "제제",
+      "주니", "루크", "은오", "라티", "모아", "밍구", "테리", "동키", "코로구", "현미밥",
+      "아나키", "정콩이", "어셔", "루덴스", "루드비코", "송송", "아론", "왓슨", "요크", "아티",
+      "이프", "맥스", "대길", "피온", "로치", "흑곰", "카키", "워넬", "재키", "타스",
+      "이든", "로운", "벨로", "제이", "밤밤", "무빙", "와이제리", "밀란", "한다", "달수",
+      "피노", "바니", "소낙눈", "이산", "카야", "파도", "샤를", "마이찬", "모카", "코코",
+      "도우너", "스타크", "로지", "초록", "에덴", "토리", "이안", "녀녕", "쿠다", "피즈",
+      "이삭", "러키"
+    ];
+
+    const HOLIDAYS = [
+      "20260101", "20260216", "20260217", "20260218", "20260302", "20260505", 
+      "20260525", "20260924", "20260925", "20260928", "20261009", "20261225"
+    ];
+
+    const SMALL_TALK_TOPICS = [
+      "최근 몰입해서 공부하고 있는 주제는 무엇인가요?",
+      "우테코에서 가장 기억에 남는 에피소드는 무엇인가요?",
+      "개발자가 되고 싶다고 결심한 결정적인 계기는?",
+      "요즘 가장 즐겨듣는 노동요나 플레이리스트는?",
+      "이번 주말에 계획된 소소한 일정이 있다면?",
+      "자신만의 스트레스 해소법이 있나요?",
+      "최근에 가장 맛있게 먹은 배달 음식이나 맛집은?"
+    ];
+
+    function getCurrentTimeState() {
+      const now = new Date();
+      const kstOffset = 9 * 60 * 60 * 1000; 
+      const kstTime = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + kstOffset);
+      const year = kstTime.getFullYear();
+      const month = String(kstTime.getMonth() + 1).padStart(2, '0');
+      const day = String(kstTime.getDate()).padStart(2, '0');
+      const dateStr = `${year}${month}${day}`;
+      return {
+        dateStr: dateStr,
+        formattedDate: `${year}년 ${kstTime.getMonth() + 1}월 ${kstTime.getDate()}일`,
+        isWeekend: kstTime.getDay() === 0 || kstTime.getDay() === 6,
+        isHoliday: HOLIDAYS.includes(dateStr)
+      };
+    }
+
+    const getGroupSizes = (total) => {
+      if (total === 0) return [];
+      if (total <= 5) return [total];
+      if (total === 6) return [3, 3];
+      if (total === 7) return [4, 3];
+      if (total === 11) return [4, 4, 3];
+      
+      const sizes = [];
+      let remain = total;
+      while (remain > 0) {
+        if (remain % 5 === 0) { sizes.push(5); remain -= 5; } 
+        else if (remain % 4 === 0) { sizes.push(4); remain -= 4; } 
+        else { sizes.push(4); remain -= 4; }
+      }
+      return sizes;
+    };
+
+    const shuffleAndGroup = (members) => {
+      let shuffled = [...members];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      const sizes = getGroupSizes(shuffled.length);
+      const groups = [];
+      let currentIndex = 0;
+      for (let size of sizes) {
+        groups.push(shuffled.slice(currentIndex, currentIndex + size));
+        currentIndex += size;
+      }
+      return groups;
+    };
+
+    // ==========================================
+    // 2. 상태(State) 관리
+    // ==========================================
+    let state = {
+      currentUser: null,
+      loginError: "",
+      timeState: getCurrentTimeState(),
+      isInitializing: true,
+      isSaving: false,
+      rootTab: 'MANAGE',
+      dbData: {
+        users: {},
+        system: { isMatched: false, dailyTopic: "" },
+        matches: { indoorGroups: [], outdoorGroups: [], totalParticipants: 0, movedUser: null, movedFrom: null }
+      }
+    };
+
+    function setState(updates) {
+      state = { ...state, ...updates };
+      render();
+    }
+
+    // ==========================================
+    // 3. API 통신 및 데이터 조작 로직 (Firebase)
+    // ==========================================
+    
+    // Firebase 초기화 설정
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    
+    // 캔버스 환경 공용 데이터 문서 참조
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appState', 'main');
+
+    async function updateDB(newData) {
+      // Optimistic UI update
+      setState({ dbData: newData, isSaving: true });
+      try {
+        await setDoc(docRef, newData);
+      } catch (error) {
+        console.error("DB Update Error:", error);
+      }
+      setState({ isSaving: false });
+    }
+
+    // 로그인 핸들러
+    window.handleLoginSubmit = (e) => {
+      e.preventDefault();
+      const nickname = document.getElementById('login-nickname').value.trim();
+      if (nickname === 'rudevico-aaron' || CREW_LIST.includes(nickname)) {
+        let newDb = JSON.parse(JSON.stringify(state.dbData));
+        
+        // 첫 로그인 시 시트에 없으면 기본값 생성
+        let shouldUpdateDB = false;
+        if (nickname !== 'rudevico-aaron' && (!newDb.users || !newDb.users[nickname])) {
+          if (!newDb.users) newDb.users = {};
+          newDb.users[nickname] = { isParticipating: true, menuType: 'INDOOR' };
+          shouldUpdateDB = true;
+        }
+
+        // 로그인 처리 후 렌더링을 위해 DOM 초기화 방지 목적
+        document.getElementById('app').innerHTML = '';
+        state.currentUser = nickname;
+        state.loginError = "";
+        
+        if (shouldUpdateDB) updateDB(newDb);
+        else render();
+      } else {
+        document.getElementById('login-error').innerText = "크루 목록에 없는 닉네임입니다.";
+      }
+    };
+
+    window.handleLogout = () => {
+      document.getElementById('app').innerHTML = '';
+      setState({ currentUser: null, loginError: "" });
+    };
+
+    window.updateCrewSetting = (crew, field, value) => {
+      const newDb = JSON.parse(JSON.stringify(state.dbData));
+      if (!newDb.users) newDb.users = {};
+      if (!newDb.users[crew]) newDb.users[crew] = { isParticipating: true, menuType: 'INDOOR' };
+      
+      newDb.users[crew][field] = value;
+      updateDB(newDb);
+    };
+
+    window.handleAllParticipate = (status) => {
+      const newDb = JSON.parse(JSON.stringify(state.dbData));
+      if (!newDb.users) newDb.users = {};
+      
+      CREW_LIST.forEach(crew => {
+        if (!newDb.users[crew]) newDb.users[crew] = { menuType: 'INDOOR' };
+        newDb.users[crew].isParticipating = status;
+      });
+      updateDB(newDb);
+    };
+
+    window.executeMatching = () => {
+      let indoorMembers = [];
+      let outdoorMembers = [];
+      const currentUsers = state.dbData.users || {};
+
+      CREW_LIST.forEach(crew => {
+        const s = currentUsers[crew] || { isParticipating: true, menuType: 'INDOOR' };
+        if (s.isParticipating) {
+          if (s.menuType === 'INDOOR') indoorMembers.push(crew);
+          else outdoorMembers.push(crew);
+        }
+      });
+
+      const totalParticipants = indoorMembers.length + outdoorMembers.length;
+      let movedUser = null;
+      let movedFrom = null;
+      const newDb = JSON.parse(JSON.stringify(state.dbData));
+
+      if (totalParticipants > 1) {
+        if (indoorMembers.length === 1) {
+          movedUser = indoorMembers[0];
+          movedFrom = 'INDOOR';
+          outdoorMembers.push(movedUser);
+          indoorMembers = [];
+          if(!newDb.users[movedUser]) newDb.users[movedUser] = {};
+          newDb.users[movedUser].menuType = 'OUTDOOR';
+        } else if (outdoorMembers.length === 1) {
+          movedUser = outdoorMembers[0];
+          movedFrom = 'OUTDOOR';
+          indoorMembers.push(movedUser);
+          outdoorMembers = [];
+          if(!newDb.users[movedUser]) newDb.users[movedUser] = {};
+          newDb.users[movedUser].menuType = 'INDOOR';
+        }
+      }
+
+      const indoorGroups = shuffleAndGroup(indoorMembers);
+      const outdoorGroups = shuffleAndGroup(outdoorMembers);
+      const dailyTopic = SMALL_TALK_TOPICS[Math.floor(Math.random() * SMALL_TALK_TOPICS.length)];
+
+      newDb.matches = { indoorGroups, outdoorGroups, totalParticipants, movedUser, movedFrom };
+      newDb.system = { isMatched: true, dailyTopic };
+
+      state.rootTab = 'RESULT';
+      updateDB(newDb);
+    };
+
+    window.resetMatching = () => {
+      const newDb = JSON.parse(JSON.stringify(state.dbData));
+      newDb.system.isMatched = false;
+      state.rootTab = 'MANAGE';
+      updateDB(newDb);
+    };
+
+    window.setRootTab = (tab) => {
+      setState({ rootTab: tab });
+    };
+
+    // ==========================================
+    // 4. UI 렌더링(Rendering) 함수
+    // ==========================================
+    function render() {
+      const app = document.getElementById('app');
+
+      if (state.isInitializing) {
+        app.innerHTML = renderInitializing();
+      } else if (!state.currentUser) {
+        // 입력 포커스 유지를 위해 이미 로그인 화면이면 새로 그리지 않음
+        if (!document.getElementById('login-form')) {
+          app.innerHTML = renderLogin();
+        } else {
+          document.getElementById('login-saving-indicator').style.display = state.isSaving ? 'block' : 'none';
+        }
+      } else if (state.currentUser === 'rudevico-aaron') {
+        app.innerHTML = renderAdmin();
+      } else {
+        app.innerHTML = renderUser();
+      }
+      
+      // Lucide 아이콘 초기화 (DOM이 업데이트 된 후)
+      lucide.createIcons();
+    }
+
+    function renderInitializing() {
+      return `
+        <div class="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div class="animate-pulse flex flex-col items-center gap-4">
+            <i data-lucide="utensils" class="w-12 h-12 text-[#2ac1bc]"></i>
+            <p class="text-gray-500 font-bold">DB 정보를 불러오는 중입니다...</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderLogin() {
+      return `
+        <div class="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
+          <div class="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden">
+            <div class="bg-[#2ac1bc] p-8 text-center text-white relative">
+              <div id="login-saving-indicator" style="display: none;" class="absolute top-4 right-4 text-xs bg-white/20 px-2 py-1 rounded">동기화 중...</div>
+              <i data-lucide="utensils" class="w-16 h-16 mx-auto mb-4 opacity-90"></i>
+              <h1 class="text-3xl font-extrabold mb-2 tracking-tight">우테코 밥친구</h1>
+              <p class="text-teal-50 opacity-90">친밀감을 높이는 점심 메이트 매칭 서비스!</p>
+            </div>
+            <div class="p-8">
+              <form id="login-form" onsubmit="window.handleLoginSubmit(event)" class="space-y-6">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">크루 닉네임</label>
+                  <input
+                    id="login-nickname"
+                    type="text"
+                    placeholder="닉네임을 입력하세요 (예: 로미)"
+                    class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#2ac1bc] outline-none"
+                    autocomplete="off"
+                  />
+                  <p id="login-error" class="mt-2 text-sm text-red-500"></p>
+                </div>
+                <button type="submit" class="w-full bg-[#2ac1bc] hover:bg-[#23a5a1] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors">
+                  <i data-lucide="check-circle-2" class="w-5 h-5"></i> 입장하기
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAdmin() {
+      const usersDb = state.dbData.users || {};
+      const sysState = state.dbData.system || { isMatched: false, dailyTopic: "" };
+      const matches = state.dbData.matches || { indoorGroups: [], outdoorGroups: [], totalParticipants: 0 };
+      
+      let currentParticipantCount = 0;
+      CREW_LIST.forEach(crew => {
+        const s = usersDb[crew];
+        if (!s || s.isParticipating) currentParticipantCount++;
+      });
+
+      let html = `
+        <div class="min-h-screen bg-slate-900 text-slate-200 pb-20">
+          <header class="bg-slate-800 px-6 py-4 flex justify-between items-center shadow-md">
+            <div class="flex items-center gap-2 text-rose-400">
+              <i data-lucide="shield-alert" class="w-6 h-6"></i>
+              <span class="font-bold text-xl">밥친구 슈퍼 관리자 모드</span>
+              ${state.isSaving ? `<span class="ml-4 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full animate-pulse">DB 동기화 중...</span>` : ''}
+            </div>
+            <button onclick="window.handleLogout()" class="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
+              <i data-lucide="log-out" class="w-4 h-4"></i> 로그아웃
+            </button>
+          </header>
+          
+          <main class="max-w-6xl mx-auto p-6 mt-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 border-b border-slate-700 pb-6 gap-4">
+              <div>
+                <h2 class="text-3xl font-bold text-white mb-2">관리 대시보드</h2>
+                <p class="text-slate-400">조작 사항은 즉시 저장되며, 모든 크루의 화면에 실시간으로 동기화됩니다.</p>
+              </div>
+              <div class="flex gap-4 items-center">
+                <div class="bg-slate-800 border border-slate-700 px-5 py-3 rounded-xl shadow-sm flex gap-6 text-sm">
+                  <div class="flex flex-col">
+                    <span class="text-slate-400">전체 크루</span>
+                    <span class="text-xl font-bold text-white">${CREW_LIST.length}명</span>
+                  </div>
+                  <div class="w-px bg-slate-700"></div>
+                  <div class="flex flex-col">
+                    <span class="text-slate-400">현재 참여 대기자</span>
+                    <span class="text-xl font-bold text-[#2ac1bc]">${currentParticipantCount}명</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+              <div class="flex bg-slate-800 p-1 rounded-lg">
+                <button onclick="window.setRootTab('MANAGE')" class="flex items-center gap-2 px-6 py-2.5 rounded-md font-bold transition-all ${state.rootTab === 'MANAGE' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}">
+                  <i data-lucide="settings-2" class="w-4 h-4"></i> 크루 설정 조작
+                </button>
+                <button onclick="window.setRootTab('RESULT')" class="flex items-center gap-2 px-6 py-2.5 rounded-md font-bold transition-all ${state.rootTab === 'RESULT' ? 'bg-[#2ac1bc] text-white shadow' : 'text-slate-400 hover:text-slate-200'}">
+                  <i data-lucide="eye" class="w-4 h-4"></i> 실제 매칭 결과
+                </button>
+              </div>
+
+              <div class="flex gap-3">
+                ${sysState.isMatched ? `
+                  <button onclick="window.resetMatching()" ${state.isSaving ? 'disabled' : ''} class="flex items-center gap-2 px-6 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg font-bold shadow-lg transition-colors">
+                    <i data-lucide="rotate-ccw" class="w-5 h-5"></i> 매칭 초기화
+                  </button>
+                ` : `
+                  <button onclick="window.handleAllParticipate(true)" ${state.isSaving ? 'disabled' : ''} class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-bold border border-slate-700 transition-colors">
+                    <i data-lucide="toggle-right" class="w-4 h-4 text-emerald-400"></i> 전체 ON
+                  </button>
+                  <button onclick="window.handleAllParticipate(false)" ${state.isSaving ? 'disabled' : ''} class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-bold border border-slate-700 transition-colors">
+                    <i data-lucide="toggle-left" class="w-4 h-4 text-rose-400"></i> 전체 OFF
+                  </button>
+                  <button onclick="window.executeMatching()" ${state.isSaving ? 'disabled' : ''} class="flex items-center gap-2 px-6 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white rounded-lg font-bold shadow-lg transition-colors ml-2">
+                    <i data-lucide="play" class="w-5 h-5 fill-current"></i> 매칭 시작!
+                  </button>
+                `}
+              </div>
+            </div>
+      `;
+
+      if (state.rootTab === 'MANAGE') {
+        html += `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 ${sysState.isMatched ? 'opacity-50 pointer-events-none' : ''}">`;
+        CREW_LIST.forEach(crew => {
+          const st = usersDb[crew] || { isParticipating: true, menuType: 'INDOOR' };
+          html += `
+            <div class="p-4 rounded-xl border border-slate-700 bg-slate-800 transition-colors">
+              <div class="font-bold text-lg text-white mb-3 flex justify-between items-center">${crew}</div>
+              <div class="space-y-2">
+                <button onclick="window.updateCrewSetting('${crew}', 'isParticipating', ${!st.isParticipating})" class="w-full py-1.5 text-xs font-bold rounded transition-colors ${st.isParticipating ? 'bg-[#2ac1bc] text-white' : 'bg-slate-700 text-slate-400'}">
+                  ${st.isParticipating ? '참여 ON' : '참여 OFF'}
+                </button>
+                ${st.isParticipating ? `
+                  <div class="flex gap-1">
+                    <button onclick="window.updateCrewSetting('${crew}', 'menuType', 'INDOOR')" class="flex-1 py-1.5 text-xs font-bold rounded transition-colors ${st.menuType === 'INDOOR' ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400'}">구내</button>
+                    <button onclick="window.updateCrewSetting('${crew}', 'menuType', 'OUTDOOR')" class="flex-1 py-1.5 text-xs font-bold rounded transition-colors ${st.menuType === 'OUTDOOR' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-400'}">외부</button>
+                  </div>
+                ` : ''}
+              </div>
+            </div>`;
+        });
+        html += `</div>`;
+      } else {
+        html += `<div class="space-y-10">`;
+        if (!sysState.isMatched) {
+          html += `<div class="p-8 border border-slate-700 border-dashed rounded-2xl text-center text-slate-500 text-lg">아직 오늘의 매칭이 진행되지 않았습니다. [매칭 시작!] 버튼을 눌러주세요.</div>`;
+        } else {
+          if (matches.movedUser) {
+            html += `
+              <div class="p-4 bg-orange-500/10 border border-orange-500/20 text-orange-400 rounded-lg flex items-center gap-3 animate-in">
+                <i data-lucide="alert-circle" class="w-5 h-5"></i>
+                <span><strong>${matches.movedFrom === 'INDOOR' ? '구내식당' : '외부 식당'}</strong>을 선택한 크루가 1명뿐이어서, <strong>${matches.movedUser}</strong> 크루를 반대 식당으로 자동 이동시켰습니다.</span>
+              </div>
+            `;
+          }
+
+          // 구내식당
+          html += `
+            <div>
+              <div class="flex items-center gap-3 mb-6">
+                <div class="p-3 bg-blue-500/20 text-blue-400 rounded-lg"><i data-lucide="building" class="w-6 h-6"></i></div>
+                <h3 class="text-2xl font-bold text-white">구내식당 팟 <span class="text-slate-400 text-lg font-medium ml-2">(${matches.indoorGroups?.length || 0}개 조)</span></h3>
+              </div>
+              ${(!matches.indoorGroups || matches.indoorGroups.length === 0) ? `<div class="p-8 border border-slate-700 border-dashed rounded-2xl text-center text-slate-500">배정된 인원이 없습니다.</div>` : `
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                ${matches.indoorGroups.map((group, idx) => `
+                  <div class="bg-slate-800 border border-slate-700 rounded-xl p-5">
+                    <div class="text-sm font-bold text-blue-400 mb-3 border-b border-slate-700 pb-2">구내식당 ${idx + 1}조 (${group.length}명)</div>
+                    <div class="flex flex-wrap gap-2">
+                      ${group.map(member => `<span class="px-3 py-1 bg-slate-700 text-slate-200 rounded-full text-sm font-medium">${member}</span>`).join('')}
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+              `}
+            </div>
+          `;
+
+          // 외부 식당
+          html += `
+            <div>
+              <div class="flex items-center gap-3 mb-6">
+                <div class="p-3 bg-orange-500/20 text-orange-400 rounded-lg"><i data-lucide="map-pin" class="w-6 h-6"></i></div>
+                <h3 class="text-2xl font-bold text-white">외부 식당 팟 <span class="text-slate-400 text-lg font-medium ml-2">(${matches.outdoorGroups?.length || 0}개 조)</span></h3>
+              </div>
+              ${(!matches.outdoorGroups || matches.outdoorGroups.length === 0) ? `<div class="p-8 border border-slate-700 border-dashed rounded-2xl text-center text-slate-500">배정된 인원이 없습니다.</div>` : `
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                ${matches.outdoorGroups.map((group, idx) => `
+                  <div class="bg-slate-800 border border-slate-700 rounded-xl p-5">
+                    <div class="text-sm font-bold text-orange-400 mb-3 border-b border-slate-700 pb-2">외부 식당 ${idx + 1}조 (${group.length}명)</div>
+                    <div class="flex flex-wrap gap-2">
+                      ${group.map(member => `<span class="px-3 py-1 bg-slate-700 text-slate-200 rounded-full text-sm font-medium">${member}</span>`).join('')}
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+              `}
+            </div>
+          `;
+        }
+        html += `</div>`;
+      }
+      
+      html += `</main></div>`;
+      return html;
+    }
+
+    function renderUser() {
+      const { isWeekend, isHoliday, formattedDate } = state.timeState;
+      const usersDb = state.dbData.users || {};
+      const sysState = state.dbData.system || { isMatched: false, dailyTopic: "" };
+      const matches = state.dbData.matches || { indoorGroups: [], outdoorGroups: [], totalParticipants: 0 };
+      const myState = usersDb[state.currentUser] || { isParticipating: true, menuType: 'INDOOR' };
+
+      let myGroup = [];
+      if (sysState.isMatched) {
+        const indoorMatch = matches.indoorGroups?.find(g => g.includes(state.currentUser));
+        const outdoorMatch = matches.outdoorGroups?.find(g => g.includes(state.currentUser));
+        myGroup = indoorMatch || outdoorMatch || [];
+      }
+
+      let html = `
+        <header class="bg-white shadow-sm px-6 py-4 flex justify-between items-center sticky top-0 z-10">
+          <div class="flex items-center gap-2 text-[#2ac1bc]">
+            <i data-lucide="utensils" class="w-6 h-6"></i>
+            <span class="font-bold text-xl tracking-tight">밥친구</span>
+            ${state.isSaving ? `<span class="ml-2 w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>` : ''}
+          </div>
+          <button onclick="window.handleLogout()" class="flex items-center gap-2 text-gray-500 hover:text-gray-700 text-sm font-medium">
+            <i data-lucide="log-out" class="w-4 h-4"></i> 로그아웃
+          </button>
+        </header>
+
+        <main class="max-w-2xl mx-auto p-6 mt-6">
+          <div class="mb-8">
+            <h2 class="text-2xl font-bold mb-1">반갑습니다, <span class="text-[#2ac1bc]">${state.currentUser}</span> 크루님! 👋</h2>
+            <p class="text-gray-500 flex items-center gap-2"><i data-lucide="calendar-x" class="w-4 h-4"></i> 오늘은 ${formattedDate}입니다.</p>
+          </div>
+
+          <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden relative">
+      `;
+
+      if (isWeekend || isHoliday) {
+        html += `
+          <div class="p-12 text-center flex flex-col items-center">
+            <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+              <i data-lucide="calendar-x" class="w-10 h-10 text-gray-400"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-2">오늘은 쉬어가는 날이에요!</h3>
+            <p class="text-gray-500">주말/공휴일엔 밥친구 배정이 없습니다.</p>
+          </div>
+        `;
+      } else if (!sysState.isMatched) {
+        html += `
+          <div class="p-8 bg-white">
+            <div class="flex flex-col items-center mb-8">
+              <div class="w-20 h-20 bg-teal-50 rounded-full flex items-center justify-center mb-4">
+                <i data-lucide="clock" class="w-8 h-8 text-[#2ac1bc] animate-pulse"></i>
+              </div>
+              <h3 class="text-2xl font-bold mb-2">오늘의 밥친구 설정</h3>
+              <p class="text-gray-500 text-center">관리자가 매칭 시작하기 전까지<br/>참여 여부와 메뉴를 선택해주세요.</p>
+            </div>
+
+            <div class="space-y-6 bg-gray-50 p-6 rounded-2xl border border-gray-100 transition-all">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h4 class="font-bold text-lg text-gray-800">밥친구 참여하기</h4>
+                  <p class="text-sm text-gray-500">오늘은 누구와 밥을 먹게 될까요?</p>
+                </div>
+                <button 
+                  ${state.isSaving ? 'disabled' : ''}
+                  onclick="window.updateCrewSetting('${state.currentUser}', 'isParticipating', ${!myState.isParticipating})"
+                  class="w-16 h-8 flex items-center rounded-full p-1 transition-colors duration-300 disabled:opacity-50 ${myState.isParticipating ? 'bg-[#2ac1bc]' : 'bg-gray-300'}">
+                  <div class="bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ${myState.isParticipating ? 'translate-x-8' : 'translate-x-0'}"></div>
+                </button>
+              </div>
+        `;
+
+        if (myState.isParticipating) {
+          html += `
+            <div class="pt-4 border-t border-gray-200 animate-in">
+              <h4 class="font-bold text-gray-800 mb-3">어디서 드실 예정인가요?</h4>
+              <div class="grid grid-cols-2 gap-4">
+                <button ${state.isSaving ? 'disabled' : ''} onclick="window.updateCrewSetting('${state.currentUser}', 'menuType', 'INDOOR')" class="p-5 rounded-2xl border-2 flex flex-col items-center gap-3 transition-all disabled:opacity-50 ${myState.menuType === 'INDOOR' ? 'border-[#2ac1bc] bg-teal-50 text-[#2ac1bc]' : 'border-gray-200 bg-white text-gray-500'}">
+                  <i data-lucide="building" class="w-8 h-8"></i><span class="font-bold">구내식당</span>
+                </button>
+                <button ${state.isSaving ? 'disabled' : ''} onclick="window.updateCrewSetting('${state.currentUser}', 'menuType', 'OUTDOOR')" class="p-5 rounded-2xl border-2 flex flex-col items-center gap-3 transition-all disabled:opacity-50 ${myState.menuType === 'OUTDOOR' ? 'border-[#2ac1bc] bg-teal-50 text-[#2ac1bc]' : 'border-gray-200 bg-white text-gray-500'}">
+                  <i data-lucide="map-pin" class="w-8 h-8"></i><span class="font-bold">외부 식당</span>
+                </button>
+              </div>
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="pt-6 border-t border-gray-200 text-center slide-in-from-top-4">
+              <div class="inline-block p-5 bg-orange-50 rounded-2xl border border-orange-100 shadow-sm w-full">
+                <div class="flex justify-center mb-3 text-orange-400"><i data-lucide="frown" class="w-12 h-12"></i></div>
+                <p class="text-gray-800 font-medium text-lg">앗, <span class="text-orange-600 font-bold">${state.currentUser}</span>님... 안 오실 건가요?</p>
+                <p class="text-sm text-gray-600 mt-3 leading-relaxed">내일은 꼭 함께해주실 거죠? 기다릴게요! ( ˃̣̣̥᷄⌓˂̣̣̥᷅ )</p>
+              </div>
+            </div>
+          `;
+        }
+        html += `</div></div>`;
+      } else if (!myState.isParticipating) {
+        html += `
+          <div class="p-12 text-center flex flex-col items-center">
+            <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+              <i data-lucide="coffee" class="w-10 h-10 text-gray-400"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-2">오늘은 참여하지 않으셨네요!</h3>
+            <p class="text-gray-500">내일은 꼭 밥친구에서 만나서 같이 식사해요!<br/>오늘 하루도 화이팅하세요.</p>
+          </div>
+        `;
+      } else if (matches.totalParticipants === 1) {
+        html += `
+          <div class="p-12 text-center flex flex-col items-center animate-in">
+            <div class="w-24 h-24 bg-rose-50 rounded-full flex items-center justify-center mb-6">
+              <i data-lucide="frown" class="w-10 h-10 text-rose-400"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-2">앗, 오늘은 매칭 실패예요 ㅠㅠ</h3>
+            <p class="text-gray-500">오늘 밥친구에 참여한 크루가 <span class="font-bold">${state.currentUser}</span>님 혼자뿐이에요.<br/>아쉽지만 편하게 식사하시고, 내일 다시 시도해주세요!</p>
+          </div>
+        `;
+      } else {
+        html += `
+          <div>
+            <div class="bg-[#2ac1bc] p-6 text-white text-center">
+              <div class="flex justify-center items-center gap-2 mb-2">
+                ${myState.menuType === 'INDOOR' ? '<i data-lucide="building" class="w-5 h-5"></i>' : '<i data-lucide="map-pin" class="w-5 h-5"></i>'}
+                <span class="bg-white/20 px-3 py-1 rounded-full text-xs font-bold">
+                  ${myState.menuType === 'INDOOR' ? '구내식당 팟' : '외부 식당 팟'}
+                </span>
+              </div>
+              <h3 class="text-2xl font-bold">✨ 오늘의 밥친구 매칭 완료 ✨</h3>
+            </div>
+            
+            <div class="p-8">
+              ${matches.movedUser === state.currentUser ? `
+                <div class="bg-orange-100 border border-orange-200 text-orange-800 p-4 rounded-xl mb-6 text-sm font-bold flex items-start gap-3 slide-in-from-top-4">
+                  <i data-lucide="alert-circle" class="w-5 h-5 shrink-0 mt-0.5"></i>
+                  <span>
+                    ${matches.movedFrom === 'INDOOR' 
+                      ? "앗! 구내식당 밥친구가 혼자여서 임의로 외부 식당으로 변경해서 밥친구를 만들었어요! 😲"
+                      : "앗! 외부 식당 밥친구가 혼자여서 임의로 구내식당으로 변경해서 밥친구를 만들었어요! 😲"}
+                  </span>
+                </div>
+              ` : ''}
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                ${myGroup.map((member) => {
+                  const isMe = member === state.currentUser;
+                  return `
+                    <div class="flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${isMe ? 'border-[#2ac1bc] bg-teal-50/50' : 'border-gray-100 bg-white'}">
+                      <div class="w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${isMe ? 'bg-[#2ac1bc] text-white' : 'bg-gray-100 text-gray-600'}">
+                        ${member.charAt(0)}
+                      </div>
+                      <div>
+                        <span class="font-bold text-lg text-gray-800">${member}</span>
+                        ${isMe ? `<span class="ml-2 text-xs font-bold text-[#2ac1bc] bg-teal-100 px-2 py-1 rounded-full">나</span>` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+              
+              <div class="mt-8 p-6 bg-teal-50/50 rounded-2xl border border-teal-100 text-center">
+                <div class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-teal-100 text-teal-600 mb-2">💡</div>
+                <h4 class="font-bold text-teal-800 mb-1">오늘의 스몰토크</h4>
+                <p class="text-teal-700 font-medium">"${sysState.dailyTopic}"</p>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      
+      html += `</div></main>`;
+      return html;
+    }
+
+    // ==========================================
+    // 5. 초기 실행 (Initialization)
+    // ==========================================
+    
+    async function initApp() {
+      // 1. Firebase Auth 인증 (필수)
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+
+      // 2. 인증 상태 변화 감지 및 Firestore 실시간 구독
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          onSnapshot(docRef, (snapshot) => {
+            if (snapshot.exists()) {
+              setState({ dbData: snapshot.data(), isInitializing: false });
+            } else {
+              // 최초 접속 시 기본 상태 생성
+              const defaultState = {
+                users: {},
+                system: { isMatched: false, dailyTopic: "" },
+                matches: { indoorGroups: [], outdoorGroups: [], totalParticipants: 0, movedUser: null, movedFrom: null }
+              };
+              setDoc(docRef, defaultState);
+              setState({ dbData: defaultState, isInitializing: false });
+            }
+          }, (error) => {
+            console.error("Firestore sync error:", error);
+            setState({ isInitializing: false });
+          });
+        }
+      });
+    }
+
+    // 실행
+    initApp();
+
+  </script>
+</body>
+</html>

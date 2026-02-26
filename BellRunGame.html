@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>벨튀 잡아라!</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DungGeunMo&display=swap');
+
+        :root {
+            --sky-top: #126FFC;
+            --sky-bottom: #85C1E9;
+            --grass-light: #2ecc71;
+            --grass-dark: #27ae60;
+            --hill-far: #58D68D;
+            --hill-near: #28B463;
+            --house-body: #a93226; 
+            --house-trim: #641e16;
+            --house-roof: #2c3e50; 
+            --house-roof-accent: #34495e;
+            --pixel-bg: #1a1a1a;
+            --pixel-border: #ffffff;
+            --primary-blue: #3b82f6; 
+            --primary-hover: #60a5fa;
+            --secondary-gold: #fcd34d; 
+            --danger-red: #ef4444; 
+        }
+
+        body {
+            font-family: 'DungGeunMo', sans-serif;
+            background-color: #000;
+            color: #fff;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            image-rendering: pixelated;
+        }
+
+        #game-view {
+            width: 100vw;
+            height: 100vh;
+            max-width: 600px;
+            max-height: 800px;
+            position: relative;
+            background: linear-gradient(to bottom, var(--sky-top), var(--sky-bottom));
+            border: 6px solid #333;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+        }
+
+        /* 화면 흔들림 효과 */
+        @keyframes shake {
+            0%, 100% { transform: translate(0, 0); }
+            25% { transform: translate(-4px, 4px); }
+            50% { transform: translate(4px, -4px); }
+            75% { transform: translate(-4px, -4px); }
+        }
+        .shaking { animation: shake 0.1s linear infinite; }
+
+        /* --- UI Layers --- */
+        #top-ui {
+            padding: 12px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+            background: rgba(0,0,0,0.6);
+            border-bottom: 3px solid rgba(255,255,255,0.2);
+        }
+
+        .stat-panel {
+            background: #000;
+            border: 2px solid #fff;
+            padding: 8px 12px;
+            font-size: 1rem;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        #game-log {
+            flex-grow: 1;
+            background: rgba(0,0,0,0.7);
+            border: 2px solid #fff;
+            padding: 8px;
+            font-size: 0.85rem;
+            min-height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+        #caught-list {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            max-width: 100px;
+            justify-content: flex-end;
+        }
+
+        .caught-icon {
+            width: 22px; height: 22px;
+            border: 1px solid var(--secondary-gold);
+            background: rgba(252, 211, 77, 0.4);
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        /* --- Stage Elements --- */
+        #stage { flex-grow: 1; position: relative; }
+
+        .hill { position: absolute; bottom: 25%; width: 100%; height: 60px; z-index: 2; }
+        .hill-far {
+            bottom: 25%; height: 80px; opacity: 0.6;
+            background-image: radial-gradient(circle at 50% 100%, var(--hill-far) 0%, var(--hill-far) 70%, transparent 71%);
+            background-size: 300px 160px;
+            background-position: -50px bottom;
+        }
+        .hill-near {
+            bottom: 25%; height: 50px;
+            background-image: radial-gradient(circle at 30% 100%, var(--hill-near) 0%, var(--hill-near) 70%, transparent 71%);
+            background-size: 400px 100px;
+            background-position: center bottom;
+            z-index: 3;
+        }
+
+        #ground {
+            position: absolute; bottom: 0; width: 100%; height: 25%;
+            background-color: var(--grass-light);
+            background-image: 
+                radial-gradient(var(--grass-dark) 15%, transparent 16%),
+                radial-gradient(var(--grass-dark) 8%, transparent 9%);
+            background-size: 14px 14px, 22px 22px;
+            border-top: 8px solid #1e8449;
+            z-index: 5;
+        }
+
+        .sun {
+            position: absolute; top: 60px; right: 60px; width: 40px; height: 40px;
+            background: #FF5733; box-shadow: 0 0 20px #FFC300; border-radius: 4px; z-index: 1;
+        }
+        .cloud { position: absolute; z-index: 1; animation: floating linear infinite; opacity: 0.9; }
+        @keyframes floating { from { left: -150px; } to { left: 110%; } }
+
+        /* --- 산타 & 루돌프 레이어 --- */
+        .santa-flyer {
+            position: absolute; top: 12%; left: -250px; z-index: 4;
+            animation: flying 28s linear infinite;
+        }
+        @keyframes flying {
+            0% { left: -250px; transform: translateY(0); }
+            50% { transform: translateY(-15px); }
+            100% { left: 110%; transform: translateY(0); }
+        }
+
+        .nose-blink { animation: nose-glow 0.8s infinite alternate; }
+        @keyframes nose-glow {
+            0% { fill: #ff0000; filter: drop-shadow(0 0 1px red); }
+            100% { fill: #ff6666; filter: drop-shadow(0 0 6px red); }
+        }
+
+        .magic-trail {
+            position: absolute;
+            width: 3px; height: 3px; background: rgba(255, 215, 0, 0.8);
+            border-radius: 50%; opacity: 0;
+            animation: trail-anim 2s linear infinite;
+            z-index: 3;
+        }
+        @keyframes trail-anim {
+            0% { transform: translate(0, 0) scale(1); opacity: 1; }
+            100% { transform: translate(-60px, 30px) scale(0); opacity: 0; }
+        }
+
+        /* --- Balanced House --- */
+        .house-wrap { 
+            position: absolute; left: 10px; bottom: 23%; width: 180px; z-index: 10; 
+            display: flex; flex-direction: column; align-items: center; 
+        }
+        .chimney {
+            position: absolute; top: 10px; left: 35px; width: 18px; height: 45px;
+            background: var(--house-trim); border: 3px solid #000; z-index: 1; 
+        }
+        .chimney::after { content: ''; position: absolute; top: -6px; left: -4px; width: 22px; height: 6px; background: #333; border: 3px solid #000; }
+        .house-roof {
+            width: 180px; height: 65px; background: var(--house-roof); 
+            clip-path: polygon(0% 100%, 50% 0%, 100% 100%); position: relative; z-index: 3; 
+            border-bottom: 5px solid #000; background-image: radial-gradient(circle at 10px 10px, var(--house-roof-accent) 2px, transparent 0); background-size: 15px 15px;
+        }
+        .house-roof::before { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 6px; background: rgba(0,0,0,0.3); }
+        .house-body {
+            width: 140px; height: 110px; background: var(--house-body); border: 4px solid #000;
+            position: relative; z-index: 2; margin-top: -1px;
+            background-image: linear-gradient(90deg, transparent 95%, rgba(0,0,0,0.2) 95%), linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px); background-size: 14px 100%, 100% 10px;
+        }
+        .h-window {
+            position: absolute; top: 25px; left: 15px; width: 35px; height: 35px; background: #fdfd96; border: 4px solid #000; outline: 3px solid var(--house-trim); display: flex; align-items: center; justify-content: center;
+        }
+        .h-window::before { content:''; position:absolute; width:2px; height:100%; background:#000; }
+        .h-window::after { content:''; position:absolute; width:100%; height:2px; background:#000; }
+        .h-door-frame {
+            position: absolute; bottom: 0; right: 15px; width: 45px; height: 75px; background: #000; border-top: 4px solid var(--house-trim); border-left: 4px solid var(--house-trim); border-right: 4px solid var(--house-trim);
+        }
+        .h-door {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #784212; border: 2px solid #000; transition: transform 0.15s ease-in; transform-origin: left; z-index: 11;
+            background-image: repeating-linear-gradient(90deg, transparent, transparent 8px, rgba(0,0,0,0.1) 8px, rgba(0,0,0,0.1) 10px);
+        }
+        .h-door.open { transform: rotateY(-115deg); }
+        .h-door::after { content: ''; position: absolute; right: 5px; top: 50%; width: 5px; height: 5px; background: gold; border-radius: 50%; border: 1px solid #000; }
+        .h-steps { position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); width: 100px; height: 8px; background: #566573; border: 3px solid #000; z-index: 1; }
+
+        .impact-burst {
+            position: absolute; top: 50%; left: 50%; width: 80px; height: 80px; background: radial-gradient(circle, #fff 0%, rgba(255,255,255,0.8) 40%, transparent 70%);
+            transform: translate(-50%, -50%) scale(0); opacity: 0; pointer-events: none; z-index: 12;
+        }
+        @keyframes burst-anim { 0% { transform: translate(-50%, -50%) scale(0.2); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; } }
+        .burst-active { animation: burst-anim 0.4s ease-out forwards; }
+
+        /* 캐릭터 */
+        .tree { position: absolute; bottom: 25%; z-index: 6; }
+        .char { position: absolute; bottom: 5%; z-index: 50; }
+        .shadow { position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); width: 35px; height: 8px; background: rgba(0,0,0,0.25); border-radius: 50%; z-index: -1; }
+        #char-player { opacity: 0; left: 55px; transform: scale(0.7); transition: left 0.1s ease-out, transform 0.2s, opacity 0.2s; }
+
+        .leg { transform-origin: top center; }
+        .running .leg-l { animation: run-cycle 0.15s infinite alternate; }
+        .running .leg-r { animation: run-cycle 0.15s infinite alternate-reverse; }
+        @keyframes run-cycle { 0% { transform: rotate(-40deg); } 100% { transform: rotate(40deg); } }
+
+        /* --- UI Components --- */
+        #speed-gauge-container {
+            position: absolute; top: 100px; left: 50%; transform: translateX(-50%);
+            width: 200px; height: 25px; background: rgba(0,0,0,0.5); border: 3px solid #fff; z-index: 150; display: none;
+        }
+        #speed-fill { width: 0%; height: 100%; background: var(--secondary-gold); transition: width 0.1s ease-out; }
+        #speed-label { position: absolute; width: 100%; text-align: center; font-size: 0.8rem; line-height: 25px; color: #fff; text-shadow: 1px 1px 2px #000; font-weight: bold; }
+
+        .modal-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 200; visibility: hidden; opacity: 0; transition: 0.3s;
+        }
+        .modal-overlay.active { visibility: visible; opacity: 1; }
+
+        .pixel-box { background: var(--pixel-bg); border: 4px solid var(--pixel-border); padding: 30px; text-align: center; width: 80%; box-shadow: 10px 10px 0px rgba(0,0,0,0.5); }
+        .pixel-box h2 { color: var(--secondary-gold); margin-top: 0; text-shadow: 2px 2px 0 #000; }
+        
+        input { background: #000; border: 3px solid #fff; color: #fff; padding: 12px; font-family: inherit; width: 80%; margin: 15px 0; text-align: center; font-size: 1.1rem; outline: none; }
+        button {
+            background: var(--primary-blue); border: none; border-bottom: 4px solid #1d4ed8; padding: 12px 24px; font-family: inherit; cursor: pointer; font-weight: bold; color: #fff; font-size: 1rem; transition: all 0.2s ease;
+        }
+        button:hover { background: var(--primary-hover); transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        button:active { transform: translateY(2px); border-bottom-width: 2px; box-shadow: none; }
+
+        .error-msg { color: var(--danger-red); font-size: 0.85rem; margin-bottom: 10px; font-weight: bold; display: none; }
+    </style>
+</head>
+<body>
+
+<div id="game-view">
+    <div id="top-ui">
+        <div class="stat-panel">
+            🚩 <span id="ui-turn">1</span>/3
+        </div>
+        <div id="game-log">🔔 꼬마들을 기다리고 있습니다.</div>
+        <div id="caught-list"></div>
+    </div>
+
+    <!-- 속도 게이지 -->
+    <div id="speed-gauge-container">
+        <div id="speed-fill"></div>
+        <div id="speed-label">속도: 0.0</div>
+    </div>
+
+    <div id="stage">
+        <!-- 배경 일러스트 레이어 -->
+        <div class="sun"></div>
+        <div class="cloud" style="top: 8%; animation-duration: 45s;">
+            <svg viewBox="0 0 100 40" width="120" height="50">
+                <path d="M10,30 Q10,10 30,15 Q40,5 60,10 Q80,5 90,25 Q100,35 80,35 L20,35 Q0,35 10,30" fill="white" />
+            </svg>
+        </div>
+        <div class="cloud" style="top: 16%; animation-duration: 60s; animation-delay: -15s;">
+            <svg viewBox="0 0 100 40" width="100" height="40">
+                <path d="M10,25 Q15,10 30,10 Q45,0 60,15 Q75,10 85,20 Q95,30 80,35 L20,35 Q0,35 10,25" fill="white" opacity="0.8" />
+            </svg>
+        </div>
+
+        <div class="hill hill-far"></div>
+        <div class="hill hill-near"></div>
+        
+        <!-- 섬세해진 산타와 루돌프 -->
+        <div class="santa-flyer">
+            <svg viewBox="0 0 100 50" width="180" height="100">
+                <g class="reindeer">
+                    <path d="M 85 10 L 82 15 M 90 10 L 87 15" stroke="#5d4037" stroke-width="2" />
+                    <rect x="80" y="15" width="10" height="10" fill="#8d6e63"/> 
+                    <rect class="nose-blink" x="88" y="18" width="4" height="4" fill="red"/>
+                    <rect x="65" y="20" width="20" height="12" fill="#8d6e63"/> 
+                    <rect x="68" y="32" width="3" height="8" fill="#5d4037"/> 
+                    <rect x="80" y="32" width="3" height="8" fill="#5d4037"/>
+                </g>
+                <path d="M 0 35 L 55 35 Q 60 35 60 22 L 0 22 Z" fill="#b71c1c"/>
+                <rect x="5" y="15" width="15" height="12" rx="2" fill="#2e7d32" /> 
+                <g class="santa-main">
+                    <rect x="25" y="22" width="15" height="4" fill="#000"/>
+                    <rect x="25" y="10" width="15" height="15" fill="#c62828"/> 
+                    <rect x="25" y="18" width="15" height="3" fill="#000"/>
+                    <rect x="31" y="18" width="3" height="3" fill="gold"/>
+                    <rect x="30" y="10" width="8" height="6" fill="#ffdbac"/> 
+                    <rect x="30" y="14" width="8" height="6" fill="#ffffff"/> 
+                    <rect x="32" y="13" width="1" height="1" fill="#000"/>
+                    <rect x="35" y="13" width="1" height="1" fill="#000"/>
+                    <path d="M 25 10 L 32 4 L 40 10 Z" fill="#c62828" /> 
+                    <circle cx="32" cy="4" r="2.5" fill="#ffffff" /> 
+                    <rect x="25" y="23" width="15" height="2" fill="#ffffff"/>
+                </g>
+                <line x1="55" y1="28" x2="65" y2="25" stroke="gold" stroke-width="1.5" />
+            </svg>
+            <div class="magic-trail" style="left: 0; top: 40px;"></div>
+            <div class="magic-trail" style="left: 15px; top: 35px; animation-delay: 0.7s;"></div>
+        </div>
+
+        <div class="tree" style="left: 360px;"><svg viewBox="0 0 40 60" width="60" height="90"><rect x="18" y="40" width="4" height="20" fill="#4e342e"/><circle cx="20" cy="25" r="20" fill="#1b5e20"/></svg></div>
+        <div class="tree" style="left: 510px; bottom: 22%;"><svg viewBox="0 0 40 60" width="50" height="75"><rect x="18" y="40" width="4" height="20" fill="#4e342e"/><path d="M 5 40 L 35 40 L 20 10 Z" fill="#2e7d32"/></svg></div>
+
+        <div class="house-wrap">
+            <div class="chimney"></div>
+            <div class="house-roof"></div>
+            <div class="house-body">
+                <div class="h-window"></div>
+                <div class="h-door-frame">
+                    <div id="impact-burst" class="impact-burst"></div>
+                    <div id="main-door" class="h-door"></div>
+                </div>
+            </div>
+            <div class="h-steps"></div>
+        </div>
+
+        <div id="ground"></div>
+
+        <div id="char-player" class="char">
+            <div class="shadow"></div>
+            <svg viewBox="0 0 16 16" width="55" height="55">
+                <rect x="5" y="1" width="6" height="4" fill="#4b3621"/>
+                <rect x="5" y="4" width="6" height="4" fill="#ffdbac"/>
+                <rect x="6" y="5" width="1" height="1" fill="#000"/><rect x="9" y="5" width="1" height="1" fill="#000"/>
+                <rect x="3" y="8" width="10" height="5" fill="var(--primary-blue)"/>
+                <rect x="5" y="10" width="6" height="2" fill="#1d4ed8"/>
+                <g class="leg leg-l"><rect x="5" y="13" width="2" height="3" fill="#1e293b"/></g>
+                <g class="leg leg-r"><rect x="9" y="13" width="2" height="3" fill="#1e293b"/></g>
+            </svg>
+        </div>
+
+        <div id="kid-container"></div>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-intro" class="modal-overlay active">
+        <div class="pixel-box">
+            <h2>🏃‍♂️ 벨튀 잡아라!</h2>
+            <p>유치원생들이 자꾸 벨을 누르고 도망갑니다.<br>스페이스바를 연타해 속도를 높여 잡으세요!</p>
+            <input type="text" id="input-name" placeholder="닉네임 (1~5자)" maxlength="10">
+            <div id="name-error" class="error-msg">⚠️ 닉네임은 1자에서 5자 사이여야 합니다!</div>
+            <br>
+            <button onclick="startGame()">게임 시작</button>
+        </div>
+    </div>
+
+    <div id="modal-turn" class="modal-overlay">
+        <div class="pixel-box">
+            <h2 id="modal-turn-title">제 1턴</h2>
+            <p>벨 소리가 들렸습니다!<br>준비가 되면 시작 버튼을 누르세요.</p>
+            <p style="font-size: 0.8rem; color: #aaa;">시작 후 스페이스바를 끈기 있게 연타하세요!</p>
+            <br>
+            <button onclick="confirmTurn()">추격 시작!</button>
+        </div>
+    </div>
+
+    <div id="modal-result" class="modal-overlay">
+        <div class="pixel-box">
+            <h2>최종 검거 완료</h2>
+            <div id="final-summary"></div>
+            <br>
+            <button onclick="location.reload()">다시 하기</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const state = {
+        name: "", turn: 1, playerSpeed: 0, totalCaught: 0,
+        isAnimating: false, maxSpeed: 9.0, chaseDuration: 4500,
+        kidsData: [], isSpacePressed: false
+    };
+
+    const kidSvg = (color = "#ef4444") => `
+        <svg viewBox="0 0 16 16" width="50" height="50">
+            <rect x="4" y="0" width="8" height="2" fill="#fcd34d"/>
+            <rect x="3" y="2" width="10" height="1" fill="#fcd34d"/>
+            <rect x="5" y="3" width="6" height="5" fill="#ffdbac"/>
+            <rect x="5" y="6" width="1" height="1" fill="#ffb6c1"/> 
+            <rect x="10" y="6" width="1" height="1" fill="#ffb6c1"/> 
+            <rect x="6" y="5" width="1" height="1" fill="#000"/> 
+            <rect x="9" y="5" width="1" height="1" fill="#000"/>
+            <rect x="4" y="8" width="8" height="5" fill="${color}"/>
+            <g class="leg leg-l"><rect x="5" y="13" width="2" height="2" fill="#fff"/></g>
+            <g class="leg leg-r"><rect x="9" y="13" width="2" height="2" fill="#fff"/></g>
+        </svg>
+    `;
+
+    function log(msg) { document.getElementById('game-log').innerHTML = msg; }
+
+    function showModal(id) {
+        document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        const input = document.getElementById(id).querySelector('input');
+        if(input) setTimeout(() => input.focus(), 150);
+    }
+
+    function hideModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active')); }
+
+    window.addEventListener('keydown', (e) => {
+        if(e.code === 'Space') {
+            e.preventDefault();
+            if(state.isAnimating && !state.isSpacePressed) {
+                state.isSpacePressed = true; 
+                state.playerSpeed = Math.min(state.maxSpeed, state.playerSpeed + 0.3);
+                updateSpeedUI();
+                updatePlayerPosition(0.15); 
+            }
+        }
+        if(e.key === 'Enter') {
+            const activeModal = document.querySelector('.modal-overlay.active');
+            if(activeModal) {
+                if(activeModal.id === 'modal-intro') startGame();
+                else if(activeModal.id === 'modal-turn') confirmTurn();
+            }
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if(e.code === 'Space') state.isSpacePressed = false; 
+    });
+
+    function updateSpeedUI() {
+        const fill = document.getElementById('speed-fill');
+        const label = document.getElementById('speed-label');
+        const percentage = (state.playerSpeed / state.maxSpeed) * 100;
+        
+        if (fill) fill.style.width = percentage + "%";
+        if (label) label.innerText = "속도: " + state.playerSpeed.toFixed(1);
+    }
+
+    function updatePlayerPosition(transitionTime = 0.1) {
+        const p = document.getElementById('char-player');
+        const targetLeft = 9 + (state.playerSpeed * 11.5); 
+        p.style.transition = `left ${transitionTime}s ease-out, opacity 0.2s, transform 0.4s`;
+        p.style.left = `${targetLeft}%`;
+    }
+
+    function startGame() {
+        const val = document.getElementById('input-name').value.trim();
+        const error = document.getElementById('name-error');
+        if(!val || val.length > 5) { error.style.display = "block"; return; }
+        error.style.display = "none";
+        state.name = val;
+        startTurn();
+    }
+
+    function startTurn() {
+        state.isAnimating = false;
+        state.playerSpeed = 0;
+        state.isSpacePressed = false;
+        updateSpeedUI();
+        
+        document.getElementById('ui-turn').innerText = state.turn;
+        document.getElementById('modal-turn-title').innerText = `제 ${state.turn}턴`;
+        document.getElementById('speed-gauge-container').style.display = "none";
+        
+        document.getElementById('main-door').classList.remove('open');
+        const p = document.getElementById('char-player');
+        p.style.transition = 'none';
+        p.style.opacity = '0';
+        p.style.left = '75px'; 
+        p.style.transform = 'scale(0.7)';
+        p.classList.remove('running');
+        
+        log("👀 꼬마들이 벨을 누를 타이밍을 재고 있습니다...");
+        
+        const container = document.getElementById('kid-container');
+        container.innerHTML = '';
+        const colors = ["#ef4444", "#fb923c", "#f472b6"];
+        
+        state.kidsData = [];
+        for(let i=0; i<3; i++) {
+            const speed = Math.floor(Math.random() * 7) + 3; 
+            const div = document.createElement('div');
+            div.className = 'char kid';
+            div.id = `kid-${i}`;
+            div.style.left = '180px'; 
+            div.style.bottom = `${12 - (i * 4.5)}%`; 
+            div.style.opacity = '1';
+            div.innerHTML = `<div class="shadow"></div>${kidSvg(colors[i])}`;
+            container.appendChild(div);
+            state.kidsData.push({ id: `kid-${i}`, speed: speed, caught: false });
+        }
+        setTimeout(() => showModal('modal-turn'), 500);
+    }
+
+    function confirmTurn() { hideModals(); runChase(); }
+
+    function runChase() {
+        state.isAnimating = true;
+        state.playerSpeed = 0; 
+        updateSpeedUI();
+        document.getElementById('speed-gauge-container').style.display = "block";
+        
+        log("📢 벨튀 발생! 끈기 있게 연타하세요!");
+
+        const gameLoop = setInterval(() => {
+            if(state.isAnimating) {
+                state.playerSpeed = Math.max(0, state.playerSpeed - 0.07);
+                updateSpeedUI();
+                updatePlayerPosition(0.1);
+                checkCollisions();
+            } else {
+                clearInterval(gameLoop);
+            }
+        }, 50);
+
+        setTimeout(() => {
+            state.kidsData.forEach(k => {
+                const el = document.getElementById(k.id);
+                el.style.transition = `left ${state.chaseDuration}ms linear`; 
+                el.classList.add('running');
+                el.style.left = `${28 + (k.speed * 11)}%`;
+            });
+
+            setTimeout(() => {
+                log("🚪 문이 벌컥! 거기 서라!");
+                const door = document.getElementById('main-door');
+                const burst = document.getElementById('impact-burst');
+                const view = document.getElementById('game-view');
+                
+                door.classList.add('open');
+                burst.classList.add('burst-active');
+                view.classList.add('shaking');
+                
+                setTimeout(() => {
+                    view.classList.remove('shaking');
+                    burst.classList.remove('burst-active');
+                }, 400);
+
+                const p = document.getElementById('char-player');
+                p.style.opacity = '1';
+                p.style.transform = 'scale(1.2)';
+                setTimeout(() => p.style.transform = 'scale(1)', 200);
+                p.classList.add('running');
+                
+                setTimeout(() => {
+                    state.isAnimating = false;
+                    p.classList.remove('running');
+                    
+                    state.kidsData.forEach(k => {
+                        if (!k.caught) {
+                            const el = document.getElementById(k.id);
+                            el.style.transition = "left 1.2s ease-in, opacity 1s";
+                            el.style.left = "130%"; 
+                            el.style.opacity = "0";
+                        }
+                    });
+
+                    log(`턴 종료! 현재까지 총 ${state.totalCaught}명 검거.`);
+                    
+                    setTimeout(() => {
+                        if(state.turn < 3) { state.turn++; startTurn(); }
+                        else { finishGame(); }
+                    }, 2000);
+                }, state.chaseDuration); 
+            }, 750); 
+        }, 300);
+    }
+
+    function checkCollisions() {
+        const p = document.getElementById('char-player');
+        const pRect = p.getBoundingClientRect();
+
+        state.kidsData.forEach(k => {
+            if (k.caught) return; 
+
+            const el = document.getElementById(k.id);
+            const kRect = el.getBoundingClientRect();
+
+            if (pRect.right >= (kRect.left + 15)) {
+                k.caught = true;
+                state.totalCaught++;
+                
+                const computedStyle = window.getComputedStyle(el);
+                const currentLeft = computedStyle.left; 
+                
+                el.style.transition = "none"; 
+                el.style.left = currentLeft; 
+                el.classList.remove('running'); 
+                
+                requestAnimationFrame(() => {
+                    el.style.transition = "transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.5s";
+                    el.style.opacity = "0.6"; 
+                    el.style.transform = "translateY(25px) rotate(90deg)"; 
+                });
+
+                addCaughtIcon();
+            }
+        });
+    }
+
+    function addCaughtIcon() {
+        const list = document.getElementById('caught-list');
+        const icon = document.createElement('div');
+        icon.className = 'caught-icon';
+        icon.innerHTML = kidSvg("#fcd34d");
+        const svg = icon.querySelector('svg');
+        svg.setAttribute('width', '18'); svg.setAttribute('height', '18');
+        list.appendChild(icon);
+    }
+
+    function finishGame() {
+        document.getElementById('speed-gauge-container').style.display = "none";
+        showModal('modal-result');
+        const c = state.totalCaught;
+        let title = ""; let color = "";
+        
+        // 요청하신 칭호 체계로 수정 (6명 기준)
+        if(c >= 6) { title = "🏆 최고의 홈프로텍터"; color = "#2ecc71"; }
+        else if(c >= 3) { title = "😐 그저그런 홈프로텍터"; color = "#f39c12"; }
+        else { title = "🚶 그냥 사람"; color = "#bdc3c7"; }
+
+        document.getElementById('final-summary').innerHTML = `
+            <p><strong style="color:var(--secondary-gold);">${state.name}</strong> 님은</p>
+            <p>총 <span style="color:#126FFC; font-size:1.8rem; font-weight:bold;">${c}</span>명의 아이를 붙잡았습니다!</p>
+            <hr style="border:1px dashed #555; margin: 20px 0;">
+            <p>최종 칭호:</p>
+            <h3 style="color:${color}; font-size: 1.4rem; text-shadow: 2px 2px 0 #000;">${title}</h3>
+        `;
+    }
+</script>
+
+</body>
+</html>

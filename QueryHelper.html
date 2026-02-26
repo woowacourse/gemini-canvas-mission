@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>쿼리 짜줘 - AI Query Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Post-it styling for Entity Board */
+        .post-it {
+            background: #fff9c4;
+            box-shadow: 3px 3px 10px rgba(0,0,0,0.1);
+            transform: rotate(-1deg);
+            transition: all 0.2s ease;
+            min-height: 150px;
+        }
+        .post-it:nth-child(even) {
+            transform: rotate(1.5deg);
+            background: #e1f5fe;
+        }
+        .post-it:hover {
+            transform: scale(1.02) rotate(0deg);
+            z-index: 10;
+        }
+
+        /* Sidebar Resizer */
+        #resizer {
+            width: 4px;
+            cursor: col-resize;
+            background-color: transparent;
+            transition: background-color 0.2s;
+            z-index: 20;
+        }
+        #resizer:hover, .resizing #resizer {
+            background-color: #3b82f6;
+        }
+
+        /* Code block styling */
+        .code-block {
+            background-color: #1e293b;
+            color: #e2e8f0;
+            padding: 1.25rem;
+            border-radius: 0.75rem;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            white-space: pre-wrap;
+            position: relative;
+            margin-top: 0.75rem;
+            border: 1px solid #334155;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.6rem;
+            background: #475569;
+            color: white;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .copy-btn:hover {
+            opacity: 1;
+        }
+
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .animate-modal {
+            animation: fadeInScale 0.2s ease-out forwards;
+        }
+
+        /* Backdrop Blur */
+        .modal-backdrop {
+            background-color: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(4px);
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3b82f6;
+            border-radius: 50%;
+            width: 14px;
+            height: 14px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Ensure smooth scrolling */
+        .scroll-smooth-container {
+            scroll-behavior: smooth;
+            -webkit-overflow-scrolling: touch;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 overflow-hidden">
+
+    <div id="app" class="flex h-screen overflow-hidden">
+        <!-- Sidebar: Projects -->
+        <aside id="sidebar" class="w-64 min-w-[200px] max-w-[500px] bg-slate-900 text-white flex flex-col shrink-0">
+            <div class="p-6">
+                <h1 class="text-xl font-bold flex items-center gap-2">
+                    <i class="fas fa-magic text-blue-400"></i> 쿼리 짜줘
+                </h1>
+            </div>
+            
+            <nav class="flex-1 overflow-y-auto px-4 space-y-2">
+                <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-2">Projects</div>
+                <div id="project-list" class="space-y-1">
+                    <!-- Projects dynamic render -->
+                </div>
+                <button onclick="ui.showNewProjectModal()" class="w-full text-left p-2 rounded hover:bg-slate-800 text-slate-400 flex items-center gap-2 transition text-sm">
+                    <i class="fas fa-plus-circle"></i> New Project
+                </button>
+            </nav>
+
+            <div class="p-4 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-500">
+                <span>v1.2.1 Stable</span>
+                <i class="fas fa-sparkles text-yellow-400"></i>
+            </div>
+        </aside>
+
+        <!-- Resize Handle -->
+        <div id="resizer"></div>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col relative overflow-hidden bg-white">
+            <!-- Header -->
+            <header class="h-16 bg-white border-b flex items-center justify-between px-6 shadow-sm z-10 shrink-0">
+                <div class="flex items-center gap-4">
+                    <h2 id="current-project-name" class="font-bold text-slate-700">프로젝트를 선택하세요</h2>
+                    <div id="header-stats" class="hidden flex items-center gap-2">
+                        <span id="entity-count-badge" class="px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full text-[11px] font-bold">0 Entities</span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button id="btn-view-entities" onclick="ui.toggleEntityBoard()" class="hidden px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition border">
+                        <i class="fas fa-sticky-note mr-2 text-yellow-500"></i> Entity Board
+                    </button>
+                    <button id="btn-view-erd" onclick="ui.toggleERDModal()" class="hidden px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition border">
+                        <i class="fas fa-project-diagram mr-2 text-blue-500"></i> ERD
+                    </button>
+                    <button id="add-entity-btn" onclick="ui.showEntityInput()" class="hidden px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-lg shadow-sm transition">
+                        <i class="fas fa-plus mr-2"></i> Register Entity
+                    </button>
+                </div>
+            </header>
+
+            <!-- Workspace -->
+            <div class="flex-1 flex flex-col min-h-0 relative">
+                <!-- Chat Interface -->
+                <section id="chat-section" class="flex-1 flex flex-col bg-white min-h-0">
+                    <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/30 scroll-smooth-container">
+                        <!-- Welcome Message -->
+                        <div class="max-w-xl mx-auto text-center py-20" id="empty-state">
+                            <div class="bg-blue-50 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 transform rotate-3">
+                                <i class="fas fa-robot text-blue-500 text-3xl"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-slate-800">환영합니다! ✨</h3>
+                            <p class="text-slate-500 mt-3 leading-relaxed">
+                                프로젝트를 생성하고 엔티티 코드를 등록하면<br>
+                                복잡한 쿼리 생성부터 성능 최적화까지 도와드립니다.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Gemini AI Assistant Features Bar -->
+                    <div id="ai-features-bar" class="hidden px-6 py-2 bg-blue-50/50 border-t flex gap-3 overflow-x-auto shrink-0">
+                        <button onclick="appManager.generateMockData()" class="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-white border border-blue-100 rounded-full text-xs font-bold text-blue-600 hover:bg-blue-100 transition-all shadow-sm">
+                            ✨ 테스트 데이터 생성
+                        </button>
+                        <button onclick="appManager.suggestEntityEnhancements()" class="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-white border border-blue-100 rounded-full text-xs font-bold text-blue-600 hover:bg-blue-100 transition-all shadow-sm">
+                            ✨ 엔티티 설계 개선 제안
+                        </button>
+                        <button onclick="appManager.optimizeLastQuery()" id="btn-optimize" class="hidden shrink-0 flex items-center gap-2 px-3 py-1.5 bg-white border border-green-100 rounded-full text-xs font-bold text-green-600 hover:bg-green-100 transition-all shadow-sm">
+                            ✨ 이전 쿼리 최적화 제안
+                        </button>
+                    </div>
+
+                    <!-- Input Area -->
+                    <div class="p-6 bg-white border-t shrink-0">
+                        <div class="max-w-4xl mx-auto space-y-4">
+                            <div class="flex items-center gap-3" id="query-type-selector">
+                                <span class="text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Query Type:</span>
+                                <div class="flex p-1 bg-slate-100 rounded-xl">
+                                    <label class="px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all has-[:checked]:bg-white has-[:checked]:text-blue-600 has-[:checked]:shadow-sm text-slate-500">
+                                        <input type="radio" name="q-type" value="JPQL" checked class="hidden"> JPQL
+                                    </label>
+                                    <label class="px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all has-[:checked]:bg-white has-[:checked]:text-blue-600 has-[:checked]:shadow-sm text-slate-500">
+                                        <input type="radio" name="q-type" value="SQL" class="hidden"> SQL
+                                    </label>
+                                    <label class="px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all has-[:checked]:bg-white has-[:checked]:text-blue-600 has-[:checked]:shadow-sm text-slate-500">
+                                        <input type="radio" name="q-type" value="Querydsl" class="hidden"> Querydsl
+                                    </label>
+                                    <label class="px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all has-[:checked]:bg-white has-[:checked]:text-blue-600 has-[:checked]:shadow-sm text-slate-500">
+                                        <input type="radio" name="q-type" value="Native" class="hidden"> Native
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="relative group">
+                                <textarea id="chat-input" rows="1" placeholder="필요한 쿼리를 자연어로 설명해주세요..." 
+                                    class="w-full p-5 pr-14 rounded-2xl border border-slate-200 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 resize-none shadow-sm transition-all text-slate-700 max-h-48"></textarea>
+                                <button onclick="appManager.sendMessage()" id="send-btn" class="absolute right-3 bottom-3.5 p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50">
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-project" class="hidden fixed inset-0 modal-backdrop flex items-center justify-center z-[100]">
+        <div class="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl animate-modal mx-4">
+            <h3 class="text-xl font-bold mb-1">새 프로젝트 생성</h3>
+            <p class="text-sm text-slate-500 mb-6">진행 중인 프로젝트의 이름을 입력하세요.</p>
+            <input type="text" id="new-project-name" placeholder="예: 쇼핑몰 고도화 서비스" 
+                class="w-full p-4 bg-slate-50 border rounded-xl mb-6 focus:ring-2 focus:ring-blue-500 outline-none border-slate-200">
+            <div class="flex justify-end gap-3">
+                <button onclick="ui.closeModals()" class="px-6 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-xl transition">취소</button>
+                <button onclick="appManager.createProject()" class="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition">생성하기</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-entity-input" class="hidden fixed inset-0 modal-backdrop flex items-center justify-center z-[100] p-4">
+        <div class="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl flex flex-col h-[650px] max-h-[90vh] animate-modal">
+            <h3 class="text-xl font-bold mb-1">엔티티 등록</h3>
+            <p class="text-sm text-slate-500 mb-6">Java `@Entity` 클래스 코드를 붙여넣으세요.</p>
+            <textarea id="entity-code-input" class="flex-1 w-full p-5 bg-slate-900 text-slate-300 font-mono text-sm rounded-2xl outline-none mb-6 border border-slate-800 resize-none" 
+                placeholder="public class User { ... }"></textarea>
+            <div class="flex justify-end gap-3">
+                <button onclick="ui.closeModals()" class="px-6 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-xl transition">취소</button>
+                <button onclick="appManager.parseAndAddEntity()" id="parse-btn" class="px-8 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition flex items-center gap-2">
+                    <span id="btn-text">엔티티 추가</span>
+                    <span id="btn-loader" class="hidden"><i class="loader"></i> 분석 중...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-entity-board" class="hidden fixed inset-0 modal-backdrop flex items-center justify-center z-[90] p-6">
+        <div class="bg-slate-50 rounded-3xl w-full max-w-6xl h-[85vh] shadow-2xl flex flex-col animate-modal overflow-hidden">
+            <div class="p-6 border-b bg-white flex justify-between items-center shrink-0">
+                <div>
+                    <h3 class="text-xl font-bold">Registered Entity Board</h3>
+                    <p class="text-xs text-slate-400 mt-1">등록된 엔티티들을 포스트잇 형태로 확인합니다.</p>
+                </div>
+                <button onclick="ui.toggleEntityBoard()" class="w-10 h-10 flex items-center justify-center bg-slate-100 rounded-full text-slate-400 hover:text-red-500 transition-all">&times;</button>
+            </div>
+            <div id="entity-container" class="flex-1 p-8 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 content-start scroll-smooth-container"></div>
+        </div>
+    </div>
+
+    <div id="modal-erd" class="hidden fixed inset-0 modal-backdrop flex items-center justify-center z-[110] p-6">
+        <div class="bg-white rounded-3xl w-full max-w-5xl h-[80vh] shadow-2xl flex flex-col animate-modal overflow-hidden">
+            <div class="p-6 border-b flex justify-between items-center shrink-0">
+                <h3 class="text-xl font-bold">ERD View</h3>
+                <button onclick="ui.toggleERDModal()" class="w-10 h-10 flex items-center justify-center bg-slate-100 rounded-full text-slate-400 hover:text-red-500 transition-all">&times;</button>
+            </div>
+            <div id="erd-canvas" class="flex-1 p-8 overflow-auto bg-slate-50 grid grid-cols-1 md:grid-cols-2 gap-6 content-start scroll-smooth-container"></div>
+        </div>
+    </div>
+
+    <!-- Alert Custom UI -->
+    <div id="custom-alert" class="hidden fixed top-5 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-red-600 text-white rounded-full shadow-2xl animate-fade-in flex items-center gap-3">
+        <i class="fas fa-exclamation-circle"></i>
+        <span id="alert-text"></span>
+    </div>
+
+    <script>
+        const apiKey = ""; 
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'query-wizard-v2';
+
+        let state = {
+            projects: [],
+            currentProjectId: null,
+            isGenerating: false,
+            lastQuery: ""
+        };
+
+        // --- Persistence ---
+        function loadState() {
+            const saved = localStorage.getItem(`qw_state_${appId}`);
+            if (saved) {
+                state = JSON.parse(saved);
+                ui.renderProjectList();
+                if (state.currentProjectId) ui.selectProject(state.currentProjectId);
+            }
+        }
+        function saveState() {
+            localStorage.setItem(`qw_state_${appId}`, JSON.stringify(state));
+        }
+
+        // --- AI API ---
+        async function callGemini(prompt, systemInstruction = "") {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            
+            for (let i = 0; i <= delays.length; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error('API Error');
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received.";
+                } catch (e) {
+                    if (i === delays.length) {
+                        ui.showAlert("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+                        throw e;
+                    }
+                    await new Promise(res => setTimeout(res, delays[i]));
+                }
+            }
+        }
+
+        // --- Application Logic ---
+        const appManager = {
+            createProject: () => {
+                const nameInput = document.getElementById('new-project-name');
+                const name = nameInput.value.trim();
+                if (!name) return;
+                const project = { id: Date.now().toString(), name, entities: [], chats: [] };
+                state.projects.push(project);
+                state.currentProjectId = project.id;
+                saveState();
+                ui.closeModals();
+                ui.renderProjectList();
+                ui.selectProject(project.id);
+                nameInput.value = '';
+            },
+
+            parseAndAddEntity: async () => {
+                const code = document.getElementById('entity-code-input').value;
+                if (!code.trim() || !state.currentProjectId) return;
+
+                const parseBtn = document.getElementById('parse-btn');
+                const btnText = document.getElementById('btn-text');
+                const btnLoader = document.getElementById('btn-loader');
+
+                btnText.classList.add('hidden');
+                btnLoader.classList.remove('hidden');
+                parseBtn.disabled = true;
+
+                try {
+                    const systemPrompt = `You are a Java Entity Parser. Extract JSON information from Java @Entity code. Return ONLY a valid JSON object with: { "className": "String", "tableName": "String", "fields": [ { "name": "String", "type": "String", "isId": boolean, "relation": "null|OneToMany|ManyToOne|etc" } ] }. No explanation.`;
+                    const resultText = await callGemini(code, systemPrompt);
+                    const cleanedJson = resultText.replace(/```json|```/g, '').trim();
+                    const entityData = JSON.parse(cleanedJson);
+                    entityData.id = Date.now().toString();
+
+                    const project = state.projects.find(p => p.id === state.currentProjectId);
+                    project.entities.push(entityData);
+                    
+                    saveState();
+                    ui.closeModals();
+                    ui.renderEntities();
+                    ui.addChatMessage('system', `${entityData.className} 엔티티가 성공적으로 등록되었습니다. ✨`);
+                    document.getElementById('entity-code-input').value = '';
+                    ui.updateAIFeaturesBar();
+                } catch (e) {
+                    ui.showAlert('엔티티 분석 중 오류가 발생했습니다. 코드를 확인해주세요.');
+                } finally {
+                    btnText.classList.remove('hidden');
+                    btnLoader.classList.add('hidden');
+                    parseBtn.disabled = false;
+                }
+            },
+
+            sendMessage: async () => {
+                const input = document.getElementById('chat-input');
+                const text = input.value.trim();
+                const project = state.projects.find(p => p.id === state.currentProjectId);
+                
+                if (!text || !project || state.isGenerating) return;
+                if (project.entities.length === 0) {
+                    ui.showAlert('엔티티를 먼저 등록해주세요.');
+                    return;
+                }
+
+                const queryType = document.querySelector('input[name="q-type"]:checked').value;
+                ui.addChatMessage('user', text);
+                input.value = '';
+                textareaAutoResize(input);
+                state.isGenerating = true;
+
+                try {
+                    const systemPrompt = `You are a Backend Query Expert. Entities: ${JSON.stringify(project.entities)}. Generate a ${queryType} query. Format result with markdown code blocks. Briefly explain in Korean.`;
+                    const response = await callGemini(text, systemPrompt);
+                    ui.addChatMessage('ai', response);
+                    
+                    state.lastQuery = response;
+                    project.chats.push({ role: 'user', content: text, type: queryType });
+                    project.chats.push({ role: 'ai', content: response });
+                    ui.showOptimizationBtn();
+                    saveState();
+                } catch (e) {
+                    ui.addChatMessage('ai', '죄송합니다. 요청을 처리하는 중 오류가 발생했습니다.');
+                } finally {
+                    state.isGenerating = false;
+                }
+            },
+
+            generateMockData: async () => {
+                const project = state.projects.find(p => p.id === state.currentProjectId);
+                if (!project || project.entities.length === 0) return;
+                ui.addChatMessage('user', "✨ 이 프로젝트의 모든 엔티티에 대한 테스트 데이터를 생성해줘.");
+                state.isGenerating = true;
+                try {
+                    const systemPrompt = `Based on these entities: ${JSON.stringify(project.entities)}, generate SQL INSERT statements with realistic sample data for each table. Return the SQL and a brief guide in Korean.`;
+                    const response = await callGemini("Generate sample data", systemPrompt);
+                    ui.addChatMessage('ai', response);
+                } catch (e) {
+                    ui.addChatMessage('ai', "테스트 데이터 생성에 실패했습니다.");
+                } finally {
+                    state.isGenerating = false;
+                }
+            },
+
+            suggestEntityEnhancements: async () => {
+                const project = state.projects.find(p => p.id === state.currentProjectId);
+                if (!project || project.entities.length === 0) return;
+                ui.addChatMessage('user', "✨ 엔티티 설계를 검토하고 개선사항을 제안해줘.");
+                state.isGenerating = true;
+                try {
+                    const systemPrompt = `Review these database entities: ${JSON.stringify(project.entities)}. Suggest improvements focusing on: 1. Naming conventions, 2. Indexing strategies, 3. Audit fields, 4. Missing relations. Reply in Korean.`;
+                    const response = await callGemini("Review entities", systemPrompt);
+                    ui.addChatMessage('ai', response);
+                } catch (e) {
+                    ui.addChatMessage('ai', "엔티티 리뷰 중 오류가 발생했습니다.");
+                } finally {
+                    state.isGenerating = false;
+                }
+            },
+
+            optimizeLastQuery: async () => {
+                if (!state.lastQuery) return;
+                ui.addChatMessage('user', "✨ 방금 생성한 쿼리를 성능 면에서 최적화해줘.");
+                state.isGenerating = true;
+                try {
+                    const systemPrompt = `You are a DB Performance Expert. Review this query: ${state.lastQuery}. Suggest an optimized version and explain why. Use Korean for explanation.`;
+                    const response = await callGemini("Optimize the last query", systemPrompt);
+                    ui.addChatMessage('ai', response);
+                } catch (e) {
+                    ui.addChatMessage('ai', "쿼리 최적화 분석에 실패했습니다.");
+                } finally {
+                    state.isGenerating = false;
+                }
+            }
+        };
+
+        // --- UI Controller ---
+        const ui = {
+            showNewProjectModal: () => document.getElementById('modal-project').classList.remove('hidden'),
+            showEntityInput: () => document.getElementById('modal-entity-input').classList.remove('hidden'),
+            closeModals: () => { document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden')); },
+            toggleEntityBoard: () => {
+                const modal = document.getElementById('modal-entity-board');
+                if (modal.classList.contains('hidden')) { ui.renderEntities(); modal.classList.remove('hidden'); }
+                else modal.classList.add('hidden');
+            },
+            toggleERDModal: () => {
+                const modal = document.getElementById('modal-erd');
+                if (modal.classList.contains('hidden')) {
+                    const project = state.projects.find(p => p.id === state.currentProjectId);
+                    ui.renderERD(project.entities);
+                    modal.classList.remove('hidden');
+                } else modal.classList.add('hidden');
+            },
+            showAlert: (msg) => {
+                const el = document.getElementById('custom-alert');
+                document.getElementById('alert-text').innerText = msg;
+                el.classList.remove('hidden');
+                setTimeout(() => el.classList.add('hidden'), 3000);
+            },
+            renderProjectList: () => {
+                const list = document.getElementById('project-list');
+                list.innerHTML = state.projects.map(p => `
+                    <button onclick="ui.selectProject('${p.id}')" 
+                        class="w-full text-left p-2.5 rounded-xl flex justify-between items-center group transition-all text-sm ${state.currentProjectId === p.id ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-slate-800 text-slate-400'}">
+                        <span class="truncate"><i class="fas fa-database mr-2"></i>${p.name}</span>
+                        <i onclick="ui.deleteProject(event, '${p.id}')" class="fas fa-trash-alt text-[10px] opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all p-1"></i>
+                    </button>
+                `).join('');
+            },
+            selectProject: (id) => {
+                state.currentProjectId = id;
+                const project = state.projects.find(p => p.id === id);
+                document.getElementById('current-project-name').innerText = project.name;
+                document.getElementById('header-stats').classList.remove('hidden');
+                document.getElementById('add-entity-btn').classList.remove('hidden');
+                document.getElementById('btn-view-entities').classList.remove('hidden');
+                document.getElementById('btn-view-erd').classList.remove('hidden');
+                document.getElementById('ai-features-bar').classList.remove('hidden');
+                
+                ui.renderProjectList();
+                ui.renderEntities();
+                ui.renderChatHistory();
+                ui.updateAIFeaturesBar();
+                saveState();
+            },
+            deleteProject: (e, id) => {
+                e.stopPropagation();
+                if(!confirm('프로젝트를 삭제하시겠습니까?')) return;
+                state.projects = state.projects.filter(p => p.id !== id);
+                if (state.currentProjectId === id) state.currentProjectId = null;
+                saveState();
+                location.reload();
+            },
+            renderEntities: () => {
+                const project = state.projects.find(p => p.id === state.currentProjectId);
+                const container = document.getElementById('entity-container');
+                const badge = document.getElementById('entity-count-badge');
+                if (!project) return;
+                badge.innerText = `${project.entities.length} Entities`;
+                container.innerHTML = project.entities.map(ent => `
+                    <div class="post-it p-5 rounded-sm relative group animate-modal">
+                        <h4 class="font-bold text-slate-800 border-b border-slate-300 pb-2 mb-3 text-lg">${ent.className}</h4>
+                        <div class="text-[11px] space-y-1.5 text-slate-700">
+                            ${ent.fields.map(f => `
+                                <div class="flex justify-between border-b border-dashed border-slate-200">
+                                    <span class="${f.isId ? 'text-blue-700 font-bold' : ''}">${f.name}</span>
+                                    <span class="text-slate-500 italic text-[10px]">${f.type}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <button onclick="ui.deleteEntity('${ent.id}')" class="absolute -top-2 -right-2 bg-red-500 text-white w-5 h-5 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center text-[8px] transition-all shadow-md">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                `).join('');
+            },
+            deleteEntity: (entId) => {
+                const project = state.projects.find(p => p.id === state.currentProjectId);
+                project.entities = project.entities.filter(e => e.id !== entId);
+                saveState();
+                ui.renderEntities();
+                ui.updateAIFeaturesBar();
+            },
+            addChatMessage: (role, content) => {
+                const container = document.getElementById('chat-messages');
+                const empty = document.getElementById('empty-state');
+                if (empty) empty.remove();
+                
+                const div = document.createElement('div');
+                div.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'} animate-modal mb-6`;
+                
+                let html = content;
+                if (role === 'ai') {
+                    html = content.replace(/```(\w+)?\n([\s\S]*?)```/g, (m, lang, code) => `
+                        <div class="code-block">
+                            <span class="copy-btn" onclick="ui.copy(this)">Copy</span>
+                            <div class="text-[10px] text-slate-500 mb-1 uppercase">${lang || 'code'}</div>
+                            <code class="text-sm">${code.trim()}</code>
+                        </div>
+                    `).replace(/\n/g, '<br>');
+                } else if (role === 'system') {
+                    html = `<div class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[11px] font-bold"><i class="fas fa-info-circle mr-1"></i> ${content}</div>`;
+                }
+
+                if (role === 'system') {
+                   div.innerHTML = html;
+                   div.className = "flex justify-center mb-4";
+                } else {
+                    div.innerHTML = `
+                        <div class="max-w-[85%] ${role === 'user' ? 'bg-blue-600 text-white rounded-3xl rounded-tr-none px-6 py-3 shadow-lg' : 'bg-white border rounded-3xl rounded-tl-none px-6 py-4 shadow-sm'}">
+                            <div class="text-[10px] font-bold mb-1 opacity-60 uppercase">${role === 'user' ? 'ME' : 'WIZARD ✨'}</div>
+                            <div class="text-[14px] leading-relaxed">${html}</div>
+                        </div>
+                    `;
+                }
+                container.appendChild(div);
+                
+                // Use requestAnimationFrame for smoother scrolling
+                requestAnimationFrame(() => {
+                    container.scrollTop = container.scrollHeight;
+                });
+            },
+            renderChatHistory: () => {
+                const container = document.getElementById('chat-messages');
+                const project = state.projects.find(p => p.id === state.currentProjectId);
+                container.innerHTML = '';
+                if (project && project.chats.length > 0) {
+                    project.chats.forEach(c => ui.addChatMessage(c.role, c.content));
+                } else ui.renderChatHistoryEmpty();
+            },
+            renderChatHistoryEmpty: () => {
+                document.getElementById('chat-messages').innerHTML = `
+                    <div class="max-w-xl mx-auto text-center py-20" id="empty-state">
+                        <div class="bg-blue-50 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 transform rotate-3"><i class="fas fa-robot text-blue-500 text-3xl"></i></div>
+                        <h3 class="text-2xl font-bold text-slate-800">질문을 시작하세요! ✨</h3>
+                        <p class="text-slate-500 mt-3">엔티티를 바탕으로 최적의 쿼리를 작성해 드립니다.</p>
+                    </div>
+                `;
+            },
+            renderERD: (entities) => {
+                document.getElementById('erd-canvas').innerHTML = entities.map(ent => `
+                    <div class="bg-white border rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                        <div class="bg-slate-900 text-white px-5 py-2 font-bold flex justify-between items-center text-sm">
+                            <span>${ent.className}</span>
+                            <span class="text-[10px] opacity-60">${ent.tableName || ent.className}</span>
+                        </div>
+                        <div class="p-4 text-xs space-y-2">
+                            ${ent.fields.map(f => `
+                                <div class="flex items-center justify-between">
+                                    <span class="${f.isId ? 'text-blue-600 font-bold' : 'text-slate-700'}">
+                                        ${f.isId ? '<i class="fas fa-key mr-1.5"></i>' : ''} ${f.name}
+                                    </span>
+                                    <span class="text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 text-[10px]">${f.type}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('');
+            },
+            copy: (btn) => {
+                const code = btn.nextElementSibling.nextElementSibling.innerText;
+                const ta = document.createElement('textarea'); ta.value = code; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                const original = btn.innerText; btn.innerText = 'Copied!'; btn.style.backgroundColor = '#10b981';
+                setTimeout(() => { btn.innerText = original; btn.style.backgroundColor = '#475569'; }, 2000);
+            },
+            showOptimizationBtn: () => {
+                if (state.lastQuery) document.getElementById('btn-optimize').classList.remove('hidden');
+            },
+            updateAIFeaturesBar: () => {
+                const project = state.projects.find(p => p.id === state.currentProjectId);
+                const bar = document.getElementById('ai-features-bar');
+                if (project && project.entities.length > 0) bar.classList.remove('hidden');
+                else bar.classList.add('hidden');
+            }
+        };
+
+        // --- Layout Resizing ---
+        function initResizer() {
+            const resizer = document.getElementById('resizer'), sidebar = document.getElementById('sidebar');
+            let resizing = false;
+            resizer.addEventListener('mousedown', () => { resizing = true; document.body.classList.add('resizing'); });
+            document.addEventListener('mousemove', (e) => { if (resizing && e.clientX > 200 && e.clientX < 500) sidebar.style.width = `${e.clientX}px`; });
+            document.addEventListener('mouseup', () => { resizing = false; document.body.classList.remove('resizing'); });
+        }
+        
+        function textareaAutoResize(el) { 
+            el.style.height = 'auto'; 
+            el.style.height = (el.scrollHeight) + 'px'; 
+        }
+
+        window.onload = () => {
+            loadState();
+            initResizer();
+            const ta = document.getElementById('chat-input');
+            ta.addEventListener('input', function() { textareaAutoResize(this); });
+            
+            // 한글 입력(IME) 시 엔터 중복 방어 로직 적용
+            ta.addEventListener('keydown', (e) => { 
+                // 조합 중일 때(IME)는 이벤트를 무시합니다.
+                if (e.isComposing || e.keyCode === 229) return;
+
+                if (e.key === 'Enter') { 
+                    if (!e.shiftKey) { 
+                        e.preventDefault(); 
+                        appManager.sendMessage(); 
+                    } 
+                } 
+            });
+        };
+    </script>
+</body>
+</html>

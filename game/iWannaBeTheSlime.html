@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>I Wanna Be The Slime</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+            border: 4px solid #333;
+            border-radius: 8px;
+        }
+
+        /* 픽셀 아트 느낌을 살리기 위해 안티앨리어싱 비활성화 */
+        canvas {
+            display: block;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            background-color: #000;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            pointer-events: none;
+            text-shadow: 2px 2px 0 #000;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .instructions {
+            margin-top: 15px;
+            text-align: center;
+            color: #aaa;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        kbd {
+            background-color: #333;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #fff;
+            border: 1px solid #555;
+        }
+
+        #win-screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            color: gold;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            text-align: center;
+            z-index: 10;
+        }
+
+        #restart-btn {
+            margin-top: 30px;
+            padding: 10px 24px;
+            font-size: 20px;
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #ff4400;
+            color: #fff;
+            border: 2px solid #fff;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.1s, background-color 0.2s;
+        }
+
+        #restart-btn:hover {
+            background-color: #ffaa00;
+            color: #000;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="608"></canvas>
+        <div id="ui-layer">
+            <div id="ability-ui">능력: <span id="current-ability" style="color: #fff;">없음 (Normal)</span></div>
+            <div id="boss-hp-ui" style="display: none; color: #ff5555; margin-top: 5px;">보스 체력: <span
+                    id="boss-hp">20</span></div>
+        </div>
+        <div id="win-screen">
+            <h1>MISSION CLEAR!</h1>
+            <p style="font-size: 18px; color: white;">당신은 진정한 고수입니다.</p>
+            <button id="restart-btn">다시 시작하기</button>
+        </div>
+    </div>
+    <div class="instructions">
+        [이동] <kbd>←</kbd> <kbd>→</kbd> &nbsp;|&nbsp;
+        [점프] <kbd>Z</kbd> (바람 능력 시 공중 대시 가능) &nbsp;|&nbsp;
+        [공격] <kbd>X</kbd> &nbsp;|&nbsp;
+        [흡수] <kbd>C</kbd> (유지하여 적 능력 뺏기) &nbsp;|&nbsp;
+        [재시작/자살] <kbd>R</kbd>
+    </div>
+
+    <script>
+        /**
+         * I Wanna Be The Slime - 코어 엔진 및 로직
+         * 외부 리소스(이미지/사운드) 없이 순수 JS와 Canvas API로 픽셀 아트를 구현합니다.
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false; // 픽셀화
+
+        // --- 게임 상수 및 상태 ---
+        const TILE_SIZE = 32;
+        const FPS = 60;
+        const GRAVITY = 0.45;
+        const MAX_FALL_SPEED = 12;
+        const JUMP_FORCE = -8.5;
+        const MOVE_SPEED = 4;
+
+        const keys = {
+            ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false,
+            z: false, x: false, c: false, r: false
+        };
+        const prevKeys = { ...keys };
+
+        // --- 맵 데이터 (0: 빈공간, 1: 벽, 2: 가시(위), 3: 가시(아래), 4: 가시(좌), 5: 가시(우), P: 플레이어, E: 출구, F: 불 적, W: 바람 적, B: 불로만 부서지는 블록, O: 보스) ---
+        // 결정론적 플레이와 기믹을 위한 4개의 스테이지 구성
+        const maps = [
+            // Map 1: 튜토리얼 및 불 능력 기믹 (블록 부수기)
+            [
+                "1111111111111111111111111",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "100000000000000000000B0E1",
+                "100000000000000000000B111",
+                "100000000000000000000B001",
+                "1P0000020000000000F00B001",
+                "1111101111000200111111111",
+                "1000000000011111100000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1111111111111111111111111",
+            ],
+            // Map 2: 바람 능력 기믹 (공중 대시로 넓은 가시밭 통과)
+            [
+                "1111111111111111111111111",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1P0000W0000000000000000E1",
+                "1111111100000000011111111",
+                "1000000000000000000000001",
+                "1000000002222222000000001",
+                "1111111111111111111111111",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1111111111111111111111111",
+            ],
+            // Map 3: 하드코어 종합 응용 기믹 (지그재그 등반 후 불 능력으로 전환)
+            [
+                "1111111111111111111111111",
+                "100000000000000000000B001",
+                "100000000000000000000B0E1",
+                "100000000000000000000B111",
+                "100000000000000000000B001",
+                "100000000000000V000111001",
+                "1000000000000000111000001",
+                "1000000000001110000000001",
+                "1000000F00000000000000001",
+                "1111111111000000000000001",
+                "1000000000000000000000001",
+                "1000000000000011111111111",
+                "1000000000000000000000001",
+                "1111111111000000000000001",
+                "1000000000000000000000001",
+                "1000000000000011111111111",
+                "1P0000W000000000000000001",
+                "1111111111000011111111111",
+                "1222222222222222222222221",
+            ],
+            // Map 4: 보스전 (페이즈 1: 탄막, 페이즈 2: 불 능력 기믹)
+            [
+                "1111111111111111111111111",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1P000000000000000000000O1",
+                "1111111111111111111111111",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1000000000000000000000001",
+                "1111111111111111111111111",
+            ]
+        ];
+
+        // --- 게임 글로벌 변수 ---
+        let currentLevel = 0;
+        let tiles = [];
+        let entities = [];
+        let particles = [];
+        let projectiles = [];
+        let player = null;
+        let boss = null;
+        let gameFrame = 0;
+        let isDead = false;
+        let respawnTimer = 0;
+        let isGameWon = false;
+
+        // --- 유틸리티 함수 ---
+        function rectIntersect(r1, r2) {
+            return !(r2.x >= r1.x + r1.w ||
+                r2.x + r2.w <= r1.x ||
+                r2.y >= r1.y + r1.h ||
+                r2.y + r2.h <= r1.y);
+        }
+
+        function createParticles(x, y, color, count, speedRange) {
+            for (let i = 0; i < count; i++) {
+                let angle = Math.random() * Math.PI * 2;
+                let speed = Math.random() * speedRange;
+                particles.push({
+                    x: x, y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 1.0,
+                    decay: Math.random() * 0.02 + 0.015,
+                    color: color,
+                    size: Math.random() * 4 + 2
+                });
+            }
+        }
+
+        // --- 클래스 정의 ---
+
+        class Player {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.w = 20; this.h = 20;
+                this.vx = 0; this.vy = 0;
+                this.onGround = false;
+                this.ability = 'normal'; // 'normal', 'fire', 'wind'
+                this.facing = 1; // 1: right, -1: left
+
+                // 상태 플래그
+                this.inhaling = false;
+                this.dashCooldown = 0;
+                this.shootCooldown = 0;
+
+                // 애니메이션
+                this.inhaleFrame = 0;
+            }
+
+            update() {
+                if (isDead) return;
+
+                // 쿨다운 감소
+                if (this.dashCooldown > 0) this.dashCooldown--;
+                if (this.shootCooldown > 0) this.shootCooldown--;
+
+                // 입력 처리: 좌우 이동
+                if (keys.ArrowLeft) { this.vx = -MOVE_SPEED; this.facing = -1; }
+                else if (keys.ArrowRight) { this.vx = MOVE_SPEED; this.facing = 1; }
+                else { this.vx = 0; }
+
+                // 대시 중엔 중력/이동 무시 (바람 능력)
+                if (this.dashCooldown > 15) {
+                    this.vy = 0;
+                    this.vx = this.facing * MOVE_SPEED * 2.5;
+                } else {
+                    // 중력 적용
+                    this.vy += GRAVITY;
+                    if (this.vy > MAX_FALL_SPEED) this.vy = MAX_FALL_SPEED;
+                }
+
+                // 입력 처리: 점프 및 대시 (방금 누른 키 감지)
+                if (keys.z && !prevKeys.z) {
+                    if (this.onGround) {
+                        this.vy = JUMP_FORCE;
+                        this.onGround = false;
+                        createParticles(this.x + this.w / 2, this.y + this.h, '#fff', 5, 2);
+                    } else if (this.ability === 'wind' && this.dashCooldown === 0) {
+                        // 공중 대시 발동 (지연 0, 즉각 반응)
+                        this.dashCooldown = 30; // 30프레임 대기, 처음 15프레임은 돌진
+                        createParticles(this.x + this.w / 2, this.y + this.h / 2, '#88ffff', 15, 4);
+                    }
+                }
+
+                // 짧은 점프 처리 (키 떼면 상승폭 감소 - Boshi 스타일)
+                if (!keys.z && this.vy < 0) {
+                    this.vy *= 0.5;
+                }
+
+                // 입력 처리: 공격
+                if (keys.x && !prevKeys.x && this.shootCooldown === 0) {
+                    this.shoot();
+                }
+
+                // 입력 처리: 흡수 (C키 유지)
+                this.inhaling = keys.c;
+                if (this.inhaling) {
+                    this.inhaleFrame++;
+                    this.vx = 0; // 흡수 중 이동 불가 (커비 스타일)
+                    this.processInhale();
+                } else {
+                    this.inhaleFrame = 0;
+                }
+
+                // 물리 충돌 (X축)
+                this.x += this.vx;
+                this.checkCollisions('x');
+
+                // 물리 충돌 (Y축)
+                this.y += this.vy;
+                this.onGround = false;
+                this.checkCollisions('y');
+
+                // 화면 밖 추락사
+                if (this.y > canvas.height) this.die();
+            }
+
+            shoot() {
+                this.shootCooldown = 15;
+                let pColor, pSize, pSpeed, pPiercing, pType;
+
+                if (this.ability === 'fire') {
+                    pColor = '#ff4400'; pSize = 8; pSpeed = 7; pPiercing = false; pType = 'fire';
+                    this.shootCooldown = 25; // 불은 연사력 낮음
+                } else {
+                    // 일반, 바람 능력은 기본 샷
+                    pColor = '#ffffff'; pSize = 4; pSpeed = 8; pPiercing = false; pType = 'normal';
+                }
+
+                projectiles.push({
+                    x: this.facing === 1 ? this.x + this.w : this.x - pSize,
+                    y: this.y + this.h / 2 - pSize / 2,
+                    w: pSize, h: pSize,
+                    vx: this.facing * pSpeed, vy: 0,
+                    color: pColor, type: pType, isPlayer: true, life: 60
+                });
+            }
+
+            processInhale() {
+                // 전방 흡입 히트박스 생성
+                let inhaleBox = {
+                    x: this.facing === 1 ? this.x + this.w : this.x - 60,
+                    y: this.y - 10,
+                    w: 60, h: this.h + 20
+                };
+
+                // 시각적 파티클
+                if (gameFrame % 3 === 0) {
+                    let px = inhaleBox.x + (this.facing === 1 ? inhaleBox.w : 0);
+                    let py = inhaleBox.y + Math.random() * inhaleBox.h;
+                    particles.push({
+                        x: px, y: py,
+                        vx: -this.facing * 3, vy: (this.y + this.h / 2 - py) * 0.1,
+                        life: 1.0, decay: 0.05, color: '#dddddd', size: 2
+                    });
+                }
+
+                // 적 흡수 판정
+                for (let i = entities.length - 1; i >= 0; i--) {
+                    let ent = entities[i];
+                    if (ent.type !== 'boss' && ent.type !== 'vertical' && rectIntersect(inhaleBox, ent)) {
+                        // 흡수 성공
+                        if (ent.type === 'fire') {
+                            this.changeAbility('fire');
+                        } else if (ent.type === 'wind') {
+                            this.changeAbility('wind');
+                        }
+                        createParticles(ent.x, ent.y, ent.color, 20, 3);
+                        entities.splice(i, 1);
+                    }
+                }
+            }
+
+            changeAbility(newAbility) {
+                this.ability = newAbility;
+                let uiName = "없음 (Normal)";
+                let uiColor = "#ffffff";
+                if (newAbility === 'fire') { uiName = "불 (Fire - 블록 파괴)"; uiColor = "#ff4400"; }
+                if (newAbility === 'wind') { uiName = "바람 (Wind - 공중 대시)"; uiColor = "#88ffff"; }
+
+                document.getElementById('current-ability').innerText = uiName;
+                document.getElementById('current-ability').style.color = uiColor;
+            }
+
+            checkCollisions(axis) {
+                let hitBox = { x: this.x, y: this.y, w: this.w, h: this.h };
+
+                for (let tile of tiles) {
+                    // 벽 및 특수 블록 충돌
+                    if (tile.type === 1 || tile.type === 'B') {
+                        let tBox = { x: tile.x, y: tile.y, w: TILE_SIZE, h: TILE_SIZE };
+                        if (rectIntersect(hitBox, tBox)) {
+                            if (axis === 'x') {
+                                if (this.vx > 0) this.x = tBox.x - this.w;
+                                else if (this.vx < 0) this.x = tBox.x + tBox.w;
+                                this.vx = 0;
+                            } else if (axis === 'y') {
+                                if (this.vy > 0) {
+                                    this.y = tBox.y - this.h;
+                                    this.onGround = true;
+                                } else if (this.vy < 0) {
+                                    this.y = tBox.y + tBox.h;
+                                }
+                                this.vy = 0;
+                            }
+                        }
+                    }
+                    // 가시 충돌 (히트박스를 약간 작게 하여 불합리함 방지)
+                    if (tile.type >= 2 && tile.type <= 5) {
+                        let sBox = { x: tile.x + 4, y: tile.y + 4, w: TILE_SIZE - 8, h: TILE_SIZE - 8 };
+                        if (rectIntersect(hitBox, sBox)) {
+                            this.die();
+                        }
+                    }
+                    // 출구 충돌
+                    if (tile.type === 'E') {
+                        let eBox = { x: tile.x, y: tile.y, w: TILE_SIZE, h: TILE_SIZE };
+                        if (rectIntersect(hitBox, eBox)) {
+                            nextLevel();
+                        }
+                    }
+                }
+            }
+
+            die() {
+                if (isDead) return;
+                isDead = true;
+                respawnTimer = 30; // 0.5초(60fps 기준) 후 리스폰
+                createParticles(this.x + this.w / 2, this.y + this.h / 2, '#ff0000', 50, 6);
+            }
+
+            draw() {
+                if (isDead) return;
+
+                // 능력에 따른 색상
+                let mainColor = '#ffffff';
+                let eyeColor = '#000000';
+                if (this.ability === 'fire') mainColor = '#ff4400';
+                if (this.ability === 'wind') mainColor = '#88ffff';
+
+                // 본체 (도트 느낌의 사각형 슬라임)
+                ctx.fillStyle = mainColor;
+
+                // 흡수 중일 때 입을 크게 벌리는 연출
+                if (this.inhaling) {
+                    ctx.fillRect(this.x, this.y, this.w, this.h);
+                    ctx.fillStyle = '#000';
+                    // 벌린 입
+                    if (this.facing === 1) ctx.fillRect(this.x + 10, this.y + 8, 10, 8);
+                    else ctx.fillRect(this.x, this.y + 8, 10, 8);
+                } else {
+                    // 대시 중 찌그러짐 연출
+                    if (this.dashCooldown > 15) {
+                        ctx.fillRect(this.x - 5, this.y + 5, this.w + 10, this.h - 5);
+                    } else {
+                        ctx.fillRect(this.x, this.y, this.w, this.h);
+                    }
+                    // 눈
+                    ctx.fillStyle = eyeColor;
+                    if (this.facing === 1) {
+                        ctx.fillRect(this.x + 12, this.y + 4, 3, 3);
+                    } else {
+                        ctx.fillRect(this.x + 5, this.y + 4, 3, 3);
+                    }
+                }
+            }
+        }
+
+        class Enemy {
+            constructor(x, y, type, isTracking = false) {
+                this.x = x; this.y = y;
+                this.w = 24; this.h = 24;
+                this.type = type; // 'fire', 'wind', 'vertical'
+
+                if (type === 'fire') this.color = '#ff2200';
+                else if (type === 'wind') this.color = '#aaffff';
+                else if (type === 'vertical') this.color = '#aa00ff';
+
+                this.startX = x;
+                this.startY = y;
+                this.moveDir = 1;
+                this.isTracking = isTracking;
+            }
+
+            update() {
+                if (this.isTracking && player && !isDead) {
+                    // 플레이어를 향해 서서히 이동 (추적)
+                    if (this.x < player.x) this.moveDir = 1;
+                    else if (this.x > player.x) this.moveDir = -1;
+                    this.x += this.moveDir * 1.5; // 추적 이동 속도
+                } else if (this.type === 'vertical') {
+                    this.y += this.moveDir * 2.5; // 상하 이동 속도
+                    if (Math.abs(this.y - this.startY) > 64) {
+                        this.moveDir *= -1;
+                    }
+                } else {
+                    // 단순 좌우 패트롤
+                    this.x += this.moveDir * 1;
+                    if (Math.abs(this.x - this.startX) > 40) {
+                        this.moveDir *= -1;
+                    }
+                }
+
+                // 플레이어 접촉 시 즉사 (보시 룰)
+                if (!isDead && !player.inhaling && rectIntersect(this, player)) {
+                    player.die();
+                }
+            }
+
+            draw() {
+                let drawY = this.type === 'vertical' ? this.y : this.y + 8; // 수직 적은 바닥 오프셋 제외
+
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, drawY, this.w, this.h);
+
+                // 불 적이면 깜빡임 효과
+                if (this.type === 'fire' && gameFrame % 10 < 5) {
+                    ctx.fillStyle = '#ffaa00';
+                    ctx.fillRect(this.x + 4, drawY + 4, 16, 16);
+                } else if (this.type === 'vertical') {
+                    // 수직 장애물은 위험함을 알리는 코어 디자인
+                    ctx.fillStyle = '#ff0055';
+                    ctx.fillRect(this.x + 6, drawY + 6, 12, 12);
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(this.x + 10, drawY + 10, 4, 4);
+                }
+
+                // 눈 (일반 적)
+                if (this.type !== 'vertical') {
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(this.x + (this.moveDir === 1 ? 16 : 4), drawY + 4, 4, 4);
+                }
+            }
+        }
+
+        class Boss {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y - 48; // 보스가 바닥에 파묻히지 않도록 위로 살짝 띄움
+                this.w = 64; this.h = 64;
+                this.type = 'boss';
+                this.hp = 20;
+                this.maxHp = 20;
+                this.phase = 1;
+                this.startY = this.y;
+                this.frameCount = 0;
+                this.color = '#aa00ff';
+
+                document.getElementById('boss-hp-ui').style.display = 'block';
+                document.getElementById('boss-hp').innerText = this.hp;
+            }
+
+            update() {
+                this.frameCount++;
+
+                if (this.phase === 1) {
+                    // 1페이즈: 위아래로 움직이며 탄막 발사 (바닥을 뚫지 않게 진폭 축소)
+                    this.y = this.startY + Math.sin(this.frameCount * 0.05) * 50;
+
+                    // 결정론적 패턴: 매 60프레임마다 3방향 총알
+                    if (this.frameCount % 60 === 0) {
+                        this.shootSpread();
+                    }
+
+                    // 체력 10 이하 시 2페이즈 전환
+                    if (this.hp <= 10) {
+                        this.phase = 2;
+                        this.frameCount = 0;
+                        this.color = '#ff0044';
+                        this.buildWall(); // 기믹: 벽 생성
+                    }
+                } else if (this.phase === 2) {
+                    // 2페이즈: 8자 형태의 다이나믹한 움직임 (왼쪽으로 다가오기)
+                    if (!this.p2StartX) this.p2StartX = this.x;
+                    this.x = this.p2StartX - Math.abs(Math.sin(this.frameCount * 0.02)) * 100;
+                    this.y = this.startY + Math.sin(this.frameCount * 0.04) * 80;
+
+                    // 150프레임마다 불 적(부하) 소환 (기믹 풀이용, 플레이어 추적)
+                    if (this.frameCount % 150 === 0) {
+                        let hasFireEnemy = entities.some(e => e.type === 'fire');
+                        if (!hasFireEnemy) {
+                            // 플레이어와 같은 높이의 바닥(y: 256)에 추적형 적 스폰
+                            entities.push(new Enemy(150, 256, 'fire', true));
+                            createParticles(150, 256, '#ff2200', 20, 4);
+                        }
+                    }
+
+                    // 60프레임마다 고속 벽 관통 조준탄
+                    if (this.frameCount % 60 === 0 && player && !isDead) {
+                        let dx = player.x - this.x;
+                        let dy = player.y - this.y;
+                        let dist = Math.sqrt(dx * dx + dy * dy);
+                        let speed = 9; // 속도 대폭 증가
+                        projectiles.push({
+                            x: this.x, y: this.y + this.h / 2, w: 12, h: 12, // 크기 증가
+                            vx: (dx / dist) * speed, vy: (dy / dist) * speed,
+                            color: '#ff2222', type: 'enemyBullet', isPlayer: false, life: 120, piercing: true // 관통 속성 부여 및 위협적인 붉은색
+                        });
+                    }
+                }
+
+                // 플레이어와 충돌 (보시 룰: 즉사)
+                if (!isDead && rectIntersect(this, player)) {
+                    player.die();
+                }
+            }
+
+            shootSpread() {
+                let angles = [-0.2, 0, 0.2];
+                for (let a of angles) {
+                    projectiles.push({
+                        x: this.x, y: this.y + this.h / 2, w: 8, h: 8,
+                        vx: -6 * Math.cos(a), vy: 6 * Math.sin(a),
+                        color: '#fff', type: 'enemyBullet', isPlayer: false, life: 100
+                    });
+                }
+            }
+
+            buildWall() {
+                // 플레이어와 보스 사이에 불 블록(B) 벽을 세움
+                let wallX = Math.floor(this.x / TILE_SIZE) - 3;
+                for (let row = 3; row < 18; row++) {
+                    // 맵에 B타일 추가 (실시간 수정)
+                    tiles.push({ x: wallX * TILE_SIZE, y: row * TILE_SIZE, type: 'B' });
+                    createParticles(wallX * TILE_SIZE + 16, row * TILE_SIZE + 16, '#ff4400', 5, 2);
+                }
+            }
+
+            takeDamage() {
+                this.hp--;
+                document.getElementById('boss-hp').innerText = this.hp;
+                createParticles(this.x + this.w / 2, this.y + this.h / 2, '#ffffff', 10, 5);
+
+                if (this.hp <= 0) {
+                    // 보스 처치
+                    createParticles(this.x + this.w / 2, this.y + this.h / 2, this.color, 200, 10);
+                    let idx = entities.indexOf(this);
+                    if (idx > -1) entities.splice(idx, 1);
+
+                    // 보스 사망 시 화면에 남은 부하 적과 탄막도 모두 폭발 및 제거
+                    for (let i = entities.length - 1; i >= 0; i--) {
+                        let e = entities[i];
+                        createParticles(e.x + e.w / 2, e.y + e.h / 2, e.color, 30, 4);
+                    }
+                    entities = [];
+                    projectiles = [];
+
+                    document.getElementById('boss-hp-ui').style.display = 'none';
+                    boss = null;
+                    isGameWon = true;
+
+                    // 게임 클리어 처리
+                    setTimeout(() => {
+                        document.getElementById('win-screen').style.display = 'flex';
+                    }, 1000);
+                }
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.w, this.h);
+
+                // 눈동자
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(this.x + 10, this.y + 20, 16, 16);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(this.x + 14, this.y + 24, 8, 8);
+            }
+        }
+
+        // --- 코어 함수 ---
+
+        function loadMap(levelIndex) {
+            tiles = [];
+            entities = [];
+            projectiles = [];
+            particles = [];
+            boss = null;
+            isDead = false;
+            document.getElementById('boss-hp-ui').style.display = 'none';
+
+            let mapData = maps[levelIndex];
+            for (let r = 0; r < mapData.length; r++) {
+                for (let c = 0; c < mapData[r].length; c++) {
+                    let char = mapData[r][c];
+                    let tx = c * TILE_SIZE;
+                    let ty = r * TILE_SIZE;
+
+                    if (char === '1') tiles.push({ x: tx, y: ty, type: 1 }); // 벽
+                    else if (char === '2') tiles.push({ x: tx, y: ty, type: 2 }); // 가시 위
+                    else if (char === '3') tiles.push({ x: tx, y: ty, type: 3 }); // 가시 아래 (신규 추가)
+                    else if (char === 'B') tiles.push({ x: tx, y: ty, type: 'B' }); // 불 블록
+                    else if (char === 'E') tiles.push({ x: tx, y: ty, type: 'E' }); // 출구
+                    else if (char === 'P') {
+                        // 플레이어 스폰 시 현재 능력 유지
+                        let currentAbil = player ? player.ability : 'normal';
+                        player = new Player(tx, ty);
+                        player.changeAbility(currentAbil);
+                    }
+                    else if (char === 'F') entities.push(new Enemy(tx, ty, 'fire'));
+                    else if (char === 'W') entities.push(new Enemy(tx, ty, 'wind'));
+                    else if (char === 'V') entities.push(new Enemy(tx, ty, 'vertical'));
+                    else if (char === 'O') {
+                        boss = new Boss(tx, ty);
+                        entities.push(boss);
+                    }
+                }
+            }
+        }
+
+        function nextLevel() {
+            currentLevel++;
+            if (currentLevel < maps.length) {
+                loadMap(currentLevel);
+            }
+        }
+
+        function restartLevel() {
+            // 플레이어의 능력을 유지할지 초기화할지는 디자인 선택. 하드코어이므로 능력 초기화.
+            if (player) player.changeAbility('normal');
+            loadMap(currentLevel);
+        }
+
+        // --- 렌더링 함수 ---
+
+        function drawMap() {
+            for (let tile of tiles) {
+                if (tile.type === 1) {
+                    // 기본 벽
+                    ctx.fillStyle = '#444';
+                    ctx.fillRect(tile.x, tile.y, TILE_SIZE, TILE_SIZE);
+                    ctx.strokeStyle = '#222';
+                    ctx.strokeRect(tile.x, tile.y, TILE_SIZE, TILE_SIZE);
+                } else if (tile.type === 2) {
+                    // 위보는 가시
+                    ctx.fillStyle = '#bbb';
+                    ctx.beginPath();
+                    ctx.moveTo(tile.x + TILE_SIZE / 2, tile.y);
+                    ctx.lineTo(tile.x + TILE_SIZE, tile.y + TILE_SIZE);
+                    ctx.lineTo(tile.x, tile.y + TILE_SIZE);
+                    ctx.fill();
+                } else if (tile.type === 'B') {
+                    // 불 블록
+                    ctx.fillStyle = '#882200';
+                    ctx.fillRect(tile.x, tile.y, TILE_SIZE, TILE_SIZE);
+                    ctx.fillStyle = '#ff4400';
+                    ctx.fillRect(tile.x + 4, tile.y + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                } else if (tile.type === 'E') {
+                    // 출구 포탈
+                    ctx.fillStyle = '#00ff00';
+                    ctx.fillRect(tile.x + 8, tile.y + 8, 16, 16);
+                    if (gameFrame % 20 < 10) {
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.strokeRect(tile.x + 4, tile.y + 4, 24, 24);
+                    }
+                }
+            }
+        }
+
+        function updateAndDrawProjectiles() {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                let p = projectiles[i];
+                if (!p) continue; // 보스 사망 시 배열 초기화로 인한 undefined 방지
+
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life--;
+
+                // 화면 밖 또는 수명 다함
+                if (p.life <= 0 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.w, p.h);
+
+                let destroyed = false;
+
+                // 수정: 엔티티(적/보스) 충돌을 타일 충돌보다 먼저 체크하여 총알 증발 방지
+                // 충돌 체크 (엔티티 - 아군탄 vs 적)
+                if (p.isPlayer) {
+                    for (let j = entities.length - 1; j >= 0; j--) {
+                        let ent = entities[j];
+                        if (!ent) continue; // 엔티티가 없는 경우 방어 처리
+                        if (rectIntersect(p, ent)) {
+                            if (ent.type === 'boss') {
+                                ent.takeDamage();
+                                destroyed = true;
+                                break;
+                            } else if (ent.type === 'vertical') {
+                                // 수직 이동 장애물은 무적 (관통 불가, 총알 소멸)
+                                createParticles(p.x, p.y, p.color, 3, 2);
+                                destroyed = true;
+                                break;
+                            } else {
+                                // 일반 적 즉사
+                                createParticles(ent.x + 12, ent.y + 12, ent.color, 15, 3);
+                                entities.splice(j, 1);
+                                destroyed = true;
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // 적탄 vs 플레이어
+                    if (player && !isDead && rectIntersect(p, player)) {
+                        player.die();
+                        destroyed = true;
+                    }
+                }
+
+                if (destroyed) {
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+
+                // 충돌 체크 (벽) - 관통탄이 아닐 경우에만 충돌 처리
+                if (!p.piercing) {
+                    for (let j = tiles.length - 1; j >= 0; j--) {
+                        let t = tiles[j];
+                        if (t.type === 1 || t.type === 'B') {
+                            if (rectIntersect(p, { x: t.x, y: t.y, w: TILE_SIZE, h: TILE_SIZE })) {
+                                // 불 총알이 불 블록을 맞추면 파괴
+                                if (p.type === 'fire' && t.type === 'B') {
+                                    createParticles(t.x + 16, t.y + 16, '#ff4400', 10, 4);
+                                    tiles.splice(j, 1);
+                                }
+                                createParticles(p.x, p.y, p.color, 3, 2);
+                                destroyed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (destroyed) projectiles.splice(i, 1);
+            }
+        }
+
+        function updateAndDrawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= p.decay;
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            }
+            ctx.globalAlpha = 1.0;
+        }
+
+        // --- 메인 게임 루프 ---
+
+        function gameLoop() {
+            gameFrame++;
+
+            // 배경 지우기
+            ctx.fillStyle = '#0a0a1a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 승리 시 무작위 폭죽 효과
+            if (isGameWon && Math.random() < 0.05) {
+                let fx = Math.random() * canvas.width;
+                let fy = Math.random() * (canvas.height / 2); // 화면 상단 위주
+                let colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff'];
+                let color = colors[Math.floor(Math.random() * colors.length)];
+                createParticles(fx, fy, color, 40, 6);
+            }
+
+            // 즉시 재시작(자살) R키 (게임 클리어 상태에서는 비활성화)
+            if (keys.r && !prevKeys.r && !isDead && !isGameWon) {
+                if (player) player.die();
+            }
+
+            if (isDead) {
+                respawnTimer--;
+                if (respawnTimer <= 0) {
+                    restartLevel();
+                }
+            } else {
+                if (player) player.update();
+            }
+
+            for (let ent of entities) {
+                ent.update();
+            }
+
+            // 그리기 순서: 맵 -> 엔티티 -> 플레이어 -> 발사체 -> 파티클
+            drawMap();
+
+            for (let ent of entities) {
+                ent.draw();
+            }
+
+            if (player) player.draw();
+
+            updateAndDrawProjectiles();
+            updateAndDrawParticles();
+
+            // 입력 상태 갱신
+            Object.assign(prevKeys, keys);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- 입력 이벤트 리스너 ---
+        window.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) {
+                keys[e.key.length === 1 ? e.key.toLowerCase() : e.key] = true;
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) {
+                keys[e.key.length === 1 ? e.key.toLowerCase() : e.key] = false;
+            }
+        });
+
+        // 다시 시작하기 버튼 이벤트
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            isGameWon = false;
+            document.getElementById('win-screen').style.display = 'none';
+            currentLevel = 0;
+            player = null; // 플레이어 능력을 포함한 완전 초기화
+            loadMap(0);
+        });
+
+        // 초기화 및 실행
+        loadMap(0);
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+
+</html>

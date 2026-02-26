@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>행성이의 별가루 수집 여정</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000; /* 우주 배경색 */
+            font-family: 'Pretendard', sans-serif;
+            touch-action: none; /* 모바일에서 스크롤 방지 */
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* UI 레이어 뒤의 캔버스 이벤트를 허용 */
+        }
+        .pointer-events-auto {
+            pointer-events: auto;
+        }
+        /* 빛 막대기 효과를 CSS로도 줄 수 있지만, 캔버스 렌더링으로 처리합니다 */
+    </style>
+</head>
+<body>
+
+    <!-- 게임 캔버스 -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI 레이어 -->
+    <div id="ui-layer" class="flex flex-col justify-between p-6">
+        
+        <!-- 상단: 점수 표시 -->
+        <div class="flex justify-end w-full">
+            <div id="scoreDisplay" class="text-yellow-300 text-2xl font-bold tracking-wider drop-shadow-md hidden">
+                별 점수: <span id="currentScore">0</span>
+            </div>
+        </div>
+
+        <!-- 중앙: 시작 화면 -->
+        <div id="startScreen" class="absolute inset-0 flex flex-col items-center justify-center bg-black/80 pointer-events-auto backdrop-blur-sm transition-opacity duration-300">
+            <h1 class="text-4xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600 mb-6 drop-shadow-lg text-center leading-tight">
+                행성이의<br>별가루 수집 여정
+            </h1>
+            <p class="text-gray-300 mb-6 text-center max-w-md leading-relaxed">
+                마우스를 좌우로 움직여 빛 막대기를 조종하세요!<br>
+                행성이가 하단의 블랙홀에 빠지지 않게 튕겨내고<br>
+                반짝이는 별가루를 모아 우주를 밝혀주세요.
+            </p>
+
+            <button id="startBtn" class="px-8 py-4 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white rounded-full font-bold text-xl shadow-[0_0_15px_rgba(6,182,212,0.6)] transition-all transform hover:scale-105 active:scale-95">
+                게임 시작
+            </button>
+        </div>
+
+        <!-- 중앙: 게임 오버 화면 -->
+        <div id="gameOverScreen" class="absolute inset-0 flex flex-col items-center justify-center bg-black/90 pointer-events-auto backdrop-blur-md hidden transition-opacity duration-300">
+            <h2 id="gameOverTitle" class="text-5xl font-bold text-red-500 mb-2 animate-pulse">GAME OVER</h2>
+            <p class="text-gray-400 mb-8 text-lg">행성이가 블랙홀로 빨려 들어갔습니다...</p>
+            
+            <div class="bg-gray-800/50 p-6 rounded-2xl border border-gray-700 mb-8 w-64 text-center shadow-xl">
+                <div class="mb-4">
+                    <p class="text-sm text-gray-400 uppercase tracking-widest">이번 점수</p>
+                    <p class="text-4xl font-bold text-yellow-400" id="finalScore">0</p>
+                </div>
+                <div class="h-px bg-gray-700 w-full mb-4"></div>
+                <div>
+                    <p class="text-sm text-gray-400 uppercase tracking-widest">최고 기록</p>
+                    <p class="text-2xl font-bold text-white" id="highScoreText">0</p>
+                </div>
+            </div>
+
+            <button id="restartBtn" class="px-8 py-4 bg-white text-black hover:bg-gray-200 rounded-full font-bold text-xl shadow-[0_0_20px_rgba(255,255,255,0.4)] transition-all transform hover:scale-105 active:scale-95">
+                다시 도전하기
+            </button>
+        </div>
+    </div>
+
+<script>
+    /** @type {HTMLCanvasElement} */
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // ==========================================
+    // ⚙️ [이미지 설정] 외부 주소나 Base64 방식 사용하기
+    const CUSTOM_IMAGE_URL = "https://img1.daumcdn.net/thumb/R1280x0/?scode=mtistory2&fname=https%3A%2F%2Fblog.kakaocdn.net%2Fdna%2FdDBynU%2FdJMcajuvNXc%2FAAAAAAAAAAAAAAAAAAAAAC66Iyzm4sVntuKyy5AMg71lCptmqC-FVvjfFOXCHhWQ%2Fimg.png%3Fcredential%3DyqXZFxpELC7KVnFOS48ylbz2pIh7yKj8%26expires%3D1772290799%26allow_ip%3D%26allow_referer%3D%26signature%3D4Ihj1Iixb%252Frry8juxiciZN1q2vk%253D"; 
+    // ==========================================
+
+    // UI 엘리먼트
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const gameOverTitle = document.getElementById('gameOverTitle');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const currentScoreText = document.getElementById('currentScore');
+    const finalScoreText = document.getElementById('finalScore');
+    const highScoreText = document.getElementById('highScoreText');
+    const startBtn = document.getElementById('startBtn');
+    const restartBtn = document.getElementById('restartBtn');
+
+    // 게임 상태
+    let gameState = 'START'; // START, PLAYING, GAMEOVER
+    let score = 0;
+    let highScore = 0;
+    let isNewHighScoreGlobal = false;
+    let animationId;
+
+    // 마우스 상태
+    const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
+    // 1. 외부 링크 전용 이미지 로드
+    const planetImg = new Image();
+    let isImageLoaded = false;
+    
+    planetImg.onload = () => { isImageLoaded = true; };
+    planetImg.onerror = () => { console.warn("외부 이미지 로드 실패. 링크가 올바른지 확인해주세요."); };
+    
+    if (CUSTOM_IMAGE_URL.trim() !== "") {
+        planetImg.src = CUSTOM_IMAGE_URL;
+    } else {
+        console.warn("CUSTOM_IMAGE_URL이 비어 있습니다.");
+    }
+
+    // --- 게임 객체 정의 ---
+
+    // 1. 행성이 (플레이어)
+    const planet = {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        vx: 0,
+        vy: 0,
+        gravity: 1.04, 
+        // 🚀 1. 점프 높이 1.2배 상향 (기존 -39 -> -46.8)
+        jumpStrength: -46.8, 
+        rotation: 0,
+        reset() {
+            this.x = canvas.width / 2;
+            this.y = canvas.height / 3;
+            this.vx = 0;
+            this.vy = 0;
+            this.rotation = 0;
+        },
+        update() {
+            this.vy += this.gravity;
+            this.x += this.vx;
+            this.y += this.vy;
+            this.rotation += this.vx * 0.05;
+
+            if (this.x - this.width/2 < 0) {
+                this.x = this.width/2;
+                this.vx *= -0.7;
+            } else if (this.x + this.width/2 > canvas.width) {
+                this.x = canvas.width - this.width/2;
+                this.vx *= -0.7;
+            }
+
+            this.vx *= 0.99;
+        },
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+            
+            if (isImageLoaded) {
+                ctx.drawImage(planetImg, -this.width/2, -this.height/2, this.width, this.height);
+            } else {
+                ctx.beginPath();
+                ctx.arc(0, 0, this.width/2, 0, Math.PI * 2);
+                ctx.fillStyle = '#4ade80';
+                ctx.fill();
+                ctx.closePath();
+            }
+            ctx.restore();
+        }
+    };
+
+    // 2. 빛 막대기 (패들)
+    const paddle = {
+        width: 160,
+        height: 18,
+        x: 0,
+        y: 0,
+        update() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            // 마우스 움직임에 따라 상하좌우 자유롭게 이동 (기존 1.44배 속도감 유지)
+            this.x = centerX + (mouse.x - centerX) * 1.44;
+            this.y = centerY + (mouse.y - centerY) * 1.44;
+            
+            // 화면 밖으로 나가지 않게 X축 제한
+            if (this.x - this.width/2 < 0) this.x = this.width/2;
+            if (this.x + this.width/2 > canvas.width) this.x = canvas.width - this.width/2;
+            
+            // 🚀 핵심 수정 1: 막대기는 화면 하단 절반(50%)에서만 움직이도록 Y축 상단 제한
+            // 이렇게 해야 행성이가 막대기로부터 떨어져 위로 솟구치는 공간(점프 시각 효과)이 확보됩니다.
+            const minPaddleY = canvas.height * 0.5; 
+            if (this.y - this.height/2 < minPaddleY) this.y = minPaddleY + this.height/2;
+            if (this.y + this.height/2 > canvas.height) this.y = canvas.height - this.height/2;
+        },
+        draw() {
+            ctx.save();
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#06b6d4';
+            ctx.fillStyle = '#e0f2fe';
+            
+            ctx.beginPath();
+            ctx.roundRect(this.x - this.width/2, this.y - this.height/2, this.width, this.height, 10);
+            ctx.fill();
+            ctx.closePath();
+            
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.roundRect(this.x - this.width/2 + 10, this.y - this.height/4, this.width - 20, this.height/2, 5);
+            ctx.fill();
+            ctx.closePath();
+            
+            ctx.restore();
+        }
+    };
+
+    // 3. 별가루 (아이템)
+    const starDusts = [];
+    
+    function createStarDust(x, y) {
+        const points = Math.floor(Math.random() * 8) + 1;
+        const maxRadius = planet.width / 2.5;
+        const minRadius = planet.width / 5;
+        const radius = minRadius + ((points - 1) / 7) * (maxRadius - minRadius);
+        
+        return { x: x, y: y, radius: radius, points: points, pulse: 0, collected: false };
+    }
+
+    // 🚀 2. 별가루 초기 생성 수량 상향 (1.2배)
+    function spawnInitialStarDusts() {
+        starDusts.length = 0;
+        const initialCount = Math.floor(Math.random() * 6) + 7; // 기존(6~10) -> (7~12)로 증가
+        for (let i = 0; i < initialCount; i++) {
+            const margin = 60;
+            const x = margin + Math.random() * (canvas.width - margin * 2);
+            const y = margin + Math.random() * (canvas.height - 250 - margin); 
+            starDusts.push(createStarDust(x, y));
+        }
+    }
+
+    function spawnStarDustTop() {
+        const margin = 60;
+        const x = margin + Math.random() * (canvas.width - margin * 2);
+        const y = -50 - Math.random() * 200; 
+        starDusts.push(createStarDust(x, y));
+    }
+
+    // 4. 배경 별 (은하수 효과)
+    const backgroundStars = [];
+    const maxBackgroundStars = 300;
+
+    function initBackgroundStars() {
+        backgroundStars.length = 0;
+        for (let i = 0; i < maxBackgroundStars; i++) {
+            backgroundStars.push({
+                x: Math.random() * window.innerWidth,
+                y: Math.random() * window.innerHeight,
+                radius: Math.random() * 1.5 + 0.5,
+                opacity: Math.random(),
+                requiredScore: Math.floor(Math.random() * 50) 
+            });
+        }
+    }
+
+    // 🎉 3. 폭죽 효과 (최고기록 갱신용)
+    const fireworks = [];
+    const fireworkColors = ['#fde047', '#facc15', '#a855f7', '#ec4899', '#3b82f6', '#10b981', '#ef4444'];
+
+    function createExplosion(x, y) {
+        const particleCount = 80;
+        for (let i = 0; i < particleCount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Math.random() * 6 + 2;
+            fireworks.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                color: fireworkColors[Math.floor(Math.random() * fireworkColors.length)],
+                alpha: 1,
+                decay: Math.random() * 0.015 + 0.015,
+                size: Math.random() * 3 + 1.5
+            });
+        }
+    }
+
+    function updateAndDrawFireworks() {
+        for (let i = fireworks.length - 1; i >= 0; i--) {
+            const p = fireworks[i];
+            p.vy += 0.08; // 중력 적용
+            p.vx *= 0.98; // 마찰
+            p.vy *= 0.98;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.alpha -= p.decay;
+
+            if (p.alpha <= 0) {
+                fireworks.splice(i, 1);
+            } else {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+    }
+
+    // --- 이벤트 리스너 ---
+    window.addEventListener('resize', () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        if (gameState === 'START') initBackgroundStars();
+    });
+
+    function updateMousePos(e) {
+        if (e.touches && e.touches.length > 0) {
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+        } else {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        }
+    }
+    window.addEventListener('mousemove', updateMousePos);
+    window.addEventListener('touchmove', updateMousePos, {passive: true});
+
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', startGame);
+
+    // --- 게임 로직 ---
+    function resetGame() {
+        score = 0;
+        updateScoreDisplay();
+        planet.reset();
+        fireworks.length = 0; // 폭죽 초기화
+        spawnInitialStarDusts();
+        initBackgroundStars();
+    }
+
+    function startGame() {
+        gameState = 'PLAYING';
+        startScreen.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+        scoreDisplay.classList.remove('hidden');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        resetGame();
+        
+        if (mouse.x === 0) mouse.x = canvas.width / 2;
+        if (!animationId) gameLoop(); // 루프 시작
+    }
+
+    function gameOver() {
+        gameState = 'GAMEOVER';
+        
+        isNewHighScoreGlobal = score > highScore && score > 0;
+        if (score > highScore) {
+            highScore = score;
+        }
+        
+        finalScoreText.innerText = score;
+        highScoreText.innerText = highScore;
+
+        // 🎉 최고기록 달성 시 축하 타이틀로 변경 및 폭죽 격발
+        if (isNewHighScoreGlobal) {
+            gameOverTitle.innerText = "NEW HIGH SCORE!";
+            gameOverTitle.className = "text-5xl font-bold text-yellow-400 mb-2 animate-bounce";
+            // 첫 대형 폭죽 3연발
+            createExplosion(canvas.width * 0.3, canvas.height * 0.4);
+            createExplosion(canvas.width * 0.7, canvas.height * 0.3);
+            createExplosion(canvas.width * 0.5, canvas.height * 0.2);
+        } else {
+            gameOverTitle.innerText = "GAME OVER";
+            gameOverTitle.className = "text-5xl font-bold text-red-500 mb-2 animate-pulse";
+        }
+        
+        scoreDisplay.classList.add('hidden');
+        gameOverScreen.classList.remove('hidden');
+    }
+
+    function updateScoreDisplay() {
+        currentScoreText.innerText = score;
+        currentScoreText.classList.remove('text-yellow-300');
+        currentScoreText.classList.add('text-white', 'scale-125');
+        setTimeout(() => {
+            currentScoreText.classList.remove('text-white', 'scale-125');
+            currentScoreText.classList.add('text-yellow-300');
+        }, 150);
+    }
+
+    function applyCameraScroll() {
+        // 🚀 핵심 수정 2: 카메라 스크롤 기준을 중앙(0.5)에서 상단(0.35)으로 상향
+        // 이제 행성이가 화면 위쪽으로 뚫고 올라가는 궤적을 온전히 감상할 수 있습니다.
+        const cameraThreshold = canvas.height * 0.35;
+        if (planet.y < cameraThreshold) {
+            const scrollOffset = cameraThreshold - planet.y;
+            planet.y = cameraThreshold;
+            
+            backgroundStars.forEach(star => {
+                star.y += scrollOffset * 0.5;
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+            });
+
+            for (let i = starDusts.length - 1; i >= 0; i--) {
+                starDusts[i].y += scrollOffset;
+                if (starDusts[i].y > canvas.height + 100) {
+                    starDusts.splice(i, 1);
+                    spawnStarDustTop();
+                }
+            }
+
+            // 🚀 2. 스크롤 시 별가루 생성 확률 증가 및 최대 유지 수량 증가 (15개 -> 18개)
+            if (Math.random() < 0.18 && starDusts.length < 18) {
+                spawnStarDustTop();
+            }
+        }
+    }
+
+    function checkCollisions() {
+        const pTop = paddle.y - paddle.height/2;
+        const pBottom = paddle.y + paddle.height/2;
+        const pLeft = paddle.x - paddle.width/2;
+        const pRight = paddle.x + paddle.width/2;
+        
+        const planetBottom = planet.y + planet.height/2;
+        const planetTop = planet.y - planet.height/2;
+        const planetNextY = planetBottom + planet.vy;
+        const planetPrevY = planetBottom - planet.vy;
+
+        // 🚀 핵심 수정 3: 행성이가 '떨어지고 있을 때(vy >= 0)'만 충돌 판정
+        // 위로 솟구치는 중에 막대기로 쳐올려도 억지로 끌려 올라가는(슬라이딩) 현상 완벽 차단
+        if (planet.vy >= 0) {
+            // 막대기의 좌우 범위 안에 있는지 확인
+            if (planet.x + planet.width/3 >= pLeft && planet.x - planet.width/3 <= pRight) {
+                
+                // 🚀 버그 수정: 막대기 상단 면에 닿았을 때만 튀어오르도록 판정 강화
+                // 1. 현재 바닥이 막대기 상단(pTop)을 밟았거나 지났음
+                // 2. 이전 프레임에서 바닥이 막대기 하단(pBottom)보다 위에 있었음 (위에서 아래로 진입)
+                // 3. 행성이의 중심(y)이 막대기보다 위에 있음 (하단부나 옆면을 스치는 억지 충돌 완벽 방지)
+                if (planetBottom >= pTop && planetPrevY <= pBottom && planet.y < paddle.y + 15) {
+                    planet.vy = planet.jumpStrength;
+                    planet.y = pTop - planet.height/2; // 막대기 바로 위로 위치 즉시 보정
+                    
+                    const hitOffset = planet.x - paddle.x;
+                    const normalizedOffset = hitOffset / (paddle.width/2);
+                    planet.vx = normalizedOffset * 4;
+                }
+            }
+        }
+
+        for (let i = starDusts.length - 1; i >= 0; i--) {
+            const star = starDusts[i];
+            const dx = planet.x - star.x;
+            const dy = planet.y - star.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < (planet.width/2 + star.radius)) {
+                score += star.points;
+                updateScoreDisplay();
+                starDusts.splice(i, 1);
+                spawnStarDustTop();
+                
+                // 🚀 2. 별가루 획득 시 보충 확률 상향 (최대 18개 유지)
+                if (Math.random() < 0.72 && starDusts.length < 18) {
+                    spawnStarDustTop();
+                }
+                if (Math.random() < 0.36 && starDusts.length < 18) {
+                    spawnStarDustTop();
+                }
+            }
+        }
+
+        if (planet.y - planet.height/2 > canvas.height) {
+            gameOver();
+        }
+    }
+
+    function drawBackground() {
+        ctx.fillStyle = '#050510';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+        backgroundStars.forEach(star => {
+            if (score >= star.requiredScore) {
+                let currentOpacity = star.opacity;
+                const twinkle = Math.sin(Date.now() * 0.002 + star.x) * 0.3;
+                currentOpacity = Math.max(0.1, Math.min(1, currentOpacity + twinkle));
+
+                ctx.fillStyle = `rgba(255, 255, 255, ${currentOpacity})`;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+        ctx.restore();
+
+        const gradient = ctx.createLinearGradient(0, canvas.height - 60, 0, canvas.height);
+        gradient.addColorStop(0, 'transparent');
+        gradient.addColorStop(0.5, 'rgba(50, 0, 80, 0.4)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+    }
+
+    function drawStarDusts() {
+        const time = Date.now() * 0.005;
+        starDusts.forEach(star => {
+            ctx.save();
+            ctx.translate(star.x, star.y);
+            
+            const scale = 1 + Math.sin(time + star.x) * 0.2;
+            ctx.scale(scale, scale);
+
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#facc15';
+            
+            ctx.fillStyle = '#fef08a';
+            ctx.beginPath();
+            const spikes = 5;
+            const outerRadius = star.radius;
+            const innerRadius = star.radius / 2;
+            let rot = Math.PI / 2 * 3;
+            let x = 0, y = 0;
+            const step = Math.PI / spikes;
+
+            ctx.moveTo(0, 0 - outerRadius);
+            for (let i = 0; i < spikes; i++) {
+                x = Math.cos(rot) * outerRadius;
+                y = Math.sin(rot) * outerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+
+                x = Math.cos(rot) * innerRadius;
+                y = Math.sin(rot) * innerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+            }
+            ctx.lineTo(0, 0 - outerRadius);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        });
+    }
+
+    // --- 메인 루프 ---
+    function gameLoop() {
+        if (gameState === 'START') return;
+
+        // 플레이 중일 때만 물리 및 위치 업데이트
+        if (gameState === 'PLAYING') {
+            paddle.update();
+            planet.update();
+            checkCollisions();
+            applyCameraScroll();
+        }
+
+        // 그리기 (게임오버 상태여도 배경과 캐릭터는 정지된 채 그려짐)
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawBackground();
+        
+        if (gameState === 'PLAYING' || gameState === 'GAMEOVER') {
+            drawStarDusts();
+            paddle.draw();
+            planet.draw();
+        }
+
+        // 게임오버 시 추가 폭죽 렌더링
+        if (gameState === 'GAMEOVER') {
+            updateAndDrawFireworks();
+            // 최고기록 시 화면 곳곳에서 간헐적으로 폭죽 터짐
+            if (isNewHighScoreGlobal && Math.random() < 0.05 && fireworks.length < 400) {
+                createExplosion(canvas.width * 0.1 + Math.random() * canvas.width * 0.8, canvas.height * 0.1 + Math.random() * canvas.height * 0.5);
+            }
+        }
+
+        animationId = requestAnimationFrame(gameLoop);
+    }
+
+    // 초기 배경 설정 (시작 화면용)
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    initBackgroundStars();
+    drawBackground(); 
+    
+</script>
+</body>
+</html>

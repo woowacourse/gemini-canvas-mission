@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 지구본 날씨 탐색기</title>
+    <!-- Three.js 및 관련 라이브러리 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --bg-dark: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.85);
+            --text-light: #f8fafc;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* UI 오버레이 (Three.js 캔버스 위에 위치) */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* 클릭 이벤트가 캔버스로 통과하도록 설정 */
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 상단 검색바 영역 */
+        .top-bar {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            pointer-events: auto; /* UI 요소는 클릭 가능하게 설정 */
+        }
+
+        .title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 0;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .search-container {
+            display: flex;
+            gap: 10px;
+            background: var(--panel-bg);
+            padding: 10px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        input {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 1rem;
+            outline: none;
+            width: 250px;
+        }
+        
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        input:focus {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        button {
+            padding: 10px 20px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #357abd;
+        }
+
+        /* 우측 날씨 정보 패널 */
+        .info-panel {
+            position: absolute;
+            right: 20px;
+            top: 100px;
+            width: 320px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 20px;
+            pointer-events: auto;
+            transform: translateX(120%);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .info-panel.active {
+            transform: translateX(0);
+        }
+
+        .location-name {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #93c5fd;
+        }
+        
+        .coords {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 20px;
+        }
+
+        .weather-main {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .weather-icon {
+            font-size: 4rem;
+        }
+
+        .temp-container {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .temp {
+            font-size: 2.5rem;
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        .condition {
+            font-size: 1rem;
+            color: #cbd5e1;
+            margin-top: 5px;
+        }
+
+        .details-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 20px;
+        }
+
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .detail-label {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .detail-value {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        /* AI 추천 버튼 및 패널 */
+        .ai-btn {
+            width: 100%;
+            margin-top: 15px;
+            background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: none; /* 데이터 로드 전 숨김 */
+        }
+
+        .ai-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        .clothing-panel {
+            display: none;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px dashed rgba(255,255,255,0.2);
+            animation: slideDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .clothing-panel h4 {
+            margin: 0 0 15px 0;
+            font-size: 0.95rem;
+            color: #93c5fd;
+            text-align: center;
+        }
+
+        .clothing-list {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .clothing-item {
+            background: rgba(0,0,0,0.2);
+            padding: 10px 5px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 65px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .hanger-icon {
+            width: 24px;
+            height: 24px;
+            color: #94a3b8;
+            margin-bottom: -8px; /* 옷걸이에 걸린 느낌을 주기 위해 살짝 겹침 */
+            z-index: 1;
+        }
+
+        .clothes-emoji {
+            font-size: 2.5rem;
+            filter: drop-shadow(0 4px 4px rgba(0,0,0,0.4));
+            z-index: 2;
+        }
+
+        .item-name {
+            font-size: 0.7rem;
+            margin-top: 8px;
+            color: #cbd5e1;
+            text-align: center;
+            word-break: keep-all;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(30, 41, 59, 0.9);
+            border-radius: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            display: none;
+        }
+        
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        /* 좌측 하단 힌트 */
+        .hint {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.5);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Three.js 캔버스 영역 -->
+    <div id="canvas-container"></div>
+
+    <!-- UI 레이어 -->
+    <div id="ui-layer">
+        <div class="top-bar">
+            <h1 class="title">🌍 여기에서 뭐 입지</h1>
+            <div class="search-container">
+                <input type="text" id="cityInput" placeholder="도시 검색 (예: 서울, Paris)" onkeypress="if(event.key === 'Enter') searchWeather()">
+                <button onclick="searchWeather()">검색</button>
+            </div>
+        </div>
+
+        <div class="info-panel" id="weatherPanel">
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="spinner"></div>
+            </div>
+            
+            <div class="location-name" id="w-location">위치를 선택하세요</div>
+            <div class="coords" id="w-coords">Lat: -- / Lon: --</div>
+            
+            <div class="weather-main">
+                <div class="weather-icon" id="w-icon">🌍</div>
+                <div class="temp-container">
+                    <div class="temp" id="w-temp">--°C</div>
+                    <div class="condition" id="w-condition">--</div>
+                </div>
+            </div>
+
+            <div class="details-grid">
+                <div class="detail-item">
+                    <span class="detail-label">최고 기온</span>
+                    <span class="detail-value" id="w-max">--°C</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">최저 기온</span>
+                    <span class="detail-value" id="w-min">--°C</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">풍속</span>
+                    <span class="detail-value" id="w-wind">-- km/h</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">현지 시간</span>
+                    <span class="detail-value" id="w-time">--:--</span>
+                </div>
+            </div>
+
+            <!-- AI 추천 버튼 및 결과 영역 -->
+            <button id="ai-recommend-btn" class="ai-btn" onclick="showClothingRecommendation()">✨ AI 옷차림 추천받기</button>
+            <div id="clothing-panel" class="clothing-panel">
+                <h4>오늘의 추천 옷차림</h4>
+                <div id="clothing-list" class="clothing-list">
+                    <!-- 추천 옷 목록이 여기에 렌더링됩니다 -->
+                </div>
+            </div>
+        </div>
+        
+        <div class="hint">🖱️ 드래그: 회전 | 휠: 줌 | 📍 핀 클릭: 날씨 확인 | 🔍 그 외 지역: 검색</div>
+    </div>
+
+<script>
+    // --- 1. 날씨 관련 데이터 및 함수 ---
+    const weatherCodes = {
+        0: { text: "맑음", icon: "☀️" },
+        1: { text: "대체로 맑음", icon: "🌤️" },
+        2: { text: "구름 조금", icon: "⛅" },
+        3: { text: "흐림", icon: "☁️" },
+        45: { text: "안개", icon: "🌫️" },
+        48: { text: "서리 안개", icon: "🌫️" },
+        51: { text: "가벼운 이슬비", icon: "🌦️" },
+        61: { text: "비", icon: "🌧️" },
+        71: { text: "눈", icon: "❄️" },
+        95: { text: "뇌우", icon: "⛈️" }
+    };
+
+    const panel = document.getElementById('weatherPanel');
+    const loading = document.getElementById('loadingOverlay');
+
+    let currentWeatherContext = null; // AI 옷차림 추천을 위한 현재 날씨 상태 저장
+
+    // API를 통해 날씨 및 지역 정보 가져오기
+    async function fetchWeatherData(lat, lon, knownLocationName = null) {
+        panel.classList.add('active');
+        loading.style.display = 'flex';
+
+        try {
+            // 1. 역 지오코딩 (좌표 -> 지명)
+            let locationName = knownLocationName;
+            if (!locationName) {
+                // zoom=10 제한을 없애고 모든 주소 단위를 가져옵니다. (작은 나라나 외곽 지역도 인식 가능하도록 개선)
+                const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+                const geoData = await geoRes.json();
+                
+                if (geoData.error) {
+                    locationName = "해상 또는 미등록 지역";
+                } else {
+                    const addr = geoData.address || {};
+                    // 도시, 마을, 자치구, 주 등 유효한 지역 이름을 탐색
+                    const localName = addr.city || addr.town || addr.village || addr.county || addr.state || geoData.name;
+                    
+                    // 상세 지역명과 국가명이 다를 경우 '지역명, 국가명' 형태로 표시
+                    if (localName && addr.country && localName !== addr.country) {
+                        locationName = `${localName}, ${addr.country}`;
+                    } else {
+                        locationName = addr.country || localName || "알 수 없는 지역";
+                    }
+                }
+            }
+
+            // 2. Open-Meteo 날씨 데이터
+            const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min&timezone=auto`);
+            const data = await weatherRes.json();
+            
+            updateUI(data, locationName, lat, lon);
+            
+            // 지도 마커 업데이트 (선택사항)
+            updateMarker(lat, lon);
+
+        } catch (error) {
+            console.error(error);
+            document.getElementById('w-location').textContent = "데이터 로드 실패";
+        } finally {
+            loading.style.display = 'none';
+        }
+    }
+
+    // 우측 패널 UI 업데이트
+    function updateUI(data, location, lat, lon) {
+        const current = data.current_weather;
+        const daily = data.daily;
+        // 가장 가까운 날씨 코드 찾기
+        const codeKey = Object.keys(weatherCodes).reduce((prev, curr) => 
+            Math.abs(curr - current.weathercode) < Math.abs(prev - current.weathercode) ? curr : prev
+        );
+        const code = weatherCodes[codeKey];
+
+        document.getElementById('w-location').textContent = location;
+        document.getElementById('w-coords').textContent = `Lat: ${lat.toFixed(2)} / Lon: ${lon.toFixed(2)}`;
+        document.getElementById('w-icon').textContent = code.icon;
+        document.getElementById('w-temp').textContent = `${Math.round(current.temperature)}°C`;
+        document.getElementById('w-condition').textContent = code.text;
+        
+        if (daily) {
+            document.getElementById('w-max').textContent = `${Math.round(daily.temperature_2m_max[0])}°C`;
+            document.getElementById('w-min').textContent = `${Math.round(daily.temperature_2m_min[0])}°C`;
+        }
+        document.getElementById('w-wind').textContent = `${current.windspeed} km/h`;
+        
+        // 시간 포맷팅
+        const time = new Date(current.time);
+        document.getElementById('w-time').textContent = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+        
+        // AI 추천을 위해 컨텍스트 저장 및 UI 초기화
+        currentWeatherContext = { temp: current.temperature, code: current.weathercode };
+        document.getElementById('clothing-panel').style.display = 'none';
+        document.getElementById('ai-recommend-btn').style.display = 'block';
+    }
+
+    // AI 옷차림 추천 로직 (규칙 기반 시뮬레이션)
+    function showClothingRecommendation() {
+        if (!currentWeatherContext) return;
+        const { temp, code } = currentWeatherContext;
+        const panelEl = document.getElementById('clothing-panel');
+        const listEl = document.getElementById('clothing-list');
+        const btnEl = document.getElementById('ai-recommend-btn');
+
+        let clothes = [];
+
+        // 온도별 기본 옷차림
+        if (temp >= 28) {
+            clothes = [{ name: '반팔/민소매', icon: '👕' }, { name: '반바지', icon: '🩳' }, { name: '선글라스', icon: '🕶️' }];
+        } else if (temp >= 20) {
+            clothes = [{ name: '얇은 셔츠', icon: '👔' }, { name: '면바지', icon: '👖' }];
+        } else if (temp >= 17) {
+            clothes = [{ name: '가디건/니트', icon: '🧥' }, { name: '긴팔 티셔츠', icon: '👕' }, { name: '청바지', icon: '👖' }];
+        } else if (temp >= 12) {
+            clothes = [{ name: '자켓/야상', icon: '🧥' }, { name: '맨투맨', icon: '👕' }, { name: '청바지', icon: '👖' }];
+        } else if (temp >= 5) {
+            clothes = [{ name: '코트/가죽', icon: '🧥' }, { name: '스웨터', icon: '🧶' }, { name: '두꺼운 바지', icon: '👖' }];
+        } else {
+            clothes = [{ name: '패딩/점퍼', icon: '🧥' }, { name: '목도리', icon: '🧣' }, { name: '장갑', icon: '🧤' }];
+        }
+
+        // 날씨 상태(비/눈)에 따른 추가 아이템 (Open-Meteo 코드 기준 51 이상은 보통 강수/강설)
+        if ([51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99].includes(code)) {
+            clothes.push({ name: '우산', icon: '☂️' });
+        } else if ([71, 73, 75, 85, 86].includes(code)) {
+            clothes.push({ name: '눈 대비', icon: '🌂' });
+        }
+
+        // 옷걸이 SVG와 이모지를 결합하여 렌더링
+        listEl.innerHTML = clothes.map(c => `
+            <div class="clothing-item">
+                <svg class="hanger-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v2M12 4a2 2 0 1 0-2 2h4a2 2 0 1 0-2-2zM4 12l8-4 8 4M4 12v2h16v-2"/>
+                </svg>
+                <div class="clothes-emoji">${c.icon}</div>
+                <span class="item-name">${c.name}</span>
+            </div>
+        `).join('');
+
+        panelEl.style.display = 'block';
+        btnEl.style.display = 'none'; // 버튼 클릭 후 숨김
+    }
+
+    // 우측 상단 검색 기능
+    async function searchWeather() {
+        const query = document.getElementById('cityInput').value.trim();
+        if (!query) return;
+
+        panel.classList.add('active');
+        loading.style.display = 'flex';
+
+        try {
+            const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+            const geoData = await geoRes.json();
+
+            if (geoData.length === 0) {
+                alert("도시를 찾을 수 없습니다.");
+                loading.style.display = 'none';
+                return;
+            }
+
+            const lat = parseFloat(geoData[0].lat);
+            const lon = parseFloat(geoData[0].lon);
+            const name = geoData[0].display_name.split(',')[0];
+
+            // 카메라를 검색한 위치로 이동
+            moveCameraTo(lat, lon);
+            
+            // 날씨 데이터 가져오기
+            fetchWeatherData(lat, lon, name);
+
+        } catch (error) {
+            console.error(error);
+            alert("검색 중 오류가 발생했습니다.");
+            loading.style.display = 'none';
+        }
+    }
+
+    // --- 2. Three.js 3D 지구본 셋업 ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    
+    // 카메라 설정
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 15);
+
+    // 렌더러 설정
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(renderer.domElement);
+
+    // 컨트롤 설정 (마우스 상호작용)
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.enablePan = false;
+    controls.minDistance = 6;
+    controls.maxDistance = 30;
+
+    // 조명 설정
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(5, 3, 5);
+    scene.add(directionalLight);
+
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+    backLight.position.set(-5, -3, -5);
+    scene.add(backLight);
+
+    // 텍스처 로더 설정 및 실제 지구 이미지 적용
+    const textureLoader = new THREE.TextureLoader();
+    const earthTexture = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg');
+
+    // 지구본 메쉬 생성
+    const radius = 5;
+    const segments = 64;
+    const geometry = new THREE.SphereGeometry(radius, segments, segments);
+    
+    // 텍스처를 적용한 재질 (실제 지구 모습)
+    const material = new THREE.MeshPhongMaterial({
+        map: earthTexture,    // 지도 텍스처 적용
+        color: 0xffffff,
+        emissive: 0x111111,
+        specular: 0x111111,
+        shininess: 10
+    });
+    
+    const globe = new THREE.Mesh(geometry, material);
+    // 텍스처 이미지와 위경도 수식을 일치시키기 위한 회전 보정
+    globe.rotation.y = -Math.PI / 2;
+    scene.add(globe);
+
+    // 주요 도시 핑(Pin) 생성 및 배치
+    const majorCities = [
+        { name: "서울", lat: 37.5665, lon: 126.9780 },
+        { name: "도쿄", lat: 35.6762, lon: 139.6503 },
+        { name: "뉴욕", lat: 40.7128, lon: -74.0060 },
+        { name: "런던", lat: 51.5074, lon: -0.1278 },
+        { name: "파리", lat: 48.8566, lon: 2.3522 },
+        { name: "시드니", lat: -33.8688, lon: 151.2093 },
+        { name: "로스앤젤레스", lat: 34.0522, lon: -118.2437 },
+        { name: "베이징", lat: 39.9042, lon: 116.4074 },
+        { name: "싱가포르", lat: 1.3521, lon: 103.8198 },
+        { name: "두바이", lat: 25.2048, lon: 55.2708 },
+        { name: "케이프타운", lat: -33.9249, lon: 18.4241 },
+        { name: "상파울루", lat: -23.5505, lon: -46.6333 },
+        { name: "모스크바", lat: 55.7558, lon: 37.6173 },
+        { name: "방콕", lat: 13.7563, lon: 100.5018 },
+        { name: "카이로", lat: 30.0444, lon: 31.2357 },
+        { name: "뉴델리", lat: 28.6139, lon: 77.2090 },
+        { name: "멕시코시티", lat: 19.4326, lon: -99.1332 },
+        { name: "토론토", lat: 43.6510, lon: -79.3470 }
+    ];
+
+    const pinsGroup = new THREE.Group();
+    globe.add(pinsGroup); // 지구본 회전에 맞게 같이 움직이도록 추가
+
+    // 핀(마커) 재질 및 기하학 설정 (빛나는 빨간 점 형태)
+    const pinGeometry = new THREE.SphereGeometry(0.08, 16, 16);
+    const pinMaterial = new THREE.MeshBasicMaterial({ color: 0xff3366 });
+    const haloGeometry = new THREE.SphereGeometry(0.14, 16, 16);
+    const haloMaterial = new THREE.MeshBasicMaterial({ color: 0xff3366, transparent: true, opacity: 0.4 });
+
+    majorCities.forEach(city => {
+        const pinGroup = new THREE.Group();
+        
+        const core = new THREE.Mesh(pinGeometry, pinMaterial);
+        const halo = new THREE.Mesh(haloGeometry, haloMaterial);
+        pinGroup.add(core);
+        pinGroup.add(halo);
+
+        // 3D 구면 좌표계로 변환하여 배치 (지표면보다 살짝 띄움)
+        const pos = latLonToCartesian(city.lat, city.lon, radius + 0.05);
+        pinGroup.position.copy(pos);
+        
+        // 데이터 저장 (클릭 시 식별용)
+        pinGroup.userData = { isPin: true, lat: city.lat, lon: city.lon, name: city.name };
+        core.userData = pinGroup.userData;
+        halo.userData = pinGroup.userData;
+
+        pinsGroup.add(pinGroup);
+    });
+
+    // 검색 시 표시할 커스텀 마커 (초록색 포인트)
+    const searchMarkerGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+    const searchMarkerMaterial = new THREE.MeshBasicMaterial({ color: 0x33ff66 });
+    const searchMarker = new THREE.Mesh(searchMarkerGeometry, searchMarkerMaterial);
+    searchMarker.visible = false;
+    globe.add(searchMarker);
+
+    // --- 3. 좌표 변환 및 상호작용 로직 ---
+
+    // Raycaster 설정 (클릭 감지용)
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    // 3D 구면 좌표를 위도/경도로 변환
+    function cartesianToLatLon(position, radius) {
+        const lat = Math.asin(position.y / radius) * (180 / Math.PI);
+        let lon = Math.atan2(position.x, position.z) * (180 / Math.PI);
+        return { lat, lon };
+    }
+
+    // 위도/경도를 3D 구면 좌표로 변환
+    function latLonToCartesian(lat, lon, radius) {
+        const phi = (90 - lat) * (Math.PI / 180);
+        const theta = (lon + 180) * (Math.PI / 180);
+
+        const x = -(radius * Math.sin(phi) * Math.cos(theta));
+        const z = (radius * Math.sin(phi) * Math.sin(theta));
+        const y = (radius * Math.cos(phi));
+
+        return new THREE.Vector3(x, y, z);
+    }
+
+    // 마커 위치 업데이트 (검색 창으로 검색했을 때만 표시)
+    function updateMarker(lat, lon) {
+        const pos = latLonToCartesian(lat, lon, radius + 0.05);
+        searchMarker.position.copy(pos);
+        searchMarker.visible = true;
+    }
+
+    // 카메라를 특정 위도/경도로 이동시키는 애니메이션 (간단한 버전)
+    function moveCameraTo(lat, lon) {
+        const localPos = latLonToCartesian(lat, lon, 15); // 카메라 거리 15
+        
+        // 카메라는 월드 공간에 있으므로 지구본의 로컬 좌표를 월드 좌표로 변환하여 적용
+        const worldPos = globe.localToWorld(localPos.clone());
+        
+        camera.position.copy(worldPos);
+        camera.lookAt(0, 0, 0);
+        controls.update();
+    }
+
+    // 마우스 클릭 이벤트 핸들러
+    window.addEventListener('click', (event) => {
+        // UI 요소를 클릭했는지 확인 (검색창이나 패널 클릭 무시)
+        if (event.target.tagName === 'INPUT' || event.target.tagName === 'BUTTON' || event.target.closest('.info-panel') || event.target.closest('.search-container')) {
+            return;
+        }
+
+        // 마우스 좌표 정규화 (-1 to +1)
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        // 레이캐스팅 실행
+        raycaster.setFromCamera(mouse, camera);
+        
+        // 지구본 전체가 아닌 생성된 '핀' 들과 교차하는지만 검사
+        const intersects = raycaster.intersectObjects(pinsGroup.children, true);
+
+        if (intersects.length > 0) {
+            const pinData = intersects[0].object.userData;
+            
+            if (pinData && pinData.isPin) {
+                // 클릭한 핀의 데이터로 날씨 조회
+                fetchWeatherData(pinData.lat, pinData.lon, pinData.name);
+                
+                // 해당 위치로 카메라 회전
+                moveCameraTo(pinData.lat, pinData.lon);
+                
+                // 핀을 클릭했을 땐 검색 마커(초록점) 숨김
+                searchMarker.visible = false;
+            }
+        }
+    });
+
+    // 창 크기 조절 대응
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // 애니메이션 루프
+    window.onload = function() {
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // 사용자가 마우스로 직접 드래그하여 나라를 찾기 쉽도록 자동 자전 제거
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+        
+        // 초기 데이터 로드 (서울 기준)
+        fetchWeatherData(37.5665, 126.9780, "서울 (Seoul)");
+        updateMarker(37.5665, 126.9780);
+    };
+
+</script>
+</body>
+</html>

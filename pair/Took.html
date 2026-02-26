@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>툭(took) - 텍스트로 던지는 일정 관리</title>
+    <!-- Tailwind CSS (UI 스타일링용) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons (아이콘용) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* 기본 폰트 및 스크롤바 커스텀 */
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body { 
+            font-family: 'Pretendard', sans-serif; 
+            background-color: #f8fafc; 
+        }
+        
+        /* 로딩 애니메이션 (펄스) */
+        .loader-dot { animation: loader 1.4s infinite ease-in-out both; }
+        .loader-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loader-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes loader {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* 타임라인 등장 애니메이션 */
+        .timeline-item {
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeInUp 0.5s ease forwards;
+        }
+        @keyframes fadeInUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 스크롤바 스타일링 */
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 md:p-8 text-gray-800">
+
+    <!-- 메인 레이아웃: 두 개의 독립적인 카드 컨테이너 -->
+    <div class="w-full max-w-6xl flex flex-col md:flex-row gap-6 h-full md:h-[80vh] items-stretch">
+        
+        <!-- 좌측: 입력 및 브랜드 섹션 (40%) -->
+        <section class="w-full md:w-[40%] flex flex-col gap-6">
+            <!-- 브랜드 카드 -->
+            <div class="bg-indigo-600 text-white p-8 rounded-[2rem] shadow-xl shrink-0">
+                <div class="flex items-center gap-2 mb-3">
+                    <i data-lucide="calendar-check-2" class="w-6 h-6"></i>
+                    <h1 class="text-2xl font-black tracking-tight">툭(took)</h1>
+                </div>
+                <p class="text-indigo-100 text-base font-medium opacity-90 leading-tight">
+                    텍스트를 툭! 던지면,<br>일정이 쓱! 정리됩니다.
+                </p>
+            </div>
+
+            <!-- 입력 폼 카드 -->
+            <div class="flex-1 bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100 flex flex-col gap-4">
+                <label for="scheduleInput" class="text-sm font-bold text-gray-500 flex items-center gap-1 shrink-0 uppercase tracking-wider">
+                    <i data-lucide="pen-line" class="w-4 h-4"></i> Schedule Input
+                </label>
+                <textarea 
+                    id="scheduleInput" 
+                    class="w-full flex-1 min-h-[200px] p-5 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all resize-none text-base leading-relaxed placeholder:text-gray-400"
+                    placeholder="예) 오후 3시 팀 회의하고, 저녁 7시에 강남역에서 친구랑 저녁식사. 11시에는 치과 예약도 있어!"
+                ></textarea>
+                
+                <!-- 에러 메시지 표시 영역 -->
+                <p id="errorMessageUI" class="hidden shrink-0 text-sm text-red-500 font-medium px-4 py-3 bg-red-50 border border-red-100 rounded-xl animate-pulse"></p>
+
+                <button 
+                    id="submitBtn"
+                    class="w-full shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-200 flex justify-center items-center gap-2 active:scale-[0.98]"
+                >
+                    <i data-lucide="sparkles" class="w-5 h-5"></i>
+                    일정 추가하기
+                </button>
+            </div>
+        </section>
+
+        <!-- 우측: 타임라인 결과 섹션 (60%) -->
+        <section class="w-full md:w-[60%] bg-white rounded-[2rem] shadow-lg border border-gray-100 flex flex-col overflow-hidden">
+            <!-- 타임라인 헤더 -->
+            <div class="px-10 pt-10 pb-6 border-b border-gray-50 shrink-0">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-2xl font-black text-gray-800 flex items-center gap-3">
+                        <i data-lucide="list-todo" class="w-7 h-7 text-indigo-500"></i>
+                        오늘의 타임라인
+                    </h2>
+                    <span id="itemCount" class="text-xs font-bold bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full">0 items</span>
+                </div>
+            </div>
+
+            <!-- 타임라인 콘텐츠 (스크롤 영역) -->
+            <div id="timelineScrollArea" class="flex-1 overflow-y-auto custom-scroll p-10 pt-6 bg-white relative">
+                
+                <!-- 로딩 UI -->
+                <div id="loadingUI" class="hidden flex-col items-center justify-center py-20 gap-3">
+                    <div class="flex gap-2">
+                        <div class="w-3 h-3 bg-indigo-500 rounded-full loader-dot"></div>
+                        <div class="w-3 h-3 bg-indigo-500 rounded-full loader-dot"></div>
+                        <div class="w-3 h-3 bg-indigo-500 rounded-full loader-dot"></div>
+                    </div>
+                    <p class="text-sm text-gray-400 font-medium">AI가 일정을 쓱- 정리하고 있어요...</p>
+                </div>
+
+                <!-- 빈 상태 UI -->
+                <div id="emptyUI" class="flex flex-col items-center justify-center text-center py-20 opacity-40">
+                    <div class="bg-gray-50 p-6 rounded-full mb-4">
+                        <i data-lucide="inbox" class="w-12 h-12 text-gray-300"></i>
+                    </div>
+                    <p class="text-gray-500 text-base font-medium">아직 등록된 일정이 없어요.<br>좌측에 일정을 툭 던져보세요!</p>
+                </div>
+
+                <!-- 타임라인 실제 컨테이너 -->
+                <div id="timelineContainer" class="hidden relative border-l-2 border-indigo-100 ml-3 mt-4 space-y-8 pb-10">
+                    <!-- JS로 동적 생성 -->
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // Lucide 아이콘 초기화
+        lucide.createIcons();
+
+        // API 설정 (환경에서 자동 제공)
+        const apiKey = ""; 
+
+        // DOM 요소
+        const scheduleInput = document.getElementById('scheduleInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const loadingUI = document.getElementById('loadingUI');
+        const emptyUI = document.getElementById('emptyUI');
+        const timelineContainer = document.getElementById('timelineContainer');
+        const errorMessageUI = document.getElementById('errorMessageUI');
+        const itemCountBadge = document.getElementById('itemCount');
+
+        // 전역 일정 상태
+        let globalSchedules = [];
+
+        // 입력 중 에러 숨김
+        scheduleInput.addEventListener('input', () => {
+            errorMessageUI.classList.add('hidden');
+        });
+
+        // 지수 백오프 Fetch
+        async function fetchWithRetry(url, options, retries = 5) {
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) throw new Error("HTTP " + response.status);
+                    return await response.json();
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    await new Promise(res => setTimeout(res, delays[i]));
+                }
+            }
+        }
+
+        // AI 일정 추출
+        async function extractSchedule(text) {
+            const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=" + apiKey;
+            
+            const payload = {
+                contents: [{ parts: [{ text: text }] }],
+                systemInstruction: { 
+                    parts: [{ 
+                        text: "당신은 사용자의 자연어 입력에서 시간과 일정을 추출하는 AI입니다.\n\n[규칙]\n1. 유효성 검사: 존재하지 않는 시간(25시, 80분 등)은 `isValid: false`와 구체적 사유를 `errorMessage`에 담으세요.\n2. 변환: 정상 시간은 HH:MM 24시간제 형식을 사용하세요.\n3. 결과: `schedules` 배열에 담아 반환하세요." 
+                    }] 
+                },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            isValid: { type: "BOOLEAN" },
+                            errorMessage: { type: "STRING" },
+                            schedules: {
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        time: { type: "STRING" },
+                                        title: { type: "STRING" }
+                                    },
+                                    required: ["time", "title"]
+                                }
+                            }
+                        },
+                        required: ["isValid", "schedules"]
+                    }
+                }
+            };
+
+            const data = await fetchWithRetry(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!resultText) throw new Error("AI 응답을 분석할 수 없습니다.");
+            
+            const parsedResult = JSON.parse(resultText);
+            if (parsedResult.isValid === false) {
+                throw new Error(parsedResult.errorMessage || "시간 형식이 올바르지 않습니다.");
+            }
+            
+            return parsedResult.schedules;
+        }
+
+        // 시간 비교
+        function isPast(timeStr) {
+            const now = new Date();
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            const scheduleTime = new Date();
+            scheduleTime.setHours(hours, minutes, 0, 0);
+            return scheduleTime < now;
+        }
+
+        // 일정 삭제
+        window.deleteItem = function(id) {
+            globalSchedules = globalSchedules.filter(item => item.id !== id);
+            renderTimeline(globalSchedules);
+        };
+
+        // 타임라인 렌더링
+        function renderTimeline(schedules) {
+            timelineContainer.innerHTML = '';
+            itemCountBadge.textContent = schedules.length + " items";
+
+            if (schedules.length === 0) {
+                emptyUI.classList.remove('hidden');
+                timelineContainer.classList.add('hidden');
+                return;
+            }
+
+            // 정렬
+            schedules.sort((a, b) => a.time.localeCompare(b.time));
+
+            schedules.forEach((item, index) => {
+                const isItemPast = isPast(item.time);
+                const itemDiv = document.createElement('div');
+                itemDiv.className = "timeline-item relative pl-10 group " + (isItemPast ? "opacity-50" : "");
+                itemDiv.style.animationDelay = (index * 0.08) + "s";
+                
+                let displayTime = item.time;
+                try {
+                    const [hour, minute] = item.time.split(':');
+                    const h = parseInt(hour, 10);
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    const displayH = h % 12 || 12;
+                    displayTime = ampm + " " + displayH + ":" + minute;
+                } catch(e) {}
+
+                itemDiv.innerHTML = `
+                    <div class="absolute -left-[11px] top-1.5 h-5 w-5 rounded-full ${isItemPast ? 'bg-gray-200' : 'bg-indigo-500'} border-4 border-white shadow-md z-10 transition-colors"></div>
+                    
+                    <div class="${isItemPast ? 'bg-gray-50 border-gray-100' : 'bg-white border-gray-100 shadow-sm'} border p-5 rounded-2xl relative transition-all hover:shadow-lg hover:-translate-y-0.5 group">
+                        <!-- 삭제 버튼 -->
+                        <button onclick="window.deleteItem('${item.id}')" class="absolute top-4 right-4 p-1.5 rounded-xl hover:bg-red-50 text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+
+                        <div class="text-xs font-black ${isItemPast ? 'text-gray-400' : 'text-indigo-500'} mb-2 tracking-widest uppercase">${displayTime}</div>
+                        <div class="text-lg font-bold ${isItemPast ? 'text-gray-400 line-through' : 'text-gray-800'} pr-8 leading-tight">${item.title}</div>
+                    </div>
+                `;
+                timelineContainer.appendChild(itemDiv);
+            });
+
+            lucide.createIcons();
+            emptyUI.classList.add('hidden');
+            timelineContainer.classList.remove('hidden');
+        }
+
+        // 제출 이벤트
+        submitBtn.addEventListener('click', async () => {
+            const text = scheduleInput.value.trim();
+            errorMessageUI.classList.add('hidden');
+            
+            if (!text) return;
+
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            loadingUI.classList.remove('hidden');
+            loadingUI.classList.add('flex');
+            timelineContainer.classList.add('hidden');
+            emptyUI.classList.add('hidden');
+
+            try {
+                const extracted = await extractSchedule(text);
+                const withIds = extracted.map(item => ({
+                    ...item,
+                    id: crypto.randomUUID()
+                }));
+                
+                globalSchedules = [...globalSchedules, ...withIds];
+                renderTimeline(globalSchedules);
+                scheduleInput.value = '';
+                
+            } catch (error) {
+                errorMessageUI.textContent = "\u26A0 " + error.message;
+                errorMessageUI.classList.remove('hidden');
+                if (globalSchedules.length > 0) {
+                    timelineContainer.classList.remove('hidden');
+                } else {
+                    emptyUI.classList.remove('hidden');
+                }
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                loadingUI.classList.add('hidden');
+                loadingUI.classList.remove('flex');
+            }
+        });
+
+        // 1분 주기 갱신
+        setInterval(() => {
+            if (globalSchedules.length > 0) renderTimeline(globalSchedules);
+        }, 60000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>식비 세이버 - Food Cost Saver</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #F8FAFC; color: #1E293B; }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .loader { border-top-color: #F97316; animation: spinner 0.6s linear infinite; }
+        @keyframes spinner { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="pb-12">
+
+<!-- Header -->
+<header class="bg-white border-b sticky top-0 z-20 shadow-sm">
+    <div class="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="bg-orange-500 p-2.5 rounded-2xl shadow-lg shadow-orange-100">
+                <i class="fas fa-piggy-bank text-white text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-extrabold tracking-tight leading-none">식비 세이버</h1>
+                <p class="text-[10px] text-orange-500 font-bold uppercase tracking-widest mt-0.5">Food Cost Saver</p>
+            </div>
+        </div>
+    </div>
+</header>
+
+<main id="app" class="max-w-2xl mx-auto px-6 mt-8 space-y-8">
+    <!-- Main Section: Ingredient Input -->
+    <section id="input-section" class="bg-white p-7 rounded-[2rem] shadow-sm border border-slate-100">
+        <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <i class="fas fa-utensils text-orange-500"></i>
+            보유 중인 식재료
+        </h2>
+        <div class="flex gap-2">
+            <input
+                    type="text"
+                    id="ingredient-input"
+                    placeholder="예: 김치, 스팸, 두부"
+                    class="flex-1 px-5 py-4 bg-slate-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 border border-transparent focus:border-orange-500 transition-all font-medium"
+            >
+            <button
+                    onclick="handleAddIngredient()"
+                    class="bg-slate-900 hover:bg-black text-white px-5 rounded-2xl transition-all active:scale-95 shadow-md"
+            >
+                <i class="fas fa-plus text-lg"></i>
+            </button>
+        </div>
+
+        <div id="ingredient-tags" class="mt-5 flex flex-wrap gap-2">
+            <!-- Tags will be rendered here -->
+        </div>
+
+        <button
+                id="find-recipes-btn"
+                onclick="findRecipes()"
+                class="w-full mt-8 py-4.5 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all bg-orange-500 text-white hover:bg-orange-600 shadow-xl shadow-orange-100 h-14"
+        >
+            <i class="fas fa-search"></i>
+            <span>맞춤 요리 추천 받기</span>
+        </button>
+    </section>
+
+    <!-- Message/Error Box -->
+    <div id="status-message" class="hidden animate-fade-in p-5 rounded-2xl text-center font-medium border"></div>
+
+    <!-- Recipe List Section -->
+    <section id="recipe-list-section" class="hidden space-y-4 animate-fade-in">
+        <div class="flex justify-between items-center px-2">
+            <h2 class="text-xl font-black">추천 메뉴</h2>
+            <span class="text-xs font-medium text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full flex items-center gap-1">
+                    <i class="fas fa-coins text-[10px]"></i> 평균 식비 절약 찬스
+                </span>
+        </div>
+        <div id="recipe-cards-container" class="grid gap-3">
+            <!-- Recipe cards will be rendered here -->
+        </div>
+    </section>
+
+    <!-- Recipe Detail Section -->
+    <article id="recipe-detail-section" class="hidden bg-white rounded-[2.5rem] shadow-2xl border border-slate-50 overflow-hidden animate-fade-in pb-10">
+        <!-- Detail content will be rendered here -->
+    </article>
+</main>
+
+<footer class="max-w-2xl mx-auto px-6 mt-12 mb-8 text-center text-slate-400 text-xs font-bold">
+    <p>© 2025 식비 세이버 (Food Cost Saver). All rights reserved.</p>
+    <p class="mt-1">사 먹는 것보다 만드는 것이 즐거워지는 스마트 요리 파트너</p>
+</footer>
+
+<!-- Custom Modal/Toast UI -->
+<div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-50 hidden transition-all duration-300"></div>
+
+<script>
+    const apiKey = ""; // API Key handled by environment
+    let state = {
+        ingredients: [],
+        recipes: [],
+        selectedRecipe: null,
+        loading: false
+    };
+
+    // --- Core Helpers ---
+
+    async function apiRequestWithRetry(url, options, maxRetries = 5) {
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                const response = await fetch(url, options);
+                if (response.ok) return await response.json();
+
+                if (response.status === 429 || response.status >= 500) {
+                    const delay = Math.pow(2, i) * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                }
+                throw new Error(`API Error: ${response.status}`);
+            } catch (err) {
+                if (i === maxRetries - 1) throw err;
+                const delay = Math.pow(2, i) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+
+    function showToast(msg) {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 3000);
+    }
+
+    function formatCurrency(num) {
+        return num ? num.toLocaleString() + '원' : '0원';
+    }
+
+    // 매치율 색상 결정을 위한 헬퍼 함수
+    function getScoreColor(score) {
+        if (score >= 90) return 'text-emerald-600';
+        if (score >= 70) return 'text-orange-500';
+        if (score >= 50) return 'text-amber-500';
+        return 'text-slate-400';
+    }
+
+    // 마크다운 문법(**굵게**)을 HTML로 변환하는 함수
+    function parseMarkdown(text) {
+        if (!text) return "";
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong class="font-extrabold text-slate-900">$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>');
+    }
+
+    // --- Ingredient Logic ---
+
+    function renderIngredients() {
+        const container = document.getElementById('ingredient-tags');
+        if (state.ingredients.length === 0) {
+            container.innerHTML = `<p class="text-slate-300 text-sm italic py-2">재료를 입력하면 분석을 시작합니다.</p>`;
+            return;
+        }
+        container.innerHTML = state.ingredients.map(item => `
+                <div class="flex items-center bg-white border border-slate-200 text-slate-700 pl-4 pr-2 py-2.5 rounded-xl text-sm font-bold shadow-sm animate-fade-in">
+                    ${item}
+                    <button onclick="removeIngredient('${item}')" class="ml-2 p-1 text-slate-300 hover:text-orange-500 transition-colors">
+                        <i class="fas fa-times text-xs"></i>
+                    </button>
+                </div>
+            `).join('');
+    }
+
+    function handleAddIngredient() {
+        const input = document.getElementById('ingredient-input');
+        const val = input.value.trim();
+        if (!val) return;
+
+        const newItems = val.split(',')
+            .map(i => i.trim())
+            .filter(i => i && !state.ingredients.includes(i));
+
+        state.ingredients = [...state.ingredients, ...newItems];
+        input.value = "";
+        renderIngredients();
+    }
+
+    function removeIngredient(item) {
+        state.ingredients = state.ingredients.filter(i => i !== item);
+        renderIngredients();
+    }
+
+    document.getElementById('ingredient-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleAddIngredient();
+    });
+
+    // --- API Call: Find Recipes ---
+
+    async function findRecipes() {
+        if (state.ingredients.length === 0) {
+            showToast("재료를 하나 이상 입력해 주세요.");
+            return;
+        }
+
+        const btn = document.getElementById('find-recipes-btn');
+        const btnSpan = btn.querySelector('span');
+        const btnIcon = btn.querySelector('i');
+        const statusBox = document.getElementById('status-message');
+
+        state.loading = true;
+        btn.disabled = true;
+        btnSpan.textContent = "식비 절약 레시피 분석 중...";
+        btnIcon.className = "fas fa-spinner animate-spin";
+        statusBox.classList.add('hidden');
+
+        const systemPrompt = `당신은 사용자가 가진 재료로 최고의 요리를 제안하고 경제적 이득을 분석하는 전문 쉐프이자 경제 전문가입니다.
+            사용자가 제공한 재료 중 '필수 재료'가 일치하는 요리 5가지를 추천하세요.
+            [중요 지침]
+            1. 매치율(matchScore)은 0~100 사이의 정수로 응답하세요.
+            2. 외식 가격(restaurantPrice)은 해당 메뉴를 한국 식당에서 사 먹을 때의 평균 1인분 가격(KRW)을 추정하세요.
+            3. 집밥 비용(homeCost)은 사용자가 이미 가진 재료를 제외하고 추가로 들 수 있는 비용을 고려해 아주 낮게 책정하세요.
+            4. 결과는 반드시 JSON 배열로만 응답하세요.
+            형식: [ { "name": "요리명", "matchScore": 숫자, "restaurantPrice": 숫자, "homeCost": 숫자, "reason": "보유 재료 활용 방법", "difficulty": "하/중/상" } ].`;
+
+        const userPrompt = `보유 식재료: ${state.ingredients.join(", ")}`;
+
+        try {
+            const data = await apiRequestWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: userPrompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: { responseMimeType: "application/json", temperature: 0.7 }
+                })
+            });
+
+            const rawJson = data.candidates[0].content.parts[0].text;
+            const result = JSON.parse(rawJson);
+
+            state.recipes = result.map(r => ({
+                ...r,
+                matchScore: Math.round(r.matchScore),
+                savings: r.restaurantPrice - r.homeCost
+            })).sort((a, b) => b.matchScore - a.matchScore);
+
+            renderRecipeList();
+        } catch (err) {
+            statusBox.textContent = "요리를 추천받는 중에 문제가 발생했습니다. 다시 시도해 주세요.";
+            statusBox.className = "p-5 rounded-2xl text-center font-medium border bg-red-50 text-red-600 border-red-100";
+            statusBox.classList.remove('hidden');
+            console.error(err);
+        } finally {
+            state.loading = false;
+            btn.disabled = false;
+            btnSpan.textContent = "맞춤 요리 추천 받기";
+            btnIcon.className = "fas fa-search";
+        }
+    }
+
+    function renderRecipeList() {
+        document.getElementById('input-section').classList.remove('hidden');
+        document.getElementById('recipe-detail-section').classList.add('hidden');
+        const listSection = document.getElementById('recipe-list-section');
+        const container = document.getElementById('recipe-cards-container');
+
+        container.innerHTML = state.recipes.map((r, idx) => {
+            let diffClass = 'bg-slate-50 text-slate-500 border-slate-100';
+            if (r.difficulty === '하') diffClass = 'bg-emerald-50 text-emerald-600 border-emerald-100';
+            if (r.difficulty === '중') diffClass = 'bg-amber-50 text-amber-600 border-amber-100';
+            if (r.difficulty === '상') diffClass = 'bg-rose-50 text-rose-600 border-rose-100';
+
+            return `
+                <div
+                    onclick="getRecipeDetail('${r.name.replace(/'/g, "\\'")}')"
+                    class="group bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-sm hover:border-orange-400 hover:shadow-md cursor-pointer transition-all flex items-center justify-between animate-fade-in"
+                    style="animation-delay: ${idx * 0.1}s"
+                >
+                    <div class="space-y-1.5 flex-1 pr-4">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-lg font-bold group-hover:text-orange-600 transition-colors">${r.name}</h3>
+                            <span class="text-[10px] px-2 py-0.5 border rounded-full font-bold ${diffClass}">
+                                난이도 ${r.difficulty}
+                            </span>
+                        </div>
+                        <p class="text-sm text-slate-500 line-clamp-1 italic">"${r.reason}"</p>
+                        <div class="flex items-center gap-2 mt-2 text-xs font-bold text-emerald-600 bg-emerald-50 w-fit px-2 py-1 rounded-lg">
+                            <i class="fas fa-trending-down text-[10px]"></i>
+                            외식비 대비 ${formatCurrency(r.savings)} 절약!
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="text-right">
+                            <div class="${getScoreColor(r.matchScore)} font-black text-2xl">${r.matchScore}%</div>
+                            <div class="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">재료 매치율</div>
+                        </div>
+                        <i class="fas fa-arrow-right text-slate-300 group-hover:text-orange-500 group-hover:translate-x-1 transition-all"></i>
+                    </div>
+                </div>
+                `;
+        }).join('');
+
+        listSection.classList.remove('hidden');
+        window.scrollTo({ top: listSection.offsetTop - 100, behavior: 'smooth' });
+    }
+
+    // --- API Call: Recipe Detail ---
+
+    async function getRecipeDetail(recipeName) {
+        const baseInfo = state.recipes.find(r => r.name === recipeName);
+        const detailSection = document.getElementById('recipe-detail-section');
+        const inputSection = document.getElementById('input-section');
+        const listSection = document.getElementById('recipe-list-section');
+
+        // Show Loading
+        detailSection.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-24">
+                    <div class="relative">
+                        <i class="fas fa-chef-hat text-orange-200 text-6xl animate-bounce"></i>
+                        <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-100 h-20 w-20 absolute -top-2 -left-2"></div>
+                    </div>
+                    <p class="font-bold text-slate-500 mt-6 text-center">
+                        경제적인 레시피를 생성하고 있습니다.<br/>잠시만 기다려 주세요!
+                    </p>
+                </div>
+            `;
+        detailSection.classList.remove('hidden');
+        inputSection.classList.add('hidden');
+        listSection.classList.add('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        const recipePrompt = `${recipeName} 요리의 상세 레시피를 알려주세요.
+            보유 중인 재료(${state.ingredients.join(", ")})는 뒤에 '(보유)'라고 표시하세요.
+            응답 형식 JSON:
+            {
+              "name": "${recipeName}",
+              "essential": ["필수재료1 (보유)", "필수재료2"],
+              "optional": ["선택재료1", "선택재료2 (보유)"],
+              "steps": ["1단계...", "2단계..."],
+              "tip": "팁 내용"
+            }`;
+
+        try {
+            // 1. Get Text
+            const textData = await apiRequestWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: recipePrompt }] }],
+                    generationConfig: { responseMimeType: "application/json" }
+                })
+            });
+
+            const recipeData = JSON.parse(textData.candidates[0].content.parts[0].text);
+
+            // 2. Get Image
+            const imageData = await apiRequestWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instances: { prompt: `Cinematic high resolution food photography of ${recipeName}, appetizing masterchef style, top view.` },
+                    parameters: { sampleCount: 1 }
+                })
+            });
+
+            const imageUrl = `data:image/png;base64,${imageData.predictions[0].bytesBase64Encoded}`;
+
+            renderRecipeDetail({...recipeData, imageUrl, baseInfo});
+        } catch (err) {
+            showToast("데이터를 불러오는 데 실패했습니다.");
+            detailSection.classList.add('hidden');
+            inputSection.classList.remove('hidden');
+            listSection.classList.remove('hidden');
+            console.error(err);
+        }
+    }
+
+    function renderRecipeDetail(data) {
+        const container = document.getElementById('recipe-detail-section');
+        const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(data.name)}+요리+사진&tbm=isch`;
+
+        container.innerHTML = `
+                <div class="relative h-80 w-full bg-slate-100">
+                    <img src="${data.imageUrl}" alt="${data.name}" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                    <button
+                        onclick="closeDetail()"
+                        class="absolute top-6 left-6 bg-black/30 hover:bg-black/50 text-white p-2.5 rounded-xl backdrop-blur-md transition-all z-10"
+                    >
+                        <i class="fas fa-times w-5 h-5 flex items-center justify-center"></i>
+                    </button>
+
+                    <a href="${googleSearchUrl}" target="_blank" class="absolute top-6 right-6 bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-xl backdrop-blur-md transition-all text-xs font-bold flex items-center gap-2 z-10">
+                        <i class="fas fa-external-link-alt"></i> 실제 사진 보기
+                    </a>
+
+                    <div class="absolute bottom-8 left-10 right-10">
+                        <div class="flex flex-wrap items-center gap-3 mb-2">
+                            <h2 class="text-4xl font-black text-white drop-shadow-lg">${data.name}</h2>
+                            <div class="bg-emerald-500 text-white px-3 py-1 rounded-xl text-sm font-black flex items-center gap-1.5 shadow-lg">
+                                <i class="fas fa-piggy-bank"></i>
+                                ${formatCurrency(data.baseInfo.savings)} 세이브!
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5 text-orange-300 text-[11px] font-bold">
+                            <i class="fas fa-info-circle"></i> 이미지는 AI 생성본입니다. 실제 사진은 우측 상단을 클릭하세요.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-8 md:p-12 space-y-12">
+                    <div class="bg-emerald-50 border border-emerald-100 p-6 rounded-3xl flex items-center justify-between">
+                        <div>
+                            <p class="text-emerald-700 text-sm font-bold">외식 대비 절약 효과</p>
+                            <p class="text-2xl font-black text-emerald-800">대략 ${formatCurrency(data.baseInfo.savings)}을 아꼈어요!</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-slate-400 text-xs font-bold line-through">외식가 ${formatCurrency(data.baseInfo.restaurantPrice)}</p>
+                            <p class="text-emerald-600 text-sm font-bold">집밥 비용 0원~</p>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-6 text-sm font-bold text-slate-400 border-b border-slate-50 pb-6 overflow-x-auto">
+                        <span class="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg whitespace-nowrap"><i class="fas fa-clock text-orange-500"></i> 20-30분</span>
+                        <span class="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg whitespace-nowrap"><i class="fas fa-bullseye ${getScoreColor(data.baseInfo.matchScore)}"></i> ${data.baseInfo.matchScore}% 일치</span>
+                        <span class="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg whitespace-nowrap"><i class="fas fa-fire text-red-500"></i> 약 450kcal</span>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-10">
+                        <div class="space-y-5">
+                            <h3 class="font-bold flex items-center gap-2 text-orange-600 uppercase tracking-widest text-sm">
+                                <i class="fas fa-check-circle"></i> 필수 재료
+                            </h3>
+                            <div class="space-y-2.5">
+                                ${data.essential.map(ing => {
+            const has = ing.includes("(보유)");
+            return `
+                                    <div class="flex items-center justify-between p-4 rounded-2xl border transition-all ${has ? 'bg-orange-50 border-orange-100 text-orange-700 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-400'}">
+                                        <span class="text-sm font-bold">${ing.replace("(보유)", "").trim()}</span>
+                                        ${has ? '<div class="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>' : ''}
+                                    </div>`;
+        }).join('')}
+                            </div>
+                        </div>
+                        <div class="space-y-5">
+                            <h3 class="font-bold flex items-center gap-2 text-slate-400 uppercase tracking-widest text-sm">
+                                <i class="fas fa-exclamation-circle"></i> 선택 사항
+                            </h3>
+                            <div class="space-y-2.5">
+                                ${data.optional.map(ing => `
+                                    <div class="flex items-center justify-between p-4 rounded-2xl border border-dashed bg-white border-slate-100 text-slate-300">
+                                        <span class="text-sm font-semibold">${ing.replace("(보유)", "").trim()}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-8">
+                        <h3 class="text-2xl font-black flex items-center gap-3">
+                            <span class="w-1.5 h-8 bg-slate-900 rounded-full"></span>
+                            조리 과정
+                        </h3>
+                        <div class="space-y-8">
+                            ${data.steps.map((step, i) => `
+                                <div class="flex gap-6 group">
+                                    <div class="flex-shrink-0 w-8 h-8 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black text-sm group-hover:bg-orange-500 transition-colors duration-300">
+                                        ${i + 1}
+                                    </div>
+                                    <p class="text-[#334155] leading-relaxed font-bold text-base pt-0.5">${parseMarkdown(step)}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="bg-[#1E293B] p-8 rounded-[2.5rem] text-white relative overflow-hidden shadow-xl">
+                        <h4 class="font-bold text-orange-400 flex items-center gap-2 mb-3 text-lg">💡 쉐프의 비법 노트</h4>
+                        <p class="text-slate-300 text-sm leading-relaxed font-bold">${parseMarkdown(data.tip)}</p>
+                    </div>
+
+                    <button onclick="closeDetail()" class="w-full py-5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl font-bold text-lg transition-all">
+                        목록으로 돌아가기
+                    </button>
+                </div>
+            `;
+    }
+
+    function closeDetail() {
+        document.getElementById('recipe-detail-section').classList.add('hidden');
+        document.getElementById('input-section').classList.remove('hidden');
+        document.getElementById('recipe-list-section').classList.remove('hidden');
+    }
+
+    // Initialize empty tags
+    renderIngredients();
+
+</script>
+</body>
+</html>

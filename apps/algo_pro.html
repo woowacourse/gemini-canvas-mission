@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Algorithm Visualizer Hub - Ultra Wide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #020617;
+            color: #f8fafc;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .visual-bar {
+            transition: height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s ease;
+            min-width: 6px;
+        }
+
+        .code-line.active {
+            background-color: rgba(59, 130, 246, 0.5);
+            border-left: 4px solid #3b82f6;
+        }
+
+        .grid-cell {
+            transition: background-color 0.1s ease, transform 0.1s ease;
+        }
+
+        .scroll-hide::-webkit-scrollbar { display: none; }
+
+        /* Maximize the visualization area */
+        #viz-container {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            overflow: auto;
+            position: relative;
+            flex: 1;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+<!-- Slim Header -->
+<header class="h-12 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-950 flex-shrink-0 z-30">
+    <div class="flex items-center space-x-3">
+        <div class="bg-blue-600 p-1 rounded-md shadow-lg">
+            <i class="fas fa-terminal text-white text-sm"></i>
+        </div>
+        <h1 class="text-sm font-black tracking-tighter uppercase">ALGO <span class="text-blue-500">PRO</span></h1>
+    </div>
+    <div class="flex items-center space-x-4 text-[10px] font-bold uppercase text-slate-500">
+        <div class="flex items-center"><span class="w-2 h-2 bg-yellow-400 rounded-full mr-1"></span> Compare</div>
+        <div class="flex items-center"><span class="w-2 h-2 bg-red-500 rounded-full mr-1"></span> Action</div>
+        <div class="flex items-center"><span class="w-2 h-2 bg-emerald-500 rounded-full mr-1"></span> Success</div>
+    </div>
+</header>
+
+<div class="flex-1 flex overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-60 bg-slate-950 border-r border-slate-800 p-4 flex flex-col space-y-4 overflow-y-auto flex-shrink-0">
+        <div>
+            <label class="block text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1.5">Algorithm</label>
+            <select id="algo-select" class="w-full bg-slate-900 border border-slate-800 text-white rounded-lg px-2 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all cursor-pointer text-[11px]">
+                <optgroup label="Sorting">
+                    <option value="bubble_sort">Bubble Sort</option>
+                    <option value="selection_sort">Selection Sort</option>
+                </optgroup>
+                <optgroup label="Searching">
+                    <option value="binary_search">Binary Search</option>
+                </optgroup>
+                <optgroup label="Graph Traversal">
+                    <option value="bfs_grid">BFS (Breadth-First)</option>
+                    <option value="dfs_grid">DFS (Depth-First)</option>
+                </optgroup>
+                <optgroup label="DP">
+                    <option value="fibonacci_dp">Fibonacci (DP)</option>
+                </optgroup>
+            </select>
+        </div>
+
+        <div id="target-input-container" class="hidden">
+            <label class="block text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Target</label>
+            <input type="number" id="search-target" value="50" class="w-full bg-slate-900 border border-slate-800 text-white rounded-lg px-2 py-1.5 focus:outline-none text-[11px]">
+        </div>
+
+        <div class="space-y-1.5">
+            <button id="btn-generate" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg border border-slate-800 transition-all text-[11px]">
+                <i class="fas fa-plus mr-1"></i> New Data
+            </button>
+            <div class="grid grid-cols-2 gap-1.5">
+                <button id="btn-start" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg transition-all text-[11px]">
+                    <i class="fas fa-play mr-1"></i> Start
+                </button>
+                <button id="btn-pause" class="bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded-lg transition-all text-[11px]" disabled>
+                    <i class="fas fa-pause mr-1"></i> Pause
+                </button>
+            </div>
+            <button id="btn-reset" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 rounded-lg border border-slate-800 transition-all text-[11px]">
+                <i class="fas fa-undo mr-1"></i> Reset
+            </button>
+        </div>
+
+        <div class="pt-2">
+            <div class="flex justify-between items-center mb-1">
+                <label class="text-[9px] font-black text-slate-600 uppercase tracking-widest">Speed</label>
+                <span id="speed-val" class="text-[10px] font-mono text-blue-400">500ms</span>
+            </div>
+            <input type="range" id="speed-slider" min="5" max="1000" step="5" value="500" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500">
+        </div>
+
+        <div class="pt-4 border-t border-slate-800">
+            <h3 class="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-2">Description & Complexity</h3>
+            <div id="algo-info" class="bg-slate-900/30 p-2 rounded-lg border border-slate-800/30 text-[9px] space-y-2">
+                <p id="info-desc" class="text-slate-400 leading-normal italic"></p>
+                <div class="font-mono pt-1 border-t border-slate-800/50 space-y-1">
+                    <p class="flex justify-between"><span>Time:</span> <span id="info-complexity" class="text-blue-400 font-bold"></span></p>
+                    <p class="flex justify-between"><span>Space:</span> <span id="info-space" class="text-blue-400 font-bold"></span></p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col p-4 bg-slate-950 overflow-hidden relative">
+        <!-- Visualization Area (MAXIMIZED) -->
+        <div id="viz-container" class="flex-1 flex items-center justify-center bg-slate-900/20 rounded-[3rem] border border-slate-800/40 p-12 shadow-2xl relative overflow-auto scroll-hide">
+        </div>
+
+        <!-- Status Message (Ultra Compact) -->
+        <div id="status-message" class="my-2 px-4 py-1 bg-blue-500/5 border border-blue-500/10 rounded-full text-blue-400/60 text-center text-[9px] font-bold tracking-widest uppercase flex-shrink-0">
+            Ready to Process
+        </div>
+
+        <!-- Bottom Control Panel (SHRUNK) -->
+        <div class="h-24 grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-hidden flex-shrink-0">
+            <div class="bg-slate-900/50 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
+                <div class="px-3 py-1 border-b border-slate-800 bg-slate-800/20">
+                    <span class="text-[8px] font-black text-slate-600 uppercase tracking-widest">Logic View</span>
+                </div>
+                <div id="code-panel" class="flex-1 overflow-y-auto p-2 code-font text-[10px] leading-tight scroll-hide text-slate-500">
+                </div>
+            </div>
+
+            <div class="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 flex flex-col justify-center relative">
+                <h3 class="text-[8px] font-black text-slate-600 uppercase tracking-widest mb-1">State Log</h3>
+                <div id="step-detail" class="text-sm text-slate-200 font-bold leading-tight">
+                    Standing by...
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+    const vizContainer = document.getElementById('viz-container');
+    const codePanel = document.getElementById('code-panel');
+    const statusMessage = document.getElementById('status-message');
+    const stepDetail = document.getElementById('step-detail');
+    const algoSelect = document.getElementById('algo-select');
+    const btnStart = document.getElementById('btn-start');
+    const btnPause = document.getElementById('btn-pause');
+    const btnReset = document.getElementById('btn-reset');
+    const btnGenerate = document.getElementById('btn-generate');
+    const speedSlider = document.getElementById('speed-slider');
+    const speedVal = document.getElementById('speed-val');
+    const targetInputContainer = document.getElementById('target-input-container');
+    const searchTargetInput = document.getElementById('search-target');
+
+    let array = [];
+    let grid = [];
+    let isPlaying = false;
+    let animationSpeed = 500;
+    let currentGenerator = null;
+    let animationTimeout = null;
+    let finalized = [];
+    let excluded = [];
+
+    const COLORS = {
+        DEFAULT: 'bg-slate-700',
+        COMPARE: 'bg-yellow-400',
+        SWAP: 'bg-red-500',
+        VISITED: 'bg-red-500/80',
+        SUCCESS: 'bg-emerald-500',
+        WALL: 'bg-slate-950',
+        START: 'bg-blue-600',
+        END: 'bg-pink-600',
+        BOX_BORDER: 'border-slate-700'
+    };
+
+    const algorithms = {
+        bubble_sort: {
+            name: "Bubble Sort", complexity: "O(n²)", space: "O(1)", type: "BAR",
+            description: "인접한 두 원소를 비교하며 큰 값을 뒤로 보내는 정렬입니다.",
+            code: [
+                "for (let i = 0; i < n; i++) {",
+                "  for (let j = 0; j < n-i-1; j++) {",
+                "    if (arr[j] > arr[j+1]) swap(arr[j], arr[j+1]);",
+                "  }",
+                "}"
+            ],
+            *generator(arr) {
+                const n = arr.length;
+                for (let i = 0; i < n; i++) {
+                    for (let j = 0; j < n - i - 1; j++) {
+                        yield { line: 1, msg: `Compare: ${arr[j]} vs ${arr[j+1]}`, highlight: [j, j+1], type: 'compare' };
+                        if (arr[j] > arr[j+1]) {
+                            [arr[j], arr[j+1]] = [arr[j+1], arr[j]];
+                            yield { line: 2, msg: `Swap performed`, highlight: [j, j+1], type: 'swap' };
+                        }
+                    }
+                    yield { line: 0, msg: `Position ${n-i-1} fixed`, finalized: n-i-1 };
+                }
+            }
+        },
+        selection_sort: {
+            name: "Selection Sort", complexity: "O(n²)", space: "O(1)", type: "BAR",
+            description: "최솟값을 찾아 정렬되지 않은 부분의 맨 앞으로 보냅니다.",
+            code: [
+                "for (let i = 0; i < n; i++) {",
+                "  let min = i;",
+                "  for (let j = i+1; j < n; j++) if (arr[j] < arr[min]) min = j;",
+                "  swap(arr[i], arr[min]);",
+                "}"
+            ],
+            *generator(arr) {
+                const n = arr.length;
+                for (let i = 0; i < n; i++) {
+                    let minIdx = i;
+                    yield { line: 1, msg: `Finding min for index ${i}`, highlight: [i], type: 'compare' };
+                    for (let j = i + 1; j < n; j++) {
+                        yield { line: 2, msg: `Check: ${arr[j]}`, highlight: [minIdx, j], type: 'compare' };
+                        if (arr[j] < arr[minIdx]) { minIdx = j; yield { line: 2, msg: `Min found: ${arr[minIdx]}`, highlight: [minIdx], type: 'compare' }; }
+                    }
+                    [arr[i], arr[minIdx]] = [arr[minIdx], arr[i]];
+                    yield { line: 3, msg: `Swap to position ${i}`, highlight: [i, minIdx], type: 'swap' };
+                    yield { line: 0, msg: `Index ${i} sorted`, finalized: i };
+                }
+            }
+        },
+        binary_search: {
+            name: "Binary Search", complexity: "O(log n)", space: "O(1)", type: "BOX",
+            description: "정렬된 배열에서 범위를 절반씩 줄여가며 타겟을 찾습니다.",
+            code: [
+                "while (low <= high) {",
+                "  let mid = floor((low + high) / 2);",
+                "  if (arr[mid] === target) return mid;",
+                "  if (arr[mid] < target) low = mid + 1;",
+                "  else high = mid - 1;",
+                "}"
+            ],
+            *generator(arr, target) {
+                let low = 0, high = arr.length - 1;
+                excluded = [];
+                while (low <= high) {
+                    let mid = Math.floor((low + high) / 2);
+                    yield { line: 1, msg: `At index ${mid} (${arr[mid]})`, pointers: { low, high, mid }, type: 'compare' };
+                    if (arr[mid] === target) { yield { line: 2, msg: `Target ${target} found!`, pointers: { mid }, type: 'done', finalized: mid }; return; }
+                    if (arr[mid] < target) {
+                        yield { line: 3, msg: `Target higher, narrowing right`, excludedRange: [low, mid] };
+                        for(let k=low; k<=mid; k++) if(!excluded.includes(k)) excluded.push(k);
+                        low = mid + 1;
+                    } else {
+                        yield { line: 4, msg: `Target lower, narrowing left`, excludedRange: [mid, high] };
+                        for(let k=mid; k<=high; k++) if(!excluded.includes(k)) excluded.push(k);
+                        high = mid - 1;
+                    }
+                }
+                yield { line: 5, msg: "Not found", type: 'done' };
+            }
+        },
+        bfs_grid: {
+            name: "BFS", complexity: "O(V+E)", space: "O(V)", type: "GRID",
+            description: "시작점에서 가까운 노드부터 순차적으로 탐색(Queue 활용)합니다.",
+            code: [
+                "queue.push(start);",
+                "while (queue.isNotEmpty) {",
+                "  let curr = queue.pop();",
+                "  for (let n of neighbors) {",
+                "    if (!visited[n]) { visited[n]=true; queue.push(n); }",
+                "  }",
+                "}"
+            ],
+            *generator() {
+                const rows = grid.length, cols = grid[0].length;
+                const start = [1, 1], end = [rows-2, cols-2];
+                const queue = [start];
+                const visited = Array.from({length: rows}, () => Array(cols).fill(false));
+                visited[start[0]][start[1]] = true;
+                const dr = [-1, 1, 0, 0], dc = [0, 0, -1, 1];
+                while(queue.length > 0) {
+                    let [r, c] = queue.shift();
+                    yield { line: 2, msg: `Exploring (${r}, ${c})`, highlightCell: [r, c] };
+                    if (r === end[0] && c === end[1]) { yield { line: 2, msg: "Target reached!", type: 'done', highlightCell: [r, c] }; return; }
+                    for(let i=0; i<4; i++) {
+                        let nr = r + dr[i], nc = c + dc[i];
+                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && !visited[nr][nc] && grid[nr][nc] !== 1) {
+                            visited[nr][nc] = true; queue.push([nr, nc]);
+                            yield { line: 4, msg: `Discovered (${nr}, ${nc})`, gridUpdate: { r: nr, c: nc, type: 'VISITED' } };
+                        }
+                    }
+                }
+            }
+        },
+        dfs_grid: {
+            name: "DFS", complexity: "O(V+E)", space: "O(V)", type: "GRID",
+            description: "한 경로를 깊게 파고든 뒤 막히면 되돌아오는 탐색(Stack 활용)입니다.",
+            code: [
+                "stack.push(start);",
+                "while (stack.isNotEmpty) {",
+                "  let curr = stack.pop();",
+                "  if (visited[curr]) continue;",
+                "  visited[curr] = true;",
+                "  for (let n of neighbors) stack.push(n);",
+                "}"
+            ],
+            *generator() {
+                const rows = grid.length, cols = grid[0].length;
+                const start = [1, 1], end = [rows-2, cols-2];
+                const stack = [start];
+                const visited = Array.from({length: rows}, () => Array(cols).fill(false));
+                const dr = [0, 1, 0, -1], dc = [1, 0, -1, 0];
+                while(stack.length > 0) {
+                    let [r, c] = stack.pop();
+                    if (visited[r][c]) continue;
+                    visited[r][c] = true;
+                    yield { line: 4, msg: `Visit: (${r}, ${c})`, gridUpdate: { r, c, type: 'VISITED' }, highlightCell: [r, c] };
+                    if (r === end[0] && c === end[1]) { yield { line: 4, msg: "Goal found!", type: 'done', highlightCell: [r, c] }; return; }
+                    for(let i=0; i<4; i++) {
+                        let nr = r + dr[i], nc = c + dc[i];
+                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && !visited[nr][nc] && grid[nr][nc] !== 1) stack.push([nr, nc]);
+                    }
+                }
+            }
+        },
+        fibonacci_dp: {
+            name: "Fibonacci (DP)", complexity: "O(n)", space: "O(n)", type: "BOX",
+            description: "작은 문제의 해를 저장하여 중복 계산을 방지하는 동적 계획법입니다.",
+            code: [
+                "dp[0] = 0; dp[1] = 1;",
+                "for (let i = 2; i <= n; i++) {",
+                "  dp[i] = dp[i-1] + dp[i-2];",
+                "}",
+                "return dp[n];"
+            ],
+            *generator() {
+                const n = 15;
+                let dp = Array(n + 1).fill(0);
+                array = [...dp];
+                dp[0] = 0; yield { line: 0, msg: "Set 0", highlight: [0], type: 'swap' };
+                dp[1] = 1; array[1] = 1; yield { line: 0, msg: "Set 1", highlight: [1], type: 'swap' };
+                for(let i = 2; i <= n; i++) {
+                    yield { line: 1, msg: `Add dp[${i-1}] and dp[${i-2}]`, highlight: [i-1, i-2] };
+                    dp[i] = dp[i-1] + dp[i-2]; array[i] = dp[i];
+                    yield { line: 2, msg: `Result: ${dp[i]}`, highlight: [i], type: 'swap' };
+                    if(!finalized.includes(i-2)) finalized.push(i-2);
+                }
+                finalized.push(n-1, n);
+            }
+        }
+    };
+
+    function init() {
+        generateData();
+        updateAlgoInfo();
+        algoSelect.addEventListener('change', () => {
+            targetInputContainer.classList.toggle('hidden', algoSelect.value !== 'binary_search');
+            generateData();
+            updateAlgoInfo();
+        });
+        btnGenerate.addEventListener('click', generateData);
+        btnStart.addEventListener('click', startAnimation);
+        btnPause.addEventListener('click', pauseAnimation);
+        btnReset.addEventListener('click', () => { resetAnimation(); render(); });
+        speedSlider.addEventListener('input', (e) => {
+            animationSpeed = 1010 - e.target.value;
+            speedVal.textContent = `${1010 - animationSpeed}ms`;
+        });
+        window.addEventListener('resize', render);
+    }
+
+    function generateData() {
+        const algo = algorithms[algoSelect.value];
+        currentGenerator = null; finalized = []; excluded = []; isPlaying = false;
+        btnStart.disabled = false; btnPause.disabled = true; clearTimeout(animationTimeout);
+
+        if (algo.type === "BAR" || algo.type === "BOX") {
+            const count = algo.type === "BAR" ? 50 : 20;
+            array = Array.from({length: count}, () => Math.floor(Math.random() * 85) + 10);
+            if (algoSelect.value === 'binary_search') array.sort((a, b) => a - b);
+            if (algoSelect.value === 'fibonacci_dp') array.fill(0);
+            grid = [];
+        } else if (algo.type === "GRID") {
+            const rows = 30, cols = 60; // MASSIVE GRID
+            grid = Array.from({length: rows}, () => Array(cols).fill(0).map(() => Math.random() < 0.22 ? 1 : 0));
+            grid[1][1] = 0; grid[rows-2][cols-2] = 0;
+            array = [];
+        }
+        render();
+        statusMessage.textContent = `Ready: ${algo.name}`;
+    }
+
+    function render(highlights = [], type = 'default', opt = {}) {
+        vizContainer.innerHTML = '';
+        const algo = algorithms[algoSelect.value];
+        const activeHighlights = Array.isArray(highlights) ? highlights : [];
+
+        if (algo.type === "GRID" && (!grid || grid.length === 0)) return;
+        if ((algo.type === "BAR" || algo.type === "BOX") && (!array || array.length === 0)) return;
+
+        if (algo.type === "BAR" || algo.type === "BOX") {
+            vizContainer.className = "flex-1 flex items-end justify-center gap-1 p-2";
+            const containerHeight = vizContainer.clientHeight - 30;
+            array.forEach((val, idx) => {
+                const el = document.createElement('div');
+                if (algo.type === "BAR") {
+                    el.className = `visual-bar w-full rounded-t-md shadow-lg flex justify-center items-end text-[7px] font-black pb-1 ${COLORS.DEFAULT}`;
+                    const heightPx = (val / 100) * containerHeight;
+                    el.style.height = `${Math.max(heightPx, 15)}px`;
+                    el.innerHTML = `<span class="text-white/40">${val}</span>`;
+                } else {
+                    el.className = `w-10 h-10 flex flex-col items-center justify-center rounded-lg border-2 font-bold text-[10px] transition-all duration-300 ${COLORS.DEFAULT} ${COLORS.BOX_BORDER}`;
+                    el.innerHTML = `<span class="text-[7px] text-white/20 mb-0.5">${idx}</span><span>${val}</span>`;
+                    vizContainer.className = "flex-1 flex items-center justify-center gap-1.5 flex-wrap p-2";
+                }
+
+                if (activeHighlights.includes(idx)) {
+                    el.classList.remove(COLORS.DEFAULT);
+                    el.classList.add(type === 'swap' ? COLORS.SWAP : COLORS.COMPARE);
+                }
+                if (finalized.includes(idx)) {
+                    el.classList.remove(COLORS.DEFAULT, COLORS.COMPARE, COLORS.SWAP);
+                    el.classList.add(COLORS.SUCCESS);
+                }
+                if (excluded.includes(idx)) el.classList.add('opacity-5', 'scale-90');
+                if (opt.pointers) {
+                    if (opt.pointers.mid === idx) el.classList.add('ring-2', 'ring-yellow-400', 'z-10');
+                    if (opt.pointers.low === idx || opt.pointers.high === idx) el.classList.add('ring-1', 'ring-blue-500');
+                }
+                vizContainer.appendChild(el);
+            });
+        } else if (algo.type === "GRID") {
+            vizContainer.className = "flex-1 flex flex-col items-center justify-center p-1 bg-slate-950 rounded-2xl";
+            const table = document.createElement('div');
+            table.style.display = 'grid';
+            table.style.gridTemplateColumns = `repeat(${grid[0].length}, 12px)`;
+            table.style.gap = '1px';
+
+            grid.forEach((row, r) => {
+                row.forEach((cell, c) => {
+                    const div = document.createElement('div');
+                    div.className = `w-[12px] h-[12px] rounded-[1px] grid-cell flex items-center justify-center text-[5px] font-bold`;
+                    if (cell === 1) div.classList.add(...COLORS.WALL.split(' '));
+                    else if (r === 1 && c === 1) div.innerHTML = 'S', div.classList.add(...COLORS.START.split(' '));
+                    else if (r === grid.length-2 && c === grid[0].length-2) div.innerHTML = 'G', div.classList.add(...COLORS.END.split(' '));
+                    else if (cell === 'VISITED') div.classList.add(...COLORS.VISITED.split(' '));
+                    else div.classList.add('bg-slate-900');
+
+                    if (opt.highlightCell && opt.highlightCell[0] === r && opt.highlightCell[1] === c) div.classList.add('ring-1', 'ring-yellow-300', 'scale-125', 'z-10');
+                    table.appendChild(div);
+                });
+            });
+            vizContainer.appendChild(table);
+        }
+    }
+
+    function updateAlgoInfo() {
+        const algo = algorithms[algoSelect.value];
+        document.getElementById('info-complexity').textContent = algo.complexity;
+        document.getElementById('info-space').textContent = algo.space;
+        document.getElementById('info-desc').textContent = algo.description; // ADDED DESCRIPTION UPDATE
+        codePanel.innerHTML = '';
+        algo.code.forEach((line, idx) => {
+            const lineDiv = document.createElement('div');
+            lineDiv.className = 'code-line px-2 py-0.5 rounded transition-all flex items-start';
+            lineDiv.dataset.line = idx;
+            lineDiv.innerHTML = `<span class="text-slate-700 mr-2 select-none w-3 text-right flex-shrink-0">${idx}</span><span class="whitespace-nowrap">${line.replace(/ /g, '&nbsp;')}</span>`;
+            codePanel.appendChild(lineDiv);
+        });
+    }
+
+    function startAnimation() {
+        if (isPlaying) return;
+        isPlaying = true; btnStart.disabled = true; btnPause.disabled = false; btnGenerate.disabled = true;
+        if (!currentGenerator) {
+            const algo = algorithms[algoSelect.value];
+            currentGenerator = (algo.type === 'GRID') ? algo.generator() : algo.generator([...array], parseInt(searchTargetInput.value));
+        }
+        runLoop();
+    }
+
+    function runLoop() {
+        if (!isPlaying) return;
+        const result = currentGenerator.next();
+        if (!result.done) { processStep(result.value); animationTimeout = setTimeout(runLoop, animationSpeed); }
+        else { isPlaying = false; btnStart.disabled = false; btnPause.disabled = true; btnGenerate.disabled = false; }
+    }
+
+    function pauseAnimation() { isPlaying = false; btnStart.disabled = false; btnPause.disabled = true; clearTimeout(animationTimeout); }
+
+    function resetAnimation() {
+        pauseAnimation(); currentGenerator = null; finalized = []; excluded = [];
+        document.querySelectorAll('.code-line').forEach(l => l.classList.remove('active'));
+        stepDetail.textContent = "Standby...";
+    }
+
+    function processStep(step) {
+        const { line, msg, highlight, type, finalized: finIdx, gridUpdate, highlightCell, pointers } = step;
+        stepDetail.textContent = msg;
+        document.querySelectorAll('.code-line').forEach(l => l.classList.remove('active'));
+        const lineEl = document.querySelector(`.code-line[data-line="${line}"]`);
+        if (lineEl) { lineEl.classList.add('active'); lineEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+        if (gridUpdate && grid.length > 0) grid[gridUpdate.r][gridUpdate.c] = gridUpdate.type;
+        if (finIdx !== undefined) if (!finalized.includes(finIdx)) finalized.push(finIdx);
+        if (type === 'swap' && highlight && algorithms[algoSelect.value].type === 'BAR') {
+            const activeHighlight = Array.isArray(highlight) ? highlight : [];
+            if(activeHighlight.length >= 2) [array[activeHighlight[0]], array[activeHighlight[1]]] = [array[activeHighlight[1]], array[activeHighlight[0]]];
+        }
+        render(highlight || [], type, { highlightCell, pointers });
+    }
+    window.onload = init;
+</script>
+</body>
+</html>

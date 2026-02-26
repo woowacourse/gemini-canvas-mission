@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DroidVisualizer - 안드로이드 전문 학습 도구</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Fira+Code:wght@400;500&display=swap');
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f0f2f5;
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .android-green { color: #3DDC84; }
+        .bg-android-green { background-color: #3DDC84; }
+        .bg-android-dark { background-color: #073042; }
+
+        .lifecycle-node, .arch-node, .di-node, .compose-node {
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+        }
+        .lifecycle-node:hover, .arch-node:hover, .di-node:hover, .compose-node:hover {
+            transform: scale(1.05);
+            filter: brightness(1.1);
+        }
+        .lifecycle-line, .arch-line, .di-line, .compose-line {
+            width: 4px;
+            background: #cbd5e1;
+            margin: 0 auto;
+            height: 30px;
+        }
+
+        /* Animations */
+        .highlight-pulse {
+            animation: pulse-green 1.5s infinite;
+            border: 3px solid #3DDC84 !important;
+        }
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(61, 220, 132, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(61, 220, 132, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(61, 220, 132, 0); }
+        }
+
+        .recompose-blink {
+            animation: blink-orange 0.8s ease-in-out;
+        }
+        @keyframes blink-orange {
+            0% { background-color: white; }
+            50% { background-color: #fb923c; border-color: #f97316; color: white; }
+            100% { background-color: white; }
+        }
+
+        .dispatcher-track {
+            border-left: 8px solid;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 0 12px 12px 0;
+            position: relative;
+        }
+        .track-main { border-color: #4285F4; background: #e8f0fe; }
+        .track-io { border-color: #EA4335; background: #fce8e6; }
+        .track-default { border-color: #FBBC04; background: #fef7e0; }
+
+        .code-snippet {
+            background-color: rgba(0, 0, 0, 0.05);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            margin-top: 8px;
+            color: #334155;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            line-height: 1.5;
+        }
+
+        .data-packet {
+            width: 20px;
+            height: 20px;
+            background: #3DDC84;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: -14px;
+            transform: translateY(-50%);
+            box-shadow: 0 0 10px rgba(61, 220, 132, 0.5);
+            animation: flow 3s infinite linear;
+        }
+
+        @keyframes flow {
+            0% { top: 0; opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #3DDC84;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .transmission-line {
+            height: 2px;
+            background: #cbd5e1;
+            width: 100%;
+            position: relative;
+            margin: 10px 0;
+        }
+        .data-dot {
+            width: 10px;
+            height: 10px;
+            background: #3DDC84;
+            border-radius: 50%;
+            position: absolute;
+            left: 0;
+            top: -4px;
+        }
+        .animate-data {
+            animation: transmit 1s ease-in-out forwards;
+        }
+        @keyframes transmit {
+            0% { left: 0; opacity: 1; }
+            100% { left: 100%; opacity: 0; }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+<!-- Header -->
+<header class="bg-android-dark text-white p-6 shadow-lg sticky top-0 z-40">
+    <div class="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+        <div class="flex items-center gap-3">
+            <i class="fab fa-android text-4xl android-green"></i>
+            <h1 class="text-2xl font-bold tracking-tight">DroidVisualizer</h1>
+        </div>
+        <nav class="flex gap-1 text-[10px] md:text-sm overflow-x-auto pb-1 md:pb-0 w-full md:w-auto scrollbar-hide">
+            <button onclick="switchTab('lifecycle')" class="nav-btn whitespace-nowrap px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 transition active" id="btn-lifecycle">생명주기</button>
+            <button onclick="switchTab('coroutines')" class="nav-btn whitespace-nowrap px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 transition" id="btn-coroutines">코루틴</button>
+            <button onclick="switchTab('architecture')" class="nav-btn whitespace-nowrap px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 transition" id="btn-architecture">아키텍처</button>
+            <button onclick="switchTab('compose')" class="nav-btn whitespace-nowrap px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 transition" id="btn-compose">제트팩 컴포즈</button>
+            <button onclick="switchTab('di')" class="nav-btn whitespace-nowrap px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 transition" id="btn-di">의존성 주입</button>
+            <button onclick="switchTab('quiz')" class="nav-btn whitespace-nowrap px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 transition" id="btn-quiz">AI 퀴즈</button>
+        </nav>
+    </div>
+</header>
+
+<main class="max-w-5xl mx-auto p-4 md:p-8">
+
+    <!-- Lifecycle Section -->
+    <section id="lifecycle" class="tab-content active animate-fade-in">
+        <div class="bg-android-dark text-white rounded-3xl p-8 mb-6 shadow-xl border border-white/5">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="bg-android-green p-3 rounded-2xl shadow-inner">
+                    <i class="fas fa-history text-android-dark text-2xl"></i>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold">생명주기(Lifecycle) 가이드</h2>
+                    <p class="text-android-green text-sm">탄생부터 소멸까지의 여정</p>
+                </div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-4 text-xs text-slate-300 leading-relaxed">
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <h4 class="text-white font-bold mb-1"><i class="fas fa-user-clock mr-2 text-android-green"></i>컴포넌트 수명 주기</h4>
+                    <p>시스템에 의해 제어되는 Activity와 Fragment의 상태 변화 시점을 이해하고 각 전이 단계에서 필요한 리소스 관리 전략을 수립합니다.</p>
+                </div>
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <h4 class="text-white font-bold mb-1"><i class="fas fa-shield-alt mr-2 text-android-green"></i>가용성 및 무결성 유지</h4>
+                    <p>비정상 종료 또는 구성 변경 시 상태(State) 보존 로직을 구현하여 데이터 무결성을 유지하는 것이 핵심입니다.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-6">
+            <div class="md:col-span-2 bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                <div class="flex items-center gap-2 mb-6">
+                    <i class="fas fa-fingerprint text-blue-500"></i>
+                    <h2 class="text-lg font-bold">Lifecycle Nodes</h2>
+                </div>
+                <div class="flex flex-col items-center">
+                    <div onclick="showDetail('onCreate')" id="node-onCreate" class="lifecycle-node w-full max-w-[200px] p-3 bg-blue-500 text-white rounded-xl text-center font-bold text-sm shadow-sm">onCreate()</div>
+                    <div class="lifecycle-line"></div>
+                    <div onclick="showDetail('onStart')" id="node-onStart" class="lifecycle-node w-full max-w-[200px] p-3 bg-blue-400 text-white rounded-xl text-center font-bold text-sm shadow-sm">onStart()</div>
+                    <div class="lifecycle-line"></div>
+                    <div onclick="showDetail('onResume')" id="node-onResume" class="lifecycle-node w-full max-w-[200px] p-3 bg-green-500 text-white rounded-xl text-center font-bold text-sm shadow-sm">onResume()</div>
+                    <div class="bg-green-50 px-3 py-1 rounded-full border border-green-200 text-green-700 text-[10px] my-2 font-bold uppercase">Active</div>
+                    <div class="lifecycle-line"></div>
+                    <div onclick="showDetail('onPause')" id="node-onPause" class="lifecycle-node w-full max-w-[200px] p-3 bg-yellow-500 text-white rounded-xl text-center font-bold text-sm shadow-sm">onPause()</div>
+                    <div class="lifecycle-line"></div>
+                    <div onclick="showDetail('onStop')" id="node-onStop" class="lifecycle-node w-full max-w-[200px] p-3 bg-orange-500 text-white rounded-xl text-center font-bold text-sm shadow-sm">onStop()</div>
+                    <div class="lifecycle-line"></div>
+                    <div onclick="showDetail('onDestroy')" id="node-onDestroy" class="lifecycle-node w-full max-w-[200px] p-3 bg-red-500 text-white rounded-xl text-center font-bold text-sm shadow-sm">onDestroy()</div>
+                </div>
+            </div>
+            <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                <div class="flex items-center gap-2 mb-4">
+                    <i class="fas fa-play-circle text-purple-500"></i>
+                    <h2 class="text-lg font-bold">Scenario Simulator</h2>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-6">시나리오별 호출 시퀀스를 확인하세요.</p>
+                <div class="space-y-3">
+                    <button onclick="playScenario('rotation')" class="w-full p-4 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 text-left transition-all group">
+                        <div class="font-bold text-sm mb-1 flex items-center gap-2"><i class="fas fa-sync text-blue-500 group-hover:rotate-180 transition-transform duration-500"></i>Configuration Change</div>
+                        <p class="text-[10px] text-slate-500">화면 회전 시 재성성 과정을 시뮬레이션합니다.</p>
+                    </button>
+                    <button onclick="playScenario('background')" class="w-full p-4 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 text-left transition-all">
+                        <div class="font-bold text-sm mb-1 flex items-center gap-2"><i class="fas fa-home text-green-500"></i>To Background</div>
+                        <p class="text-[10px] text-slate-500">프로세스 백그라운드 전이 흐름입니다.</p>
+                    </button>
+                    <button onclick="playScenario('backpress')" class="w-full p-4 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 text-left transition-all">
+                        <div class="font-bold text-sm mb-1 flex items-center gap-2"><i class="fas fa-arrow-left text-red-500"></i>Finish Activity</div>
+                        <p class="text-[10px] text-slate-500">컴포넌트의 명시적 소멸 시퀀스입니다.</p>
+                    </button>
+                </div>
+                <div id="scenario-flow" class="mt-6 p-4 bg-android-dark rounded-2xl hidden shadow-inner">
+                    <p class="text-android-green text-[10px] font-bold mb-2 uppercase tracking-widest">Flow Sequence</p>
+                    <div id="flow-content" class="text-white text-[11px] space-y-2 font-mono"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Coroutine Section -->
+    <section id="coroutines" class="tab-content animate-fade-in">
+        <div class="bg-android-dark text-white rounded-3xl p-8 mb-6 shadow-xl border border-white/5">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="bg-android-green p-3 rounded-2xl shadow-inner">
+                    <i class="fas fa-magic text-android-dark text-2xl"></i>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold">코루틴(Coroutines) 가이드</h2>
+                    <p class="text-android-green text-sm">Non-blocking 비동기 프로그래밍 모델</p>
+                </div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-6 text-sm leading-relaxed text-slate-300">
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <h4 class="font-bold text-white mb-2"><i class="fas fa-pause-circle mr-2 text-android-green"></i>일시 중단(Suspend) 메커니즘</h4>
+                    <p>특정 루틴이 실행 도중 스레드를 차단하지 않고 상태를 저장한 후 실행을 일시 중단하였다가, 조건이 충족되면 재개(Resume)하는 제어 흐름입니다.</p>
+                </div>
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <h4 class="font-bold text-white mb-2"><i class="fas fa-leaf mr-2 text-android-green"></i>구조화된 동시성</h4>
+                    <p>CoroutineScope를 통해 코루틴의 수명을 관리하며, 상위 스코프 종료 시 하위 작업을 계층적으로 취소하여 리소스 누수를 방지합니다.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+                <div class="text-blue-500 font-black mb-1 text-sm uppercase">01. Scope</div>
+                <p class="text-[11px] text-slate-500 leading-snug">코루틴이 실행되는 수명 범위를 정의합니다. 생명주기 객체와 바인딩됩니다.</p>
+            </div>
+            <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+                <div class="text-red-500 font-black mb-1 text-sm uppercase">02. suspend</div>
+                <p class="text-[11px] text-slate-500 leading-snug">비차단(Non-blocking) 방식으로 일시 중단될 수 있는 함수임을 나타내는 수정자입니다.</p>
+            </div>
+            <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+                <div class="text-yellow-600 font-black mb-1 text-sm uppercase">03. Job</div>
+                <p class="text-[11px] text-slate-500 leading-snug">실행 중인 코루틴 작업에 대한 핸들러로, 취소 및 상태 관찰을 수행합니다.</p>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+            <div class="flex items-center gap-2 mb-6">
+                <i class="fas fa-subway text-slate-400"></i>
+                <h2 class="text-xl font-bold">Coroutine Context & Dispatchers</h2>
+            </div>
+            <div class="space-y-6">
+                <div class="dispatcher-track track-main">
+                    <div class="data-packet"></div>
+                    <h3 class="font-bold text-blue-800 text-sm"><i class="fas fa-desktop mr-2"></i>Dispatchers.Main</h3>
+                    <pre class="code-snippet code-font">lifecycleScope.launch {
+    binding.statusText.text = "Hello Android!"
+}</pre>
+                </div>
+                <div class="dispatcher-track track-io">
+                    <div class="data-packet" style="animation-delay: -1s"></div>
+                    <h3 class="font-bold text-red-800 text-sm"><i class="fas fa-cloud-download-alt mr-2"></i>Dispatchers.IO</h3>
+                    <pre class="code-snippet code-font">withContext(Dispatchers.IO) {
+    val data = apiService.fetchData()
+}</pre>
+                </div>
+                <div class="dispatcher-track track-default">
+                    <div class="data-packet" style="animation-delay: -2s"></div>
+                    <h3 class="font-bold text-yellow-800 text-sm"><i class="fas fa-microchip mr-2"></i>Dispatchers.Default</h3>
+                    <pre class="code-snippet code-font">withContext(Dispatchers.Default) {
+    imageFilter.apply(bitmap)
+}</pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="architecture" class="tab-content animate-fade-in">
+        <div class="bg-android-dark text-white rounded-3xl p-8 mb-6 shadow-xl border border-white/5">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="bg-blue-500 p-3 rounded-2xl shadow-inner">
+                    <i class="fas fa-layer-group text-white text-2xl"></i>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold">안드로이드 아키텍처 (MVVM)</h2>
+                    <p class="text-blue-300 text-sm">관심사 분리를 통한 계층 구조화</p>
+                </div>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed max-w-2xl">
+                비즈니스 로직과 UI 로직을 분리하여 모듈성, 테스트 가능성, 유지보수성을 극대화하는 MVVM(Model-View-ViewModel) 패턴을 분석합니다.
+            </p>
+        </div>
+
+        <div class="space-y-6">
+            <!-- MVVM Flow Diagram -->
+            <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                <div class="flex items-center justify-between mb-8">
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-project-diagram text-blue-500"></i>
+                        <h2 class="text-lg font-bold">Data Flow Architecture</h2>
+                    </div>
+                    <button onclick="simulateDataFlow()" class="px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-bold hover:bg-blue-600 transition shadow-md flex items-center gap-2">
+                        <i class="fas fa-play"></i> 데이터 요청 시뮬레이션
+                    </button>
+                </div>
+
+                <div class="flex flex-col items-center">
+                    <div onclick="showDetail('archView')" id="arch-view" class="arch-node w-full max-w-[280px] p-4 bg-blue-50 border-2 border-blue-200 rounded-2xl text-center">
+                        <h3 class="font-bold text-blue-800 text-sm">View (UI Layer)</h3>
+                    </div>
+                    <div class="arch-line flex items-center justify-center"><i id="flow-arrow-1" class="fas fa-arrow-down text-slate-300"></i></div>
+                    <div onclick="showDetail('archViewModel')" id="arch-viewmodel" class="arch-node w-full max-w-[280px] p-4 bg-indigo-50 border-2 border-indigo-200 rounded-2xl text-center">
+                        <h3 class="font-bold text-indigo-800 text-sm">ViewModel</h3>
+                    </div>
+                    <div class="arch-line flex items-center justify-center"><i id="flow-arrow-2" class="fas fa-arrow-down text-slate-300"></i></div>
+                    <div onclick="showDetail('archRepository')" id="arch-repository" class="arch-node w-full max-w-[280px] p-4 bg-purple-50 border-2 border-purple-200 rounded-2xl text-center">
+                        <h3 class="font-bold text-purple-800 text-sm">Repository</h3>
+                    </div>
+                    <div class="arch-line flex items-center justify-center"><i id="flow-arrow-3" class="fas fa-arrow-down text-slate-300"></i></div>
+                    <div class="flex gap-4 w-full justify-center">
+                        <div onclick="showDetail('archRemote')" id="arch-remote" class="arch-node flex-1 max-w-[140px] p-3 bg-red-50 border-2 border-red-100 rounded-xl text-center">
+                            <h3 class="font-bold text-red-800 text-[11px]">Remote (API)</h3>
+                        </div>
+                        <div onclick="showDetail('archLocal')" id="arch-local" class="arch-node flex-1 max-w-[140px] p-3 bg-amber-50 border-2 border-amber-100 rounded-xl text-center">
+                            <h3 class="font-bold text-amber-800 text-[11px]">Local (DB)</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MVVM Implementation Example -->
+            <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                <div class="flex items-center gap-2 mb-6">
+                    <i class="fas fa-code text-indigo-500"></i>
+                    <h2 class="text-lg font-bold">MVVM Pattern 실무 예제 코드</h2>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                        <div class="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">1. Data Layer</span>
+                            <span class="text-[9px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded font-mono">UserRepo.kt</span>
+                        </div>
+                        <pre class="p-4 bg-slate-900 text-blue-100 text-[11px] code-font overflow-x-auto leading-relaxed">
+data class User(val id: Int, val name: String)
+
+class UserRepository(private val api: ApiService) {
+    suspend fun getUser(id: Int): User {
+        return api.fetchUser(id)
+    }
+}</pre>
+                    </div>
+
+                    <div class="rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                        <div class="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">2. ViewModel</span>
+                            <span class="text-[9px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded font-mono">MainViewModel.kt</span>
+                        </div>
+                        <pre class="p-4 bg-slate-900 text-blue-100 text-[11px] code-font overflow-x-auto leading-relaxed">
+class MainViewModel(private val repo: UserRepository) : ViewModel() {
+    private val _userState = MutableStateFlow&lt;User?&gt;(null)
+    val userState: StateFlow&lt;User?&gt; = _userState.asStateFlow()
+
+    fun loadUser(id: Int) {
+        viewModelScope.launch {
+            _userState.value = repo.getUser(id)
+        }
+    }
+}</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LiveData vs StateFlow Comparison -->
+            <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 overflow-hidden">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-stream text-green-500"></i>
+                        <h2 class="text-lg font-bold">Observable State Holders</h2>
+                    </div>
+                    <div class="flex bg-slate-100 p-1 rounded-xl">
+                        <button id="view-active-btn" onclick="setViewState(true)" class="px-3 py-1 rounded-lg text-[10px] font-bold bg-white shadow-sm text-green-600">Active</button>
+                        <button id="view-inactive-btn" onclick="setViewState(false)" class="px-3 py-1 rounded-lg text-[10px] font-bold text-slate-400">Inactive</button>
+                    </div>
+                </div>
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                        <h3 class="font-bold text-blue-700 text-xs mb-3">LiveData</h3>
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600"><i class="fas fa-database"></i></div>
+                            <div class="flex-1"><div class="transmission-line"><div id="dot-livedata" class="data-dot bg-blue-500"></div></div></div>
+                            <div id="ui-livedata" class="w-10 h-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-400 transition-colors"><i class="fas fa-mobile-alt"></i></div>
+                        </div>
+                    </div>
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                        <h3 class="font-bold text-green-700 text-xs mb-3">StateFlow</h3>
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-green-600"><i class="fas fa-magic"></i></div>
+                            <div class="flex-1"><div class="transmission-line"><div id="dot-stateflow" class="data-dot bg-green-500"></div></div></div>
+                            <div id="ui-stateflow" class="w-10 h-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-400 transition-colors"><i class="fas fa-mobile-alt"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <button onclick="simulateDataEmission()" class="w-full mt-4 py-3 bg-android-dark text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition shadow-md">Emit State Change</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Jetpack Compose Section -->
+    <section id="compose" class="tab-content animate-fade-in">
+        <div class="bg-android-dark text-white rounded-3xl p-8 mb-6 shadow-xl border border-white/5">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="bg-orange-500 p-3 rounded-2xl shadow-inner">
+                    <i class="fas fa-cube text-white text-2xl"></i>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold">Jetpack Compose (선언형 UI)</h2>
+                    <p class="text-orange-300 text-sm">상태 지향적 UI 렌더링 프레임워크</p>
+                </div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-4 text-xs text-slate-300 leading-relaxed">
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <h4 class="text-white font-bold mb-1"><i class="fas fa-magic mr-2 text-orange-400"></i>Declarative Paradigm</h4>
+                    <p>객체 기반의 명령형 코드 대신, 현재 상태(State)의 스냅샷을 기반으로 UI 구성을 함수적으로 선언합니다.</p>
+                </div>
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <h4 class="text-white font-bold mb-1"><i class="fas fa-sync-alt mr-2 text-orange-400"></i>State-driven Rendering</h4>
+                    <p>데이터 바인딩 기술을 기반으로 상태 전이 발생 시 필요한 범위의 UI 노드만을 재계산합니다.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <!-- 1. State Hoisting (UDF) Section -->
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="md:col-span-2 bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                    <div class="flex items-center justify-between mb-8">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-arrow-up-right-dots text-orange-500"></i>
+                            <h2 class="text-lg font-bold">State Hoisting (UDF)</h2>
+                        </div>
+                        <button onclick="simulateHoisting()" class="px-4 py-2 bg-orange-500 text-white rounded-xl text-[10px] font-bold hover:bg-orange-600 transition shadow-md">Simulate UDF Flow</button>
+                    </div>
+
+                    <div class="flex flex-col items-center">
+                        <div onclick="showDetail('composeParent')" id="comp-parent" class="compose-node w-full max-w-[320px] p-6 bg-orange-50 border-2 border-orange-200 rounded-3xl text-center">
+                            <h3 class="font-bold text-orange-800 text-sm">Parent (State Owner)</h3>
+                            <div class="mt-2 bg-white rounded-lg p-2 text-[10px] font-mono border border-orange-100">var count by remember { mutableStateOf(0) }</div>
+                        </div>
+                        <div class="flex justify-between w-full max-w-[320px] px-8 my-2">
+                            <div class="flex flex-col items-center">
+                                <span class="text-[9px] text-blue-500 font-bold mb-1">State ↓</span>
+                                <div class="w-1 bg-blue-200 h-10"></div>
+                            </div>
+                            <div class="flex flex-col items-center">
+                                <span class="text-[9px] text-red-500 font-bold mb-1">Event ↑</span>
+                                <div class="w-1 bg-red-200 h-10"></div>
+                            </div>
+                        </div>
+                        <div onclick="showDetail('composeChild')" id="comp-child" class="compose-node w-full max-w-[280px] p-6 bg-slate-50 border-2 border-slate-200 rounded-3xl text-center">
+                            <h3 class="font-bold text-slate-700 text-sm">Child (Stateless)</h3>
+                            <p class="text-[9px] text-slate-500 mt-1">콜백 트리거 발생</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col justify-center text-center">
+                    <h3 class="font-bold text-sm mb-4 text-green-600">Recomposition</h3>
+                    <div class="flex flex-col items-center space-y-2">
+                        <div id="re-root" class="w-32 p-2 border-2 border-slate-200 rounded-lg text-center text-[10px]">Composition Root</div>
+                        <div class="w-0.5 bg-slate-200 h-4"></div>
+                        <div class="flex gap-4">
+                            <div class="flex flex-col items-center">
+                                <div id="re-stateful" class="w-24 p-2 border-2 border-orange-300 rounded-lg text-center text-[10px] font-bold">Observer Node</div>
+                                <div class="w-0.5 bg-slate-200 h-4"></div>
+                                <div id="re-child-1" class="w-20 p-2 border-2 border-slate-200 rounded-lg text-center text-[9px]">UI Node</div>
+                            </div>
+                            <div class="flex flex-col items-center"><div id="re-static" class="w-24 p-2 border-2 border-slate-200 rounded-lg text-center text-[10px]">Static (Skip)</div></div>
+                        </div>
+                    </div>
+                    <button onclick="triggerRecomposition()" class="w-full mt-8 py-3 bg-android-dark text-white rounded-xl text-xs font-bold shadow-lg">Invalidate & Recompose</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Dependency Injection (DI) Section -->
+    <section id="di" class="tab-content animate-fade-in">
+        <div class="bg-android-dark text-white rounded-3xl p-8 mb-6 shadow-xl border border-white/5">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="bg-android-green p-3 rounded-2xl shadow-inner">
+                    <i class="fas fa-syringe text-android-dark text-2xl"></i>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold">의존성 주입 (Dependency Injection)</h2>
+                    <p class="text-android-green text-sm">Hilt 프레임워크를 활용한 의존성 관리 전략</p>
+                </div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-4 text-xs text-slate-300 leading-relaxed">
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <h4 class="text-white font-bold mb-1"><i class="fas fa-microchip mr-2 text-android-green"></i>Inversion of Control (IoC)</h4>
+                    <p>객체가 필요한 의존성을 스스로 인스턴스화하지 않고 외부 프레임워크로부터 주입받음으로써 결합도를 낮추는 아키텍처 원칙입니다.</p>
+                </div>
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <h4 class="text-white font-bold mb-1"><i class="fas fa-check-circle mr-2 text-android-green"></i>Hilt Framework</h4>
+                    <p>Dagger 라이브러리를 기반으로 안드로이드 수명 주기에 최적화된 표준 DI 컨테이너를 자동으로 구성합니다.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="md:col-span-2 bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                    <div class="flex items-center justify-between mb-8">
+                        <h2 class="text-lg font-bold">Dependency Graph Flow</h2>
+                        <button onclick="simulateInjection()" class="px-4 py-2 bg-indigo-500 text-white rounded-xl text-[10px] font-bold shadow-md">Inject</button>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <div onclick="showDetail('diModule')" id="di-module" class="di-node w-full max-w-[280px] p-3 bg-indigo-50 border-2 border-indigo-100 rounded-xl text-center"><h3 class="font-bold text-indigo-800 text-sm">@Module</h3></div>
+                        <div class="di-line flex items-center justify-center"><i id="di-arrow-1" class="fas fa-chevron-down text-slate-300"></i></div>
+                        <div class="flex gap-4 w-full justify-center">
+                            <div onclick="showDetail('diSingleton')" id="di-singleton" class="di-node flex-1 max-w-[140px] p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-center"><h3 class="font-bold text-slate-700 text-[10px]">SingletonComponent</h3></div>
+                            <div onclick="showDetail('diActivityComp')" id="di-activity-comp" class="di-node flex-1 max-w-[140px] p-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-center"><h3 class="font-bold text-slate-700 text-[10px]">ActivityComponent</h3></div>
+                        </div>
+                        <div class="di-line flex items-center justify-center mt-2"><i id="di-arrow-2" class="fas fa-chevron-down text-slate-300"></i></div>
+                        <div onclick="showDetail('diInject')" id="di-inject" class="di-node w-full max-w-[280px] p-4 bg-android-green/10 border-2 border-android-green/30 rounded-2xl text-center font-bold"><h3 class="font-bold text-android-dark text-sm">@Inject Target</h3></div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col justify-center">
+                    <h3 class="font-bold text-sm mb-4 text-indigo-600"><i class="fas fa-layer-group mr-2"></i>Hilt 계층 구조</h3>
+                    <div class="space-y-4 text-[10px] text-slate-600">
+                        <ul class="space-y-2">
+                            <li class="flex gap-2"><strong>@Singleton:</strong> 앱 프로세스 단위 유지</li>
+                            <li class="flex gap-2"><strong>@ActivityScoped:</strong> 액티비티 인스턴스 단위</li>
+                            <li class="flex gap-2"><strong>@ViewModelScoped:</strong> ViewModel 수명 주기 유지</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NEW: Hilt Implementation Example Code -->
+            <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                <div class="flex items-center gap-2 mb-6">
+                    <i class="fas fa-code text-indigo-500"></i>
+                    <h2 class="text-lg font-bold">Hilt (Dependency Injection) 실무 예제 코드</h2>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <!-- Step 1: App Setup -->
+                    <div class="rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                        <div class="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">1. Application Setup</span>
+                            <span class="text-[9px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded font-mono">MyApplication.kt</span>
+                        </div>
+                        <pre class="p-4 bg-slate-900 text-blue-100 text-[11px] code-font overflow-x-auto leading-relaxed">
+@HiltAndroidApp
+class MyApplication : Application() {
+    // Hilt가 종속성 그래프의 루트를 생성하도록 강제함
+}</pre>
+                    </div>
+
+                    <!-- Step 2: Hilt Module -->
+                    <div class="rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                        <div class="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">2. Module Definition</span>
+                            <span class="text-[9px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded font-mono">NetworkModule.kt</span>
+                        </div>
+                        <pre class="p-4 bg-slate-900 text-blue-100 text-[11px] code-font overflow-x-auto leading-relaxed">
+@Module
+@InstallIn(SingletonComponent::class)
+object NetworkModule {
+    @Provides
+    @Singleton
+    fun provideApiService(): ApiService {
+        return Retrofit.Builder()...build().create(ApiService::class.java)
+    }
+}</pre>
+                    </div>
+
+                    <!-- Step 3: Constructor Injection -->
+                    <div class="rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                        <div class="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">3. Constructor Injection</span>
+                            <span class="text-[9px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded font-mono">UserRepository.kt</span>
+                        </div>
+                        <pre class="p-4 bg-slate-900 text-blue-100 text-[11px] code-font overflow-x-auto leading-relaxed">
+class UserRepository @Inject constructor(
+    private val apiService: ApiService // Hilt가 자동으로 인스턴스를 주입
+) {
+    suspend fun fetchData() = apiService.getData()
+}</pre>
+                    </div>
+
+                    <!-- Step 4: Activity Entry Point -->
+                    <div class="rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                        <div class="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">4. Android Entry Point</span>
+                            <span class="text-[9px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded font-mono">MainActivity.kt</span>
+                        </div>
+                        <pre class="p-4 bg-slate-900 text-blue-100 text-[11px] code-font overflow-x-auto leading-relaxed">
+@AndroidEntryPoint
+class MainActivity : AppCompatActivity() {
+    @Inject lateinit var analytics: AnalyticsAdapter // 필드 주입
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        analytics.trackEvent("Activity_Created")
+    }
+}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quiz Mode -->
+    <section id="quiz" class="tab-content animate-fade-in">
+        <div id="quiz-container" class="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 min-h-[450px] flex flex-col justify-center text-center">
+            <div class="inline-block p-4 bg-android-green/10 rounded-full mb-4 mx-auto"><i class="fas fa-brain text-5xl text-android-green"></i></div>
+            <h3 class="text-2xl font-bold mb-4">AI 퀴즈 시스템</h3>
+            <button onclick="generateAIQuiz()" class="px-8 py-4 bg-android-dark text-white rounded-2xl font-bold hover:bg-slate-800 transition shadow-lg flex items-center gap-3 mx-auto"><i class="fas fa-magic"></i> 새로운 퀴즈 생성</button>
+        </div>
+    </section>
+
+</main>
+
+<!-- Modal for Details -->
+<div id="detail-modal" class="modal-overlay fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl transform transition-all scale-95 opacity-0 overflow-y-auto max-h-[90vh]" id="modal-content">
+        <div id="modal-header" class="flex justify-between items-start mb-4"><h3 id="modal-title" class="text-lg font-bold text-android-dark">Technical Detail</h3><button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 p-2"><i class="fas fa-times"></i></button></div>
+        <div id="modal-body" class="space-y-4">
+            <p id="modal-desc" class="text-xs text-slate-600 leading-relaxed"></p>
+            <div class="bg-slate-800 rounded-xl p-4 overflow-x-auto"><pre id="modal-code" class="code-font text-[10px] text-blue-200"></pre></div>
+            <div class="bg-blue-50 p-4 rounded-2xl border border-blue-100 text-xs"><h4 class="text-blue-700 font-bold mb-1">Technical Insight</h4><p id="modal-tip" class="text-blue-600"></p></div>
+        </div>
+        <button onclick="closeModal()" class="w-full mt-6 bg-android-dark text-white py-3 rounded-xl font-bold">닫기</button>
+    </div>
+</div>
+
+<script>
+    const apiKey = "";
+    const model = "gemini-2.5-flash-preview-09-2025";
+
+    let currentQuizIndex = 0;
+    let score = 0;
+    let quizData = [];
+    let isGenerating = false;
+    let isViewActive = true;
+
+    const allDetailData = {
+        onCreate: { title: 'onCreate()', desc: '컴포넌트 초기화 및 뷰 인플레이션 단계입니다. Bundle 객체를 통해 이전 상태 데이터를 복구할 수 있는 진입점입니다.', tip: '무거운 로직은 코루틴으로 위임하여 메인 스레드 대기를 방지해야 합니다.', code: `override fun onCreate(savedInstanceState: Bundle?) {\n  super.onCreate(savedInstanceState)\n  setContentView(R.layout.main)\n}` },
+        onStart: { title: 'onStart()', desc: '액티비티가 가시화되는 시점입니다. UI 상태를 초기화하거나 관찰(Observe) 작업을 시작합니다.', tip: 'onStop과 대칭을 이루는 리소스 관리 라이프사이클입니다.', code: `override fun onStart() {\n  super.onStart()\n}` },
+        onResume: { title: 'onResume()', desc: '사용자와의 모든 상호작용이 활성화되는 포커스 획득 상태입니다.', tip: '배터리 소모가 큰 작업의 시작점으로 권장됩니다.', code: `override fun onResume() {\n  super.onResume()\n}` },
+        onPause: { title: 'onPause()', desc: '가시성이 유지되지만 포커스를 잃은 일시적 상태입니다.', tip: '아주 짧은 시간 유지될 수 있으므로 무거운 저장 로직은 피하십시오.', code: `override fun onPause() {\n  super.onPause()\n}` },
+        onStop: { title: 'onStop()', desc: '사용자에게 컴포넌트가 더 이상 보이지 않는 상태입니다.', tip: '메모리 부족 시 시스템이 프로세스를 종료할 수 있는 최초의 지점입니다.', code: `override fun onStop() {\n  super.onStop()\n}` },
+        onDestroy: { title: 'onDestroy()', desc: '컴포넌트의 수명 주기가 완전히 종료됩니다.', tip: 'GC를 돕기 위해 참조 해제가 권장됩니다.', code: `override fun onDestroy() {\n  super.onDestroy()\n}` },
+        archView: { title: 'View (UI Layer)', desc: '사용자 인터페이스를 렌더링하고 입력을 포착하여 ViewModel로 전달합니다.', tip: '상태를 소유하지 않는 Dumb UI 구조를 지향하세요.', code: `class Activity : AppCompatActivity() { ... }` },
+        archViewModel: { title: 'ViewModel', desc: 'UI 상태를 유지하고 비즈니스 로직을 처리하는 핵심 계층입니다.', tip: 'Activity의 Context를 전달하지 마세요.', code: `class UserViewModel : ViewModel() { ... }` },
+        archRepository: { title: 'Repository', desc: '데이터 소스 간의 중재자 역할을 수행하며 데이터 접근을 추상화합니다.', tip: '데이터의 물리적 위치를 ViewModel이 알 필요 없도록 설계합니다.', code: `class Repo @Inject constructor(api: Api) { ... }` },
+        archRemote: { title: 'Remote API', desc: '외부 서버 API와의 통신을 전담합니다.', tip: 'I/O 작업이므로 비동기 처리가 필수입니다.', code: `interface Api { @GET suspend fun fetch(): List<Data> }` },
+        archLocal: { title: 'Local DB', desc: '장치 내부 저장소(Room)에 접근합니다.', tip: '오프라인 우선 아키텍처의 필수 레이어입니다.', code: `@Dao interface UserDao { ... }` },
+        diModule: { title: 'Hilt Module (@Module)', desc: '의존성 주입 도구에게 인스턴스 생성 방법을 선언합니다.', tip: '@Provides 또는 @Binds 어노테이션을 활용하세요.', code: `@Module\n@InstallIn(SingletonComponent::class)\nobject NetworkModule { ... }` },
+        diSingleton: { title: 'SingletonComponent', desc: '애플리케이션 수명 주기 동안 유지되는 최상위 컨테이너입니다.', tip: '전역 공유 객체 할당에 사용합니다.', code: `@InstallIn(SingletonComponent::class)` },
+        diActivityComp: { title: 'ActivityComponent', desc: '개별 Activity 인스턴스의 수명 주기에 바인딩된 컨테이너입니다.', tip: 'Activity 재생성 시 컨테이너도 함께 재생성됩니다.', code: `@InstallIn(ActivityComponent::class)` },
+        diInject: { title: '@Inject Annotation', desc: '의존성이 필요한 대상에서 특정 객체를 요청하거나 인스턴스 생성을 요청합니다.', tip: '생성자 주입을 최우선으로 고려하세요.', code: `class Repo @Inject constructor(api: Api) { ... }` },
+        scopeSingleton: { title: 'Singleton Scope', desc: '앱 전체에서 하나의 인스턴스만 보장합니다.', tip: '전역 상태가 필요한 경우에만 한정적으로 사용하세요.', code: `@Singleton` },
+        scopeViewModel: { title: 'ViewModel Scope', desc: 'ViewModel 인스턴스가 활성 상태일 때 의존성을 유지합니다.', tip: 'VM 내의 상태 공유에 유용합니다.', code: `@ViewModelScoped` },
+        scopeActivity: { title: 'Activity Scope', desc: '단일 Activity 내에서 동일한 객체 참조를 공유하도록 제어합니다.', tip: 'UI 관리 객체에 적합합니다.', code: `@ActivityScoped` },
+        composeParent: { title: 'State Hoisting (Parent)', desc: '상태의 소유권을 상위로 이동시켜 하위 컴포저블을 Stateless하게 만듭니다.', tip: 'UDF 아키텍처를 구현하는 표준 방법입니다.', code: `@Composable\nfun Parent() {\n  var text by remember { mutableStateOf("") }\n  Child(text = text, onValueChange = { text = it })\n}` },
+        composeChild: { title: 'Stateless Composable', desc: '상태를 보관하지 않고 오직 인자로 받은 데이터만 렌더링합니다.', tip: 'UI 테스트와 재사용성을 비약적으로 향상시킵니다.', code: `@Composable\nfun Child(text: String, onValueChange: (String) -> Unit) { ... }` }
+    };
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('bg-android-green', 'text-android-dark', 'active'));
+        document.getElementById(tabId).classList.add('active');
+        document.getElementById('btn-' + tabId).classList.add('bg-android-green', 'text-android-dark', 'active');
+    }
+
+    function playScenario(type) {
+        const flowPanel = document.getElementById('scenario-flow'); flowPanel.classList.remove('hidden');
+        const flowContent = document.getElementById('flow-content'); flowContent.innerHTML = '';
+        const seq = { rotation: ['onPause', 'onStop', 'onDestroy', 'onCreate', 'onStart', 'onResume'], background: ['onPause', 'onStop'], backpress: ['onPause', 'onStop', 'onDestroy'] }[type];
+        let i = 0; function next() {
+            if (i >= seq.length) return;
+            const node = document.getElementById('node-' + seq[i]);
+            if(node) node.classList.add('highlight-pulse');
+            const step = document.createElement('div'); step.innerHTML = `<span class="text-android-green">▶</span> <span>${seq[i]}()</span>`;
+            flowContent.appendChild(step); setTimeout(() => { if(node) node.classList.remove('highlight-pulse'); }, 600);
+            i++; setTimeout(next, 1000);
+        } next();
+    }
+
+    function simulateDataFlow() {
+        const nodes = ['arch-view', 'arch-viewmodel', 'arch-repository'];
+        nodes.forEach(n => document.getElementById(n).classList.remove('highlight-pulse'));
+        let i = 0; function next() {
+            if (i >= nodes.length) return; document.getElementById(nodes[i]).classList.add('highlight-pulse');
+            if (i > 0) document.getElementById('flow-arrow-' + i).className = 'fas fa-arrow-down text-android-green transition-colors';
+            i++; setTimeout(next, 1200);
+        } next();
+    }
+
+    function setViewState(active) {
+        isViewActive = active;
+        document.getElementById('view-active-btn').className = active ? "px-3 py-1 rounded-lg text-[10px] font-bold bg-white shadow-sm text-green-600" : "px-3 py-1 rounded-lg text-[10px] font-bold text-slate-400";
+        document.getElementById('view-inactive-btn').className = !active ? "px-3 py-1 rounded-lg text-[10px] font-bold bg-white shadow-sm text-red-600" : "px-3 py-1 rounded-lg text-[10px] font-bold text-slate-400";
+        document.getElementById('ui-livedata').className = active ? "w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-500" : "w-10 h-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-400";
+        document.getElementById('ui-stateflow').className = active ? "w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-green-500" : "w-10 h-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-400";
+    }
+
+    function simulateDataEmission() {
+        ['dot-livedata', 'dot-stateflow'].forEach(id => {
+            const el = document.getElementById(id); el.classList.remove('animate-data'); void el.offsetWidth; el.classList.add('animate-data');
+        });
+        setTimeout(() => {
+            if (isViewActive) {
+                document.getElementById('ui-livedata').classList.add('ring-4', 'ring-blue-400');
+                setTimeout(() => document.getElementById('ui-livedata').classList.remove('ring-4', 'ring-blue-400'), 500);
+                document.getElementById('ui-stateflow').classList.add('ring-4', 'ring-green-400');
+                setTimeout(() => document.getElementById('ui-stateflow').classList.remove('ring-4', 'ring-green-400'), 500);
+            }
+        }, 1000);
+    }
+
+    function simulateHoisting() {
+        const p = document.getElementById('comp-parent'); const c = document.getElementById('comp-child');
+        p.classList.add('highlight-pulse'); setTimeout(() => { p.classList.remove('highlight-pulse'); c.classList.add('highlight-pulse'); setTimeout(() => c.classList.remove('highlight-pulse'), 800); }, 800);
+    }
+
+    function triggerRecomposition() {
+        ['re-stateful', 're-child-1'].forEach(id => {
+            const el = document.getElementById(id); if(!el) return;
+            el.classList.remove('recompose-blink'); void el.offsetWidth; el.classList.add('recompose-blink');
+        });
+    }
+
+    function simulateInjection() {
+        const nodes = ['di-module', 'di-singleton', 'di-inject'];
+        nodes.forEach(n => document.getElementById(n).classList.remove('highlight-pulse'));
+        let i = 0; function next() {
+            if (i >= nodes.length) return; document.getElementById(nodes[i]).classList.add('highlight-pulse');
+            if (i === 1) document.getElementById('di-arrow-1').className = 'fas fa-chevron-down text-indigo-500 transition-colors';
+            if (i === 2) document.getElementById('di-arrow-2').className = 'fas fa-chevron-down text-android-green transition-colors';
+            i++; setTimeout(next, 1000);
+        } next();
+    }
+
+    async function fetchAIQuizWithRetry(retries = 5, backoff = 1000) {
+        const systemPrompt = "안드로이드 개발 심화 퀴즈 생성. 주제: 생명주기, 코루틴, MVVM, LiveData/StateFlow, Hilt, Compose. 4지선다형 3문항, 한국어, 기술 용어 정확히 사용.";
+        const schema = { type: "OBJECT", properties: { quizzes: { type: "ARRAY", items: { type: "OBJECT", properties: { question: { type: "STRING" }, options: { type: "ARRAY", items: { type: "STRING" }, minItems: 4, maxItems: 4 }, answer: { type: "NUMBER" }, explanation: { type: "STRING" } }, required: ["question", "options", "answer", "explanation"] } } }, required: ["quizzes"] };
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: "퀴즈 생성" }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, generationConfig: { responseMimeType: "application/json", responseSchema: schema } }) });
+            if (!response.ok) throw new Error("API Failure");
+            return JSON.parse((await response.json()).candidates[0].content.parts[0].text).quizzes;
+        } catch (e) {
+            if (retries > 0) { await new Promise(r => setTimeout(r, backoff)); return fetchAIQuizWithRetry(retries - 1, backoff * 2); }
+            throw e;
+        }
+    }
+
+    async function generateAIQuiz() {
+        if (isGenerating) return; isGenerating = true;
+        document.getElementById('quiz-container').innerHTML = `<div class="text-center p-12"><div class="spinner mx-auto mb-4"></div><h3 class="text-xl font-bold">퀴즈 문항을 생성하고 있습니다...</h3></div>`;
+        try { quizData = await fetchAIQuizWithRetry(); currentQuizIndex = 0; score = 0; renderQuiz(); }
+        catch (e) { document.getElementById('quiz-container').innerHTML = `<div class="text-center text-red-500">오류가 발생했습니다. <button onclick="generateAIQuiz()" class="mt-4 px-4 py-2 bg-slate-800 text-white rounded-lg">재시도</button></div>`; }
+        finally { isGenerating = false; }
+    }
+
+    function renderQuiz() {
+        const q = quizData[currentQuizIndex];
+        document.getElementById('quiz-container').innerHTML = `
+            <div class="mb-6 text-left"><span class="text-xs font-bold text-slate-400">문제 ${currentQuizIndex+1} / 3</span><h3 class="text-lg font-bold mt-2 text-slate-800">${q.question}</h3></div>
+            <div class="grid gap-2">${q.options.map((opt, i) => `<button onclick="checkAnswer(${i})" class="w-full text-left p-4 rounded-2xl border-2 border-slate-100 hover:border-android-green transition-all text-sm font-medium flex justify-between"><span>${opt}</span><i class="fas fa-chevron-right text-slate-300"></i></button>`).join('')}</div>`;
+    }
+
+    function checkAnswer(idx) {
+        const q = quizData[currentQuizIndex]; const isCorrect = idx === q.answer; if (isCorrect) score++;
+        document.getElementById('quiz-container').innerHTML = `
+            <div class="text-center mb-6"><div class="w-16 h-16 ${isCorrect ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'} rounded-full flex items-center justify-center mx-auto text-2xl mb-4"><i class="fas ${isCorrect ? 'fa-check' : 'fa-times'}"></i></div><h3 class="text-xl font-bold">${isCorrect ? '정답입니다' : '오답입니다'}</h3></div>
+            <div class="bg-slate-50 p-6 rounded-2xl mb-6 text-xs border border-slate-100 text-left"><p class="font-bold text-slate-400 mb-1 uppercase tracking-tighter">기술 해설</p><p class="text-slate-700 leading-relaxed">${q.explanation}</p></div>
+            <button onclick="nextQuiz()" class="w-full bg-android-dark text-white py-4 rounded-2xl font-bold shadow-md">다음 문항</button>`;
+    }
+
+    function nextQuiz() { currentQuizIndex++; if (currentQuizIndex < quizData.length) renderQuiz(); else renderResult(); }
+    function renderResult() { document.getElementById('quiz-container').innerHTML = `<div class="text-center py-8"><h3 class="text-xl text-slate-500 mb-2">퀴즈 완료</h3><div class="text-6xl font-black text-android-dark mb-6">${score} / 3</div><button onclick="generateAIQuiz()" class="w-full py-4 bg-android-green text-android-dark rounded-2xl font-bold shadow-md max-w-xs mx-auto">다시 풀기</button></div>`; }
+
+    function showDetail(key) {
+        const d = allDetailData[key]; document.getElementById('modal-title').innerText = d.title; document.getElementById('modal-desc').innerText = d.desc; document.getElementById('modal-tip').innerText = d.tip; document.getElementById('modal-code').innerText = d.code;
+        const m = document.getElementById('detail-modal'); const c = document.getElementById('modal-content');
+        m.classList.remove('hidden'); setTimeout(() => { c.classList.replace('scale-95', 'scale-100'); c.classList.replace('opacity-0', 'opacity-100'); }, 10);
+    }
+
+    function closeModal() {
+        const m = document.getElementById('detail-modal'); const c = document.getElementById('modal-content');
+        c.classList.replace('scale-100', 'scale-95'); c.classList.replace('opacity-100', 'opacity-0');
+        setTimeout(() => m.classList.add('hidden'), 300);
+    }
+
+    window.onload = () => switchTab('lifecycle');
+</script>
+</body>
+</html>

@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>리얼 주차 시뮬레이터 Pro - Keyboard Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+        body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: 'Pretendard', sans-serif; touch-action: none; }
+        canvas { display: block; }
+
+        .glass-panel { background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .steering-wheel {
+            width: 180px; height: 180px;
+            background: url('https://cdn-icons-png.flaticon.com/512/2164/2164633.png') center/contain no-repeat;
+            transition: transform 0.1s linear;
+        }
+
+        #start-screen {
+            background: radial-gradient(circle at center, #333 0%, #000 100%);
+            transition: opacity 0.5s ease;
+        }
+        .option-card {
+            cursor: pointer; transition: all 0.3s; border: 2px solid transparent;
+        }
+        .option-card.active { border-color: #eab308; background: rgba(234, 179, 8, 0.1); }
+
+        .key-hint {
+            @apply px-2 py-1 bg-white/20 rounded text-[10px] font-mono border border-white/30;
+        }
+    </style>
+</head>
+<body>
+
+<div id="start-screen" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div class="max-w-4xl w-full glass-panel rounded-3xl p-8 text-white max-h-[90vh] overflow-y-auto text-center">
+        <h1 class="text-5xl font-black mb-4 text-yellow-500 tracking-tighter italic">REAL DRIVE PRO</h1>
+        <p class="mb-8 opacity-70">키보드 조작 전용 시뮬레이터</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 text-left">
+            <section class="glass-panel p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-yellow-500">조작 가이드</h2>
+                <ul class="space-y-3 opacity-90">
+                    <li class="flex justify-between items-center"><span>가속 (엑셀)</span> <span class="key-hint">W</span></li>
+                    <li class="flex justify-between items-center"><span>브레이크 / 후진</span> <span class="key-hint">S</span></li>
+                    <li class="flex justify-between items-center"><span>스티어링 (좌/우)</span> <span class="key-hint">A / D</span></li>
+                    <li class="flex justify-between items-center"><span>기어 변속 (D/R)</span> <span class="key-hint">SPACE</span></li>
+                </ul>
+            </section>
+
+            <section class="glass-panel p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-yellow-500">차량 선택</h2>
+                <div class="grid grid-cols-2 gap-2">
+                    <div onclick="setOption(event, 'car', 'sedan')" class="option-card opt-car active p-3 rounded-xl bg-white/5 text-center text-sm">세단</div>
+                    <div onclick="setOption(event, 'car', 'suv')" class="option-card opt-car p-3 rounded-xl bg-white/5 text-center text-sm">SUV</div>
+                    <div onclick="setOption(event, 'car', 'truck')" class="option-card opt-car p-3 rounded-xl bg-white/5 text-center text-sm">트럭</div>
+                    <div onclick="setOption(event, 'car', 'sport')" class="option-card opt-car p-3 rounded-xl bg-white/5 text-center text-sm">스포츠카</div>
+                </div>
+            </section>
+        </div>
+
+        <button onclick="startGame()" class="bg-yellow-500 hover:bg-yellow-400 text-black font-black py-4 px-20 rounded-full text-2xl transition-transform active:scale-95 shadow-[0_0_30px_rgba(234,179,8,0.4)]">
+            운전 시작
+        </button>
+    </div>
+</div>
+
+<div id="game-ui" class="hidden">
+    <!-- 대시보드 -->
+    <div class="fixed top-6 left-6 flex gap-4 pointer-events-none">
+        <div class="glass-panel p-4 rounded-2xl text-white">
+            <div class="text-[10px] opacity-50 uppercase tracking-widest">Speed</div>
+            <div class="text-3xl font-bold italic"><span id="speed-val">0</span> <span class="text-sm font-normal">km/h</span></div>
+        </div>
+        <div class="glass-panel p-4 rounded-2xl text-white min-w-[100px] text-center">
+            <div class="text-[10px] opacity-50 uppercase tracking-widest">Gear Mode</div>
+            <div class="text-3xl font-bold text-yellow-500" id="gear-val">Drive</div>
+            <div class="text-[9px] mt-1 text-white/40">[SPACE] to Shift</div>
+        </div>
+    </div>
+
+    <!-- 키 조작 상태 표시 -->
+    <div class="fixed bottom-10 right-10 flex flex-col items-end gap-4 pointer-events-none opacity-80">
+        <div id="gear-display" class="glass-panel p-4 rounded-xl flex gap-4 items-center">
+            <span id="gear-d" class="text-2xl font-bold text-yellow-500">D</span>
+            <div class="w-1 h-8 bg-white/20"></div>
+            <span id="gear-r" class="text-2xl font-bold text-white/30">R</span>
+        </div>
+        <div class="flex gap-2">
+            <div id="key-w" class="w-12 h-12 glass-panel flex items-center justify-center rounded-lg font-bold text-white border-2 border-transparent transition-all">W</div>
+        </div>
+        <div class="flex gap-2">
+            <div id="key-a" class="w-12 h-12 glass-panel flex items-center justify-center rounded-lg font-bold text-white border-2 border-transparent transition-all">A</div>
+            <div id="key-s" class="w-12 h-12 glass-panel flex items-center justify-center rounded-lg font-bold text-white border-2 border-transparent transition-all">S</div>
+            <div id="key-d" class="w-12 h-12 glass-panel flex items-center justify-center rounded-lg font-bold text-white border-2 border-transparent transition-all">D</div>
+        </div>
+    </div>
+
+    <!-- 가상 핸들 (시각용) -->
+    <div class="fixed bottom-10 left-10 pointer-events-none opacity-50">
+        <div id="wheel" class="steering-wheel"></div>
+    </div>
+</div>
+
+<div id="status-overlay" class="fixed inset-0 z-[200] hidden flex items-center justify-center bg-black/80 backdrop-blur-md">
+    <div class="text-center">
+        <h2 id="status-title" class="text-6xl font-black mb-4 italic">CRASHED!</h2>
+        <p id="status-msg" class="text-white/60 mb-8 text-xl">다시 시도하려면 [R]키를 누르거나 버튼을 클릭하세요.</p>
+        <button onclick="location.reload()" class="bg-yellow-500 text-black font-bold py-4 px-12 rounded-full text-2xl hover:bg-yellow-400 transition-colors">다시 시도</button>
+    </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    const config = { carType: 'sedan' };
+    const carSpecs = {
+        sedan: { l: 80, w: 40, color: '#2563eb', maxSpd: 6.0, accel: 0.20 },
+        suv: { l: 90, w: 48, color: '#16a34a', maxSpd: 5.2, accel: 0.16 },
+        truck: { l: 140, w: 55, color: '#d97706', maxSpd: 4.2, accel: 0.12 },
+        sport: { l: 80, w: 42, color: '#e11d48', maxSpd: 9.0, accel: 0.35 }
+    };
+
+    let canvas, ctx, player, gameActive = false, frame = 0;
+    let parkingSpots = [];
+    let npcCars = [];
+
+    // 키보드 상태
+    const keys = {
+        w: false,
+        a: false,
+        s: false,
+        d: false,
+        space: false
+    };
+
+    function setOption(event, type, value) {
+        config[type === 'car' ? 'carType' : 'steeringSide'] = value;
+        document.querySelectorAll(`.opt-${type}`).forEach(el => el.classList.remove('active'));
+        if (event && event.currentTarget) event.currentTarget.classList.add('active');
+    }
+
+    function startGame() {
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('game-ui').classList.remove('hidden');
+        initGame();
+    }
+
+    function initGame() {
+        canvas = document.getElementById('gameCanvas');
+        ctx = canvas.getContext('2d');
+        resize();
+        window.addEventListener('resize', resize);
+
+        const spec = carSpecs[config.carType];
+
+        player = {
+            x: 100,
+            y: canvas.height / 2 + 50,
+            angle: 0,
+            speed: 0, steer: 0, gear: 1, // 1: Drive, -1: Reverse
+            w: spec.w, l: spec.l, color: spec.color, spec: spec
+        };
+
+        parkingSpots = [
+            { x: canvas.width - 450, y: canvas.height / 2 + 95, w: 100, h: 50, occupied: false },
+            { x: canvas.width - 300, y: canvas.height / 2 + 95, w: 100, h: 50, occupied: true }
+        ];
+
+        npcCars = [
+            { x: canvas.width - 200, y: canvas.height / 2 - 50, speed: -3.0, w: 40, l: 80, color: '#444' },
+            { x: canvas.width + 300, y: canvas.height / 2 - 50, speed: -3.5, w: 40, l: 80, color: '#222' }
+        ];
+
+        setupKeyboard();
+        gameActive = true;
+        requestAnimationFrame(gameLoop);
+    }
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+
+    function setupKeyboard() {
+        window.addEventListener('keydown', (e) => {
+            const k = e.key.toLowerCase();
+            if(k === 'w') { keys.w = true; updateKeyUI('w', true); }
+            if(k === 's') { keys.s = true; updateKeyUI('s', true); }
+            if(k === 'a') { keys.a = true; updateKeyUI('a', true); }
+            if(k === 'd') { keys.d = true; updateKeyUI('d', true); }
+            if(e.code === 'Space') {
+                e.preventDefault();
+                toggleGear();
+            }
+            if(k === 'r' && !gameActive) location.reload();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const k = e.key.toLowerCase();
+            if(k === 'w') { keys.w = false; updateKeyUI('w', false); }
+            if(k === 's') { keys.s = false; updateKeyUI('s', false); }
+            if(k === 'a') { keys.a = false; updateKeyUI('a', false); }
+            if(k === 'd') { keys.d = false; updateKeyUI('d', false); }
+        });
+    }
+
+    function updateKeyUI(key, active) {
+        const el = document.getElementById(`key-${key}`);
+        if(el) {
+            if(active) {
+                el.classList.add('bg-yellow-500', 'text-black', 'border-yellow-400', 'scale-95');
+            } else {
+                el.classList.remove('bg-yellow-500', 'text-black', 'border-yellow-400', 'scale-95');
+            }
+        }
+    }
+
+    function toggleGear() {
+        if(Math.abs(player.speed) > 0.3) return; // 속도가 있을 땐 변속 불가
+        player.gear = player.gear === 1 ? -1 : 1;
+
+        const gearVal = document.getElementById('gear-val');
+        const gearD = document.getElementById('gear-d');
+        const gearR = document.getElementById('gear-r');
+
+        if(player.gear === 1) {
+            gearVal.innerText = "Drive";
+            gearD.className = "text-2xl font-bold text-yellow-500";
+            gearR.className = "text-2xl font-bold text-white/30";
+        } else {
+            gearVal.innerText = "Reverse";
+            gearD.className = "text-2xl font-bold text-white/30";
+            gearR.className = "text-2xl font-bold text-yellow-500";
+        }
+    }
+
+    function update() {
+        if(!gameActive) return;
+
+        // 조향 로직
+        const steerSpeed = 0.05;
+        if(keys.a) {
+            player.steer = Math.max(-1, player.steer - steerSpeed);
+        } else if(keys.d) {
+            player.steer = Math.min(1, player.steer + steerSpeed);
+        } else {
+            // 핸들 자동 복귀
+            player.steer *= 0.85;
+            if(Math.abs(player.steer) < 0.01) player.steer = 0;
+        }
+
+        // 시각적 핸들 회전
+        document.getElementById('wheel').style.transform = `rotate(${player.steer * 450}deg)`;
+
+        // 가속 및 감속 로직
+        if(keys.w) {
+            player.speed += player.spec.accel * player.gear;
+        } else if(keys.s) {
+            // 브레이크 역할 및 반대 방향 가속
+            if((player.speed > 0 && player.gear === 1) || (player.speed < 0 && player.gear === -1)) {
+                player.speed *= 0.85; // 브레이크
+            } else {
+                // 정지 상태거나 반대 방향일 때 가속 (페달 혼용 방지 위해 실제로는 변속 필요하게 처리됨)
+                player.speed -= (player.spec.accel * 0.5) * player.gear;
+            }
+        } else {
+            player.speed *= 0.985; // 관성 저항
+        }
+
+        const max = player.spec.maxSpd;
+        player.speed = Math.max(-max, Math.min(max, player.speed));
+
+        // 이동 및 회전 적용
+        if(Math.abs(player.speed) > 0.1) {
+            const turnEffect = (player.steer * player.speed) / (25 + Math.abs(player.speed) * 5);
+            player.angle += turnEffect;
+        }
+
+        player.x += Math.cos(player.angle) * player.speed;
+        player.y += Math.sin(player.angle) * player.speed;
+
+        // NPC 차량 (반대 차선)
+        npcCars.forEach(npc => {
+            npc.x += npc.speed;
+            if(npc.x < -200) npc.x = canvas.width + 200;
+            const d = Math.hypot(player.x - npc.x, player.y - npc.y);
+            if(d < 45) endGame(false, "NPC 차량과 충돌했습니다!");
+        });
+
+        // 도로 경계 체크
+        if(player.y < canvas.height/2 - 120 || player.y > canvas.height/2 + 150) {
+            endGame(false, "도로를 이탈했습니다!");
+        }
+
+        // 주차 성공 체크
+        parkingSpots.forEach(spot => {
+            if(!spot.occupied) {
+                const centerX = spot.x + spot.w/2;
+                const centerY = spot.y + spot.h/2;
+                const dist = Math.hypot(player.x - centerX, player.y - centerY);
+                // 정지 상태, 위치 근접, 각도 수평 근접 시 성공
+                if(dist < 28 && Math.abs(player.speed) < 0.1 && Math.abs(Math.sin(player.angle)) < 0.15) {
+                    endGame(true, "완벽하게 주차했습니다! 미션 성공!");
+                }
+            }
+        });
+
+        document.getElementById('speed-val').innerText = Math.abs(Math.round(player.speed * 20));
+    }
+
+    function draw() {
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const midY = canvas.height / 2;
+        const roadH = 200;
+
+        // 도로
+        ctx.fillStyle = '#222';
+        ctx.fillRect(0, midY - roadH/2, canvas.width, roadH);
+
+        // 중앙선
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(0, midY); ctx.lineTo(canvas.width, midY);
+        ctx.stroke();
+
+        // 주차 구역
+        parkingSpots.forEach(spot => {
+            ctx.strokeStyle = spot.occupied ? '#444' : '#4ade80';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(spot.x, spot.y, spot.w, spot.h);
+            ctx.setLineDash([]);
+
+            if(spot.occupied) {
+                ctx.fillStyle = '#333';
+                ctx.fillRect(spot.x + 10, spot.y + 5, spot.w - 20, spot.h - 10);
+                ctx.fillStyle = '#700'; // 후미등
+                ctx.fillRect(spot.x + 10, spot.y + 10, 3, 5);
+                ctx.fillRect(spot.x + 10, spot.y + 35, 3, 5);
+            }
+        });
+
+        // NPC들
+        npcCars.forEach(npc => {
+            ctx.save();
+            ctx.translate(npc.x, npc.y);
+            ctx.fillStyle = npc.color;
+            ctx.fillRect(-npc.l/2, -npc.w/2, npc.l, npc.w);
+            ctx.fillStyle = '#fffaaa'; // 라이트
+            ctx.beginPath(); ctx.arc(-npc.l/2, -npc.w/4, 3, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(-npc.l/2, npc.w/4, 3, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+        });
+
+        // 플레이어
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        ctx.rotate(player.angle);
+
+        // 차체
+        ctx.shadowBlur = 15; ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.fillStyle = player.color;
+        ctx.fillRect(-player.l/2, -player.w/2, player.l, player.w);
+        ctx.shadowBlur = 0;
+
+        // 유리창
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(player.l/10, -player.w/2 + 4, player.l/4, player.w - 8);
+
+        // 전조등
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(player.l/2, -player.w/3, 4, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(player.l/2, player.w/3, 4, 0, Math.PI*2); ctx.fill();
+
+        // 후미등 (기어가 R일 때 백라이트, 아닐 때 브레이크등)
+        if(player.gear === -1) {
+            ctx.fillStyle = '#fff'; // 후진등
+        } else {
+            ctx.fillStyle = keys.s ? '#ff0000' : '#770000';
+        }
+        ctx.fillRect(-player.l/2, -player.w/2 + 4, 4, 8);
+        ctx.fillRect(-player.l/2, player.w/2 - 12, 4, 8);
+
+        ctx.restore();
+    }
+
+    function endGame(success, message) {
+        gameActive = false;
+        document.getElementById('status-overlay').classList.remove('hidden');
+        const title = document.getElementById('status-title');
+        const msg = document.getElementById('status-msg');
+
+        title.innerText = success ? "MISSION COMPLETE!" : "MISSION FAILED!";
+        title.style.color = success ? "#4ade80" : "#f87171";
+        msg.innerText = message + " 다시 시작: [R]";
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        if(gameActive) requestAnimationFrame(gameLoop);
+    }
+
+    window.onload = () => {
+        setOption(null, 'car', 'sedan');
+    };
+</script>
+</body>
+</html>

@@ -1,398 +1,532 @@
 <!DOCTYPE html>
 <html lang="ko">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Bullet Dodge Game - UI Enhanced</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <style>
-            body {
-                margin: 0;
-                overflow: hidden;
-                background-color: #0f172a;
-                font-family: 'Pretendard', sans-serif;
-                touch-action: none;
-            }
-            canvas {
-                display: block;
-            }
-            .ui-layer {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                pointer-events: none;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                color: white;
-            }
-            .interactive {
-                pointer-events: auto;
-            }
-            /* 시간 표시 UI 스타일 개선 */
-            #scoreBoard {
-                position: absolute;
-                top: 25px;
-                right: 25px;
-                text-align: right;
-                pointer-events: none;
-                z-index: 50;
-            }
-            #currentScore {
-                font-size: 2rem;
-                font-weight: 900;
-                color: #fbbf24; /* 밝은 노란색 (Tailwind Amber-400) */
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8), 0 0 10px rgba(251, 191, 36, 0.5);
-                letter-spacing: -0.02em;
-            }
-            #bestScore {
-                font-size: 1rem;
-                font-weight: 600;
-                color: #fcd34d; /* 약간 연한 노란색 */
-                opacity: 0.9;
-                text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
-            }
-        </style>
-    </head>
-    <body>
-        <canvas id="gameCanvas"></canvas>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bullet Dodge Game - Leaderboard Update</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase Libraries -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        <!-- 점수 표시 (시간 단위) -->
-        <div id="scoreBoard">
-            <div id="currentScore">TIME: 0.00s</div>
-            <div id="bestScore">BEST: 0.00s</div>
-        </div>
+        // Global variables provided by environment
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        <!-- UI 레이어 -->
-        <div id="uiOverlay" class="ui-layer">
-            <div
-                id="menuContent"
-                class="bg-slate-900/80 backdrop-blur-md p-8 rounded-2xl border border-slate-700 text-center interactive shadow-2xl"
-            >
-                <h1
-                    id="uiTitle"
-                    class="text-4xl font-extrabold mb-4 bg-gradient-to-r from-blue-400 to-green-400 bg-clip-text text-transparent"
-                >
-                    BULLET DODGE
-                </h1>
-                <p id="uiMessage" class="text-slate-300 mb-6">마우스로 총알을 피하고 초록색 쉴드를 획득하세요!</p>
-                <button
-                    id="startBtn"
-                    class="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-full transition-all transform hover:scale-105 active:scale-95"
-                >
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.gameFirebase = { db, auth, appId, collection, addDoc, onSnapshot, query, limit };
+
+        // Auth Logic
+        const initAuth = async () => {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Authentication failed:", error);
+            }
+        };
+        initAuth();
+    </script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0f172a;
+            font-family: 'Pretendard', sans-serif;
+            touch-action: none;
+        }
+        canvas {
+            display: block;
+        }
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 100;
+        }
+        .interactive {
+            pointer-events: auto;
+        }
+        #scoreBoard {
+            position: absolute;
+            top: 25px;
+            right: 25px;
+            text-align: right;
+            pointer-events: none;
+            z-index: 50;
+        }
+        #currentScore {
+            font-size: 2rem;
+            font-weight: 900;
+            color: #fbbf24;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8), 0 0 10px rgba(251, 191, 36, 0.5);
+            letter-spacing: -0.02em;
+        }
+        #bestScore {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fcd34d;
+            opacity: 0.9;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+        }
+        #playerStatus {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px black;
+        }
+        .hidden { display: none !important; }
+        
+        /* 스크롤바 커스텀 */
+        #rankingList::-webkit-scrollbar { width: 6px; }
+        #rankingList::-webkit-scrollbar-track { background: transparent; }
+        #rankingList::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="scoreBoard">
+        <div id="currentScore">TIME: 0.00s</div>
+        <div id="bestScore">BEST: 0.00s</div>
+    </div>
+
+    <div id="playerStatus">SIZE: 8</div>
+
+    <!-- UI Overlay (Main Menu / Game Over / Leaderboard) -->
+    <div id="uiOverlay" class="ui-layer">
+        
+        <!-- Main Menu -->
+        <div id="menuContent" class="bg-slate-900/90 backdrop-blur-md p-8 rounded-2xl border border-slate-700 text-center interactive shadow-2xl max-w-md w-full">
+            <h1 class="text-4xl font-extrabold mb-4 bg-gradient-to-r from-blue-400 to-green-400 bg-clip-text text-transparent">
+                BULLET DODGE
+            </h1>
+            <div class="text-slate-300 mb-6 text-sm text-left space-y-1">
+                <p>• <span class="text-green-400 font-bold">쉴드(S)</span>: 총알을 한 번 막아줍니다.</p>
+                <p>• <span class="text-blue-400 font-bold">폭탄(B)</span>: 모든 총알을 제거합니다.</p>
+                <p>• <span class="text-red-500 font-bold">해골(X)</span>: 밟으면 즉시 게임 오버!</p>
+                <p>• <span class="text-orange-400 font-bold">음식(노랑)</span>: 몸집이 커집니다.</p>
+                <p>• <span class="text-purple-400 font-bold">알약(분홍)</span>: 몸집이 작아집니다.</p>
+            </div>
+            <div class="flex flex-col gap-3">
+                <button id="startBtn" class="w-full px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-full transition-all transform hover:scale-105 active:scale-95">
                     게임 시작
+                </button>
+                <button id="viewRankBtn" class="w-full px-8 py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-full transition-all transform hover:scale-105 active:scale-95">
+                    순위 보기
                 </button>
             </div>
         </div>
 
-        <script>
-            const canvas = document.getElementById('gameCanvas');
-            const ctx = canvas.getContext('2d');
-            const uiOverlay = document.getElementById('uiOverlay');
-            const uiTitle = document.getElementById('uiTitle');
-            const uiMessage = document.getElementById('uiMessage');
-            const startBtn = document.getElementById('startBtn');
-            const scoreDisplay = document.getElementById('currentScore');
-            const bestScoreDisplay = document.getElementById('bestScore');
+        <!-- Game Over / Save Score -->
+        <div id="gameOverContent" class="hidden bg-slate-900/90 backdrop-blur-md p-8 rounded-2xl border border-red-900/30 text-center interactive shadow-2xl max-w-sm w-full">
+            <h2 class="text-3xl font-extrabold mb-2 text-red-500">GAME OVER</h2>
+            <p id="finalTime" class="text-white text-2xl font-bold mb-6">0.00s</p>
+            
+            <div id="saveForm" class="mb-6 space-y-3">
+                <input type="text" id="nicknameInput" maxlength="10" placeholder="닉네임 입력 (최대 10자)" 
+                    class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button id="saveScoreBtn" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-bold rounded-lg transition-all">
+                    기록 저장하기
+                </button>
+            </div>
+            
+            <div class="flex flex-col gap-2">
+                <button id="restartBtn" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-all">
+                    다시 도전
+                </button>
+                <button id="menuBtn" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-lg transition-all">
+                    메인 메뉴
+                </button>
+            </div>
+        </div>
 
-            let gameState = 'START';
-            let survivalTime = 0;
-            let bestTime = 0;
-            let lastTime = 0;
-            let spawnTimer = 0;
-            let itemSpawnTimer = 0;
-            let difficultyMultiplier = 1;
+        <!-- Leaderboard -->
+        <div id="rankContent" class="hidden bg-slate-900/95 backdrop-blur-lg p-8 rounded-2xl border border-amber-500/30 text-center interactive shadow-2xl max-w-md w-full">
+            <h2 class="text-3xl font-extrabold mb-4 text-amber-400">LEADERBOARD</h2>
+            <div id="rankingList" class="max-h-60 overflow-y-auto mb-6 text-left space-y-2">
+                <!-- Rankings go here -->
+                <p class="text-slate-400 text-center">순위 불러오는 중...</p>
+            </div>
+            <button id="closeRankBtn" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-lg transition-all">
+                닫기
+            </button>
+        </div>
 
-            const mouse = { x: 0, y: 0, radius: 8 };
-            let bullets = [];
-            let particles = [];
-            let items = [];
-            let isShielded = false;
+    </div>
 
-            class Item {
-                constructor() {
-                    this.radius = 12;
-                    this.x = Math.random() * (canvas.width - 40) + 20;
-                    this.y = Math.random() * (canvas.height - 40) + 20;
-                    this.pulse = 0;
-                    this.aliveTime = 0;
-                }
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiOverlay = document.getElementById('uiOverlay');
+        const scoreDisplay = document.getElementById('currentScore');
+        const bestScoreDisplay = document.getElementById('bestScore');
+        const playerStatus = document.getElementById('playerStatus');
 
-                update(dt) {
-                    this.aliveTime += dt;
-                    this.pulse = Math.sin(this.aliveTime * 0.005) * 5;
-                    return this.aliveTime > 10000;
-                }
+        // UI Contents
+        const menuContent = document.getElementById('menuContent');
+        const gameOverContent = document.getElementById('gameOverContent');
+        const rankContent = document.getElementById('rankContent');
 
-                draw() {
-                    ctx.save();
-                    ctx.shadowBlur = 15;
-                    ctx.shadowColor = '#4ade80';
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, this.radius + this.pulse, 0, Math.PI * 2);
-                    ctx.fillStyle = '#4ade80';
-                    ctx.fill();
+        // Buttons
+        const startBtn = document.getElementById('startBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const viewRankBtn = document.getElementById('viewRankBtn');
+        const closeRankBtn = document.getElementById('closeRankBtn');
+        const menuBtn = document.getElementById('menuBtn');
+        const saveScoreBtn = document.getElementById('saveScoreBtn');
 
-                    ctx.fillStyle = '#064e3b';
-                    ctx.font = 'bold 12px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText('S', this.x, this.y);
-                    ctx.restore();
-                }
+        let gameState = 'START';
+        let survivalTime = 0;
+        let bestTime = 0;
+        let lastTime = 0;
+        let spawnTimer = 0;
+        let itemSpawnTimer = 0;
+        let flyerSpawnTimer = 0;
+        let difficultyMultiplier = 1;
+
+        const mouse = { x: 0, y: 0, radius: 8, minRadius: 4, maxRadius: 25 };
+        let bullets = [];
+        let particles = [];
+        let items = [];
+        let flyers = [];
+        let isShielded = false;
+
+        /**
+         * Firebase Helper Functions
+         */
+        async function saveToLeaderboard(nickname, time) {
+            const { db, appId, collection, addDoc, auth } = window.gameFirebase;
+            if (!auth.currentUser) return;
+            
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
+                    nickname: nickname || "익명",
+                    time: parseFloat((time / 1000).toFixed(2)),
+                    timestamp: Date.now()
+                });
+                return true;
+            } catch (err) {
+                console.error("Save failed:", err);
+                return false;
             }
+        }
 
-            class Bullet {
-                constructor() {
-                    this.reset();
-                }
+        function loadLeaderboard() {
+            const { db, appId, collection, onSnapshot, query, limit } = window.gameFirebase;
+            const rankListDiv = document.getElementById('rankingList');
+            
+            const q = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+            
+            onSnapshot(q, (snapshot) => {
+                const data = [];
+                snapshot.forEach(doc => data.push(doc.data()));
+                
+                // Sort in memory by time descending (RULE 2)
+                data.sort((a, b) => b.time - a.time);
+                const top10 = data.slice(0, 10);
 
-                reset() {
-                    const side = Math.floor(Math.random() * 4);
-                    this.radius = 3 + Math.random() * 3;
-
-                    if (side === 0) {
-                        this.x = Math.random() * canvas.width;
-                        this.y = -this.radius;
-                    } else if (side === 1) {
-                        this.x = canvas.width + this.radius;
-                        this.y = Math.random() * canvas.height;
-                    } else if (side === 2) {
-                        this.x = Math.random() * canvas.width;
-                        this.y = canvas.height + this.radius;
-                    } else {
-                        this.x = -this.radius;
-                        this.y = Math.random() * canvas.height;
-                    }
-
-                    const targetX = mouse.x + (Math.random() - 0.5) * 200;
-                    const targetY = mouse.y + (Math.random() - 0.5) * 200;
-
-                    const angle = Math.atan2(targetY - this.y, targetX - this.x);
-                    const speed = (1.5 + Math.random() * 2.5) * difficultyMultiplier;
-
-                    this.vx = Math.cos(angle) * speed;
-                    this.vy = Math.sin(angle) * speed;
-                    this.color = `hsl(${190 + Math.random() * 40}, 100%, 70%)`;
-                    this.history = [];
-                }
-
-                update() {
-                    this.history.push({ x: this.x, y: this.y });
-                    if (this.history.length > 5) this.history.shift();
-                    this.x += this.vx;
-                    this.y += this.vy;
-                    return (
-                        this.x < -100 || this.x > canvas.width + 100 || this.y < -100 || this.y > canvas.height + 100
-                    );
-                }
-
-                draw() {
-                    this.history.forEach((pos, index) => {
-                        ctx.beginPath();
-                        ctx.arc(pos.x, pos.y, this.radius * (index / this.history.length), 0, Math.PI * 2);
-                        ctx.fillStyle = this.color.replace(')', `, ${index * 0.1})`).replace('hsl', 'hsla');
-                        ctx.fill();
-                    });
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                    ctx.fillStyle = this.color;
-                    ctx.fill();
-                }
-            }
-
-            class Particle {
-                constructor(x, y, color) {
-                    this.x = x;
-                    this.y = y;
-                    this.color = color;
-                    const angle = Math.random() * Math.PI * 2;
-                    const speed = Math.random() * 5 + 2;
-                    this.vx = Math.cos(angle) * speed;
-                    this.vy = Math.sin(angle) * speed;
-                    this.alpha = 1;
-                    this.decay = Math.random() * 0.02 + 0.01;
-                }
-                update() {
-                    this.x += this.vx;
-                    this.y += this.vy;
-                    this.alpha -= this.decay;
-                    return this.alpha <= 0;
-                }
-                draw() {
-                    ctx.save();
-                    ctx.globalAlpha = this.alpha;
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
-                    ctx.fillStyle = this.color;
-                    ctx.fill();
-                    ctx.restore();
-                }
-            }
-
-            window.addEventListener('resize', resizeCanvas);
-            window.addEventListener('mousemove', (e) => {
-                mouse.x = e.clientX;
-                mouse.y = e.clientY;
+                rankListDiv.innerHTML = top10.length === 0 ? '<p class="text-center text-slate-500">아직 기록이 없습니다.</p>' : '';
+                top10.forEach((item, index) => {
+                    const row = document.createElement('div');
+                    row.className = `flex justify-between items-center p-2 rounded ${index === 0 ? 'bg-amber-500/20' : 'bg-slate-800/50'}`;
+                    row.innerHTML = `
+                        <div class="flex items-center gap-3">
+                            <span class="font-bold ${index < 3 ? 'text-amber-400' : 'text-slate-400'}">#${index + 1}</span>
+                            <span class="text-white">${item.nickname}</span>
+                        </div>
+                        <span class="font-mono text-amber-300 font-bold">${item.time}s</span>
+                    `;
+                    rankListDiv.appendChild(row);
+                });
+            }, (err) => {
+                rankListDiv.innerHTML = '<p class="text-red-400 text-center">불러오기 실패</p>';
             });
-            window.addEventListener(
-                'touchmove',
-                (e) => {
-                    if (e.touches.length > 0) {
-                        mouse.x = e.touches[0].clientX;
-                        mouse.y = e.touches[0].clientY;
-                    }
-                },
-                { passive: false }
-            );
+        }
 
-            startBtn.addEventListener('click', startGame);
-
-            function resizeCanvas() {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-            }
-
-            function startGame() {
-                survivalTime = 0;
-                difficultyMultiplier = 1;
-                bullets = [];
-                particles = [];
-                items = [];
-                isShielded = false;
-                gameState = 'PLAYING';
-                uiOverlay.classList.add('hidden');
-                lastTime = performance.now();
-                requestAnimationFrame(gameLoop);
-            }
-
-            function gameOver() {
-                gameState = 'GAMEOVER';
-                uiOverlay.classList.remove('hidden');
-                uiTitle.innerText = 'GAME OVER';
-                uiTitle.className =
-                    'text-4xl font-extrabold mb-4 bg-gradient-to-r from-red-400 to-orange-500 bg-clip-text text-transparent';
-                uiMessage.innerHTML = `생존 시간: <span class="text-white font-bold">${(survivalTime / 1000).toFixed(
-                    2
-                )}초</span>`;
-                startBtn.innerText = '다시 도전';
-
-                if (survivalTime > bestTime) {
-                    bestTime = survivalTime;
-                    bestScoreDisplay.innerText = `BEST: ${(bestTime / 1000).toFixed(2)}s`;
+        /**
+         * Classes
+         */
+        class StaticItem {
+            constructor(type) {
+                this.type = type;
+                this.radius = 14;
+                this.x = Math.random() * (canvas.width - 60) + 30;
+                this.y = Math.random() * (canvas.height - 60) + 30;
+                this.pulse = 0;
+                this.aliveTime = 0;
+                switch(type) {
+                    case 'SHIELD': this.color = '#4ade80'; this.label = 'S'; break;
+                    case 'BOMB_GOOD': this.color = '#3b82f6'; this.label = 'B'; break;
+                    case 'BOMB_BAD': this.color = '#ef4444'; this.label = 'X'; break;
                 }
             }
+            update(dt) { this.aliveTime += dt; this.pulse = Math.sin(this.aliveTime * 0.005) * 4; return this.aliveTime > 8000; }
+            draw() {
+                ctx.save();
+                ctx.shadowBlur = 15; ctx.shadowColor = this.color;
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + this.pulse, 0, Math.PI * 2);
+                ctx.fillStyle = this.color; ctx.fill();
+                ctx.fillStyle = 'white'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(this.label, this.x, this.y);
+                ctx.restore();
+            }
+        }
 
-            function checkCollision(obj1, obj2) {
-                const dx = obj1.x - obj2.x;
-                const dy = obj1.y - obj2.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                return distance < (obj1.radius || 0) + (obj2.radius || 0);
+        class FlyingItem {
+            constructor(type) {
+                this.type = type; this.radius = 10;
+                this.color = type === 'FOOD' ? '#fbbf24' : '#d946ef';
+                const side = Math.floor(Math.random() * 4);
+                if (side === 0) { this.x = Math.random() * canvas.width; this.y = -20; }
+                else if (side === 1) { this.x = canvas.width + 20; this.y = Math.random() * canvas.height; }
+                else if (side === 2) { this.x = Math.random() * canvas.width; this.y = canvas.height + 20; }
+                else { this.x = -20; this.y = Math.random() * canvas.height; }
+                const angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+                const speed = 2 + Math.random() * 2;
+                this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
+            }
+            update() { this.x += this.vx; this.y += this.vy; return (this.x < -100 || this.x > canvas.width + 100 || this.y < -100 || this.y > canvas.height + 100); }
+            draw() {
+                ctx.save(); ctx.shadowBlur = 10; ctx.shadowColor = this.color;
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color; ctx.fill();
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+            }
+        }
+
+        class Bullet {
+            constructor() { this.reset(); }
+            reset() {
+                const side = Math.floor(Math.random() * 4);
+                this.radius = 3 + Math.random() * 3;
+                if (side === 0) { this.x = Math.random() * canvas.width; this.y = -this.radius; }
+                else if (side === 1) { this.x = canvas.width + this.radius; this.y = Math.random() * canvas.height; }
+                else if (side === 2) { this.x = Math.random() * canvas.width; this.y = canvas.height + this.radius; }
+                else { this.x = -this.radius; this.y = Math.random() * canvas.height; }
+                const targetX = mouse.x + (Math.random() - 0.5) * 200;
+                const targetY = mouse.y + (Math.random() - 0.5) * 200;
+                const angle = Math.atan2(targetY - this.y, targetX - this.x);
+                const speed = (1.5 + Math.random() * 2.5) * difficultyMultiplier;
+                this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
+                this.color = `hsl(${190 + Math.random() * 40}, 100%, 70%)`;
+                this.history = [];
+            }
+            update() {
+                this.history.push({x: this.x, y: this.y});
+                if (this.history.length > 5) this.history.shift();
+                this.x += this.vx; this.y += this.vy;
+                return (this.x < -100 || this.x > canvas.width + 100 || this.y < -100 || this.y > canvas.height + 100);
+            }
+            draw() {
+                this.history.forEach((pos, index) => {
+                    ctx.beginPath(); ctx.arc(pos.x, pos.y, this.radius * (index / this.history.length), 0, Math.PI * 2);
+                    ctx.fillStyle = this.color.replace(')', `, ${index * 0.1})`).replace('hsl', 'hsla'); ctx.fill();
+                });
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color; ctx.fill();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x; this.y = y; this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 5 + 2;
+                this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
+                this.alpha = 1; this.decay = Math.random() * 0.02 + 0.01;
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.alpha -= this.decay; return this.alpha <= 0; }
+            draw() {
+                ctx.save(); ctx.globalAlpha = this.alpha; ctx.beginPath();
+                ctx.arc(this.x, this.y, 2, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill(); ctx.restore();
+            }
+        }
+
+        /**
+         * Game Controls
+         */
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) { mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }
+        }, { passive: false });
+
+        startBtn.onclick = restartBtn.onclick = startGame;
+        
+        viewRankBtn.onclick = () => {
+            menuContent.classList.add('hidden');
+            gameOverContent.classList.add('hidden');
+            rankContent.classList.remove('hidden');
+            loadLeaderboard();
+        };
+
+        closeRankBtn.onclick = () => {
+            rankContent.classList.add('hidden');
+            if (gameState === 'GAMEOVER') gameOverContent.classList.remove('hidden');
+            else menuContent.classList.remove('hidden');
+        };
+
+        menuBtn.onclick = () => {
+            gameOverContent.classList.add('hidden');
+            menuContent.classList.remove('hidden');
+            gameState = 'START';
+        };
+
+        saveScoreBtn.onclick = async () => {
+            const nickname = document.getElementById('nicknameInput').value.trim();
+            if (!nickname) return;
+            saveScoreBtn.disabled = true;
+            saveScoreBtn.innerText = "저장 중...";
+            const success = await saveToLeaderboard(nickname, survivalTime);
+            if (success) {
+                document.getElementById('saveForm').classList.add('hidden');
+                viewRankBtn.click(); // 성공 후 랭킹 보여주기
+            } else {
+                saveScoreBtn.disabled = false;
+                saveScoreBtn.innerText = "저장 실패 (다시 시도)";
+            }
+        };
+
+        function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+
+        function startGame() {
+            survivalTime = 0; difficultyMultiplier = 1;
+            bullets = []; particles = []; items = []; flyers = [];
+            isShielded = false; mouse.radius = 8;
+            gameState = 'PLAYING';
+            uiOverlay.classList.add('hidden');
+            menuContent.classList.add('hidden');
+            gameOverContent.classList.add('hidden');
+            document.getElementById('saveForm').classList.remove('hidden');
+            saveScoreBtn.disabled = false;
+            saveScoreBtn.innerText = "기록 저장하기";
+            document.getElementById('nicknameInput').value = "";
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function gameOver() {
+            gameState = 'GAMEOVER';
+            uiOverlay.classList.remove('hidden');
+            gameOverContent.classList.remove('hidden');
+            document.getElementById('finalTime').innerText = `${(survivalTime / 1000).toFixed(2)}s`;
+            
+            if (survivalTime > bestTime) {
+                bestTime = survivalTime;
+                bestScoreDisplay.innerText = `BEST: ${(bestTime / 1000).toFixed(2)}s`;
+            }
+        }
+
+        function checkCollision(obj1, obj2) {
+            const dx = obj1.x - obj2.x; const dy = obj1.y - obj2.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance < (obj1.radius || 0) + (obj2.radius || 0);
+        }
+
+        function createExplosion(x, y, color, count = 20) {
+            for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color));
+        }
+
+        function gameLoop(timestamp) {
+            if (gameState !== 'PLAYING') return;
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            survivalTime += deltaTime;
+            difficultyMultiplier = 1 + (survivalTime / 25000); 
+            scoreDisplay.innerText = `TIME: ${(survivalTime / 1000).toFixed(2)}s`;
+            playerStatus.innerText = `SIZE: ${mouse.radius.toFixed(0)}`;
+
+            spawnTimer += deltaTime;
+            const spawnRate = Math.max(45, 300 - (survivalTime / 150));
+            if (spawnTimer > spawnRate) { bullets.push(new Bullet()); spawnTimer = 0; }
+
+            itemSpawnTimer += deltaTime;
+            if (itemSpawnTimer > 7000) {
+                const rand = Math.random();
+                let type = rand < 0.4 ? 'SHIELD' : (rand < 0.7 ? 'BOMB_GOOD' : 'BOMB_BAD');
+                items.push(new StaticItem(type));
+                itemSpawnTimer = 0;
             }
 
-            function createExplosion(x, y, color, count = 20) {
-                for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color));
+            flyerSpawnTimer += deltaTime;
+            if (flyerSpawnTimer > 5000) { flyers.push(new FlyingItem(Math.random() > 0.5 ? 'FOOD' : 'PILL')); flyerSpawnTimer = 0; }
+
+            for (let i = items.length - 1; i >= 0; i--) {
+                const item = items[i];
+                if (item.update(deltaTime)) { items.splice(i, 1); continue; }
+                if (checkCollision(item, mouse)) {
+                    if (item.type === 'SHIELD') { isShielded = true; createExplosion(item.x, item.y, item.color, 15); }
+                    else if (item.type === 'BOMB_GOOD') { bullets.forEach(b => createExplosion(b.x, b.y, b.color, 5)); bullets = []; createExplosion(item.x, item.y, item.color, 30); }
+                    else if (item.type === 'BOMB_BAD') { createExplosion(mouse.x, mouse.y, item.color, 40); gameOver(); return; }
+                    items.splice(i, 1); continue;
+                }
+                item.draw();
             }
 
-            function gameLoop(timestamp) {
-                if (gameState !== 'PLAYING') return;
-
-                const deltaTime = timestamp - lastTime;
-                lastTime = timestamp;
-
-                ctx.fillStyle = 'rgba(15, 23, 42, 0.3)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                survivalTime += deltaTime;
-                difficultyMultiplier = 1 + survivalTime / 25000;
-                scoreDisplay.innerText = `TIME: ${(survivalTime / 1000).toFixed(2)}s`;
-
-                spawnTimer += deltaTime;
-                const spawnRate = Math.max(45, 300 - survivalTime / 150);
-                if (spawnTimer > spawnRate) {
-                    bullets.push(new Bullet());
-                    spawnTimer = 0;
+            for (let i = flyers.length - 1; i >= 0; i--) {
+                const f = flyers[i];
+                if (f.update()) { flyers.splice(i, 1); continue; }
+                if (checkCollision(f, mouse)) {
+                    if (f.type === 'FOOD') mouse.radius = Math.min(mouse.maxRadius, mouse.radius + 3);
+                    else mouse.radius = Math.max(mouse.minRadius, mouse.radius - 3);
+                    createExplosion(f.x, f.y, f.color, 15);
+                    flyers.splice(i, 1); continue;
                 }
-
-                itemSpawnTimer += deltaTime;
-                if (itemSpawnTimer > 10000 && items.length < 2) {
-                    items.push(new Item());
-                    itemSpawnTimer = 0;
-                }
-
-                for (let i = items.length - 1; i >= 0; i--) {
-                    const item = items[i];
-                    if (item.update(deltaTime)) {
-                        items.splice(i, 1);
-                        continue;
-                    }
-                    if (checkCollision(item, mouse)) {
-                        isShielded = true;
-                        createExplosion(item.x, item.y, '#4ade80', 10);
-                        items.splice(i, 1);
-                        continue;
-                    }
-                    item.draw();
-                }
-
-                for (let i = bullets.length - 1; i >= 0; i--) {
-                    const bullet = bullets[i];
-                    if (bullet.update()) {
-                        bullets.splice(i, 1);
-                        continue;
-                    }
-
-                    if (checkCollision(bullet, mouse)) {
-                        if (isShielded) {
-                            isShielded = false;
-                            createExplosion(mouse.x, mouse.y, '#4ade80', 15);
-                            bullets.splice(i, 1);
-                        } else {
-                            createExplosion(mouse.x, mouse.y, bullet.color);
-                            gameOver();
-                            return;
-                        }
-                    }
-                    bullet.draw();
-                }
-
-                for (let i = particles.length - 1; i >= 0; i--) {
-                    if (particles[i].update()) particles.splice(i, 1);
-                    else particles[i].draw();
-                }
-
-                if (isShielded) {
-                    ctx.beginPath();
-                    ctx.arc(mouse.x, mouse.y, mouse.radius + 10, 0, Math.PI * 2);
-                    ctx.strokeStyle = '#4ade80';
-                    ctx.lineWidth = 2;
-                    ctx.setLineDash([5, 5]);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-
-                    ctx.beginPath();
-                    ctx.arc(mouse.x, mouse.y, mouse.radius + 10, 0, Math.PI * 2);
-                    ctx.fillStyle = 'rgba(74, 222, 128, 0.1)';
-                    ctx.fill();
-                }
-
-                ctx.beginPath();
-                ctx.arc(mouse.x, mouse.y, mouse.radius, 0, Math.PI * 2);
-                ctx.fillStyle = '#ffffff';
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = '#ffffff';
-                ctx.fill();
-                ctx.shadowBlur = 0;
-
-                requestAnimationFrame(gameLoop);
+                f.draw();
             }
 
-            resizeCanvas();
-            mouse.x = window.innerWidth / 2;
-            mouse.y = window.innerHeight / 2;
-        </script>
-    </body>
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                if (bullet.update()) { bullets.splice(i, 1); continue; }
+                if (checkCollision(bullet, mouse)) {
+                    if (isShielded) { isShielded = false; createExplosion(mouse.x, mouse.y, '#4ade80', 15); bullets.splice(i, 1); }
+                    else { createExplosion(mouse.x, mouse.y, bullet.color); gameOver(); return; }
+                }
+                bullet.draw();
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) { if (particles[i].update()) particles.splice(i, 1); else particles[i].draw(); }
+
+            if (isShielded) {
+                ctx.beginPath(); ctx.arc(mouse.x, mouse.y, mouse.radius + 10, 0, Math.PI * 2);
+                ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.stroke();
+                ctx.setLineDash([]); ctx.fillStyle = 'rgba(74, 222, 128, 0.1)'; ctx.fill();
+            }
+
+            ctx.beginPath(); ctx.arc(mouse.x, mouse.y, mouse.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff'; ctx.shadowBlur = 15; ctx.shadowColor = '#ffffff'; ctx.fill(); ctx.shadowBlur = 0;
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        resizeCanvas();
+        mouse.x = window.innerWidth / 2; mouse.y = window.innerHeight / 2;
+    </script>
+</body>
 </html>

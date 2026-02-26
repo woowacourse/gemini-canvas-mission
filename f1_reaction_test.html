@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Start Reaction Test - Pro Sound</title>
+    <style>
+        :root {
+            --f1-red: #e10600;
+            --dark-bg: #15151e;
+            --light-bg: #2b2b3b;
+            --off-light: #333;
+            --on-light: #ff1e1e;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--dark-bg);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 600px;
+            width: 90%;
+            padding: 2rem;
+            background: var(--light-bg);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-bottom: 5px solid var(--f1-red);
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 2rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .lights-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 2.5rem;
+            background: #000;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .light-unit {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .bulb {
+            width: 50px;
+            height: 50px;
+            background-color: var(--off-light);
+            border-radius: 50%;
+            transition: background-color 0.1s ease;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+        }
+
+        .bulb.active {
+            background-color: var(--on-light);
+            box-shadow: 0 0 25px var(--on-light), inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        #status-msg {
+            font-size: 1.5rem;
+            font-weight: bold;
+            height: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        #timer-display {
+            font-size: 3rem;
+            font-family: 'Courier New', Courier, monospace;
+            margin-bottom: 1rem;
+            color: #ccc;
+        }
+
+        .rank-card {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            display: none;
+        }
+
+        .rank-badge {
+            font-size: 2.5rem;
+            font-weight: 900;
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .btn-start {
+            background-color: var(--f1-red);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: transform 0.1s, background-color 0.2s;
+            text-transform: uppercase;
+        }
+
+        .btn-start:hover {
+            background-color: #ff2b24;
+        }
+
+        .btn-start:active {
+            transform: scale(0.95);
+        }
+
+        .hint {
+            margin-top: 1.5rem;
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .f1-logo {
+            color: var(--f1-red);
+            font-weight: bold;
+            font-style: italic;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <span class="f1-logo">FORMULA 1</span>
+        <h1>Reaction Test</h1>
+
+        <div class="lights-container">
+            <div class="light-unit"><div class="bulb"></div><div class="bulb"></div></div>
+            <div class="light-unit"><div class="bulb"></div><div class="bulb"></div></div>
+            <div class="light-unit"><div class="bulb"></div><div class="bulb"></div></div>
+            <div class="light-unit"><div class="bulb"></div><div class="bulb"></div></div>
+            <div class="light-unit"><div class="bulb"></div><div class="bulb"></div></div>
+        </div>
+
+        <div id="status-msg">READY? (VOLUME UP!)</div>
+        <div id="timer-display">0.000s</div>
+
+        <div id="rank-card" class="rank-card">
+            <span id="rank-badge" class="rank-badge">S</span>
+            <div id="rank-text"></div>
+        </div>
+
+        <button id="main-btn" class="btn-start">START SESSION</button>
+        <p class="hint">스페이스바를 눌러도 시작/출발할 수 있습니다!</p>
+    </div>
+
+    <script>
+        // --- Advanced Pro Audio System (Web Audio API) ---
+        let audioCtx;
+        let masterGain;
+        let engineOsc1, engineOsc2;
+        let noiseNode;
+        let engineFilter;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                masterGain = audioCtx.createGain();
+                masterGain.connect(audioCtx.destination);
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playF1Beep() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            // F1 start beeps are around 1200Hz - 1500Hz
+            osc.type = 'square'; // More mechanical than sine
+            osc.frequency.setValueAtTime(1250, audioCtx.currentTime);
+            
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
+            
+            osc.connect(gain);
+            gain.connect(masterGain);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.2);
+        }
+
+        function createNoiseBuffer() {
+            const bufferSize = audioCtx.sampleRate * 2;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            return buffer;
+        }
+
+        function startEnginePro() {
+            if (!audioCtx) return;
+
+            // 1. Dual Oscillators for thick sound
+            engineOsc1 = audioCtx.createOscillator();
+            engineOsc2 = audioCtx.createOscillator();
+            engineFilter = audioCtx.createBiquadFilter();
+            const engineG = audioCtx.createGain();
+
+            engineOsc1.type = 'sawtooth';
+            engineOsc2.type = 'sawtooth';
+            engineOsc1.frequency.setValueAtTime(80, audioCtx.currentTime);
+            engineOsc2.frequency.setValueAtTime(82, audioCtx.currentTime); // Detuned for thickness
+
+            engineFilter.type = 'lowpass';
+            engineFilter.frequency.setValueAtTime(400, audioCtx.currentTime);
+            engineFilter.Q.value = 10;
+
+            engineG.gain.setValueAtTime(0, audioCtx.currentTime);
+            engineG.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 0.2);
+
+            // 2. Exhaust Noise
+            noiseNode = audioCtx.createBufferSource();
+            noiseNode.buffer = createNoiseBuffer();
+            noiseNode.loop = true;
+            const noiseGain = audioCtx.createGain();
+            noiseGain.gain.value = 0.02;
+
+            engineOsc1.connect(engineFilter);
+            engineOsc2.connect(engineFilter);
+            engineFilter.connect(engineG);
+            noiseNode.connect(noiseGain);
+            noiseGain.connect(engineG);
+            
+            engineG.connect(masterGain);
+            
+            engineOsc1.start();
+            engineOsc2.start();
+            noiseNode.start();
+
+            // Track for modification
+            window.engineGainNode = engineG;
+        }
+
+        function playProRaceStartSound() {
+            if (!engineOsc1 || !engineOsc2) return;
+            
+            const now = audioCtx.currentTime;
+            
+            // Extreme pitch up (1st gear acceleration)
+            engineOsc1.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+            engineOsc1.frequency.exponentialRampToValueAtTime(1800, now + 1.5);
+            engineOsc2.frequency.exponentialRampToValueAtTime(1210, now + 0.1);
+            engineOsc2.frequency.exponentialRampToValueAtTime(1810, now + 1.5);
+
+            // Filter open up for "scream"
+            engineFilter.frequency.exponentialRampToValueAtTime(8000, now + 0.5);
+            
+            // Gain swell
+            window.engineGainNode.gain.setValueAtTime(0.2, now);
+            window.engineGainNode.gain.exponentialRampToValueAtTime(0.4, now + 0.1);
+            window.engineGainNode.gain.exponentialRampToValueAtTime(0.0001, now + 2.5);
+            
+            setTimeout(() => stopEngine(), 2500);
+        }
+
+        function stopEngine() {
+            if (window.engineGainNode) {
+                window.engineGainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.2);
+            }
+            setTimeout(() => {
+                if (engineOsc1) { engineOsc1.stop(); engineOsc1 = null; }
+                if (engineOsc2) { engineOsc2.stop(); engineOsc2 = null; }
+                if (noiseNode) { noiseNode.stop(); noiseNode = null; }
+            }, 300);
+        }
+
+        // --- Game Logic ---
+        const DRIVERS = {
+            S: { names: ["맥스 페르스타펜", "루이스 해밀턴", "샤를 르클레르"], comment: "정말 대단해요!", threshold: 0.190 },
+            A: { names: ["랜도 노리스", "조지 러셀", "오스카 피아스트리"], comment: "대단합니다!", threshold: 0.240 },
+            B: { names: ["카를로스 사인츠", "페르난도 알론소", "니코 휠켄베르크"], comment: "평범하네요.", threshold: 0.320 },
+            C: { names: ["랜스 스트롤", "rookies"], comment: "아쉽네요..", threshold: Infinity }
+        };
+
+        const bulbs = document.querySelectorAll('.bulb');
+        const statusMsg = document.getElementById('status-msg');
+        const timerDisplay = document.getElementById('timer-display');
+        const mainBtn = document.getElementById('main-btn');
+        const rankCard = document.getElementById('rank-card');
+        const rankBadge = document.getElementById('rank-badge');
+        const rankText = document.getElementById('rank-text');
+
+        let gameState = 'IDLE'; 
+        let startTime = 0;
+        let timeoutIds = [];
+
+        function resetGame() {
+            gameState = 'IDLE';
+            mainBtn.innerText = 'START SESSION';
+            statusMsg.innerText = '준비되셨나요?';
+            statusMsg.style.color = 'white';
+            timerDisplay.innerText = '0.000s';
+            timerDisplay.style.color = '#ccc';
+            rankCard.style.display = 'none';
+            bulbs.forEach(b => b.classList.remove('active'));
+            timeoutIds.forEach(id => clearTimeout(id));
+            timeoutIds = [];
+            stopEngine();
+        }
+
+        function startGame() {
+            initAudio(); 
+            resetGame();
+            gameState = 'LIGHTING';
+            mainBtn.innerText = 'READY...';
+            statusMsg.innerText = '라이트 점등 중...';
+
+            for (let i = 0; i < 5; i++) {
+                let id = setTimeout(() => {
+                    bulbs[i * 2].classList.add('active');
+                    bulbs[i * 2 + 1].classList.add('active');
+                    
+                    playF1Beep(); 
+
+                    if (i === 2) { 
+                        startEnginePro(); // Real F1 idle sounds from 3rd light
+                    }
+                    
+                    if (i === 4) {
+                        prepareForStart();
+                    }
+                }, (i + 1) * 1000);
+                timeoutIds.push(id);
+            }
+        }
+
+        function prepareForStart() {
+            gameState = 'WAITING';
+            statusMsg.innerText = '라이트가 꺼지는 순간 출발하세요!';
+            
+            const randomDelay = Math.random() * 3000 + 1000;
+            let id = setTimeout(() => {
+                lightsOut();
+            }, randomDelay);
+            timeoutIds.push(id);
+        }
+
+        function lightsOut() {
+            bulbs.forEach(b => b.classList.remove('active'));
+            gameState = 'RUNNING';
+            startTime = performance.now();
+            statusMsg.innerText = 'IT\'S LIGHTS OUT AND AWAY WE GO!';
+            timerDisplay.style.color = '#00ff00';
+            
+            playProRaceStartSound(); // Extreme engine acceleration
+            requestAnimationFrame(updateTimerUI);
+        }
+
+        function updateTimerUI() {
+            if (gameState !== 'RUNNING') return;
+            const now = performance.now();
+            const diff = (now - startTime) / 1000;
+            timerDisplay.innerText = diff.toFixed(3) + 's';
+            requestAnimationFrame(updateTimerUI);
+        }
+
+        function handleAction() {
+            if (gameState === 'IDLE' || gameState === 'FINISHED') {
+                startGame();
+            } else if (gameState === 'RUNNING') {
+                finishGame();
+            } else if (gameState === 'LIGHTING' || gameState === 'WAITING') {
+                falseStart();
+            }
+        }
+
+        function finishGame() {
+            const endTime = performance.now();
+            const reactionTime = (endTime - startTime) / 1000;
+            gameState = 'FINISHED';
+            mainBtn.innerText = 'RETRY';
+            timerDisplay.innerText = reactionTime.toFixed(3) + 's';
+            showRank(reactionTime);
+        }
+
+        function falseStart() {
+            timeoutIds.forEach(id => clearTimeout(id));
+            stopEngine();
+            gameState = 'FINISHED';
+            statusMsg.innerText = '부정 출발! (Jump Start)';
+            statusMsg.style.color = '#ff4444';
+            timerDisplay.innerText = 'DISQUALIFIED';
+            timerDisplay.style.color = '#ff4444';
+            mainBtn.innerText = 'RETRY';
+            bulbs.forEach(b => b.classList.add('active'));
+        }
+
+        function showRank(time) {
+            let rank = 'C';
+            if (time < DRIVERS.S.threshold) rank = 'S';
+            else if (time < DRIVERS.A.threshold) rank = 'A';
+            else if (time < DRIVERS.B.threshold) rank = 'B';
+
+            const rankData = DRIVERS[rank];
+            const randomDriver = rankData.names[Math.floor(Math.random() * rankData.names.length)];
+            
+            statusMsg.innerText = '기록 측정 완료!';
+            statusMsg.style.color = '#00ff00';
+            rankCard.style.display = 'block';
+            rankBadge.innerText = rank;
+            rankBadge.style.color = (rank === 'S') ? '#ffd700' : (rank === 'A') ? '#c0c0c0' : (rank === 'B') ? '#cd7f32' : '#ffffff';
+            rankText.innerHTML = `당신의 반응속도는 <strong>${randomDriver}</strong> 급이네요!<br>${rankData.comment}`;
+        }
+
+        mainBtn.addEventListener('click', (e) => {
+            e.blur();
+            handleAction();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handleAction();
+            }
+        });
+    </script>
+</body>
+</html>

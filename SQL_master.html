@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL Master - Duolingo Style</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f7f7f7;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .dragging {
+            opacity: 0.2;
+            transform: scale(0.95);
+            cursor: grabbing !important;
+        }
+
+        .sql-block {
+            cursor: grab;
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s;
+            user-select: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: none;
+            padding: 0.5rem 1.2rem;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+
+        .sql-block:active { cursor: grabbing; }
+
+        .drop-placeholder {
+            background-color: #d1fae5;
+            border: 2px dashed #10b981;
+            border-radius: 10px;
+            height: 40px;
+            width: 60px;
+            margin: 0 4px;
+            flex-shrink: 0;
+            pointer-events: none;
+        }
+
+        .drop-zone {
+            min-height: 80px;
+            border-bottom: 3px solid #e5e7eb;
+            transition: background-color 0.3s;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-content: flex-start;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 20px;
+        }
+
+        .drop-zone.active-zone {
+            background-color: #f0fdf4;
+            border-color: #10b981;
+        }
+
+        .progress-bar { transition: width 0.6s cubic-bezier(0.65, 0, 0.35, 1); }
+
+        .theory-content {
+            font-size: 1.05rem;
+        }
+        .theory-content p {
+            margin-bottom: 1rem;
+            line-height: 1.8;
+        }
+        .theory-content b {
+            color: #1d4ed8;
+            font-weight: 900;
+        }
+        .theory-content code {
+            background: #fff1f2;
+            padding: 3px 8px;
+            border-radius: 6px;
+            color: #e11d48;
+            font-weight: bold;
+            font-family: monospace;
+        }
+        .example-box {
+            background: #f8fafc;
+            border-left: 4px solid #3b82f6;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-family: monospace;
+            font-size: 0.95rem;
+            color: #334155;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .readable-table {
+            border: 2px solid #e2e8f0;
+            border-radius: 1rem;
+            overflow: hidden;
+            background: white;
+        }
+        .readable-table thead {
+            background-color: #1e293b;
+            color: #ffffff;
+        }
+        .readable-table th {
+            padding: 12px 16px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            border-right: 1px solid #334155;
+        }
+        .readable-table td {
+            padding: 12px 16px;
+            color: #334155;
+            font-weight: 500;
+            border-bottom: 1px solid #f1f5f9;
+            border-right: 1px solid #f1f5f9;
+        }
+        .readable-table tr:last-child td {
+            border-bottom: none;
+        }
+        .readable-table tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+
+        .shake { animation: shake 0.4s ease-in-out; }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            50% { transform: translateX(8px); }
+            75% { transform: translateX(-8px); }
+        }
+
+        .course-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+        .course-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .result-appear {
+            animation: slideUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <nav class="bg-white border-b sticky top-0 z-50">
+        <div class="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2 cursor-pointer group" onclick="goToLobbyDirectly()">
+                <span class="text-2xl font-black text-green-500 tracking-tighter group-hover:scale-105 transition-transform">SQL MASTER</span>
+            </div>
+            <div class="flex gap-6 items-center">
+                <div class="flex items-center gap-1.5 text-red-500 font-bold bg-red-50 px-4 py-1.5 rounded-full border border-red-100">
+                    <span class="text-xl">❤️</span> <span id="lives-count-nav">5</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto p-4 md:p-8">
+        
+        <!-- View 1: Lobby -->
+        <section id="view-lobby" class="block space-y-8 animate-in fade-in duration-500">
+            <header class="text-center py-10">
+                <h1 class="text-5xl font-black mb-4 text-gray-900 tracking-tight">SQL 학습 캠프</h1>
+                <p class="text-gray-500 text-xl">데이터의 언어, SQL을 게임처럼 배워보세요!</p>
+            </header>
+            <div id="course-list" class="grid grid-cols-1 md:grid-cols-2 gap-8 pb-20"></div>
+        </section>
+
+        <!-- View 2: Quiz Engine -->
+        <section id="view-quiz" class="hidden">
+            <div class="flex items-center gap-6 mb-8">
+                <button id="exit-quiz-btn" onclick="goToLobbyDirectly()" class="text-gray-400 text-4xl hover:text-red-500 transition-all font-light leading-none p-2 rounded-full hover:bg-red-50 focus:outline-none">&times;</button>
+                <div class="flex-1 bg-gray-200 h-4 rounded-full overflow-hidden shadow-inner">
+                    <div id="quiz-progress-bar" class="progress-bar bg-green-500 h-full w-0"></div>
+                </div>
+                <div class="flex items-center gap-2 text-red-500 font-black text-xl bg-white px-4 py-2 rounded-2xl shadow-sm border">
+                    <span class="animate-pulse text-2xl">❤️</span> <span id="lives-count-quiz">5</span>
+                </div>
+            </div>
+
+            <div id="quiz-theory" class="bg-white p-8 rounded-3xl border-2 border-gray-100 mb-8 shadow-sm">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-indigo-100 text-white">📑</div>
+                    <div>
+                        <h3 id="quiz-topic-title" class="text-2xl font-black text-gray-800">이론 마스터</h3>
+                        <p class="text-sm text-gray-400 font-bold uppercase tracking-widest italic">Core SQL Knowledge</p>
+                    </div>
+                </div>
+                <div id="quiz-topic-desc" class="theory-content text-gray-700"></div>
+            </div>
+
+            <div class="mb-10">
+                <div class="flex justify-between items-end mb-4 px-2">
+                    <h4 class="text-sm font-black text-slate-600 uppercase tracking-widest flex items-center gap-2">
+                        <span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                        참조 데이터베이스: <span id="table-name" class="text-blue-600 ml-1">...</span>
+                    </h4>
+                </div>
+                <div id="ref-table-container" class="readable-table shadow-lg border-2 border-slate-200">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left border-collapse">
+                            <thead id="ref-table-head"></thead>
+                            <tbody id="ref-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-8 px-2">
+                <h2 id="quiz-question" class="text-3xl font-black text-gray-900 leading-tight">...</h2>
+                <div class="inline-flex items-center gap-2 mt-4 px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-black uppercase tracking-widest" id="quiz-type-indicator">퀴즈 타입</div>
+            </div>
+
+            <div id="interaction-container" class="space-y-10">
+                <div id="drop-zone-wrapper" class="space-y-3">
+                    <p class="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-1">SQL Query Builder (드래그하여 배치)</p>
+                    <div id="drop-zone" class="drop-zone" ondragover="handleDragOver(event)" ondrop="handleDrop(event)" ondragleave="handleDragLeave(event)" ondragenter="handleDragEnter(event)"></div>
+                </div>
+
+                <div id="block-selection-wrapper" class="space-y-3">
+                    <p class="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-1">Available Tokens (블럭 목록)</p>
+                    <div id="block-selection" class="flex flex-wrap gap-3 p-6 bg-gray-100 rounded-2xl min-h-[100px]" ondragover="handleDragOver(event)" ondrop="handleDropToSelection(event)" ondragenter="handleDragEnter(event)"></div>
+                </div>
+
+                <div id="text-input-container" class="hidden space-y-3">
+                    <p class="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-1">Direct SQL Input (쿼리 직접 입력)</p>
+                    <textarea id="sql-input" placeholder="SELECT * FROM table_name..." class="w-full h-40 p-6 rounded-3xl border-2 border-gray-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-50 outline-none font-mono text-xl shadow-inner bg-gray-50 transition-all"></textarea>
+                </div>
+            </div>
+
+            <!-- Game Over Overlay -->
+            <div id="game-over-overlay" class="hidden mt-10 p-10 bg-red-50 border-4 border-red-200 rounded-[2.5rem] text-center animate-in zoom-in duration-300">
+                <div class="text-6xl mb-4">💔</div>
+                <h3 class="text-3xl font-black text-red-600 mb-2">생명력이 모두 소진되었습니다!</h3>
+                <p class="text-red-400 font-bold mb-8">안타깝지만 이번 스테이지는 여기서 종료됩니다.</p>
+                <button onclick="goToLobbyDirectly()" class="bg-red-500 hover:bg-red-400 text-white px-12 py-5 rounded-2xl font-black text-lg shadow-[0_6px_0_rgb(185,28,28)] active:shadow-none active:translate-y-1 transition-all">
+                    로비로 돌아가기
+                </button>
+            </div>
+
+            <div id="query-result-wrapper" class="hidden mt-12 mb-8 scroll-mt-24">
+                <div class="flex justify-between items-end mb-3 px-2">
+                    <h4 class="text-xs font-black text-green-600 uppercase tracking-widest flex items-center gap-2">
+                        <span class="p-1 bg-green-100 rounded-md">✅</span> Query Result (실행 결과)
+                    </h4>
+                </div>
+                <div id="result-table-container" class="overflow-hidden border-2 border-green-500 rounded-2xl bg-white shadow-2xl ring-8 ring-green-50 result-appear">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left border-collapse">
+                            <thead id="result-table-head" class="bg-green-50 border-b-2 border-green-100 text-green-700 font-bold"></thead>
+                            <tbody id="result-table-body" class="divide-y divide-gray-100 text-gray-800 font-medium"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="quiz-footer" class="mt-14 pt-8 border-t-2 border-gray-100 flex flex-col md:flex-row justify-between items-center gap-6 pb-12">
+                <div id="feedback-message" class="flex items-center gap-4 min-h-[70px] flex-1"></div>
+                <div id="quiz-actions" class="flex gap-4 w-full md:w-auto">
+                    <button id="hint-btn" onclick="showDetailedHint()" class="hidden w-full md:w-auto bg-amber-100 hover:bg-amber-200 text-amber-700 px-6 py-5 rounded-2xl font-black text-lg border-2 border-amber-300 transition-all flex items-center justify-center gap-2">
+                        <span>💡</span> 힌트
+                    </button>
+                    <button id="check-btn" onclick="checkAnswer()" class="w-full md:w-auto bg-green-500 hover:bg-green-400 text-white px-12 py-5 rounded-2xl font-black text-lg shadow-[0_6px_0_rgb(34,139,34)] active:shadow-none active:translate-y-1 transition-all disabled:opacity-50 disabled:shadow-none">
+                        쿼리 실행
+                    </button>
+                    <button id="retry-btn" onclick="retryQuestion()" class="hidden w-full md:w-auto bg-orange-500 hover:bg-orange-400 text-white px-12 py-5 rounded-2xl font-black text-lg shadow-[0_6px_0_rgb(194,65,12)] active:shadow-none active:translate-y-1 transition-all">
+                        다시 시도
+                    </button>
+                    <button id="next-btn" onclick="nextQuestion()" class="hidden w-full md:w-auto bg-blue-600 hover:bg-blue-500 text-white px-12 py-5 rounded-2xl font-black text-lg shadow-[0_6px_0_rgb(30,64,175)] active:shadow-none active:translate-y-1 transition-all">
+                        다음 문제로
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Success View -->
+        <section id="view-success" class="hidden text-center py-20 space-y-8 animate-in zoom-in duration-500">
+            <div class="relative inline-block text-[150px] animate-bounce drop-shadow-2xl">🎉</div>
+            <h1 class="text-6xl font-black tracking-tight">코스 완료!</h1>
+            <p class="text-gray-500 text-2xl font-medium" id="success-message">정말 대단해요! 모든 문제를 마스터했습니다.</p>
+            <div class="flex flex-col items-center gap-5 pt-10">
+                <button onclick="finishCourse()" class="bg-green-500 hover:bg-green-400 text-white px-20 py-6 rounded-3xl font-black text-2xl shadow-[0_8px_0_rgb(34,139,34)] hover:-translate-y-1 transition-all">로비로 돌아가기</button>
+                <button onclick="resetProgress()" class="text-gray-400 font-bold hover:text-red-400 transition-colors uppercase tracking-widest text-xs">Reset Progress</button>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const randomElement = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        const randomNumber = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+        const shuffleArray = (arr) => [...arr].sort(() => Math.random() - 0.5);
+
+        const tableNamePool = ["employees", "staff_list", "members", "products", "inventory", "sales_data", "student_records", "books", "orders", "users", "customers", "vehicles", "courses", "projects"];
+
+        const questionPool = {
+            intro: {
+                title: "기본 조회 (SELECT)",
+                icon: "🌱",
+                color: "blue",
+                desc: `
+                    <p><b>SELECT</b> 문은 데이터베이스에서 데이터를 "꺼내오는" 가장 핵심적인 명령어입니다. 엑셀에서 특정 열을 선택해서 보는 것과 같습니다.</p>
+                    <div class="space-y-4 my-4">
+                        <p>1. <b>전체 선택:</b> 모든 정보를 다 보고 싶을 때는 별표<code>*</code>를 사용합니다.</p>
+                        <p>2. <b>부분 선택:</b> 특정 정보만 보고 싶을 때는 <code>name, age</code>처럼 컬럼명을 쉼표로 구분하여 나열합니다.</p>
+                        <p>3. <b>대상 지정:</b> <code>FROM</code> 뒤에는 데이터를 꺼내올 테이블의 이름을 적습니다.</p>
+                    </div>
+                    <div class="example-box">
+                        -- 모든 컬럼 조회<br>
+                        SELECT * FROM employees;<br><br>
+                        -- 이름(name)과 부서(dept)만 조회<br>
+                        SELECT name, dept FROM employees;
+                    </div>
+                    <p class="text-sm text-gray-500">💡 SQL 문장의 끝에는 세미콜론(;)을 붙여 문장의 종료를 알리는 습관을 가지는 것이 좋습니다.</p>
+                `,
+                generate: (count, type) => {
+                    const names = ["Alice", "Bob", "Charlie", "Diana", "Eric", "Fiona", "George", "Hannah", "Ivan", "Jack"];
+                    const depts = ["IT", "HR", "Sales", "Design", "Legal"];
+                    const questions = [];
+                    const usedAnswers = new Set();
+                    
+                    while (questions.length < count) {
+                        const currentTableName = randomElement(tableNamePool);
+                        const table = {
+                            name: currentTableName,
+                            cols: ["id", "name", "dept", "salary", "age"],
+                            data: Array.from({length: 8}, (_, i) => [i+1, randomElement(names), randomElement(depts), randomNumber(3000, 9000), randomNumber(20, 65)])
+                        };
+                        
+                        const mode = Math.random();
+                        let targetText, ansArr, resultCols, hint;
+
+                        if (mode < 0.2) {
+                            targetText = "모든 정보(*)";
+                            ansArr = ["SELECT", "*", "FROM", table.name, ";"];
+                            resultCols = [...table.cols];
+                            hint = `모든 정보를 한 번에 가져오려면 특정 컬럼명 대신 특별한 기호(*)를 사용해 보세요. 구문은 SELECT [기호] FROM [테이블명] 순서입니다.`;
+                        } else if (mode < 0.7) {
+                            const col = randomElement(table.cols);
+                            targetText = `${col} 정보`;
+                            ansArr = ["SELECT", col, "FROM", table.name, ";"];
+                            resultCols = [col];
+                            hint = `필요한 컬럼은 딱 하나, '${col}'입니다. SELECT 바로 다음에 이 컬럼명을 적고 어디서 가져올지 FROM 뒤에 테이블명을 명시하세요.`;
+                        } else {
+                            const cols = shuffleArray(table.cols).slice(0, 2);
+                            targetText = `${cols[0]}와 ${cols[1]} 정보`;
+                            ansArr = ["SELECT", cols[0], ",", cols[1], "FROM", table.name, ";"];
+                            resultCols = cols;
+                            hint = `두 개의 컬럼('${cols[0]}', '${cols[1]}')이 필요합니다. 각 컬럼 사이에는 쉼표(,)를 넣어 구분해줘야 한다는 점을 잊지 마세요!`;
+                        }
+                        
+                        const ansStr = ansArr.join(" ");
+                        if (usedAnswers.has(ansStr)) continue;
+                        usedAnswers.add(ansStr);
+                        
+                        questions.push({
+                            type: type,
+                            table: table,
+                            question: `${table.name} 테이블에서 ${targetText}를 조회하세요.`,
+                            answer: type === 'block' ? ansArr : [ansStr.replace(" ,", ",").replace(" ;", ";")],
+                            options: shuffleArray([...ansArr, "WHERE", "ORDER", "id", "age", "salary", "dept"]),
+                            hint: hint,
+                            resultQuery: (t) => ({ 
+                                cols: resultCols, 
+                                data: t.data.map(r => resultCols.map(c => r[t.cols.indexOf(c)])) 
+                            })
+                        });
+                    }
+                    return questions;
+                }
+            },
+            where_clause: {
+                title: "조건 필터링 (WHERE)",
+                icon: "🔍",
+                color: "green",
+                desc: `
+                    <p><b>WHERE</b> 절은 수많은 데이터 중에서 특정 "조건"에 맞는 행(Row)만 골라낼 때 사용합니다. 검색 기능의 핵심입니다.</p>
+                    <div class="space-y-4 my-4">
+                        <p>1. <b>비교 연산자:</b> 같다(<code>=</code>), 크다(<code>></code>), 작다(<code><</code>) 등을 사용합니다.</p>
+                        <p>2. <b>데이터 타입 주의:</b> 숫자는 그냥 쓰지만, 문자열은 반드시 <b>홑따옴표(' ')</b>로 감싸야 합니다.</p>
+                        <p>3. <b>위치:</b> 항상 <code>FROM</code> 절 뒤에 위치합니다.</p>
+                    </div>
+                    <div class="example-box">
+                        -- 부서가 'IT'인 사람만 조회<br>
+                        SELECT * FROM employees WHERE dept = 'IT';<br><br>
+                        -- 급여가 5000 이상인 사람만 조회<br>
+                        SELECT name FROM employees WHERE salary >= 5000;
+                    </div>
+                `,
+                generate: (count, type) => {
+                    const items = ["Laptop", "Mouse", "Desk", "Phone", "Chair"];
+                    const cats = ["Elec", "Office", "Home"];
+                    const questions = [];
+                    const usedAnswers = new Set();
+                    
+                    while (questions.length < count) {
+                        const currentTableName = randomElement(tableNamePool);
+                        const table = {
+                            name: currentTableName,
+                            cols: ["id", "item", "category", "price", "stock"],
+                            data: Array.from({length: 8}, (_, i) => [100+i, randomElement(items), randomElement(cats), randomNumber(20, 2000), randomNumber(1, 100)])
+                        };
+                        
+                        const col = randomElement(["price", "stock", "category"]);
+                        const selectCol = randomElement(["item", "price", "*"]);
+                        
+                        let cond;
+                        if(col === "category") {
+                            const val = randomElement(cats);
+                            cond = { col, val: `'${val}'`, op: "=", text: `카테고리가 '${val}'인` };
+                        } else {
+                            const val = col === "price" ? 500 : 30;
+                            const op = randomElement([">", "<"]);
+                            cond = { col, val: val.toString(), op, text: `${col === "price" ? "가격" : "재고"}이 ${val} ${op === ">" ? "초과인" : "미만인"}` };
+                        }
+                        
+                        const ansArr = ["SELECT", selectCol, "FROM", table.name, "WHERE", cond.col, cond.op, cond.val, ";"];
+                        const ansStr = ansArr.join(" ");
+                        if (usedAnswers.has(ansStr)) continue;
+                        usedAnswers.add(ansStr);
+                        
+                        questions.push({
+                            type: type,
+                            table: table,
+                            question: `${table.name}에서 ${cond.text} 항목의 ${selectCol === "*" ? "모든 정보" : selectCol}를 조회하세요.`,
+                            answer: type === 'block' ? ansArr : [ansStr.replace(" ;", ";")],
+                            options: shuffleArray([...ansArr, "AND", "item", "id", "stock"]),
+                            hint: `조건을 필터링하려면 구문의 끝부분에 WHERE 절을 추가해야 합니다. '${cond.col}' 컬럼의 값이 '${cond.val}'와 어떤 관계인지 비교 연산자(${cond.op})를 사용해 표현해 보세요.`,
+                            resultQuery: (t) => {
+                                const filterIdx = t.cols.indexOf(cond.col);
+                                const filtered = t.data.filter(r => {
+                                    const v = r[filterIdx];
+                                    const target = cond.val.replace(/'/g, "");
+                                    return cond.op === "=" ? v == target : (cond.op === ">" ? v > target : v < target);
+                                });
+                                const resultCols = selectCol === "*" ? t.cols : [selectCol];
+                                return { cols: resultCols, data: filtered.map(r => resultCols.map(c => r[t.cols.indexOf(c)])) };
+                            }
+                        });
+                    }
+                    return questions;
+                }
+            },
+            order_by: {
+                title: "정렬하기 (ORDER BY)",
+                icon: "↕️",
+                color: "orange",
+                desc: `
+                    <p><b>ORDER BY</b> 절은 조회된 데이터를 사용자가 보기 좋게 줄을 세울 때 사용합니다.</p>
+                    <div class="space-y-4 my-4">
+                        <p>1. <b>ASC (Ascending):</b> 오름차순 정렬입니다. (가장 작은 값부터 큰 값으로, 기본값입니다)</p>
+                        <p>2. <b>DESC (Descending):</b> 내림차순 정렬입니다. (가장 큰 값부터 작은 값으로)</p>
+                        <p>3. <b>위치:</b> 쿼리의 가장 마지막(세미콜론 직전)에 위치합니다.</p>
+                    </div>
+                    <div class="example-box">
+                        -- 점수(score)가 높은 사람부터 정렬 (내림차순)<br>
+                        SELECT * FROM students ORDER BY score DESC;<br><br>
+                        -- 이름(name)순으로 정렬 (오름차순)<br>
+                        SELECT * FROM members ORDER BY name ASC;
+                    </div>
+                `,
+                generate: (count, type) => {
+                    const names = ["Kim", "Lee", "Park", "Choi", "Jung"];
+                    const questions = [];
+                    const usedAnswers = new Set();
+                    
+                    while (questions.length < count) {
+                        const currentTableName = randomElement(tableNamePool);
+                        const table = {
+                            name: currentTableName,
+                            cols: ["name", "score", "age", "level"],
+                            data: Array.from({length: 8}, () => [randomElement(names), randomNumber(40, 100), randomNumber(18, 75), randomNumber(1, 15)])
+                        };
+                        
+                        const sCol = randomElement(["score", "age", "name"]);
+                        const sType = randomElement([{ v: "ASC", k: "오름차순" }, { v: "DESC", k: "내림차순" }]);
+                        const selectCol = randomElement(["name", "score", "*"]);
+
+                        const ansArr = ["SELECT", selectCol, "FROM", table.name, "ORDER", "BY", sCol, sType.v, ";"];
+                        const ansStr = ansArr.join(" ");
+                        if (usedAnswers.has(ansStr)) continue;
+                        usedAnswers.add(ansStr);
+                        
+                        questions.push({
+                            type: type,
+                            table: table,
+                            question: `${table.name}의 ${selectCol === "*" ? "모든 데이터" : selectCol}를 ${sCol} 기준 ${sType.k}으로 정렬하세요.`,
+                            answer: type === 'block' ? ansArr : [ansStr.replace(" ;", ";")],
+                            options: shuffleArray([...ansArr, "LIMIT", "age", "level"]),
+                            hint: `정렬을 하려면 'ORDER BY'라는 키워드가 필요합니다. 그 뒤에 기준이 되는 컬럼명('${sCol}')과 정렬 방식('${sType.v}')을 순서대로 배치해 보세요.`,
+                            resultQuery: (t) => {
+                                const sortIdx = t.cols.indexOf(sCol);
+                                const sorted = [...t.data].sort((a, b) => {
+                                    if (a[sortIdx] < b[sortIdx]) return sType.v === "ASC" ? -1 : 1;
+                                    if (a[sortIdx] > b[sortIdx]) return sType.v === "ASC" ? 1 : -1;
+                                    return 0;
+                                });
+                                const resultCols = selectCol === "*" ? t.cols : [selectCol];
+                                return { cols: resultCols, data: sorted.map(r => resultCols.map(c => r[t.cols.indexOf(c)])) };
+                            }
+                        });
+                    }
+                    return questions;
+                }
+            },
+            aggregate: {
+                title: "집계와 요약 (Aggregate)",
+                icon: "📊",
+                color: "purple",
+                desc: `
+                    <p><b>집계 함수(Aggregate Functions)</b>는 수많은 행의 값을 합치거나 평균을 내어 <b>단 하나의 유의미한 수치</b>로 요약할 때 사용합니다.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">
+                        <div class="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                            <code class="text-lg">COUNT(*)</code>
+                            <p class="text-sm mt-2 font-bold text-gray-600">데이터가 총 몇 줄인지 세어줍니다.</p>
+                        </div>
+                        <div class="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                            <code class="text-lg">SUM(컬럼)</code>
+                            <p class="text-sm mt-2 font-bold text-gray-600">숫자들의 총합을 구합니다.</p>
+                        </div>
+                        <div class="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                            <code class="text-lg">AVG(컬럼)</code>
+                            <p class="text-sm mt-2 font-bold text-gray-600">평균값을 계산합니다.</p>
+                        </div>
+                        <div class="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                            <code class="text-lg">MAX / MIN</code>
+                            <p class="text-sm mt-2 font-bold text-gray-600">최댓값과 최솟값을 찾습니다.</p>
+                        </div>
+                    </div>
+                    <div class="example-box">
+                        -- 등록된 전체 직원의 수는?<br>
+                        SELECT COUNT(*) FROM employees;<br><br>
+                        -- 직원들의 평균 급여는?<br>
+                        SELECT AVG(salary) FROM employees;
+                    </div>
+                    <p class="text-xs text-purple-400 font-bold uppercase tracking-wider">⚠️ 주의: 집계 함수는 기본적으로 SELECT 바로 뒤에 옵니다.</p>
+                `,
+                generate: (count, type) => {
+                    const cats = ["Food", "Book", "Toy", "Cloth"];
+                    const questions = [];
+                    const usedAnswers = new Set();
+                    
+                    while (questions.length < count) {
+                        const currentTableName = randomElement(tableNamePool);
+                        const table = {
+                            name: currentTableName,
+                            cols: ["id", "category", "amount", "qty", "rating"],
+                            data: Array.from({length: 8}, (_, i) => [i+1, randomElement(cats), randomNumber(10, 500), randomNumber(1, 20), randomNumber(1, 5)])
+                        };
+                        
+                        const func = randomElement(["SUM", "AVG", "COUNT"]);
+                        const col = (func === "COUNT") ? "*" : randomElement(["amount", "qty", "rating"]);
+                        const sqlExpr = `${func}(${col})`;
+                        
+                        const ansArr = ["SELECT", sqlExpr, "FROM", table.name, ";"];
+                        const ansStr = ansArr.join(" ");
+                        if (usedAnswers.has(ansStr)) continue;
+                        usedAnswers.add(ansStr);
+                        
+                        questions.push({
+                            type: type,
+                            table: table,
+                            question: `${table.name}에서 ${col === "*" ? "전체 개수" : col + "의 " + (func === "SUM" ? "합계" : "평균")}를 구하세요.`,
+                            answer: type === 'block' ? ansArr : [ansStr.replace(" ;", ";")],
+                            options: shuffleArray([...ansArr, "MAX(qty)", "MIN(amount)"]),
+                            hint: `집계 함수인 ${func}를 사용해야 합니다. 괄호 안에 대상이 되는 컬럼('${col}')을 넣어서 SELECT 바로 뒤에 배치해 보세요.`,
+                            resultQuery: (t) => {
+                                const idx = t.cols.indexOf(col);
+                                const values = t.data.map(r => r[idx]);
+                                let val = 0;
+                                if(func === "SUM") val = values.reduce((a, b) => a + b, 0);
+                                else if(func === "COUNT") val = t.data.length;
+                                else val = (values.reduce((a, b) => a + b, 0) / t.data.length).toFixed(1);
+                                return { cols: [sqlExpr], data: [[val]] };
+                            }
+                        });
+                    }
+                    return questions;
+                }
+            }
+        };
+
+        let currentCourseId = null, currentCourseConfig = null, activeQuestions = [], currentQuestionIdx = 0;
+        let lives = 5, draggedElement = null;
+
+        function showView(viewId) {
+            ['view-lobby', 'view-quiz', 'view-success'].forEach(v => document.getElementById(v).classList.add('hidden'));
+            document.getElementById('view-' + viewId).classList.remove('hidden');
+            if (viewId === 'lobby') { lives = 5; renderLobby(); }
+            window.scrollTo(0, 0);
+        }
+
+        function goToLobbyDirectly() { 
+            document.getElementById('game-over-overlay').classList.add('hidden');
+            document.getElementById('interaction-container').classList.remove('hidden');
+            document.getElementById('quiz-footer').classList.remove('hidden');
+            showView('lobby'); 
+        }
+
+        function renderLobby() {
+            const list = document.getElementById('course-list');
+            list.innerHTML = "";
+            Object.keys(questionPool).forEach((id, index) => {
+                const course = questionPool[id];
+                const clearCount = localStorage.getItem(`sql_clear_count_${id}`) || 0;
+                const card = document.createElement('div');
+                card.className = `course-card bg-white p-8 rounded-[2rem] border-2 border-b-8 border-${course.color}-400 cursor-pointer shadow-sm`;
+                card.onclick = () => startCourse(id);
+                card.innerHTML = `
+                    <div class="flex justify-between mb-6"><div class="text-4xl">${course.icon}</div><div class="px-3 bg-gray-100 rounded-full text-[10px] font-black text-gray-400 flex items-center justify-center min-w-[70px] h-[26px]">STAGE ${index + 1}</div></div>
+                    <h2 class="text-2xl font-black mb-1">${course.title}</h2>
+                    <div class="flex justify-between items-center mt-4"><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest"></p><div class="bg-${course.color}-50 text-${course.color}-600 text-xs font-black px-3 py-1 rounded-lg border border-${course.color}-100">CLEAR: ${clearCount}회</div></div>
+                `;
+                list.appendChild(card);
+            });
+            updateStatus();
+        }
+
+        function startCourse(id) {
+            currentCourseId = id; currentCourseConfig = questionPool[id];
+            const qBlocks = currentCourseConfig.generate(4, 'block');
+            const qTexts = currentCourseConfig.generate(4, 'text');
+            activeQuestions = shuffleArray([...qBlocks, ...qTexts]);
+            currentQuestionIdx = 0; lives = 5;
+            document.getElementById('game-over-overlay').classList.add('hidden');
+            document.getElementById('interaction-container').classList.remove('hidden');
+            document.getElementById('quiz-footer').classList.remove('hidden');
+            updateStatus(); loadQuestion(); showView('quiz');
+        }
+
+        function loadQuestion() {
+            const q = activeQuestions[currentQuestionIdx];
+            document.getElementById('quiz-progress-bar').style.width = (currentQuestionIdx / activeQuestions.length * 100) + "%";
+            document.getElementById('quiz-topic-title').innerText = currentCourseConfig.title;
+            document.getElementById('quiz-topic-desc').innerHTML = currentCourseConfig.desc;
+            document.getElementById('quiz-question').innerText = q.question;
+            document.getElementById('table-name').innerText = q.table.name;
+            const typeInd = document.getElementById('quiz-type-indicator');
+            typeInd.innerText = q.type === 'block' ? "🧱 블록 맞추기" : "⌨️ 직접 입력";
+            resetInteractionUI();
+            renderTable(q.table, 'ref-table-head', 'ref-table-body');
+            if (q.type === 'block') {
+                document.getElementById('drop-zone-wrapper').classList.remove('hidden');
+                document.getElementById('block-selection-wrapper').classList.remove('hidden');
+                document.getElementById('text-input-container').classList.add('hidden');
+                renderBlocks(q.options);
+            } else {
+                document.getElementById('drop-zone-wrapper').classList.add('hidden');
+                document.getElementById('block-selection-wrapper').classList.add('hidden');
+                document.getElementById('text-input-container').classList.remove('hidden');
+                document.getElementById('check-btn').disabled = false;
+            }
+        }
+
+        function showDetailedHint() {
+            const q = activeQuestions[currentQuestionIdx];
+            const hintMsg = q.hint || "문제의 요구사항을 다시 한 번 천천히 읽어보세요!";
+            document.getElementById('feedback-message').innerHTML = `
+                <div class="bg-amber-50 border-2 border-amber-200 p-4 rounded-2xl animate-in slide-in-from-left duration-300 w-full">
+                    <p class="text-amber-800 font-bold text-sm leading-relaxed"><span class="text-lg">💡</span> ${hintMsg}</p>
+                </div>
+            `;
+            document.getElementById('hint-btn').classList.add('hidden');
+        }
+
+        function finishCourse() {
+            let clearCount = parseInt(localStorage.getItem(`sql_clear_count_${currentCourseId}`) || 0);
+            localStorage.setItem(`sql_clear_count_${currentCourseId}`, clearCount + 1);
+            goToLobbyDirectly();
+        }
+
+        function resetProgress() {
+            if(confirm("모든 진도를 초기화할까요?")) { Object.keys(questionPool).forEach(id => localStorage.removeItem(`sql_clear_count_${id}`)); goToLobbyDirectly(); }
+        }
+
+        function resetInteractionUI() {
+            document.getElementById('feedback-message').innerHTML = "";
+            document.getElementById('check-btn').classList.remove('hidden');
+            document.getElementById('check-btn').disabled = true;
+            document.getElementById('next-btn').classList.add('hidden');
+            document.getElementById('retry-btn').classList.add('hidden');
+            document.getElementById('hint-btn').classList.add('hidden');
+            document.getElementById('drop-zone').innerHTML = "";
+            document.getElementById('block-selection').innerHTML = "";
+            document.getElementById('sql-input').value = "";
+            document.getElementById('query-result-wrapper').classList.add('hidden');
+        }
+
+        function renderTable(t, headId, bodyId) {
+            document.getElementById(headId).innerHTML = `<tr>${t.cols.map(c => `<th class="text-center">${c}</th>`).join('')}</tr>`;
+            document.getElementById(bodyId).innerHTML = t.data.map(r => `<tr>${r.map(v => `<td class="text-center">${v}</td>`).join('')}</tr>`).join('');
+        }
+
+        function renderBlocks(opts) {
+            const container = document.getElementById('block-selection');
+            opts.forEach((opt, idx) => {
+                const el = document.createElement('div');
+                el.className = "sql-block bg-white border-2 border-b-4 border-gray-200 rounded-xl font-black px-4 py-2 text-sm";
+                el.innerText = opt; el.draggable = true;
+                el.addEventListener('dragstart', (e) => { draggedElement = el; setTimeout(() => el.classList.add('dragging'), 0); });
+                el.addEventListener('dragend', () => { el.classList.remove('dragging'); removePlaceholder(); toggleCheckBtn(); });
+                container.appendChild(el);
+            });
+        }
+
+        function handleDragEnter(e) { e.preventDefault(); e.currentTarget.classList.add('active-zone'); }
+        function handleDragOver(e) {
+            e.preventDefault(); const zone = e.currentTarget;
+            const afterElement = getDragAfterElement(zone, e.clientX);
+            removePlaceholder();
+            const placeholder = document.createElement('div');
+            placeholder.className = 'drop-placeholder';
+            if (afterElement == null) zone.appendChild(placeholder); else zone.insertBefore(placeholder, afterElement);
+        }
+        function handleDragLeave(e) { e.currentTarget.classList.remove('active-zone'); removePlaceholder(); }
+        function removePlaceholder() { const p = document.querySelector('.drop-placeholder'); if (p) p.remove(); }
+        function handleDrop(e) {
+            e.preventDefault(); const zone = document.getElementById('drop-zone');
+            const afterElement = getDragAfterElement(zone, e.clientX);
+            if (draggedElement) { if (afterElement == null) zone.appendChild(draggedElement); else zone.insertBefore(draggedElement, afterElement); }
+            zone.classList.remove('active-zone'); removePlaceholder(); toggleCheckBtn();
+        }
+        function handleDropToSelection(e) { e.preventDefault(); if (draggedElement) document.getElementById('block-selection').appendChild(draggedElement); removePlaceholder(); toggleCheckBtn(); }
+        function getDragAfterElement(container, x) {
+            const draggableElements = [...container.querySelectorAll('.sql-block:not(.dragging)')];
+            return draggableElements.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offset = x - (box.left + box.width / 2);
+                if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest;
+            }, { offset: Number.NEGATIVE_INFINITY }).element;
+        }
+
+        function toggleCheckBtn() {
+            const count = document.getElementById('drop-zone').querySelectorAll('.sql-block').length;
+            document.getElementById('check-btn').disabled = count === 0 && activeQuestions[currentQuestionIdx].type === 'block';
+        }
+
+        function checkAnswer() {
+            const q = activeQuestions[currentQuestionIdx];
+            let isCorrect = false;
+            const clean = (s) => s.toLowerCase().replace(/\s+/g, ' ').replace(/, /g, ',').replace(/ ,/g, ',').replace(/;$/, '').trim();
+            if (q.type === 'block') {
+                const tokens = Array.from(document.querySelectorAll('#drop-zone .sql-block')).map(b => b.innerText);
+                isCorrect = clean(tokens.join(" ")) === clean(q.answer.join(" "));
+            } else {
+                let input = document.getElementById('sql-input').value.trim();
+                isCorrect = q.answer.some(ans => clean(ans) === clean(input));
+            }
+            if (isCorrect) {
+                const res = q.resultQuery(q.table);
+                renderTable(res, 'result-table-head', 'result-table-body');
+                document.getElementById('query-result-wrapper').classList.remove('hidden');
+                document.getElementById('feedback-message').innerHTML = `<p class="text-green-600 font-black text-xl">정답입니다!</p>`;
+                document.getElementById('check-btn').classList.add('hidden');
+                document.getElementById('next-btn').classList.remove('hidden');
+                document.getElementById('hint-btn').classList.add('hidden');
+            } else {
+                lives--; updateStatus();
+                if (lives <= 0) showGameOver();
+                else {
+                    document.getElementById('feedback-message').innerHTML = `<p class="text-red-500 font-bold">틀렸습니다. 다시 생각해보세요!</p>`;
+                    document.getElementById('check-btn').classList.add('hidden');
+                    document.getElementById('retry-btn').classList.remove('hidden');
+                    document.getElementById('hint-btn').classList.remove('hidden');
+                }
+            }
+        }
+
+        function showGameOver() {
+            document.getElementById('interaction-container').classList.add('hidden');
+            document.getElementById('quiz-footer').classList.add('hidden');
+            document.getElementById('game-over-overlay').classList.remove('hidden');
+        }
+
+        function retryQuestion() { 
+            document.getElementById('feedback-message').innerHTML = ""; 
+            document.getElementById('retry-btn').classList.add('hidden'); 
+            document.getElementById('check-btn').classList.remove('hidden');
+            document.getElementById('hint-btn').classList.add('hidden');
+        }
+        function nextQuestion() { currentQuestionIdx++; if (currentQuestionIdx >= activeQuestions.length) showView('success'); else loadQuestion(); }
+        function updateStatus() { document.getElementById('lives-count-nav').innerText = lives; document.getElementById('lives-count-quiz').innerText = lives; }
+
+        window.onload = () => showView('lobby');
+    </script>
+</body>
+</html>

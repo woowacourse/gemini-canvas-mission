@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>배민이네 라면가게</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
+        /* 배달의 민족 민트색: #2AC1BC */
+        body { font-family: 'Jua', sans-serif; background: #E0F7F6; margin: 0; overflow: hidden; user-select: none; }
+        #ui-layer { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+        #ui-layer * { pointer-events: auto; }
+        
+        .panel { background: rgba(255, 255, 255, 0.95); border: 3px solid #2AC1BC; border-radius: 20px; padding: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); }
+        
+        .drag-item { width: 65px; height: 60px; background: white; border: 2px solid #E0F7F6; border-radius: 12px; cursor: grab; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 12px; transition: all 0.2s; margin-bottom: 6px; }
+        .drag-item:hover { border-color: #2AC1BC; transform: translateY(-2px); }
+        .drag-item:active { cursor: grabbing; transform: scale(0.9); }
+
+        .order-card { background: #fdfdfd; border: 2px solid #E0F7F6; border-radius: 12px; padding: 8px; font-size: 13px; margin-bottom: 8px; animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+        #timer-bar { position: absolute; top: 0; left: 0; width: 100%; height: 12px; background: #CFEFEF; }
+        #timer-fill { width: 100%; height: 100%; background: #2AC1BC; transition: width 0.1s linear; }
+
+        .btn-serve { background: #2AC1BC; color: white; border: none; padding: 12px 40px; border-radius: 50px; font-size: 20px; cursor: pointer; box-shadow: 0 4px 0 #24A19C; transition: all 0.1s; }
+        .btn-serve:active { transform: translateY(2px); box-shadow: 0 2px 0 #24A19C; }
+        
+        /* 드래그 고스트 아이콘 스타일 개선 */
+        #ghost { 
+            position: fixed; pointer-events: none; width: 60px; height: 60px; z-index: 1000; display: none; 
+            transform: translate(-50%, -50%); font-size: 40px; text-align: center; line-height: 60px;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2));
+            transition: transform 0.05s linear;
+        }
+
+        .baemin-logo {
+            background: #2AC1BC;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            display: inline-block;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div id="timer-bar"><div id="timer-fill"></div></div>
+
+    <!-- 재료 사이드바 -->
+    <div class="absolute top-10 left-4 panel w-24 flex flex-col items-center">
+        <div class="baemin-logo text-center">라면의<br>민족</div>
+        <div class="drag-item" data-type="water" data-emoji="💧">💧 물</div>
+        <div class="drag-item" data-type="noodles" data-emoji="🍜">🍜 면</div>
+        <div class="drag-item" data-type="soup" data-emoji="🌶️">🌶️ 스프</div>
+        <div class="drag-item" data-type="onion" data-emoji="🌿">🌿 파</div>
+        <div class="drag-item" data-type="egg" data-emoji="🥚">🥚 계란</div>
+        <div class="drag-item" data-type="spam" data-emoji="🥩">🥩 스팸</div>
+        <div class="drag-item" data-type="cheese" data-emoji="🧀">🧀 치즈</div>
+    </div>
+
+    <!-- 점수판 -->
+    <div class="absolute top-10 left-1/2 -translate-x-1/2 panel text-2xl text-[#2AC1BC] px-8 flex items-center gap-3">
+        <span class="font-bold">배달 수입:</span> <span id="score" class="text-3xl">0</span>원
+    </div>
+
+    <!-- 주문 리스트 -->
+    <div class="absolute top-10 right-4 panel w-52 h-[450px] flex flex-col">
+        <h3 class="text-[#2AC1BC] font-bold border-b-2 border-[#E0F7F6] mb-3 text-center pb-1">배달 주문</h3>
+        <div id="orders-list" class="flex-1 overflow-y-auto pr-1"></div>
+    </div>
+
+    <!-- 하단 컨트롤 -->
+    <div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4">
+        <div id="pot-selection-status" class="bg-white px-6 py-2 rounded-full text-sm text-[#2AC1BC] border-2 border-[#2AC1BC] shadow-sm transition-all font-bold">
+            배달할 냄비를 클릭해서 선택하세요!
+        </div>
+        <button id="serve-btn" class="btn-serve">🍜 라면 배달하기</button>
+    </div>
+
+    <!-- 메인 오버레이 -->
+    <div id="overlay" class="absolute inset-0 bg-[#E0F7F6] flex flex-col items-center justify-center pointer-events-auto">
+        <div class="text-center mb-8">
+            <h2 class="text-3xl text-[#24A19C] mb-2">우리가 어떤 민족입니까?</h2>
+            <h1 class="text-8xl text-[#2AC1BC] font-bold tracking-tighter shadow-sm">라면의 민족</h1>
+        </div>
+        
+        <div class="w-48 h-48 bg-white rounded-full flex items-center justify-center border-8 border-[#2AC1BC] mb-10 shadow-xl overflow-hidden">
+            <span class="text-8xl">🍜</span>
+        </div>
+
+        <h1 class="text-4xl text-[#2AC1BC] font-bold mb-2">배민이네 라면가게</h1>
+        <p class="text-[#24A19C] mb-10 text-xl font-medium">신속 정확! 맛있는 라면 배달 서비스</p>
+        
+        <button onclick="startGame()" class="px-20 py-6 bg-[#2AC1BC] text-white rounded-full text-3xl font-bold shadow-xl hover:bg-[#24A19C] transition-all active:scale-95">영업 시작!</button>
+    </div>
+</div>
+
+<div id="ghost"></div>
+
+<script>
+    const CONFIG = {
+        MAX_TIME: 100,
+        BOIL_TIME: 7000, 
+        BURN_TIME: 18000,
+        BASE_PRICE: 1500,
+        MAX_ORDERS: 5
+    };
+
+    let scene, camera, renderer, raycaster;
+    let score = 0, timeLeft = CONFIG.MAX_TIME, gameActive = false;
+    let pots = [], activeOrders = [], selectedPotIndex = null, draggingType = null;
+    let mouse = new THREE.Vector2();
+
+    function init3D() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xE0F7F6);
+
+        camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 22, 14); 
+        camera.lookAt(0, -2, 0);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        raycaster = new THREE.Raycaster();
+
+        scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+        const light = new THREE.DirectionalLight(0xffffff, 0.6);
+        light.position.set(10, 20, 10);
+        scene.add(light);
+
+        const table = new THREE.Mesh(
+            new THREE.PlaneGeometry(100, 100),
+            new THREE.MeshPhongMaterial({ color: 0xF7FFFF })
+        );
+        table.rotation.x = -Math.PI / 2;
+        scene.add(table);
+
+        const stovePositions = [{x: -7, z: -3}, {x: 7, z: -3}, {x: -7, z: 6}, {x: 7, z: 6}];
+
+        stovePositions.forEach((pos, i) => {
+            const burner = new THREE.Mesh(
+                new THREE.CylinderGeometry(3.5, 3.5, 0.2, 32),
+                new THREE.MeshPhongMaterial({ color: 0x555555 })
+            );
+            burner.position.set(pos.x, 0.1, pos.z);
+            scene.add(burner);
+
+            const ring = new THREE.Mesh(
+                new THREE.TorusGeometry(4.2, 0.15, 8, 32),
+                new THREE.MeshBasicMaterial({ color: 0x2AC1BC, transparent: true, opacity: 0.8 })
+            );
+            ring.rotation.x = Math.PI/2;
+            ring.position.set(pos.x, 0.2, pos.z);
+            ring.visible = false;
+            scene.add(ring);
+
+            const potGroup = new THREE.Group();
+            potGroup.position.set(pos.x, 0.2, pos.z);
+            
+            const potHeight = 1.2;
+            const potBody = new THREE.Mesh(
+                new THREE.CylinderGeometry(2.8, 2.5, potHeight, 32, 1, true),
+                new THREE.MeshPhongMaterial({ color: 0xffcc33, side: THREE.DoubleSide, shininess: 80 })
+            );
+            potBody.position.y = potHeight / 2;
+            potGroup.add(potBody);
+
+            const potBottom = new THREE.Mesh(
+                new THREE.CylinderGeometry(2.5, 2.5, 0.1, 32),
+                new THREE.MeshPhongMaterial({ color: 0xeeaa00 })
+            );
+            potBottom.position.y = 0.05;
+            potGroup.add(potBottom);
+
+            const hGeo = new THREE.TorusGeometry(0.5, 0.1, 12, 24, Math.PI);
+            const hMat = new THREE.MeshPhongMaterial({ color: 0xeeaa00 });
+            const hL = new THREE.Mesh(hGeo, hMat); hL.position.set(-2.8, 0.8, 0); hL.rotation.z = Math.PI/2;
+            const hR = new THREE.Mesh(hGeo, hMat); hR.position.set(2.8, 0.8, 0); hR.rotation.z = -Math.PI/2;
+            potGroup.add(hL, hR);
+
+            const water = new THREE.Mesh(
+                new THREE.CylinderGeometry(2.7, 2.4, 0.8, 32),
+                new THREE.MeshPhongMaterial({ color: 0x3498db, transparent: true, opacity: 0.6 })
+            );
+            water.position.y = 0.45;
+            water.scale.y = 0.01;
+            water.visible = false;
+            potGroup.add(water);
+
+            const noodle = new THREE.Mesh(
+                new THREE.TorusKnotGeometry(0.9, 0.15, 120, 16),
+                new THREE.MeshPhongMaterial({ color: 0xffe66d })
+            );
+            noodle.rotation.x = Math.PI/2;
+            noodle.position.y = 0.3;
+            noodle.visible = false;
+            potGroup.add(noodle);
+
+            const toppings = {
+                onion: createTopping('onion'),
+                egg: createTopping('egg'),
+                spam: createTopping('spam'),
+                cheese: createTopping('cheese')
+            };
+            Object.values(toppings).forEach(t => potGroup.add(t));
+
+            const steam = new THREE.Group();
+            for(let j=0; j<10; j++){
+                const s = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.3}));
+                s.position.set((Math.random()-0.5)*3, 1, (Math.random()-0.5)*3);
+                steam.add(s);
+            }
+            steam.visible = false;
+            potGroup.add(steam);
+
+            const hitbox = new THREE.Mesh(
+                new THREE.CylinderGeometry(3.2, 3.2, 2, 16),
+                new THREE.MeshBasicMaterial({ visible: false })
+            );
+            hitbox.position.y = 1;
+            hitbox.name = "pot_hitbox";
+            potGroup.add(hitbox);
+
+            scene.add(potGroup);
+
+            pots.push({
+                index: i + 1, group: potGroup, water, noodle, steam, ring, toppings,
+                body: potBody, bottom: potBottom, hL, hR,
+                data: { water: false, noodles: false, soup: false, onion: false, egg: false, spam: false, cheese: false, startTime: 0, isBurned: false }
+            });
+        });
+
+        window.addEventListener('resize', onResize);
+        animate();
+    }
+
+    function createTopping(type) {
+        const group = new THREE.Group();
+        group.visible = false;
+        group.position.y = 0.5;
+
+        if(type === 'onion') {
+            for(let i=0; i<8; i++){
+                const o = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.05, 8), new THREE.MeshPhongMaterial({color: 0x27ae60}));
+                o.position.set((Math.random()-0.5)*2.5, 0, (Math.random()-0.5)*2.5);
+                o.rotation.set(Math.random()*2, Math.random()*2, Math.random()*2);
+                group.add(o);
+            }
+        } else if(type === 'egg') {
+            const white = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 12), new THREE.MeshPhongMaterial({color: 0xffffff}));
+            white.scale.set(1.5, 0.1, 1.2);
+            const yolk = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 12), new THREE.MeshPhongMaterial({color: 0xf1c40f}));
+            yolk.position.y = 0.1;
+            group.add(white, yolk);
+        } else if(type === 'spam') {
+            const s1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.1, 0.6), new THREE.MeshPhongMaterial({color: 0xe08282}));
+            s1.position.set(-0.5, 0, 0.3);
+            const s2 = s1.clone(); s2.position.set(0.4, 0, -0.2); s2.rotation.y = 0.5;
+            group.add(s1, s2);
+        } else if(type === 'cheese') {
+            const c = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.05, 1.3), new THREE.MeshPhongMaterial({color: 0xffd32a}));
+            group.add(c);
+        }
+        return group;
+    }
+
+    function onResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const now = Date.now();
+        
+        if(gameActive) {
+            pots.forEach(p => {
+                if(p.ring.visible) p.ring.rotation.z += 0.02;
+
+                if(p.data.water) {
+                    if(p.water.scale.y < 1) p.water.scale.y += 0.05;
+                    if(p.data.soup) p.water.material.color.lerp(new THREE.Color(0xc0392b), 0.05);
+
+                    const elapsed = now - p.data.startTime;
+                    if(elapsed > 1500 && !p.data.isBurned) {
+                        const wave = Math.sin(now * 0.01) * 0.04;
+                        const surfaceY = 0.8 + wave;
+                        p.water.position.y = surfaceY / 2;
+                        p.water.scale.y = surfaceY;
+
+                        if(p.data.noodles) p.noodle.position.y = surfaceY - 0.2;
+                        Object.entries(p.toppings).forEach(([key, group]) => {
+                            if(p.data[key]) group.position.y = surfaceY + 0.05;
+                        });
+
+                        if(elapsed > CONFIG.BOIL_TIME) {
+                            p.steam.visible = true;
+                            p.steam.children.forEach(s => {
+                                s.position.y += 0.03;
+                                s.scale.multiplyScalar(1.01);
+                                if(s.position.y > 4) { s.position.y = 1; s.scale.set(1,1,1); }
+                            });
+                        }
+                    }
+                }
+
+                const elapsed = p.data.startTime ? (now - p.data.startTime) : 0;
+                if(!p.data.isBurned && elapsed > CONFIG.BURN_TIME) {
+                    p.data.isBurned = true;
+                    p.body.material.color.set(0x222222);
+                    p.bottom.material.color.set(0x111111);
+                    p.water.material.color.set(0x000000);
+                    p.noodle.material.color.set(0x333333);
+                    p.steam.visible = false;
+                }
+            });
+        }
+        renderer.render(scene, camera);
+    }
+
+    function startGame() {
+        gameActive = true;
+        document.getElementById('overlay').style.display = 'none';
+        initOrders();
+        
+        const timerInt = setInterval(() => {
+            timeLeft -= 0.15;
+            document.getElementById('timer-fill').style.width = timeLeft + '%';
+            if(timeLeft <= 0) { clearInterval(timerInt); endGame(); }
+        }, 100);
+
+        setInterval(() => { if(activeOrders.length < CONFIG.MAX_ORDERS) addOrder(); }, 6000);
+    }
+
+    function initOrders() { addOrder(); addOrder(); }
+
+    function addOrder() {
+        const o = {
+            onion: Math.random() > 0.4,
+            egg: Math.random() > 0.4,
+            spam: Math.random() > 0.7,
+            cheese: Math.random() > 0.7,
+            id: Date.now() + Math.random()
+        };
+        activeOrders.push(o);
+        renderOrders();
+    }
+
+    function renderOrders() {
+        const list = document.getElementById('orders-list');
+        list.innerHTML = activeOrders.map((o, i) => {
+            let desc = [];
+            if(o.onion) desc.push("파"); if(o.egg) desc.push("계란"); if(o.spam) desc.push("스팸"); if(o.cheese) desc.push("치즈");
+            return `
+                <div class="order-card">
+                    <div class="flex justify-between font-bold mb-1">
+                        <span class="text-[#2AC1BC]">배달 #${i+1}</span>
+                    </div>
+                    <div class="text-gray-700">기본 라면 ${desc.length > 0 ? '+ ' + desc.join(', ') : ''}</div>
+                </div>`;
+        }).join('') || '<div class="text-center text-gray-400 mt-20">배달 대기 중...</div>';
+    }
+
+    function selectPot(idx) {
+        selectedPotIndex = idx;
+        pots.forEach((p, i) => p.ring.visible = (i === idx));
+        const status = document.getElementById('pot-selection-status');
+        status.innerHTML = `<b class="text-[#2AC1BC]">${idx+1}번 냄비</b>가 배달 대상으로 선택됨!`;
+        status.style.borderColor = "#2AC1BC";
+    }
+
+    document.getElementById('serve-btn').onclick = () => {
+        if(selectedPotIndex === null) { showMsg("배달할 냄비를 먼저 클릭하세요!"); return; }
+        if(activeOrders.length === 0) return;
+
+        const p = pots[selectedPotIndex];
+        const now = Date.now();
+        const elapsed = now - p.data.startTime;
+
+        let bestMatchIdx = 0;
+        let bestScore = -1;
+
+        activeOrders.forEach((o, i) => {
+            let s = 0;
+            if(o.onion === p.data.onion) s++;
+            if(o.egg === p.data.egg) s++;
+            if(o.spam === p.data.spam) s++;
+            if(o.cheese === p.data.cheese) s++;
+            if(s > bestScore) { bestScore = s; bestMatchIdx = i; }
+        });
+
+        const order = activeOrders[bestMatchIdx];
+        let reward = 0;
+        let msg = "";
+
+        if(p.data.isBurned) { msg = "음식이 탔어요! 재조리 필요"; }
+        else if(!p.data.water || !p.data.noodles || !p.data.soup) { msg = "기본 재료가 없어요!"; }
+        else {
+            const isMatch = (p.data.onion === order.onion && p.data.egg === order.egg && p.data.spam === order.spam && p.data.cheese === order.cheese);
+            if(isMatch) {
+                if(elapsed < CONFIG.BOIL_TIME) { reward = 1000; msg = "설익었지만 배달 완료!"; }
+                else { reward = 3000; msg = "신속 정확! 배달 성공 (+3000)"; }
+            } else {
+                reward = 500; msg = "토핑이 다르지만 배달 완료 (+500)";
+            }
+        }
+
+        score += reward;
+        document.getElementById('score').innerText = score.toLocaleString();
+        showMsg(msg);
+        activeOrders.splice(bestMatchIdx, 1);
+        resetPot(selectedPotIndex);
+        renderOrders();
+    };
+
+    function resetPot(idx) {
+        const p = pots[idx];
+        p.data = { water: false, noodles: false, soup: false, onion: false, egg: false, spam: false, cheese: false, startTime: 0, isBurned: false };
+        p.water.visible = p.noodle.visible = p.steam.visible = false;
+        Object.values(p.toppings).forEach(t => t.visible = false);
+        p.body.material.color.set(0xffcc33);
+        p.bottom.material.color.set(0xeeaa00);
+        p.water.material.color.set(0x3498db);
+        p.noodle.material.color.set(0xffe66d);
+        p.water.scale.y = 0.01;
+        p.ring.visible = false;
+        selectedPotIndex = null;
+        document.getElementById('pot-selection-status').innerText = "배달할 냄비를 클릭해서 선택하세요!";
+    }
+
+    function showMsg(text) {
+        const m = document.createElement('div');
+        m.className = "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-10 py-5 rounded-3xl border-4 border-[#2AC1BC] text-2xl font-bold text-[#2AC1BC] z-50 shadow-2xl animate-bounce";
+        m.innerText = text;
+        document.body.appendChild(m);
+        setTimeout(() => m.remove(), 1200);
+    }
+
+    function endGame() {
+        gameActive = false;
+        const ov = document.getElementById('overlay');
+        ov.style.display = 'flex';
+        ov.innerHTML = `
+            <h2 class="text-3xl text-[#24A19C] mb-2">우리가 어떤 민족입니까?</h2>
+            <h1 class="text-6xl text-[#2AC1BC] font-bold mb-4">라면의 민족</h1>
+            <h1 class="text-4xl text-[#2AC1BC] font-bold mb-8">영업 종료!</h1>
+            <p class="text-3xl mb-10 text-gray-700">오늘의 총 배달 수입: <span class="text-[#2AC1BC] font-bold">${score.toLocaleString()}원</span></p>
+            <button onclick="location.reload()" class="px-12 py-4 bg-[#2AC1BC] text-white rounded-full text-2xl font-bold shadow-lg">가게 다시 열기</button>
+        `;
+    }
+
+    window.addEventListener('mousedown', e => {
+        const item = e.target.closest('.drag-item');
+        if(item) {
+            draggingType = item.dataset.type;
+            const ghost = document.getElementById('ghost');
+            // 텍스트 대신 이모지만 표시되도록 수정
+            ghost.innerText = item.dataset.emoji;
+            ghost.style.display = 'block';
+            ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+            return;
+        }
+        
+        // 냄비 클릭시 선택 (배달용)
+        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hits = raycaster.intersectObjects(scene.children, true);
+        const potHit = hits.find(h => h.object.name === "pot_hitbox");
+        if(potHit) selectPot(pots.findIndex(p => p.group === potHit.object.parent));
+    });
+
+    window.addEventListener('mousemove', e => {
+        if(draggingType) {
+            const ghost = document.getElementById('ghost');
+            ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+        }
+    });
+
+    window.addEventListener('mouseup', e => {
+        if(draggingType) {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(scene.children, true);
+            const potHit = hits.find(h => h.object.name === "pot_hitbox");
+            
+            if(potHit) {
+                const p = pots[pots.findIndex(p => p.group === potHit.object.parent)];
+                // 재료 투하시 해당 냄비 데이터 즉시 업데이트
+                if(draggingType === 'water' && !p.data.water) { p.data.water = true; p.water.visible = true; p.data.startTime = Date.now(); }
+                else if(draggingType === 'noodles' && !p.data.noodles) { p.data.noodles = true; p.noodle.visible = true; if(!p.data.startTime) p.data.startTime = Date.now(); }
+                else if(draggingType === 'soup') p.data.soup = true;
+                else if(p.toppings[draggingType]) { p.data[draggingType] = true; p.toppings[draggingType].visible = true; }
+            }
+            draggingType = null;
+            document.getElementById('ghost').style.display = 'none';
+        }
+    });
+
+    window.onload = init3D;
+</script>
+</body>
+</html>

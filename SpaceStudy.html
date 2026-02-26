@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>우주 집중 앱 - 3D 몰입형 탐험</title>
+  <style>
+    :root {
+      --rot-x: 0deg;
+      --rot-y: 0deg;
+      --primary: #4682b4;
+      --bg-dark: rgba(2, 5, 10, 0.95);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+
+    body {
+      background-color: #02050a;
+      color: #fff;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      width: 100vw; height: 100vh;
+    }
+
+    /* 은하수 배경 */
+    #milky-way {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background:
+              radial-gradient(ellipse at 50% 50%, rgba(20, 10, 40, 0.4) 0%, transparent 60%),
+              radial-gradient(ellipse at 80% 20%, rgba(10, 30, 60, 0.3) 0%, transparent 50%);
+      filter: blur(20px);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* 공통 버튼 */
+    .btn-start, .btn-action {
+      padding: 15px 40px; font-size: 1.1rem; color: white;
+      background: linear-gradient(135deg, #2b5c8f, #0a1b2e);
+      border: 1px solid rgba(255,255,255,0.2); border-radius: 30px;
+      cursor: pointer; box-shadow: 0 0 20px rgba(43, 92, 143, 0.5);
+      transition: all 0.3s ease; letter-spacing: 1px; width: 100%;
+    }
+    .btn-start:hover, .btn-action:hover {
+      transform: scale(1.05); box-shadow: 0 0 30px rgba(43, 92, 143, 0.8);
+    }
+    .btn-danger { background: linear-gradient(135deg, #8f2b2b, #2e0a0a); box-shadow: 0 0 20px rgba(143, 43, 43, 0.5); }
+    .btn-danger:hover { box-shadow: 0 0 30px rgba(143, 43, 43, 0.8); }
+
+    /* 인트로 스크린 */
+    #intro-screen {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: var(--bg-dark);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 1000; transition: opacity 0.5s ease;
+    }
+
+    /* 입력 폼 */
+    .input-group { display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; width: 100%; max-width: 380px; }
+    .input-group select {
+      padding: 12px 20px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 10px; color: white; font-size: 1rem; outline: none; appearance: none;
+    }
+    .input-group select option { background: #0a1b2e; color: white; }
+    .input-group select:focus { border-color: var(--primary); background: rgba(255,255,255,0.1); }
+
+    /* 캐러셀 */
+    .carousel-wrapper { width: 100%; max-width: 380px; position: relative; margin-bottom: 10px; }
+    .destination-carousel {
+      display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 15px;
+      padding: 15px calc(50% - 70px); scroll-behavior: smooth; -ms-overflow-style: none; scrollbar-width: none; cursor: grab;
+    }
+    .destination-carousel:active { cursor: grabbing; }
+    .destination-carousel::-webkit-scrollbar { display: none; }
+    .dest-card {
+      flex: 0 0 140px; scroll-snap-align: center; background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 15px; padding: 20px 10px; text-align: center;
+      transition: all 0.3s ease; opacity: 0.4; transform: scale(0.9); user-select: none;
+    }
+    .dest-card.active {
+      opacity: 1; transform: scale(1.1); border-color: var(--primary);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5), 0 0 15px rgba(70, 130, 180, 0.3); background: rgba(70, 130, 180, 0.1);
+    }
+    .planet-icon {
+      width: 60px; height: 60px; border-radius: 50%; margin: 0 auto 15px;
+      box-shadow: inset -15px -15px 20px rgba(0,0,0,0.6), inset 5px 5px 15px rgba(255,255,255,0.3);
+    }
+    .dest-name { font-size: 0.95rem; font-weight: bold; color: white; margin-bottom: 5px; word-break: keep-all; line-height: 1.2; }
+    .dest-dist { font-size: 0.75rem; color: #a0b0c0; }
+    .estimated-time { font-size: 1.1rem; color: var(--primary); text-align: center; margin-bottom: 25px; font-weight: bold; }
+
+    /* 티켓 출력 UI */
+    #ticket-screen {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: var(--bg-dark); display: none; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 1000; opacity: 0; transition: opacity 0.3s ease;
+    }
+    .ticket-machine { display: flex; flex-direction: column; align-items: center; width: 90%; max-width: 400px; }
+    .ticket-slot { width: 100%; height: 12px; background: #000; border-radius: 6px; box-shadow: inset 0 6px 10px rgba(0,0,0,0.9), 0 2px 5px rgba(255,255,255,0.1); position: relative; z-index: 5; }
+    .ticket-container { width: 90%; overflow: hidden; padding-top: 10px; margin-top: -6px; }
+    .ticket {
+      background: linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05)); backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.2); border-top: none; border-radius: 0 0 20px 20px; padding: 40px; width: 100%;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5); transform: translateY(-110%); transition: transform 1.5s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+    #ticket-screen.printing .ticket { transform: translateY(0); }
+    .ticket-header { font-size: 0.9rem; color: var(--primary); letter-spacing: 3px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+    .ticket-body p { margin: 10px 0; font-size: 0.9rem; color: #a0b0c0; letter-spacing: 1px; }
+    .ticket-body span { display: block; color: white; font-size: 1.2rem; font-weight: bold; margin-top: 5px; }
+    .barcode { margin-top: 30px; margin-bottom: 30px; font-family: monospace; font-size: 2rem; color: rgba(255,255,255,0.6); letter-spacing: -2px; text-align: center; }
+
+    /* 안내 멘트 오버레이 */
+    #announcement {
+      position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+      font-size: 1.8rem; color: #fff; text-shadow: 0 0 20px rgba(70, 130, 180, 1);
+      z-index: 2500; opacity: 0; pointer-events: none; transition: opacity 0.5s;
+      text-align: center; line-height: 1.6; font-weight: bold;
+    }
+
+    /* === 진행 상태 (HUD) UI - 완벽한 깜빡임 차단 적용 === */
+    #hud-screen {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      pointer-events: none; opacity: 0; z-index: 9999; /* 강제 최상위 고정 */
+      transition: opacity 1s ease;
+    }
+    #hud-screen.active { opacity: 1; pointer-events: auto; }
+    .hud-top {
+      /* transform을 제거하고 순수 margin으로만 중앙 정렬하여 렌더링 충돌 방지 */
+      position: absolute; top: 20px; left: 0; right: 0; margin: 0 auto;
+      width: 90%; max-width: 400px;
+      background: #0a0f19; /* 3D 배경과 겹치지 않게 불투명한 단색 배경 지정 */
+      border: 1px solid rgba(70, 130, 180, 0.5); border-radius: 15px; padding: 20px 25px; text-align: center;
+      backface-visibility: hidden; /* 강제 하드웨어 가속 처리 */
+      -webkit-font-smoothing: antialiased; /* 텍스트 렌더링 안정화 */
+    }
+    .hud-timer {
+      font-size: 2.8rem; font-weight: bold; font-variant-numeric: tabular-nums;
+      letter-spacing: 2px; margin: 5px 0; color: #fff;
+      /* 깜빡임을 유발하는 그림자(text-shadow) 완벽 제거 */
+    }
+    .hud-info { display: flex; justify-content: space-between; font-size: 0.85rem; color: #c0d0e0; margin-bottom: 8px; }
+
+    /* 속도 게이지 (그림자 제거) */
+    .speed-gauge-container { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; margin-bottom: 10px;}
+    .speed-label { font-size: 0.75rem; color: #8090a0; letter-spacing: 1px; }
+    .speed-bars { display: flex; gap: 4px; }
+    .speed-bar { width: 12px; height: 5px; background: rgba(255,255,255,0.1); border-radius: 2px; }
+    .speed-bar.active { background: #00e5ff; }
+
+    /* 프로그레스 바 (그림자 제거) */
+    .progress-bar-bg { width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; margin-top: 5px;}
+    .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #4682b4, #00e5ff); transition: width 1s linear; }
+    .hud-bottom { position: absolute; bottom: 40px; left: 0; right: 0; margin: 0 auto; width: max-content; pointer-events: auto; }
+
+    /* 결과 모달 */
+    #result-modal {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: var(--bg-dark);
+      display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 10000;
+    }
+    .result-box { text-align: center; background: rgba(255,255,255,0.05); padding: 50px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); }
+    .result-title { font-size: 2rem; margin-bottom: 10px; }
+    .success-title { color: #4caf50; }
+    .fail-title { color: #f44336; }
+
+    /* === 3D Universe Setup (전진 이동 효과) === */
+    #universe { width: 100vw; height: 100vh; perspective: 800px; z-index: 1; position: relative; }
+    #scene {
+      width: 100%; height: 100%; transform-style: preserve-3d;
+      transform: rotateX(var(--rot-x)) rotateY(var(--rot-y)); transition: transform 0.1s ease-out;
+    }
+
+    .star-group { position: absolute; top: 50%; left: 50%; width: 0; height: 0; transform-style: preserve-3d; }
+    .star { position: absolute; background-color: #fff; border-radius: 50%; }
+
+    .flying .star-group { animation: flyForward 10s linear infinite; }
+    .flying .star-group.delay-1 { animation-delay: -3.3s; }
+    .flying .star-group.delay-2 { animation-delay: -6.6s; }
+
+    /* 카메라 통과(800px) 전 미리 소멸되도록(600px) 변경하여 깜빡임 원천 차단 */
+    @keyframes flyForward {
+      0% { transform: translateZ(-3000px); opacity: 0; }
+      10% { opacity: 0.8; }
+      80% { opacity: 1; }
+      100% { transform: translateZ(600px); opacity: 0; }
+    }
+
+    /* 지구 멀어짐 */
+    .earth-wrapper {
+      position: absolute; transform-style: preserve-3d;
+      bottom: -15vh; left: 50%; width: 500px; height: 500px;
+      margin-left: -250px; z-index: 10;
+      transition: transform 12s cubic-bezier(0.25, 0.8, 0.5, 1), opacity 10s ease;
+    }
+    .earth-wrapper.departing { transform: translate3d(0, -200px, -4000px); opacity: 0.1; }
+    .earth {
+      position: relative; width: 100%; height: 100%; border-radius: 50%;
+      background: radial-gradient(circle at 50% 10%, #4682b4 0%, #153254 40%, #02050a 90%);
+      box-shadow: inset 0 -50px 100px rgba(0,0,0,1), 0 0 60px rgba(70, 130, 180, 0.6);
+      overflow: hidden;
+    }
+    .earth-clouds {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%;
+      background-image: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.4) 0%, transparent 20%);
+      filter: blur(4px); mix-blend-mode: overlay; animation: rotatePlanet 100s linear infinite;
+    }
+
+    /* 환경 오브젝트 */
+    .env-object { position: absolute; transform-style: preserve-3d; opacity: 0; }
+    .flying .env-object { animation: passBy 40s linear infinite; }
+
+    .mars {
+      width: 120px; height: 120px; border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #c1440e, #4a1300);
+      box-shadow: inset -20px -20px 40px rgba(0,0,0,0.9);
+      --startX: 15vw; --startY: -5vh;
+    }
+    .flying .mars.active { animation-duration: 45s; animation-delay: 5s; }
+
+    .jupiter {
+      width: 400px; height: 400px; border-radius: 50%;
+      background: repeating-linear-gradient(0deg, #8c7b64 0%, #b5a48b 10%, #d4c5b0 20%, #9e8971 30%);
+      box-shadow: inset -60px -60px 100px rgba(0,0,0,0.9);
+      --startX: -15vw; --startY: -10vh;
+    }
+    .flying .jupiter.active { animation-duration: 90s; animation-delay: 25s; }
+
+    .asteroid {
+      width: 20px; height: 15px; background: #666; border-radius: 40% 60% 50% 40%;
+      box-shadow: inset -5px -5px 10px #222;
+      --startX: 5vw; --startY: 10vh;
+    }
+    .flying .asteroid.active { animation: passByAsteroid 12s linear infinite; animation-delay: 10s; }
+
+    /* 카메라 안전거리(600px)에서 소멸하도록 하여 화면 깜빡임 차단 */
+    @keyframes passBy {
+      0% { transform: translate3d(var(--startX), var(--startY), -5000px); opacity: 0; }
+      10% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { transform: translate3d(var(--startX), var(--startY), 600px); opacity: 0; }
+    }
+    @keyframes passByAsteroid {
+      0% { transform: translate3d(var(--startX), var(--startY), -4000px) rotateX(0) rotateY(0); opacity: 0; }
+      20% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { transform: translate3d(-30vw, -10vh, 600px) rotateX(360deg) rotateY(360deg); opacity: 0; }
+    }
+
+  </style>
+</head>
+<body>
+
+<div id="milky-way"></div>
+
+<div id="intro-screen">
+  <h1 style="margin-bottom: 10px; font-weight: 300; letter-spacing: 4px;">DEEP SPACE FOCUS</h1>
+  <p style="margin-bottom: 30px; color: #a0b0c0; text-align: center; line-height: 1.6; font-size: 0.9rem;">
+    목표를 설정하고 우주로 이륙하세요.
+  </p>
+  <div class="input-group">
+    <select id="tag-select"></select>
+    <div class="carousel-wrapper">
+      <div class="destination-carousel" id="dest-carousel"></div>
+    </div>
+  </div>
+  <div class="estimated-time" id="est-time-display">예상 항해 시간: 0분</div>
+  <button class="btn-start" onclick="generateTicket()" style="max-width: 380px;">티켓 발급</button>
+</div>
+
+<div id="ticket-screen">
+  <div class="ticket-machine">
+    <div class="ticket-slot"></div>
+    <div class="ticket-container">
+      <div class="ticket">
+        <div class="ticket-header">INTERSTELLAR BOARDING PASS</div>
+        <div class="ticket-body">
+          <p>MISSION TAG: <span id="t-tag"></span></p>
+          <p>DESTINATION: <span id="t-dest" style="color: var(--primary);"></span></p>
+          <p>FLIGHT TIME: <span id="t-time"></span></p>
+          <div class="barcode">|| | ||| | || | ||| ||</div>
+        </div>
+        <button class="btn-start" style="width: 100%; margin-top: 10px;" onclick="startDeparture()">이륙 승인 (Launch)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="universe">
+  <div id="scene">
+    <div class="star-group delay-0" id="sg-1"></div>
+    <div class="star-group delay-1" id="sg-2"></div>
+    <div class="star-group delay-2" id="sg-3"></div>
+
+    <div class="env-object mars active"></div>
+    <div class="env-object jupiter active"></div>
+    <div class="env-object asteroid active"></div>
+
+    <div class="earth-wrapper">
+      <div class="earth"><div class="earth-clouds"></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="announcement">발사 시퀀스를 시작합니다.<br>워프 드라이브 가동.</div>
+
+<div id="hud-screen">
+  <div class="hud-top">
+    <div class="hud-info">
+      <span id="hud-tag" style="color: #00e5ff; font-weight: bold;">[ 태그 ]</span>
+      <span id="hud-dest">목적지</span>
+    </div>
+    <div class="hud-timer" id="hud-timer">00:00:00</div>
+
+    <div class="speed-gauge-container">
+      <span class="speed-label">WARP SPEED</span>
+      <div class="speed-bars">
+        <div class="speed-bar active"></div><div class="speed-bar active"></div>
+        <div class="speed-bar active"></div><div class="speed-bar active"></div>
+        <div class="speed-bar active"></div><div class="speed-bar active"></div>
+      </div>
+    </div>
+
+    <div class="hud-info" style="margin-bottom: 0;">
+      <span>진행률</span>
+      <span id="hud-distance-left">남은 거리 계산중...</span>
+    </div>
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" id="hud-progress"></div>
+    </div>
+  </div>
+  <div class="hud-bottom">
+    <button class="btn-action btn-danger" onclick="abortMission()">임무 중단 (Abort)</button>
+  </div>
+</div>
+
+<div id="result-modal">
+  <div class="result-box">
+    <h2 class="result-title" id="result-title">MISSION COMPLETED</h2>
+    <p style="color: #a0b0c0; margin-bottom: 30px;" id="result-desc">목적지에 무사히 도착했습니다.</p>
+    <button class="btn-start" onclick="returnToBase()">지구로 귀환</button>
+  </div>
+</div>
+
+<script>
+  const MOON_DISTANCE_KM = 384400;
+  const MOON_TIME_MINS = 15;
+  const MAX_TIME_MINS = 1440;
+
+  const TAGS = ["코딩", "독서", "공부", "명상", "글쓰기", "업무", "디자인", "기획", "아이디어 구상", "자유 비행"];
+
+  let DESTINATIONS = [
+    { name: "저궤도 정거장 (테스트용)", dist: 25626 },
+    { name: "정지 궤도 (GEO)", dist: 55000 },
+    { name: "달 (Moon)", dist: 384400 },
+    { name: "제임스 웹 (L2)", dist: 1500000 },
+    { name: "소행성 아포피스", dist: 3100000 },
+    { name: "금성 (Venus)", dist: 38000000 },
+    { name: "화성 (Mars)", dist: 54600000 },
+    { name: "수성 (Mercury)", dist: 77000000 },
+    { name: "목성 (Jupiter)", dist: 588000000 }
+  ];
+
+  for(let i=1; i<=20; i++) {
+    DESTINATIONS.push({ name: `심우주 웨이포인트 NX-${i}`, dist: Math.floor(Math.random() * 35000000) + 50000 });
+  }
+  DESTINATIONS.sort((a, b) => a.dist - b.dist);
+
+  function calculateTime(distanceKm) {
+    return Math.min(Math.max(Math.round((distanceKm / MOON_DISTANCE_KM) * MOON_TIME_MINS), 1), MAX_TIME_MINS);
+  }
+
+  let selectedDestIndex = 0;
+
+  function initData() {
+    const tagSelect = document.getElementById('tag-select');
+    TAGS.forEach(tag => { let opt = document.createElement('option'); opt.value = tag; opt.innerText = tag; tagSelect.appendChild(opt); });
+
+    const carousel = document.getElementById('dest-carousel');
+    carousel.innerHTML = '';
+    DESTINATIONS.forEach((dest, idx) => {
+      const card = document.createElement('div');
+      card.className = `dest-card ${idx === 0 ? 'active' : ''}`;
+      const hue = (idx * 25) % 360;
+      card.innerHTML = `
+                    <div class="planet-icon" style="background: radial-gradient(circle at 30% 30%, hsl(${hue}, 70%, 60%), hsl(${hue}, 60%, 30%), #111);"></div>
+                    <div class="dest-name">${dest.name}</div>
+                    <div class="dest-dist">${dest.dist.toLocaleString()} km</div>
+                `;
+      card.onclick = () => { carousel.scrollTo({ left: card.offsetLeft - carousel.offsetWidth / 2 + card.offsetWidth / 2, behavior: 'smooth' }); };
+      carousel.appendChild(card);
+    });
+
+    setupCarouselDrag(carousel);
+    updateEstimatedTimeDisplay();
+
+    createStars('sg-1', 150); createStars('sg-2', 150); createStars('sg-3', 150);
+
+    checkExistingMission();
+  }
+
+  function createStars(groupId, count) {
+    const group = document.getElementById(groupId);
+    for (let i = 0; i < count; i++) {
+      const star = document.createElement('div');
+      star.classList.add('star');
+      const x = (Math.random() - 0.5) * 300;
+      const y = (Math.random() - 0.5) * 300;
+      const isStreak = Math.random() > 0.5;
+      const size = Math.random() * 2 + 1;
+
+      star.style.left = `${x}vw`; star.style.top = `${y}vh`;
+      star.style.width = `${size}px`;
+      star.style.height = isStreak ? `${size * 10}px` : `${size}px`;
+      star.style.opacity = Math.random() * 0.8 + 0.2;
+      group.appendChild(star);
+    }
+  }
+
+  function setupCarouselDrag(carousel) {
+    let isDown = false, startX, scrollLeft;
+    carousel.addEventListener('mousedown', (e) => { isDown = true; carousel.style.scrollSnapType = 'none'; startX = e.pageX - carousel.offsetLeft; scrollLeft = carousel.scrollLeft; });
+    carousel.addEventListener('mouseleave', () => { isDown = false; carousel.style.scrollSnapType = 'x mandatory'; });
+    carousel.addEventListener('mouseup', () => { isDown = false; carousel.style.scrollSnapType = 'x mandatory'; });
+    carousel.addEventListener('mousemove', (e) => { if (!isDown) return; e.preventDefault(); carousel.scrollLeft = scrollLeft - ((e.pageX - carousel.offsetLeft) * 1.5); });
+    carousel.addEventListener('scroll', () => {
+      const center = carousel.scrollLeft + carousel.offsetWidth / 2;
+      let minDiff = Infinity, closestIdx = 0;
+      const cards = carousel.querySelectorAll('.dest-card');
+      cards.forEach((card, idx) => {
+        const diff = Math.abs(center - (card.offsetLeft + card.offsetWidth / 2));
+        if (diff < minDiff) { minDiff = diff; closestIdx = idx; }
+      });
+      if (selectedDestIndex !== closestIdx) {
+        cards[selectedDestIndex]?.classList.remove('active');
+        selectedDestIndex = closestIdx;
+        cards[selectedDestIndex]?.classList.add('active');
+        updateEstimatedTimeDisplay();
+      }
+    });
+  }
+
+  function updateEstimatedTimeDisplay() {
+    const dest = DESTINATIONS[selectedDestIndex];
+    const time = calculateTime(dest.dist);
+    document.getElementById('est-time-display').innerText = `예상 항해 시간: ${time >= 60 ? Math.floor(time/60)+'시간 '+time%60+'분' : time+'분'}`;
+  }
+
+  let currentMission = null;
+  let timerInterval = null;
+
+  function checkExistingMission() {
+    const saved = localStorage.getItem('space_focus_mission');
+    if(saved) {
+      currentMission = JSON.parse(saved);
+      if(currentMission.status === 'running') {
+        document.getElementById('intro-screen').style.display = 'none';
+        document.querySelector('.earth-wrapper').style.display = 'none';
+        document.getElementById('scene').classList.add('flying');
+        document.getElementById('hud-screen').classList.add('active');
+        startTimerLoop(); initAudio();
+      }
+    }
+  }
+
+  function generateTicket() {
+    const tag = document.getElementById('tag-select').value;
+    const dest = DESTINATIONS[selectedDestIndex];
+    const timeMins = calculateTime(dest.dist);
+
+    document.getElementById('t-tag').innerText = tag;
+    document.getElementById('t-dest').innerText = dest.name;
+    document.getElementById('t-time').innerText = timeMins >= 60 ? `${Math.floor(timeMins/60)}H ${timeMins%60}M` : `${timeMins} MINS`;
+
+    document.getElementById('intro-screen').style.opacity = '0';
+    setTimeout(() => {
+      document.getElementById('intro-screen').style.display = 'none';
+      const ticketScreen = document.getElementById('ticket-screen');
+      ticketScreen.style.display = 'flex';
+      setTimeout(() => { ticketScreen.style.opacity = '1'; ticketScreen.classList.add('printing'); }, 50);
+    }, 500);
+  }
+
+  function startDeparture() {
+    const tag = document.getElementById('tag-select').value;
+    const dest = DESTINATIONS[selectedDestIndex];
+    const totalTimeSec = calculateTime(dest.dist) * 60;
+    const now = Date.now();
+
+    currentMission = { tag: tag, destination: dest.name, distance_km: dest.dist, totalTime_sec: totalTimeSec, startTime: now, endTime: now + (totalTimeSec * 1000), status: "running" };
+    localStorage.setItem('space_focus_mission', JSON.stringify(currentMission));
+
+    initAudio(); playChimeAndAnnounce();
+
+    const ticketScreen = document.getElementById('ticket-screen');
+    ticketScreen.classList.remove('printing');
+    ticketScreen.style.opacity = '0';
+    const announcement = document.getElementById('announcement');
+    const earthWrapper = document.querySelector('.earth-wrapper');
+    const scene = document.getElementById('scene');
+    const hud = document.getElementById('hud-screen');
+
+    setTimeout(() => {
+      ticketScreen.style.display = 'none';
+      announcement.style.opacity = '1';
+
+      setTimeout(() => {
+        announcement.style.opacity = '0';
+        earthWrapper.classList.add('departing');
+        scene.classList.add('flying');
+
+        hud.classList.add('active');
+        document.getElementById('hud-tag').innerText = `[${currentMission.tag}]`;
+        document.getElementById('hud-dest').innerText = `목적지: ${currentMission.destination}`;
+
+        startTimerLoop();
+      }, 3500);
+    }, 300);
+  }
+
+  function startTimerLoop() {
+    if(timerInterval) clearInterval(timerInterval);
+    updateHUD();
+    timerInterval = setInterval(updateHUD, 1000);
+  }
+
+  function formatTime(sec) {
+    const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+    const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+    const s = (sec % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  }
+
+  function updateHUD() {
+    if(!currentMission || currentMission.status !== 'running') return;
+    const now = Date.now();
+    let remainingMs = currentMission.endTime - now;
+
+    if(remainingMs <= 0) { completeMission(); return; }
+
+    // 깜빡임 방지: innerText 대신 textContent 사용하여 렌더링 부하 억제
+    document.getElementById('hud-timer').textContent = formatTime(Math.ceil(remainingMs / 1000));
+
+    const progressRatio = Math.min((now - currentMission.startTime) / (currentMission.totalTime_sec * 1000), 1);
+    document.getElementById('hud-progress').style.width = `${progressRatio * 100}%`;
+    document.getElementById('hud-distance-left').textContent = `남은 거리: ${Math.round(currentMission.distance_km * (1 - progressRatio)).toLocaleString()} km`;
+  }
+
+  function completeMission() {
+    clearInterval(timerInterval); currentMission.status = "completed";
+    saveHistoryAndClear(); showResult("MISSION COMPLETED", "success-title", "목적지에 무사히 도착했습니다. 수고하셨습니다.");
+  }
+
+  function abortMission() {
+    clearInterval(timerInterval); currentMission.status = "aborted";
+    saveHistoryAndClear(); showResult("MISSION ABORTED", "fail-title", "항해를 중단하고 기지로 귀환합니다.");
+  }
+
+  function saveHistoryAndClear() {
+    let history = JSON.parse(localStorage.getItem('space_focus_history') || '[]');
+    history.push(currentMission); localStorage.setItem('space_focus_history', JSON.stringify(history));
+    localStorage.removeItem('space_focus_mission'); currentMission = null;
+    if(audioCtx) audioCtx.suspend();
+  }
+
+  function showResult(title, titleClass, desc) {
+    document.getElementById('hud-screen').classList.remove('active');
+    document.getElementById('scene').classList.remove('flying');
+    const modal = document.getElementById('result-modal');
+    const titleEl = document.getElementById('result-title');
+    titleEl.innerText = title; titleEl.className = `result-title ${titleClass}`;
+    document.getElementById('result-desc').innerText = desc;
+    modal.style.display = 'flex';
+  }
+
+  function returnToBase() {
+    document.getElementById('result-modal').style.display = 'none';
+    document.getElementById('intro-screen').style.display = 'flex';
+    setTimeout(() => { document.getElementById('intro-screen').style.opacity = '1'; }, 50);
+
+    const earthWrapper = document.querySelector('.earth-wrapper');
+    earthWrapper.style.display = 'block';
+    setTimeout(() => { earthWrapper.classList.remove('departing'); }, 100);
+
+    document.getElementById('hud-timer').textContent = "00:00:00";
+    document.getElementById('hud-progress').style.width = "0%";
+  }
+
+  window.addEventListener('mousemove', e => {
+    const xRatio = (e.clientX / window.innerWidth - 0.5) * 2;
+    const yRatio = (e.clientY / window.innerHeight - 0.5) * 2;
+    document.documentElement.style.setProperty('--rot-x', `${-yRatio * 8}deg`);
+    document.documentElement.style.setProperty('--rot-y', `${xRatio * 8}deg`);
+  });
+
+  let audioCtx;
+  function initAudio() {
+    if(audioCtx && audioCtx.state === 'running') return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    const noiseBuffer = audioCtx.createBuffer(1, 2 * audioCtx.sampleRate, audioCtx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    let b0=0, b1=0, b2=0, b3=0, b4=0, b5=0, b6=0;
+    for (let i = 0; i < output.length; i++) {
+      let white = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + white * 0.0555179; b1 = 0.99332 * b1 + white * 0.0750759;
+      b2 = 0.96900 * b2 + white * 0.1538520; b3 = 0.86650 * b3 + white * 0.3104856;
+      b4 = 0.55000 * b4 + white * 0.5329522; b5 = -0.7616 * b5 - white * 0.0168980;
+      output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11; b6 = white * 0.115926;
+    }
+    const noiseSource = audioCtx.createBufferSource(); noiseSource.buffer = noiseBuffer; noiseSource.loop = true;
+
+    const lowpass = audioCtx.createBiquadFilter(); lowpass.type = 'lowpass'; lowpass.frequency.value = 350;
+    const engineOsc = audioCtx.createOscillator(); engineOsc.type = 'sine'; engineOsc.frequency.value = 110;
+    const engineGain = audioCtx.createGain(); engineGain.gain.value = 0.02;
+    const masterGain = audioCtx.createGain(); masterGain.gain.value = 0;
+
+    noiseSource.connect(lowpass).connect(masterGain);
+    engineOsc.connect(engineGain).connect(masterGain);
+    masterGain.connect(audioCtx.destination);
+
+    noiseSource.start(); engineOsc.start();
+    masterGain.gain.linearRampToValueAtTime(0.8, audioCtx.currentTime + 3);
+  }
+
+  function playChimeAndAnnounce() {
+    if(!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    osc.type = 'sine'; osc.connect(gain).connect(audioCtx.destination);
+
+    osc.frequency.setValueAtTime(659.25, now);
+    gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(0.5, now + 0.05); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+
+    osc.frequency.setValueAtTime(523.25, now + 0.8);
+    gain.gain.setValueAtTime(0, now + 0.8); gain.gain.linearRampToValueAtTime(0.5, now + 0.85); gain.gain.exponentialRampToValueAtTime(0.01, now + 2.5);
+
+    osc.start(now); osc.stop(now + 2.6);
+
+    if ('speechSynthesis' in window) {
+      setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance("발사 시퀀스를 시작합니다. 워프 드라이브 가동.");
+        utterance.lang = 'ko-KR'; utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }, 1000);
+    }
+  }
+
+  window.onload = initData;
+</script>
+</body>
+</html>

@@ -9,7 +9,7 @@ Gemini Canvas 미션 결과물을 관리하는 저장소입니다.
 
 --- 
 ## 앱 이름: SpaceStudy
-## 카테고리: 유틸리티 앱
+### 카테고리:유틸리티 앱
 
 ### 배포 링크
 https://gemini.google.com/share/c824c3a9966f

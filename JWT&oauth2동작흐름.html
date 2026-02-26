@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth2 & JWT Flow Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 애니메이션 및 노드 스타일링 */
+        .packet {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: #3b82f6; /* Blue-500 */
+            box-shadow: 0 0 10px #3b82f6, 0 0 20px #60a5fa;
+            position: absolute;
+            z-index: 50;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            opacity: 0;
+        }
+        .packet-animate {
+            transition: top 1s ease-in-out, left 1s ease-in-out;
+            opacity: 1;
+        }
+        /* 현재 위치에 머무를 때 깜빡이는 효과 */
+        @keyframes pulse-packet {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .packet-idle {
+            animation: pulse-packet 1.5s infinite;
+        }
+
+        .node {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+            text-align: center;
+            z-index: 10; /* 선보다 위에 오도록 설정 */
+        }
+        @media (min-width: 768px) {
+            .node { width: 130px; height: 130px; }
+        }
+        .node-active {
+            box-shadow: 0 0 0 4px #bfdbfe; /* Blue-200 */
+            border-color: #3b82f6;
+            transform: scale(1.05) translate(0, 0);
+        }
+        .node-icon { color: #475569; margin-bottom: 8px; }
+        .node-title { font-size: 0.75rem; font-weight: 600; color: #1e293b; }
+        
+        /* 각 노드의 위치 (캔버스 내) */
+        #resourceServer { top: 5%; left: 5%; }
+        #authServer { top: 5%; right: 5%; }
+        /* API Server는 중앙 배치 */
+        #apiServer { top: 50%; left: 50%; transform: translate(-50%, -50%); } 
+        #database { bottom: 5%; left: 5%; }
+        #client { bottom: 5%; right: 5%; }
+
+        /* API Server 활성화 시 중앙 정렬 유지하며 커지도록 */
+        #apiServer.node-active {
+            transform: translate(-50%, -50%) scale(1.05);
+        }
+
+        /* 툴팁(호버 설명) 스타일 추가 */
+        .tooltip {
+            position: absolute;
+            bottom: calc(100% + 12px);
+            left: 50%;
+            transform: translateX(-50%);
+            width: max-content;
+            max-width: 220px;
+            background-color: #334155;
+            color: #f8fafc;
+            text-align: left;
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease-in-out;
+            z-index: 100;
+            pointer-events: none;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            word-break: keep-all;
+        }
+        .tooltip b { color: #bfdbfe; font-size: 0.8rem; display: block; margin-bottom: 4px; }
+        .tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -6px;
+            border-width: 6px;
+            border-style: solid;
+            border-color: #334155 transparent transparent transparent;
+        }
+        .node:hover .tooltip {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* 상단 노드(Resource, Auth)용 툴팁 (아래 방향으로 열림) */
+        .tooltip-bottom {
+            bottom: auto;
+            top: calc(100% + 12px);
+        }
+        .tooltip-bottom::after {
+            top: auto;
+            bottom: 100%;
+            border-color: transparent transparent #334155 transparent;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col font-sans text-slate-800">
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm p-4 text-center z-20 relative">
+        <h1 class="text-2xl font-bold text-slate-800 flex justify-center items-center gap-2">
+            🛡️ 보안 JWT & OAuth2 동작 흐름
+        </h1>
+        <p class="text-sm text-slate-500 mt-1">백엔드 인증 구조를 쉽게 이해하기 위한 시각화 앱입니다.</p>
+    </header>
+
+    <main class="flex-1 flex flex-col max-w-5xl w-full mx-auto p-4 gap-4 relative z-10">
+        
+        <!-- 설명 패널 -->
+        <div class="bg-white p-6 rounded-2xl shadow-md border border-slate-100 min-h-[140px] flex flex-col justify-center transition-all duration-300">
+            <div class="flex items-center gap-3 mb-2">
+                <span id="step-badge" class="bg-indigo-100 text-indigo-700 font-bold px-3 py-1 rounded-full text-sm">환영합니다!</span>
+                <h2 id="step-title" class="text-xl font-bold text-slate-800">OAuth2 & JWT 인증 흐름 알아보기</h2>
+            </div>
+            <p id="step-desc" class="text-slate-600 leading-relaxed">이 시각화 앱은 사용자가 소셜 로그인(카카오, 구글 등)을 클릭했을 때부터 우리 서비스의 JWT 토큰을 발급받기까지, <b>각 서버 간에 어떤 데이터가 오고 가는지</b>를 단계별로 보여줍니다.<br>하단의 <b>'자동 재생 ▶'</b> 또는 <b>'다음 단계'</b> 버튼을 눌러 전체 흐름을 확인해 보세요!</p>
+        </div>
+
+        <!-- 캔버스 영역 (서버 노드 및 애니메이션) -->
+        <div id="canvas" class="relative flex-1 bg-blue-50/30 rounded-2xl border border-blue-100 overflow-hidden min-h-[400px]">
+            
+            <!-- 연결 선 (SVG) -->
+            <svg id="connections" class="absolute top-0 left-0 w-full h-full pointer-events-none z-0"></svg>
+
+            <!-- Nodes -->
+            <div id="resourceServer" class="node">
+                <svg class="node-icon w-8 h-8 md:w-10 md:h-10 text-emerald-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                <span class="node-title">Resource Server<br><span class="text-[10px] text-slate-400 font-normal">(자원 서버)</span></span>
+                <div class="tooltip tooltip-bottom">
+                    <b>자원 서버 (Resource Server)</b>
+                    구글, 카카오 등에서 사용자의 프로필 사진, 이메일 등 실제 데이터(자원)를 안전하게 보관하고 있는 서버입니다.
+                </div>
+            </div>
+
+            <div id="authServer" class="node">
+                <svg class="node-icon w-8 h-8 md:w-10 md:h-10 text-purple-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                <span class="node-title">Auth Server<br><span class="text-[10px] text-slate-400 font-normal">(카카오/구글 등)</span></span>
+                <div class="tooltip tooltip-bottom">
+                    <b>인가 서버 (Authorization Server)</b>
+                    사용자의 로그인을 확인하고, 권한이 담긴 증명서(Access Token)를 발급해주는 인증 전담 서버입니다.
+                </div>
+            </div>
+
+            <div id="apiServer" class="node">
+                <svg class="node-icon w-10 h-10 md:w-12 md:h-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                <span class="node-title">API Server<br><span class="text-[10px] text-slate-400 font-normal">(우리 서비스 백엔드)</span></span>
+                <div class="tooltip">
+                    <b>API 서버 (Back-end)</b>
+                    우리가 직접 개발한 서버입니다. 클라이언트의 요청을 받아 비즈니스 로직을 처리하고 우리 서비스 전용 자체 JWT를 발급합니다.
+                </div>
+            </div>
+
+            <div id="database" class="node">
+                <svg class="node-icon w-8 h-8 md:w-10 md:h-10 text-orange-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                <span class="node-title">MySQL DB<br><span class="text-[10px] text-slate-400 font-normal">(데이터베이스)</span></span>
+                <div class="tooltip">
+                    <b>데이터베이스 (DB)</b>
+                    유저 정보 등 데이터를 영구적으로 저장합니다. 보통 외부에서 직접 접근할 수 없는 안전한 내부망에 위치하며, API 서버를 통해서만 접근합니다.
+                </div>
+            </div>
+
+            <div id="client" class="node">
+                <svg class="node-icon w-8 h-8 md:w-10 md:h-10 text-slate-700" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span class="node-title">CLIENT<br><span class="text-[10px] text-slate-400 font-normal">(프론트엔드/앱)</span></span>
+                <div class="tooltip">
+                    <b>클라이언트 (Front-end)</b>
+                    사용자가 직접 눈으로 보고 조작하는 웹 브라우저나 모바일 앱 화면입니다. API 서버와 통신하며 화면을 그려줍니다.
+                </div>
+            </div>
+
+            <!-- 움직이는 데이터 패킷 -->
+            <div id="packet" class="packet">
+                <span id="packet-label" class="absolute bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap bg-gray-800 text-white text-[11px] font-medium px-2 py-1 rounded shadow-lg transition-all">Data</span>
+            </div>
+        </div>
+
+        <!-- 컨트롤러 -->
+        <div class="bg-white p-4 rounded-2xl shadow-md border border-slate-100 flex justify-center items-center gap-4">
+            <button id="btn-prev" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors disabled:opacity-50">이전 단계</button>
+            <button id="btn-play" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-md shadow-blue-200">자동 재생 ▶</button>
+            <button id="btn-next" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors disabled:opacity-50">다음 단계</button>
+        </div>
+
+    </main>
+
+    <script>
+        // 전체 흐름 데이터 (자연스러운 기본 설명으로 변경)
+        const steps = [
+            { from: 'client', to: 'authServer', data: '1. Authorization Request', title: '1. 인가(로그인) 요청', desc: '클라이언트가 인가 서버(카카오, 구글 등)의 로그인 페이지로 이동하여 권한을 요청합니다.' },
+            { from: 'authServer', to: 'client', data: '2. Authorization Code', title: '2. Authorization Code 발급', desc: '유저가 로그인을 완료하면, 인가 서버가 클라이언트에게 "인가 코드(Authorization Code)"를 전달합니다.' },
+            { from: 'client', to: 'apiServer', data: '3. Authorization Code', title: '3. 인가 코드 전달', desc: '클라이언트가 발급받은 인가 코드를 우리 서비스의 API 서버(백엔드)로 전달합니다.' },
+            { from: 'apiServer', to: 'authServer', data: '4. Code + Secret', title: '4. Access Token 요청', desc: 'API 서버가 전달받은 인가 코드와 Client Secret을 인가 서버(Auth Server)로 보내어 Access Token으로 교환을 요청합니다.' },
+            { from: 'authServer', to: 'apiServer', data: '5. Access Token', title: '5. Access Token 발급', desc: '인가 서버가 API 서버에게 유효한 Access Token을 발급해 줍니다.' },
+            { from: 'apiServer', to: 'resourceServer', data: '6. Access Token', title: '6. 유저 정보 요청', desc: 'API 서버가 발급받은 Access Token을 HTTP 헤더에 담아 자원 서버(Resource Server)에 유저 정보(프로필, 이메일 등)를 요청합니다.' },
+            { from: 'resourceServer', to: 'apiServer', data: '7. User Info', title: '7. 유저 개인 정보 반환', desc: '자원 서버가 Access Token을 검증한 후, 해당 유저의 개인 정보를 API 서버로 반환합니다.' },
+            { from: 'apiServer', to: 'database', data: '8. User Data', title: '8. 유저 정보 저장', desc: 'API 서버가 전달받은 유저 정보를 MySQL DB에 저장하거나, 기존 회원의 경우 고유 ID를 조회합니다.' },
+            { from: 'database', to: 'apiServer', data: '9. User ID', title: '9. DB 조회 결과 반환', desc: 'DB 연산이 완료되고 유저의 고유 식별값(ID)이 API 서버로 반환됩니다.' },
+            { from: 'apiServer', to: 'client', data: '10. Custom JWT', title: '10. 자체 JWT Token 발급', desc: '모든 인증이 완료되면, API 서버가 우리 서비스 전용 자체 JWT(Access & Refresh Token)를 생성하여 클라이언트에게 응답합니다. 이후 통신은 이 JWT를 사용합니다.' }
+        ];
+
+        let currentStepIndex = -1;
+        let isPlaying = false;
+        let playInterval;
+        let isAnimating = false;
+        let animationTimeout;
+
+        const ui = {
+            badge: document.getElementById('step-badge'),
+            title: document.getElementById('step-title'),
+            desc: document.getElementById('step-desc'),
+            btnPrev: document.getElementById('btn-prev'),
+            btnNext: document.getElementById('btn-next'),
+            btnPlay: document.getElementById('btn-play'),
+            packet: document.getElementById('packet'),
+            packetLabel: document.getElementById('packet-label'),
+            canvas: document.getElementById('canvas'),
+            svg: document.getElementById('connections')
+        };
+
+        // 노드 사이의 점선 경로 그리기
+        function drawConnections() {
+            const canvasRect = ui.canvas.getBoundingClientRect();
+            ui.svg.innerHTML = ''; // 기존 선 초기화
+            
+            // 통신이 일어나는 노드 쌍 정의
+            const paths = [
+                ['client', 'authServer'],
+                ['client', 'apiServer'],
+                ['apiServer', 'authServer'],
+                ['apiServer', 'resourceServer'],
+                ['apiServer', 'database']
+            ];
+
+            paths.forEach(([id1, id2]) => {
+                const el1 = document.getElementById(id1);
+                const el2 = document.getElementById(id2);
+                
+                const rect1 = el1.getBoundingClientRect();
+                const rect2 = el2.getBoundingClientRect();
+
+                const x1 = rect1.left - canvasRect.left + (rect1.width / 2);
+                const y1 = rect1.top - canvasRect.top + (rect1.height / 2);
+                const x2 = rect2.left - canvasRect.left + (rect2.width / 2);
+                const y2 = rect2.top - canvasRect.top + (rect2.height / 2);
+
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', x1);
+                line.setAttribute('y1', y1);
+                line.setAttribute('x2', x2);
+                line.setAttribute('y2', y2);
+                line.setAttribute('stroke', '#cbd5e1'); // Tailwind slate-300
+                line.setAttribute('stroke-width', '2');
+                line.setAttribute('stroke-dasharray', '6, 6');
+                ui.svg.appendChild(line);
+            });
+        }
+
+        // 초기 경로 그리기 및 창 크기 조절 시 다시 그리기
+        window.addEventListener('load', drawConnections);
+        window.addEventListener('resize', () => {
+            drawConnections();
+            // 패킷이 대기 중일 때 창 크기가 변하면 위치 재조정
+            if (currentStepIndex >= 0 && !isAnimating) {
+                const step = steps[currentStepIndex];
+                const toEl = document.getElementById(step.to);
+                const canvasRect = ui.canvas.getBoundingClientRect();
+                const toRect = toEl.getBoundingClientRect();
+                const endX = toRect.left - canvasRect.left + (toRect.width / 2);
+                const endY = toRect.top - canvasRect.top + (toRect.height / 2) - 25;
+                
+                ui.packet.classList.remove('packet-animate');
+                ui.packet.style.left = `${endX}px`;
+                ui.packet.style.top = `${endY}px`;
+            }
+        });
+
+        function updateUI(index) {
+            if (index < 0) {
+                ui.packet.style.opacity = '0';
+                ui.badge.innerText = '환영합니다!';
+                ui.badge.className = 'bg-indigo-100 text-indigo-700 font-bold px-3 py-1 rounded-full text-sm';
+                ui.title.innerText = 'OAuth2 & JWT 인증 흐름 알아보기';
+                ui.desc.innerHTML = '이 시각화 앱은 사용자가 소셜 로그인(카카오, 구글 등)을 클릭했을 때부터 우리 서비스의 JWT 토큰을 발급받기까지, <b>각 서버 간에 어떤 데이터가 오고 가는지</b>를 단계별로 보여줍니다.<br>하단의 <b>\'자동 재생 ▶\'</b> 또는 <b>\'다음 단계\'</b> 버튼을 눌러 전체 흐름을 확인해 보세요!';
+                ui.btnPrev.disabled = true;
+                ui.btnNext.disabled = isAnimating;
+                return;
+            }
+            const step = steps[index];
+            
+            ui.badge.className = 'bg-blue-100 text-blue-700 font-bold px-3 py-1 rounded-full text-sm';
+            ui.badge.innerText = `Step ${index + 1} / 10`;
+            ui.title.innerText = step.title;
+            ui.desc.innerHTML = step.desc;
+
+            ui.btnPrev.disabled = isAnimating;
+            ui.btnNext.disabled = index === steps.length - 1 || isAnimating;
+        }
+
+        function animatePacket(index, callback) {
+            if (index < 0 || index >= steps.length) return;
+            isAnimating = true;
+            clearTimeout(animationTimeout); // 이전 타이머 클리어
+            updateUI(index);
+
+            const step = steps[index];
+            const fromEl = document.getElementById(step.from);
+            const toEl = document.getElementById(step.to);
+            
+            ui.packetLabel.innerText = step.data;
+            ui.packet.classList.remove('packet-idle'); // 대기 효과 제거
+            ui.packet.style.opacity = '1';
+
+            // 캔버스 기준 상대 좌표 계산
+            const canvasRect = ui.canvas.getBoundingClientRect();
+            const fromRect = fromEl.getBoundingClientRect();
+            const toRect = toEl.getBoundingClientRect();
+
+            // 노드의 텍스트를 가리지 않도록 Y좌표를 25px 위로 올림
+            const startX = fromRect.left - canvasRect.left + (fromRect.width / 2);
+            const startY = fromRect.top - canvasRect.top + (fromRect.height / 2) - 25;
+            const endX = toRect.left - canvasRect.left + (toRect.width / 2);
+            const endY = toRect.top - canvasRect.top + (toRect.height / 2) - 25;
+
+            // 1. 패킷을 시작 위치로 즉시 이동
+            ui.packet.classList.remove('packet-animate');
+            ui.packet.style.left = `${startX}px`;
+            ui.packet.style.top = `${startY}px`;
+
+            // 브라우저 렌더링 강제 업데이트
+            void ui.packet.offsetWidth;
+
+            // 2. 애니메이션 클래스 추가 후 도착 위치로 이동
+            ui.packet.classList.add('packet-animate');
+            ui.packet.style.left = `${endX}px`;
+            ui.packet.style.top = `${endY}px`;
+
+            // 노드 하이라이팅 처리
+            document.querySelectorAll('.node').forEach(n => n.classList.remove('node-active'));
+            fromEl.classList.add('node-active');
+            
+            setTimeout(() => {
+                fromEl.classList.remove('node-active');
+                toEl.classList.add('node-active');
+            }, 400);
+
+            // 3. 애니메이션 완료 후 대기 상태(Pulse) 전환
+            animationTimeout = setTimeout(() => {
+                toEl.classList.remove('node-active');
+                ui.packet.classList.add('packet-idle'); // 깜빡이면서 현재 위치 유지
+                // 투명도를 0으로 만들지 않고 그대로 둡니다 (요청이 어디에 속해있는지 표시)
+                isAnimating = false;
+                ui.btnPrev.disabled = false;
+                ui.btnNext.disabled = index === steps.length - 1;
+                if (callback) callback();
+            }, 1000);
+        }
+
+        function nextStep() {
+            if (isAnimating) return;
+            if (currentStepIndex < steps.length - 1) {
+                currentStepIndex++;
+                animatePacket(currentStepIndex);
+            } else if (isPlaying) {
+                togglePlay(); // 끝에 도달하면 정지
+            }
+        }
+
+        function prevStep() {
+            if (isAnimating) return;
+            if (currentStepIndex >= 0) {
+                currentStepIndex--;
+                if (currentStepIndex === -1) {
+                    updateUI(-1);
+                    document.querySelectorAll('.node').forEach(n => n.classList.remove('node-active'));
+                } else {
+                    animatePacket(currentStepIndex);
+                }
+            }
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            if (isPlaying) {
+                ui.btnPlay.innerHTML = '일시 정지 ⏸️';
+                ui.btnPlay.classList.replace('bg-blue-600', 'bg-amber-500');
+                ui.btnPlay.classList.replace('hover:bg-blue-700', 'hover:bg-amber-600');
+                
+                if (currentStepIndex >= steps.length - 1) {
+                    currentStepIndex = -1;
+                }
+                
+                nextStep(); 
+                playInterval = setInterval(() => {
+                    if (!isAnimating) nextStep();
+                }, 2200); // 패킷이 대기하는 것을 살짝 보여주기 위해 시간 약간 연장
+            } else {
+                ui.btnPlay.innerHTML = '자동 재생 ▶';
+                ui.btnPlay.classList.replace('bg-amber-500', 'bg-blue-600');
+                ui.btnPlay.classList.replace('hover:bg-amber-600', 'hover:bg-blue-700');
+                clearInterval(playInterval);
+            }
+        }
+
+        // 이벤트 리스너 등록
+        ui.btnNext.addEventListener('click', () => {
+            if (isPlaying) togglePlay();
+            nextStep();
+        });
+        ui.btnPrev.addEventListener('click', () => {
+            if (isPlaying) togglePlay();
+            prevStep();
+        });
+        ui.btnPlay.addEventListener('click', togglePlay);
+
+    </script>
+</body>
+</html>

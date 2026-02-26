@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>나의 족보는? - Java Class Genealogy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@700;900&family=JetBrains+Mono:wght@400;600&family=Public+Sans:wght@300;400;700;900&display=swap");
+
+      :root {
+        --paper: #f4f1ea;
+        --ink: #3d3d3d;
+        --blood-red: #8b2e30;
+        --vintage-gold: #bc8a5f;
+        --border: rgba(61, 61, 61, 0.2);
+        --child-green: #386641;
+      }
+
+      body {
+        background-color: var(--paper);
+        color: var(--ink);
+        font-family: "Public Sans", sans-serif;
+        background-image: radial-gradient(var(--border) 1px, transparent 1px);
+        background-size: 30px 30px;
+      }
+
+      .serif-title {
+        font-family: "Crimson Pro", serif;
+      }
+      .code-font {
+        font-family: "JetBrains+Mono", monospace;
+      }
+
+      .tree-line-v {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: repeating-linear-gradient(
+          to bottom,
+          var(--ink) 0,
+          var(--ink) 8px,
+          transparent 8px,
+          transparent 16px
+        );
+        z-index: 0;
+      }
+
+      .infographic-box {
+        background: white;
+        border: 2px solid var(--ink);
+        box-shadow: 6px 6px 0px var(--border);
+        position: relative;
+        z-index: 10;
+      }
+
+      .interface-badge {
+        background: white;
+        border: 1px solid var(--vintage-gold);
+        color: var(--vintage-gold);
+        font-size: 0.6rem;
+        font-weight: 800;
+        padding: 1px 6px;
+        text-transform: uppercase;
+      }
+
+      .node-connector {
+        width: 2px;
+        height: 40px;
+        background: var(--ink);
+        margin: 0 auto;
+      }
+
+      .branch-line {
+        width: 2px;
+        height: 20px;
+        background: var(--ink);
+      }
+
+      .branch-horizontal {
+        height: 2px;
+        background: var(--ink);
+        position: relative;
+      }
+
+      .loading-animation {
+        width: 40px;
+        height: 40px;
+        border: 4px solid var(--vintage-gold);
+        border-top-color: var(--blood-red);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .error-box {
+        background: #fee2e2;
+        border: 2px solid #ef4444;
+        color: #b91c1c;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen">
+    <header class="max-w-4xl mx-auto py-12 px-6 text-center">
+      <div class="mb-8">
+        <h1
+          class="serif-title text-6xl font-black uppercase tracking-tighter text-[var(--blood-red)] mb-2"
+        >
+          나의 족보는?
+        </h1>
+        <p class="font-bold text-sm tracking-widest opacity-60 uppercase">
+          Java Class Ancestors & Descendants Explorer
+        </p>
+      </div>
+
+      <div class="max-w-xl mx-auto relative">
+        <div class="flex gap-2">
+          <input
+            type="text"
+            id="classInput"
+            placeholder="조사할 클래스명 (예: List, AbstractList)"
+            class="flex-1 bg-white border-2 border-[var(--ink)] px-6 py-4 text-xl font-bold focus:outline-none focus:ring-4 focus:ring-[var(--vintage-gold)] transition-all shadow-[4px_4px_0px_var(--border)]"
+            oninput="handleInput(event)"
+            onkeydown="handleKeydown(event)"
+          />
+          <button
+            onclick="visualizeClass()"
+            class="bg-[var(--blood-red)] text-white px-8 font-bold uppercase hover:opacity-90 active:scale-95 transition-all shadow-[4px_4px_0px_var(--border)]"
+          >
+            검색
+          </button>
+        </div>
+        <div
+          id="suggestions"
+          class="hidden absolute top-full left-0 right-0 bg-white border-2 border-[var(--ink)] z-50 text-left shadow-2xl max-h-60 overflow-y-auto"
+        ></div>
+      </div>
+
+      <div
+        id="errorMessage"
+        class="hidden mt-6 p-4 error-box font-bold rounded-lg max-w-xl mx-auto"
+      ></div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-6 pb-20">
+      <div
+        id="loader"
+        class="hidden flex flex-col items-center justify-center py-20"
+      >
+        <div class="loading-animation mb-4"></div>
+        <p class="font-black uppercase tracking-widest text-xs">
+          전체 계보(조상 및 후손) 분석 중...
+        </p>
+      </div>
+
+      <div
+        id="resultContent"
+        class="hidden space-y-12 animate-in fade-in duration-700"
+      >
+        <div class="space-y-4">
+          <h3
+            class="text-center font-black uppercase tracking-widest text-xs opacity-40"
+          >
+            가문 위치 (Package Location)
+          </h3>
+          <div
+            id="packageHierarchy"
+            class="flex flex-wrap justify-center items-center gap-2"
+          ></div>
+        </div>
+
+        <!-- Full Tree View -->
+        <div
+          class="relative py-10 rounded-3xl border border-dashed border-[var(--border)] bg-white/30 overflow-hidden"
+        >
+          <div class="tree-line-v"></div>
+
+          <div id="genealogyTree" class="flex flex-col items-center gap-0">
+            <!-- Genealogy nodes injected here -->
+          </div>
+        </div>
+
+        <div
+          id="classDetail"
+          class="infographic-box p-8 max-w-2xl mx-auto text-center"
+        >
+          <h2
+            id="detailTitle"
+            class="serif-title text-4xl font-black mb-4"
+          ></h2>
+          <p
+            id="detailDesc"
+            class="italic text-slate-600 font-medium leading-relaxed"
+          ></p>
+        </div>
+      </div>
+
+      <div id="initialView" class="py-20 text-center opacity-30">
+        <i data-lucide="network" class="w-16 h-16 mx-auto mb-4"></i>
+        <p class="font-bold">
+          가문의 이름을 입력하여 상하위 전체 족보를 확인하세요.
+        </p>
+      </div>
+    </main>
+
+    <script>
+      const apiKey = "";
+      let debounceTimer;
+
+      async function callGemini(payload, retries = 5) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        for (let i = 0; i <= retries; i++) {
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (!response.ok)
+              throw new Error(`HTTP error! status: ${response.status}`);
+            const result = await response.json();
+            return result.candidates?.[0]?.content?.parts?.[0]?.text;
+          } catch (error) {
+            if (i === retries) throw error;
+            await new Promise((r) => setTimeout(r, Math.pow(2, i) * 1000));
+          }
+        }
+      }
+
+      async function visualizeClass() {
+        const input = document.getElementById("classInput").value.trim();
+        if (!input) return;
+
+        document.getElementById("suggestions").classList.add("hidden");
+        document.getElementById("errorMessage").classList.add("hidden");
+        document.getElementById("initialView").classList.add("hidden");
+        document.getElementById("resultContent").classList.add("hidden");
+        document.getElementById("loader").classList.remove("hidden");
+
+        const payload = {
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Analyze Java class hierarchy including ancestors and direct known descendants for: ${input}`,
+                },
+              ],
+            },
+          ],
+          systemInstruction: {
+            parts: [
+              {
+                text: `You are a Java Class Historian. Provide:
+                    1. Ancestors from Object to the target class.
+                    2. List of known direct subclasses (descendants) in the standard library.
+                    Return ONLY a JSON: { 
+                      "className": string, 
+                      "packageName": string, 
+                      "description": string(Korean), 
+                      "lineage": [{"name": string, "interfaces": string[]}],
+                      "descendants": [{"name": string, "isInterface": boolean}]
+                    }`,
+              },
+            ],
+          },
+          generationConfig: { responseMimeType: "application/json" },
+        };
+
+        try {
+          const jsonText = await callGemini(payload);
+          const data = JSON.parse(jsonText);
+          renderTree(data);
+          document.getElementById("resultContent").classList.remove("hidden");
+        } catch (e) {
+          const errEl = document.getElementById("errorMessage");
+          errEl.textContent =
+            "가문 정보를 분석하는 데 실패했습니다. 클래스명을 확인해주세요.";
+          errEl.classList.remove("hidden");
+          document.getElementById("initialView").classList.remove("hidden");
+        } finally {
+          document.getElementById("loader").classList.add("hidden");
+          lucide.createIcons();
+        }
+      }
+
+      function renderTree(data) {
+        // Package
+        const pkgContainer = document.getElementById("packageHierarchy");
+        pkgContainer.innerHTML = "";
+        (data.packageName || "").split(".").forEach((p, idx, arr) => {
+          const span = document.createElement("span");
+          span.className =
+            "px-3 py-1 border border-[var(--ink)] font-bold text-xs uppercase bg-white shadow-[2px_2px_0px_var(--border)]";
+          span.textContent = p;
+          pkgContainer.appendChild(span);
+          if (idx < arr.length - 1) {
+            pkgContainer.insertAdjacentHTML(
+              "beforeend",
+              '<i data-lucide="chevron-right" class="w-3 h-3 text-slate-400"></i>',
+            );
+          }
+        });
+
+        const treeContainer = document.getElementById("genealogyTree");
+        treeContainer.innerHTML = "";
+
+        // 1. Render Ancestors
+        const lineage = data.lineage || [];
+        lineage.forEach((node, idx) => {
+          const isLast = idx === lineage.length - 1;
+          const container = document.createElement("div");
+          container.className = "flex flex-col items-center w-full";
+
+          const nodeDiv = document.createElement("div");
+          nodeDiv.className = `infographic-box px-8 py-3 my-2 min-w-[240px] text-center transition-transform hover:scale-105 ${isLast ? "bg-[var(--blood-red)] text-white border-transparent shadow-[6px_6px_0px_#450a0a]" : ""}`;
+
+          const interfaces = (node.interfaces || [])
+            .map((i) => `<span class="interface-badge">${i}</span>`)
+            .join("");
+
+          nodeDiv.innerHTML = `
+                    <div class="text-[9px] font-bold uppercase ${isLast ? "opacity-80" : "opacity-40"}">${isLast ? "탐색 가문" : "조상 " + (idx + 1)}</div>
+                    <div class="font-black text-xl code-font leading-tight">${node.name}</div>
+                    ${interfaces ? `<div class="flex flex-wrap justify-center gap-1 mt-2">${interfaces}</div>` : ""}
+                `;
+
+          container.appendChild(nodeDiv);
+
+          if (isLast) {
+            // Start descendants branching
+            if (data.descendants && data.descendants.length > 0) {
+              const connector = document.createElement("div");
+              connector.className = "branch-line";
+              container.appendChild(connector);
+
+              const hLineContainer = document.createElement("div");
+              hLineContainer.className = "w-full flex justify-center px-10";
+              const hLine = document.createElement("div");
+              hLine.className = "branch-horizontal w-full max-w-4xl";
+              hLineContainer.appendChild(hLine);
+              container.appendChild(hLineContainer);
+
+              const descendantsGrid = document.createElement("div");
+              descendantsGrid.className =
+                "flex flex-wrap justify-center gap-6 mt-4 px-4 w-full";
+
+              data.descendants.forEach((child) => {
+                const childNode = document.createElement("div");
+                childNode.className = "flex flex-col items-center";
+                childNode.innerHTML = `
+                                <div class="branch-line mb-2"></div>
+                                <div onclick="quickSearch('${child.name}')" class="infographic-box px-4 py-2 bg-white border-[var(--child-green)] border-2 text-[var(--child-green)] hover:bg-[var(--child-green)] hover:text-white transition-all cursor-pointer shadow-[4px_4px_0px_rgba(56,102,65,0.2)]">
+                                    <div class="text-[8px] font-black uppercase opacity-60">자손 (Descendant)</div>
+                                    <div class="font-bold text-sm code-font">${child.name}</div>
+                                </div>
+                            `;
+                descendantsGrid.appendChild(childNode);
+              });
+              container.appendChild(descendantsGrid);
+            }
+          } else {
+            const connector = document.createElement("div");
+            connector.className = "node-connector";
+            container.appendChild(connector);
+          }
+
+          treeContainer.appendChild(container);
+        });
+
+        document.getElementById("detailTitle").textContent = data.className;
+        document.getElementById("detailDesc").textContent =
+          data.description || "정보가 없습니다.";
+      }
+
+      function quickSearch(name) {
+        document.getElementById("classInput").value = name;
+        visualizeClass();
+      }
+
+      async function handleInput(e) {
+        const query = e.target.value.trim();
+        if (query.length < 2) {
+          document.getElementById("suggestions").classList.add("hidden");
+          return;
+        }
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+          try {
+            const jsonText = await callGemini({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `List 7 common Java SE class names starting with "${query}". JSON array strings.`,
+                    },
+                  ],
+                },
+              ],
+              generationConfig: { responseMimeType: "application/json" },
+            });
+            const list = JSON.parse(jsonText);
+            const el = document.getElementById("suggestions");
+            el.innerHTML = list
+              .map(
+                (item) =>
+                  `<div class="p-4 hover:bg-[var(--paper)] cursor-pointer font-bold border-b border-slate-100 text-sm" onclick="selectSuggestion('${item}')">${item}</div>`,
+              )
+              .join("");
+            el.classList.remove("hidden");
+          } catch (e) {}
+        }, 300);
+      }
+
+      function selectSuggestion(val) {
+        document.getElementById("classInput").value = val;
+        document.getElementById("suggestions").classList.add("hidden");
+        visualizeClass();
+      }
+
+      function handleKeydown(e) {
+        if (e.key === "Enter") visualizeClass();
+      }
+      window.onload = () => lucide.createIcons();
+    </script>
+  </body>
+</html>

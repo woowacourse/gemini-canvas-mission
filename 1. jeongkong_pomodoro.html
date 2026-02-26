@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>정콩이의 뽀모도로 타이머</title>
+    <style>
+        /* * ==========================================
+         * [디자인 시스템: 화사한 파스텔 연보라]
+         * 유튜브의 무거운 요소를 걷어내고 본연의 가벼움을 찾았습니다.
+         * ========================================== */
+        :root {
+            --bg-body: #FBF9FF;        
+            --bg-card: #FFFFFF;        
+            --dial-empty: #F0E8F8;     
+            --dial-fill: #D4BEF3;      
+            --primary-btn: #C4A7E5;    
+            --primary-hover: #B08DD6;  
+            --text-dark: #584A6E;      
+            --text-muted: #A89CBD;     
+            --shadow-soft: 0 16px 40px rgba(196, 167, 229, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', sans-serif;
+            -webkit-tap-highlight-color: transparent; 
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-dark);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 40px 20px;
+            transition: background-color 0.8s ease;
+        }
+
+        #app-container {
+            background-color: var(--bg-card);
+            width: 100%;
+            max-width: 420px;
+            padding: 40px 30px;
+            border-radius: 32px;
+            box-shadow: var(--shadow-soft);
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 1.3rem;
+            color: var(--text-dark);
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        #status-text {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+            font-weight: 500;
+            min-height: 1.2rem;
+            line-height: 1.4;
+        }
+
+        /* 동그란 꽉 찬 시계 (Solid Dial UI) */
+        #dial-wrapper {
+            position: relative;
+            width: 240px;
+            height: 240px;
+            margin: 0 auto 35px;
+            touch-action: none;
+            cursor: grab;
+        }
+
+        #dial-wrapper:active { cursor: grabbing; }
+
+        #dial-svg {
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+
+        .dial-track { fill: var(--dial-empty); }
+
+        .dial-slice {
+            fill: none;
+            stroke: var(--dial-fill);
+            stroke-width: 80; 
+            transform-origin: 120px 120px;
+            transform: rotate(-90deg); 
+        }
+
+        .tick-line { stroke: var(--text-muted); stroke-linecap: round; }
+        .tick-line.minor { stroke-width: 1.5; opacity: 0.4; }
+        .tick-line.major { stroke-width: 2.5; opacity: 0.8; }
+        
+        .tick-text {
+            fill: var(--text-muted);
+            font-size: 14px;
+            font-weight: 600;
+            user-select: none;
+        }
+
+        .dial-handle {
+            fill: #FFFFFF;
+            stroke: var(--dial-fill);
+            stroke-width: 3;
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.1));
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-origin: center;
+        }
+
+        #dial-wrapper:hover .dial-handle, #dial-wrapper.dragging .dial-handle {
+            transform: scale(1.2);
+            stroke-width: 4;
+        }
+
+        #dial-wrapper.running {
+            cursor: default;
+            pointer-events: none;
+        }
+
+        /* 컨트롤 버튼 */
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+
+        #main-btn {
+            width: 100%;
+            padding: 18px 0;
+            background-color: var(--primary-btn);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 8px 20px rgba(196, 167, 229, 0.3);
+        }
+
+        #main-btn:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-2px);
+        }
+
+        #main-btn:active { transform: translateY(1px); }
+
+        #reset-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: underline;
+            text-underline-offset: 4px;
+            transition: color 0.2s ease;
+        }
+
+        #reset-btn:hover { color: var(--text-dark); }
+
+        /* 노동요 선택 UI */
+        .music-selector {
+            background-color: var(--bg-body);
+            padding: 18px;
+            border-radius: 20px;
+            text-align: left;
+        }
+
+        .music-selector label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 12px;
+            padding-left: 4px;
+        }
+
+        #bgm-select {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid transparent;
+            border-radius: 12px;
+            background-color: white;
+            color: var(--text-dark);
+            font-size: 0.95rem;
+            font-weight: 500;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s ease;
+        }
+
+        #bgm-select:focus { border-color: var(--primary-btn); }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <h1>정콩이의 뽀모도로</h1>
+        <p id="status-text">동그라미를 돌려 시간을 맞춰주세요</p>
+
+        <!-- 동그란 꽉 찬 시계 UI -->
+        <div id="dial-wrapper">
+            <svg id="dial-svg" viewBox="0 0 240 240">
+                <circle class="dial-track" cx="120" cy="120" r="80" />
+                <circle id="dial-slice" class="dial-slice" cx="120" cy="120" r="40" />
+                <g class="ticks">
+                    <text x="120" y="22" text-anchor="middle" class="tick-text">60</text>
+                    <line x1="120" y1="30" x2="120" y2="40" class="tick-line major" />
+                    <line x1="120" y1="33" x2="120" y2="40" class="tick-line minor" transform="rotate(30 120 120)" />
+                    <line x1="120" y1="33" x2="120" y2="40" class="tick-line minor" transform="rotate(60 120 120)" />
+                    <text x="222" y="125" text-anchor="middle" class="tick-text">15</text>
+                    <line x1="120" y1="30" x2="120" y2="40" class="tick-line major" transform="rotate(90 120 120)" />
+                    <line x1="120" y1="33" x2="120" y2="40" class="tick-line minor" transform="rotate(120 120 120)" />
+                    <line x1="120" y1="33" x2="120" y2="40" class="tick-line minor" transform="rotate(150 120 120)" />
+                    <text x="120" y="228" text-anchor="middle" class="tick-text">30</text>
+                    <line x1="120" y1="30" x2="120" y2="40" class="tick-line major" transform="rotate(180 120 120)" />
+                    <line x1="120" y1="33" x2="120" y2="40" class="tick-line minor" transform="rotate(210 120 120)" />
+                    <line x1="120" y1="33" x2="120" y2="40" class="tick-line minor" transform="rotate(240 120 120)" />
+                    <text x="18" y="125" text-anchor="middle" class="tick-text">45</text>
+                    <line x1="120" y1="30" x2="120" y2="40" class="tick-line major" transform="rotate(270 120 120)" />
+                    <line x1="120" y1="33" x2="120" y2="40" class="tick-line minor" transform="rotate(300 120 120)" />
+                    <line x1="120" y1="33" x2="120" y2="40" class="tick-line minor" transform="rotate(330 120 120)" />
+                </g>
+                <circle id="dial-handle" class="dial-handle" cx="120" cy="40" r="10" />
+            </svg>
+        </div>
+
+        <!-- 컨트롤 영역 -->
+        <div class="controls">
+            <button id="main-btn">집중 시작하기</button>
+            <button id="reset-btn">시간 다시 맞추기</button>
+        </div>
+
+        <!-- 노동요 선택 UI -->
+        <div class="music-selector">
+            <label for="bgm-select">🎧 몰입을 도와줄 소리</label>
+            <select id="bgm-select">
+                <option value="none">음악 없이 조용하게</option>
+                <!-- 구글 공식 서버의 공부하기 좋은 백색소음으로 완벽 교체 -->
+                <option value="https://actions.google.com/sounds/v1/weather/rain_heavy_loud.ogg" selected>비 내리는 소리 (백색소음)</option>
+                <option value="https://actions.google.com/sounds/v1/ambiences/fire.ogg">따뜻한 모닥불 소리 (ASMR)</option>
+                <option value="https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg">차분한 카페 분위기 (백색소음)</option>
+            </select>
+        </div>
+
+        <audio id="bgm-player" loop></audio>
+    </div>
+
+    <script>
+        // DOM 요소 세팅
+        const statusText = document.getElementById('status-text');
+        const mainBtn = document.getElementById('main-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const dialWrapper = document.getElementById('dial-wrapper');
+        const dialSlice = document.getElementById('dial-slice');
+        const dialHandle = document.getElementById('dial-handle');
+        
+        // 오디오 관련 DOM
+        const bgmSelect = document.getElementById('bgm-select');
+        const bgmPlayer = document.getElementById('bgm-player');
+
+        // 타이머 상태
+        let timerInterval;          
+        let defaultTime = 25 * 60;  
+        let timeLeft = defaultTime; 
+        let isRunning = false;      
+        const CIRCUMFERENCE = 2 * Math.PI * 40; 
+        dialSlice.style.transition = 'none';
+
+        // --- 오디오 제어 로직 ---
+        if (bgmSelect.value !== 'none') {
+            bgmPlayer.src = bgmSelect.value;
+        }
+
+        bgmSelect.addEventListener('change', (e) => {
+            const src = e.target.value;
+            if (src === 'none') {
+                bgmPlayer.pause();
+                bgmPlayer.src = '';
+            } else {
+                bgmPlayer.src = src;
+                if (isRunning) bgmPlayer.play().catch(() => {});
+            }
+        });
+
+        // --- 다이얼 & 타이머 핵심 로직 ---
+        function updateDisplay() {
+            const fraction = timeLeft / 3600; 
+            const drawLength = fraction * CIRCUMFERENCE;
+            dialSlice.style.strokeDasharray = `${drawLength}, ${CIRCUMFERENCE}`;
+
+            const angle = (fraction * 2 * Math.PI) - (Math.PI / 2);
+            const hx = 120 + 80 * Math.cos(angle);
+            const hy = 120 + 80 * Math.sin(angle);
+            
+            dialHandle.setAttribute('cx', hx);
+            dialHandle.setAttribute('cy', hy);
+
+            if (!isRunning && timeLeft > 0) {
+                const mins = Math.ceil(timeLeft / 60);
+                statusText.innerText = `${mins}분으로 맞춰졌어요.`;
+                statusText.style.color = 'var(--text-dark)';
+            }
+        }
+
+        let isDragging = false;
+        function getMinutesFromEvent(e) {
+            const rect = dialWrapper.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const x = clientX - rect.left - (rect.width / 2);
+            const y = clientY - rect.top - (rect.height / 2);
+
+            let angle = Math.atan2(y, x) + (Math.PI / 2);
+            if (angle < 0) angle += 2 * Math.PI;
+
+            let fraction = angle / (2 * Math.PI);
+            let mins = Math.round(fraction * 60);
+            if (mins === 0) mins = 60; 
+            return mins;
+        }
+
+        function handleDrag(e) {
+            if (!isDragging || isRunning) return;
+            e.preventDefault(); 
+            const mins = getMinutesFromEvent(e);
+            defaultTime = mins * 60;
+            timeLeft = defaultTime;
+            dialSlice.style.transition = 'none';
+            updateDisplay();
+        }
+
+        dialWrapper.addEventListener('mousedown', (e) => {
+            if (isRunning) return; 
+            isDragging = true;
+            dialWrapper.classList.add('dragging');
+            handleDrag(e);
+        });
+        document.addEventListener('mousemove', handleDrag);
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            dialWrapper.classList.remove('dragging');
+        });
+
+        dialWrapper.addEventListener('touchstart', (e) => {
+            if (isRunning) return;
+            isDragging = true;
+            dialWrapper.classList.add('dragging');
+            handleDrag(e);
+        }, { passive: false });
+        document.addEventListener('touchmove', handleDrag, { passive: false });
+        document.addEventListener('touchend', () => {
+            isDragging = false;
+            dialWrapper.classList.remove('dragging');
+        });
+
+        function startTimer() {
+            if (timeLeft === 0) return; 
+            isRunning = true;
+            dialWrapper.classList.add('running'); 
+            
+            mainBtn.innerText = "잠시 멈춤 (일시정지)";
+            mainBtn.style.backgroundColor = "var(--dial-empty)";
+            mainBtn.style.color = "var(--text-dark)";
+            
+            statusText.innerText = "몰입의 시간입니다. 조급해하지 마세요.";
+            statusText.style.color = "var(--primary-hover)";
+            dialSlice.style.transition = 'stroke-dasharray 1s linear';
+
+            if (bgmSelect.value !== 'none') {
+                bgmPlayer.play().catch(e => console.log("재생 대기"));
+            }
+
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateDisplay();
+
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    timeLeft = 0;
+                    isRunning = false;
+                    updateDisplay();
+                    soundAutoStop(); 
+                }
+            }, 1000);
+        }
+
+        function pauseTimer() {
+            clearInterval(timerInterval);
+            isRunning = false;
+            dialWrapper.classList.remove('running');
+            
+            mainBtn.innerText = "이어서 집중하기";
+            mainBtn.style.backgroundColor = "var(--primary-btn)";
+            mainBtn.style.color = "white";
+            
+            statusText.innerText = "숨을 고르고 다시 시작해볼까요?";
+            statusText.style.color = "var(--text-dark)";
+            bgmPlayer.pause();
+        }
+
+        mainBtn.addEventListener('click', () => {
+            if (isRunning) pauseTimer();
+            else startTimer();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            clearInterval(timerInterval);
+            isRunning = false;
+            dialWrapper.classList.remove('running');
+            timeLeft = defaultTime;
+            dialSlice.style.transition = 'none'; 
+            updateDisplay();
+            
+            mainBtn.innerText = "집중 시작하기";
+            mainBtn.style.backgroundColor = "var(--primary-btn)";
+            mainBtn.style.color = "white";
+            
+            bgmPlayer.pause();
+            bgmPlayer.currentTime = 0; 
+        });
+
+        function soundAutoStop() {
+            bgmPlayer.pause();
+            dialWrapper.classList.remove('running');
+            
+            mainBtn.innerText = "수고했어요! 휴식 끝내기";
+            mainBtn.style.backgroundColor = "var(--text-dark)";
+            mainBtn.style.color = "white";
+            
+            statusText.innerText = "🎉 타이머가 끝났어요. 뇌를 쉬게 해주세요!";
+            statusText.style.color = "var(--primary-hover)";
+            document.body.style.backgroundColor = "#EAF2EF"; 
+        }
+
+        updateDisplay();
+    </script>
+</body>
+</html>

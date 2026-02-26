@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자바타자연습 - 개발자를 위한 몰입형 타이핑 훈련</title>
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Fira Code (개발자용 폰트) -->
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Fira Code', monospace;
+            background-color: #0f172a; /* Tailwind slate-900 */
+            color: #cbd5e1; /* Tailwind slate-300 */
+        }
+        
+        /* 커서 깜빡임 애니메이션 */
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        
+        .caret {
+            border-left: 2px solid #38bdf8; /* Tailwind light blue */
+            animation: blink 1s step-end infinite;
+        }
+
+        /* 오타 발생 시 화면 흔들림 애니메이션 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-5px); }
+            40% { transform: translateX(5px); }
+            60% { transform: translateX(-3px); }
+            80% { transform: translateX(3px); }
+        }
+
+        .shake-screen {
+            animation: shake 0.3s ease-in-out;
+        }
+
+        /* 글자 상태 클래스 */
+        .char.correct {
+            color: #a3e635; /* Tailwind lime-400 */
+        }
+        .char.incorrect {
+            color: #f87171; /* Tailwind red-400 */
+            text-decoration: underline;
+            text-decoration-color: #f87171;
+            background-color: rgba(248, 113, 113, 0.1);
+        }
+        .char.untyped {
+            color: #64748b; /* Tailwind slate-500 */
+        }
+        
+        /* 숨겨진 입력창 (모바일 대응 및 포커스 유지용) */
+        #hidden-input {
+            position: absolute;
+            opacity: 0;
+            top: -9999px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- 숨겨진 입력 필드 -->
+    <input type="text" id="hidden-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+    <div class="w-full max-w-4xl flex flex-col gap-8 relative" id="app-container">
+        
+        <!-- 헤더 및 설정 -->
+        <header class="flex flex-col sm:flex-row justify-between items-center gap-4 border-b border-slate-700 pb-4">
+            <h1 class="text-2xl font-bold text-sky-400">☕ 자바타자연습</h1>
+            
+            <div class="flex gap-4 text-sm bg-slate-800 p-2 rounded-lg">
+                <div class="flex items-center gap-2 border-r border-slate-600 pr-4">
+                    <span class="text-slate-400">모드:</span>
+                    <select id="mode-select" class="bg-slate-700 text-white rounded px-2 py-1 outline-none">
+                        <option value="word">단어 반복</option>
+                        <option value="code">코드 스니펫</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-400">시간:</span>
+                    <button class="time-btn active text-sky-400 font-bold" data-time="15">15s</button>
+                    <button class="time-btn text-slate-400 hover:text-white" data-time="30">30s</button>
+                    <button class="time-btn text-slate-400 hover:text-white" data-time="60">60s</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- 실시간 지표 대시보드 -->
+        <div class="flex justify-between items-end">
+            <div class="text-5xl font-bold text-sky-400 w-24" id="time-display">15</div>
+            <div class="flex gap-6 text-lg">
+                <div class="flex flex-col items-center">
+                    <span class="text-slate-500 text-xs">WPM</span>
+                    <span id="live-wpm" class="font-bold">0</span>
+                </div>
+                <div class="flex flex-col items-center">
+                    <span class="text-slate-500 text-xs">정확도</span>
+                    <span id="live-accuracy" class="font-bold">100%</span>
+                </div>
+                <div class="flex flex-col items-center">
+                    <span class="text-slate-500 text-xs">오타 수</span>
+                    <span id="live-errors" class="font-bold text-red-400">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 타이핑 텍스트 영역 -->
+        <div id="typing-area" class="text-xl sm:text-2xl leading-relaxed tracking-wide cursor-text h-[250px] overflow-hidden relative select-none whitespace-pre-wrap text-left font-mono bg-slate-800/60 p-6 sm:p-8 rounded-2xl border border-slate-700/50 shadow-inner" tabindex="0">
+            <!-- 자바스크립트로 텍스트가 렌더링되는 곳 -->
+        </div>
+
+        <!-- 컨트롤 -->
+        <div class="flex justify-center mt-4">
+            <button id="restart-btn" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                </svg>
+                다시 시작 (Tab + Enter)
+            </button>
+        </div>
+
+    </div>
+
+    <!-- 결과 모달 -->
+    <div id="result-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center hidden z-50">
+        <div class="bg-slate-800 p-8 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-700 transform transition-all">
+            <h2 class="text-3xl font-bold text-white mb-6 text-center">테스트 결과</h2>
+            
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div class="bg-slate-900 p-4 rounded-xl flex flex-col items-center justify-center">
+                    <span class="text-slate-400 text-sm">WPM (분당 단어수)</span>
+                    <span id="result-wpm" class="text-4xl font-bold text-sky-400">0</span>
+                </div>
+                <div class="bg-slate-900 p-4 rounded-xl flex flex-col items-center justify-center">
+                    <span class="text-slate-400 text-sm">정확도</span>
+                    <span id="result-accuracy" class="text-4xl font-bold text-lime-400">0%</span>
+                </div>
+                <div class="bg-slate-900 p-4 rounded-xl flex flex-col items-center justify-center">
+                    <span class="text-slate-400 text-sm">총 입력 (CPM)</span>
+                    <span id="result-cpm" class="text-2xl font-bold text-white">0</span>
+                </div>
+                <div class="bg-slate-900 p-4 rounded-xl flex flex-col items-center justify-center">
+                    <span class="text-slate-400 text-sm">오타 수</span>
+                    <span id="result-errors" class="text-2xl font-bold text-red-400">0</span>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 p-4 rounded-xl mb-8">
+                <h3 class="text-slate-400 text-sm mb-2 text-center">💡 취약점 분석 (가장 많이 틀린 키)</h3>
+                <div id="typo-stats" class="flex flex-wrap gap-2 justify-center">
+                    <!-- 오타 통계가 여기에 동적으로 들어갑니다 -->
+                </div>
+            </div>
+
+            <button id="close-modal-btn" class="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-3 px-4 rounded-xl transition-colors">
+                다시 도전하기
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 데이터 세트 ---
+        const textDatabase = {
+            word: [
+                "public", "static", "void", "main", "String", "args", "System", "out", "println", 
+                "class", "interface", "extends", "implements", "return", "new", "this", "super", 
+                "function", "const", "let", "var", "import", "export", "default", "async", "await",
+                "boolean", "integer", "double", "float", "char", "Array", "Object", "null", "undefined"
+            ],
+            code: [
+`public class Main {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}`,
+`function calculateTotal(items) {
+    let total = 0;
+    for (const item of items) {
+        total += item.price * item.qty;
+    }
+    return total;
+}`,
+`const fetchUser = async (id) => {
+    try {
+        const response = await fetch(\`/api/users/\${id}\`);
+        return await response.json();
+    } catch (error) {
+        console.error(error);
+    }
+};`,
+`@RestController
+@RequestMapping("/api")
+public class UserController {
+    @GetMapping("/users")
+    public List<User> getUsers() {
+        return userService.findAll();
+    }
+}`,
+`document.querySelectorAll('.btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        console.log('Clicked:', e.target.id);
+    });
+});`
+            ]
+        };
+
+        // --- 2. 전역 상태 관리 ---
+        const state = {
+            timeLimit: 15,
+            timeLeft: 15,
+            timer: null,
+            isPlaying: false,
+            currentText: "",
+            userInput: [], // 입력된 문자들의 배열
+            currentIndex: 0,
+            
+            // 통계 데이터
+            totalKeystrokes: 0,
+            correctKeystrokes: 0,
+            errorCount: 0,
+            errorLog: {} // { 'e': 5, '{': 2 } 형태의 객체 (오타 발생 문자록)
+        };
+
+        // --- 3. DOM 요소 캐싱 ---
+        const DOM = {
+            container: document.getElementById('app-container'),
+            typingArea: document.getElementById('typing-area'),
+            hiddenInput: document.getElementById('hidden-input'),
+            timeDisplay: document.getElementById('time-display'),
+            liveWpm: document.getElementById('live-wpm'),
+            liveAccuracy: document.getElementById('live-accuracy'),
+            liveErrors: document.getElementById('live-errors'),
+            restartBtn: document.getElementById('restart-btn'),
+            modeSelect: document.getElementById('mode-select'),
+            timeBtns: document.querySelectorAll('.time-btn'),
+            
+            // 모달
+            modal: document.getElementById('result-modal'),
+            resWpm: document.getElementById('result-wpm'),
+            resAccuracy: document.getElementById('result-accuracy'),
+            resCpm: document.getElementById('result-cpm'),
+            resErrors: document.getElementById('result-errors'),
+            typoStats: document.getElementById('typo-stats'),
+            closeModalBtn: document.getElementById('close-modal-btn')
+        };
+
+        // --- 4. 초기화 및 텍스트 생성 로직 ---
+        function initGame() {
+            clearInterval(state.timer);
+            state.timer = null;
+            state.isPlaying = false;
+            state.timeLeft = state.timeLimit;
+            state.userInput = [];
+            state.currentIndex = 0;
+            state.totalKeystrokes = 0;
+            state.correctKeystrokes = 0;
+            state.errorCount = 0;
+            state.errorLog = {};
+
+            updateStatsUI();
+            DOM.timeDisplay.innerText = state.timeLeft;
+            DOM.timeDisplay.classList.remove('text-red-500');
+            DOM.timeDisplay.classList.add('text-sky-400');
+            DOM.container.classList.remove('shake-screen');
+
+            generateText();
+            renderText();
+            
+            // 모달 닫기 및 포커스 이동
+            DOM.modal.classList.add('hidden');
+            focusInput();
+        }
+
+        function generateText() {
+            const mode = DOM.modeSelect.value;
+            const source = textDatabase[mode];
+            let generated = [];
+            
+            if (mode === 'code') {
+                // 코드 모드는 다중 줄 스니펫을 3~4개 정도 연결
+                for(let i=0; i < 4; i++) {
+                    const randomItem = source[Math.floor(Math.random() * source.length)];
+                    generated.push(randomItem);
+                }
+                state.currentText = generated.join('\n\n\n');
+            } else {
+                // 단어나 문장은 기존처럼 길게 생성
+                for(let i=0; i < 100; i++) {
+                    const randomItem = source[Math.floor(Math.random() * source.length)];
+                    generated.push(randomItem);
+                }
+                state.currentText = generated.join(' ');
+            }
+        }
+
+        // --- 5. 렌더링 로직 ---
+        function renderText() {
+            DOM.typingArea.innerHTML = '';
+            
+            // 성능 최적화를 위해 DocumentFragment 사용
+            const fragment = document.createDocumentFragment();
+            
+            for (let i = 0; i < state.currentText.length; i++) {
+                const charSpan = document.createElement('span');
+                const char = state.currentText[i];
+                charSpan.classList.add('char');
+                
+                // 줄바꿈 및 공백 처리
+                if (char === '\n') {
+                    charSpan.innerHTML = '<span class="opacity-30 select-none text-sm align-middle">↵</span>\n';
+                } else if (char === ' ') {
+                    charSpan.innerText = ' '; // 수정됨: &nbsp; 대신 일반 공백을 사용하여 자동 줄바꿈(Word Wrap) 허용
+                } else {
+                    charSpan.innerText = char;
+                }
+
+                // 현재 상태에 따른 클래스 부여
+                if (i < state.currentIndex) {
+                    // 이미 입력 지나간 곳
+                    if (state.userInput[i] === state.currentText[i]) {
+                        charSpan.classList.add('correct');
+                    } else {
+                        charSpan.classList.add('incorrect');
+                    }
+                } else if (i === state.currentIndex) {
+                    // 현재 입력해야 할 곳 (Caret 표시)
+                    charSpan.classList.add('caret');
+                    charSpan.classList.add('untyped');
+                } else {
+                    // 아직 입력 안 한 곳
+                    charSpan.classList.add('untyped');
+                }
+                
+                fragment.appendChild(charSpan);
+            }
+            
+            DOM.typingArea.appendChild(fragment);
+            
+            // Caret이 항상 보이도록 스크롤 조정
+            const activeCaret = DOM.typingArea.querySelector('.caret');
+            if(activeCaret) {
+                // 부모 요소 내에서 caret의 위치를 계산하여 스크롤
+                const topPos = activeCaret.offsetTop;
+                DOM.typingArea.scrollTop = topPos - 50; 
+            }
+        }
+
+        // --- 6. 타이머 및 지표 업데이트 로직 ---
+        function startTimer() {
+            if (state.isPlaying) return;
+            state.isPlaying = true;
+
+            state.timer = setInterval(() => {
+                state.timeLeft--;
+                DOM.timeDisplay.innerText = state.timeLeft;
+
+                // 시간이 5초 이하로 남으면 붉은색 경고
+                if(state.timeLeft <= 5) {
+                    DOM.timeDisplay.classList.remove('text-sky-400');
+                    DOM.timeDisplay.classList.add('text-red-500');
+                }
+
+                updateStatsUI();
+
+                if (state.timeLeft <= 0) {
+                    endGame();
+                }
+            }, 1000);
+        }
+
+        function calculateMetrics() {
+            const timeElapsedInMinutes = (state.timeLimit - state.timeLeft) / 60;
+            let wpm = 0;
+            let cpm = 0;
+            let accuracy = 100;
+
+            if (timeElapsedInMinutes > 0) {
+                cpm = Math.round(state.correctKeystrokes / timeElapsedInMinutes);
+                wpm = Math.round((state.correctKeystrokes / 5) / timeElapsedInMinutes);
+            }
+            
+            if (state.totalKeystrokes > 0) {
+                accuracy = Math.round((state.correctKeystrokes / state.totalKeystrokes) * 100);
+            }
+
+            return { wpm, cpm, accuracy };
+        }
+
+        function updateStatsUI() {
+            const metrics = calculateMetrics();
+            DOM.liveWpm.innerText = metrics.wpm;
+            DOM.liveAccuracy.innerText = `${metrics.accuracy}%`;
+            DOM.liveErrors.innerText = state.errorCount;
+        }
+
+        // --- 7. 게임 종료 및 결과 리포트 로직 ---
+        function endGame() {
+            clearInterval(state.timer);
+            state.isPlaying = false;
+            
+            const metrics = calculateMetrics();
+            
+            // 결과 모달 데이터 채우기
+            DOM.resWpm.innerText = metrics.wpm;
+            DOM.resCpm.innerText = metrics.cpm;
+            DOM.resAccuracy.innerText = `${metrics.accuracy}%`;
+            DOM.resErrors.innerText = state.errorCount;
+
+            // 오타 통계 렌더링 (가장 많이 틀린 키 Top 5)
+            DOM.typoStats.innerHTML = '';
+            const sortedTypos = Object.entries(state.errorLog)
+                .sort((a, b) => b[1] - a[1]) // 빈도수 내림차순 정렬
+                .slice(0, 5); // 상위 5개
+
+            if(sortedTypos.length === 0) {
+                DOM.typoStats.innerHTML = '<span class="text-lime-400 text-sm">완벽합니다! 오타가 없습니다. 🎉</span>';
+            } else {
+                sortedTypos.forEach(([char, count]) => {
+                    // 공백문자는 시각적으로 표시되도록 변환
+                    const displayChar = char === ' ' ? '공백(Space)' : char;
+                    const badge = document.createElement('div');
+                    badge.className = 'bg-slate-700 text-slate-300 px-3 py-1 rounded-md text-sm font-bold border border-slate-600';
+                    badge.innerHTML = `<span class="text-red-400">'${displayChar}'</span> : ${count}회`;
+                    DOM.typoStats.appendChild(badge);
+                });
+            }
+
+            // 모달 표시
+            DOM.modal.classList.remove('hidden');
+            DOM.closeModalBtn.focus();
+        }
+
+        // --- 8. 사용자 입력 처리 로직 ---
+        function handleInput(e) {
+            // 게임이 끝났거나 모달이 열려있으면 무시
+            if(state.timeLeft <= 0 || !DOM.modal.classList.contains('hidden')) return;
+
+            // 제어 키 무시 (Shift, Ctrl, Alt 등), 단 Enter는 허용
+            if (e.key.length !== 1 && e.key !== 'Backspace' && e.key !== 'Enter') return;
+
+            // 스페이스바 기본 스크롤 방지
+            if (e.key === ' ') e.preventDefault();
+
+            // 첫 입력 시 타이머 시작
+            if (!state.isPlaying && e.key !== 'Backspace') {
+                startTimer();
+            }
+
+            // 백스페이스 처리
+            if (e.key === 'Backspace') {
+                if (state.currentIndex > 0) {
+                    // [IDE 스타일 UX] 자동 들여쓰기된 공백들을 한 번에 지우는 로직
+                    if (state.userInput[state.currentIndex - 1] === ' ' && state.currentText[state.currentIndex - 1] === ' ') {
+                        let spacesToDel = 0;
+                        let tempIdx = state.currentIndex - 1;
+                        // 앞쪽이 전부 공백인지 확인
+                        while (tempIdx >= 0 && state.userInput[tempIdx] === ' ' && state.currentText[tempIdx] === ' ') {
+                            spacesToDel++;
+                            tempIdx--;
+                        }
+                        // 공백들의 바로 앞이 줄바꿈(Enter)이었다면, 들여쓰기 공간이므로 한 번에 삭제
+                        if (tempIdx >= 0 && state.userInput[tempIdx] === '\n') {
+                            for (let i = 0; i < spacesToDel; i++) {
+                                state.currentIndex--;
+                                state.userInput.pop();
+                            }
+                        }
+                    }
+
+                    state.currentIndex--;
+                    const removedChar = state.userInput.pop();
+                    
+                    // 삭제된 문자가 맞았던 것이라면 correctKeystrokes 차감
+                    if (removedChar === state.currentText[state.currentIndex]) {
+                        state.correctKeystrokes--;
+                    }
+                    renderText();
+                }
+                return;
+            }
+
+            // 일반 문자 및 Enter 입력 처리
+            const expectedChar = state.currentText[state.currentIndex];
+            const typedChar = e.key === 'Enter' ? '\n' : e.key;
+
+            state.userInput.push(typedChar);
+            state.totalKeystrokes++;
+
+            if (typedChar === expectedChar) {
+                state.correctKeystrokes++;
+                
+                // [IDE 스타일 자동 들여쓰기] Enter를 올바르게 쳤을 때 다음 줄의 들여쓰기(공백)를 자동 입력
+                if (typedChar === '\n') {
+                    let nextIdx = state.currentIndex + 1;
+                    while (nextIdx < state.currentText.length && state.currentText[nextIdx] === ' ') {
+                        state.userInput.push(' '); // 공백 자동 입력
+                        state.currentIndex++;      // 인덱스 전진
+                        nextIdx++;
+                    }
+                }
+            } else {
+                state.errorCount++;
+                // 오타 통계 기록
+                state.errorLog[expectedChar] = (state.errorLog[expectedChar] || 0) + 1;
+                
+                // 에러 발생 시 시각적 피드백 (화면 흔들림)
+                DOM.container.classList.remove('shake-screen');
+                void DOM.container.offsetWidth; // DOM Reflow 강제 발생 (애니메이션 재시작 트릭)
+                DOM.container.classList.add('shake-screen');
+            }
+
+            state.currentIndex++;
+            
+            // 텍스트 끝에 도달하면 게임 종료
+            if (state.currentIndex >= state.currentText.length) {
+                endGame();
+                return;
+            }
+
+            // 최적화: 전체를 다시 그리지 않고, DOM을 직접 조작하는 방법도 있지만
+            // Vanilla JS의 구조적 단순함을 위해 렌더링 함수를 다시 호출
+            renderText();
+        }
+
+        // 포커스 유지 로직
+        function focusInput() {
+            DOM.hiddenInput.focus();
+        }
+
+        // --- 9. 이벤트 리스너 바인딩 ---
+        
+        // 키보드 입력 감지 (전역 혹은 숨겨진 input 기준)
+        document.addEventListener('keydown', (e) => {
+            // input이나 select 등 다른 폼 요소에 포커스가 없을 때만 게임 입력 처리
+            if(document.activeElement === DOM.modeSelect) return;
+            focusInput();
+            handleInput(e);
+        });
+
+        // 타이핑 영역 클릭 시 포커스 강제
+        DOM.typingArea.addEventListener('click', focusInput);
+        document.body.addEventListener('click', (e) => {
+            if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
+                focusInput();
+            }
+        });
+
+        // 다시 시작 버튼
+        DOM.restartBtn.addEventListener('click', initGame);
+        
+        // 모달 닫기 버튼
+        DOM.closeModalBtn.addEventListener('click', initGame);
+
+        // 모드 변경
+        DOM.modeSelect.addEventListener('change', () => {
+            initGame();
+            DOM.modeSelect.blur(); // 선택 후 포커스 해제하여 키보드 입력 방해 안하게
+        });
+
+        // 시간 설정 버튼들
+        DOM.timeBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                // UI 업데이트
+                DOM.timeBtns.forEach(b => {
+                    b.classList.remove('active', 'text-sky-400', 'font-bold');
+                    b.classList.add('text-slate-400');
+                });
+                e.target.classList.remove('text-slate-400');
+                e.target.classList.add('active', 'text-sky-400', 'font-bold');
+
+                // 상태 업데이트
+                state.timeLimit = parseInt(e.target.getAttribute('data-time'));
+                initGame();
+            });
+        });
+
+        // 초기 시작
+        window.addEventListener('load', initGame);
+
+    </script>
+</body>
+</html>

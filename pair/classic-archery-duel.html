@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>고전 양궁 대결 </title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a202c; /* Tailwind gray-900 */
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 1000px;
+            aspect-ratio: 2 / 1;
+            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 60%, #8B4513 60%, #654321 100%);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 4px solid #4A5568;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .controls-info {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            display: none;
+        }
+        button {
+            pointer-events: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <h1 class="text-3xl font-bold mb-4 text-gray-200">고전 양궁 대결</h1>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="1000" height="500"></canvas>
+        
+        <!-- 시작 화면 (선공 선택) -->
+        <div id="start-screen" class="absolute top-0 left-0 w-full h-full bg-black bg-opacity-80 flex flex-col items-center justify-center z-20">
+            <h2 class="text-4xl font-bold text-white mb-8 drop-shadow-lg">게임 설정</h2>
+            <p class="text-xl text-gray-300 mb-6">먼저 공격할 플레이어를 선택하세요.</p>
+            <div class="flex gap-6">
+                <button id="btn-start-p1" class="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors text-xl border-2 border-blue-400">
+                    Player 1 선공 (왼쪽)
+                </button>
+                <button id="btn-start-p2" class="px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-500 transition-colors text-xl border-2 border-red-400">
+                    Player 2 선공 (오른쪽)
+                </button>
+            </div>
+        </div>
+
+        <div id="ui-layer">
+            <!-- 상단 UI: 체력바 및 바람 -->
+            <div class="flex justify-between items-start w-full">
+                <!-- Player 1 HP -->
+                <div id="hp-block-p1" class="w-1/3 transition-all duration-500 text-left">
+                    <div class="text-blue-500 font-bold mb-1 text-lg" id="p1-turn-text">Player 1</div>
+                    <div class="w-full bg-gray-700 h-6 rounded border-2 border-gray-900 overflow-hidden flex" id="p1-hp-container">
+                        <div id="p1-hp-bar" class="bg-blue-500 h-full w-full transition-all duration-300"></div>
+                    </div>
+                </div>
+
+                <!-- Wind Indicator -->
+                <div class="flex flex-col items-center justify-center bg-gray-800 bg-opacity-70 px-4 py-2 rounded-lg border border-gray-600">
+                    <span class="text-sm font-semibold text-gray-300">바람 (Wind)</span>
+                    <div class="text-xl font-bold text-white flex items-center gap-2">
+                        <span id="wind-dir">→</span>
+                        <span id="wind-speed">0</span>
+                    </div>
+                </div>
+
+                <!-- Player 2 HP -->
+                <div id="hp-block-p2" class="w-1/3 text-right transition-all duration-500">
+                    <div class="text-red-500 font-bold mb-1 text-lg" id="p2-turn-text">Player 2</div>
+                    <div class="w-full bg-gray-700 h-6 rounded border-2 border-gray-900 overflow-hidden flex justify-end" id="p2-hp-container">
+                        <div id="p2-hp-bar" class="bg-red-500 h-full w-full transition-all duration-300"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 하단 UI: 조작법 안내 -->
+            <div class="flex justify-between items-end w-full">
+                <div id="controls-p1" class="controls-info text-blue-300 border border-blue-500">
+                    <div class="font-bold mb-1">[Player 1 조작]</div>
+                    각도 조절: <span class="text-white font-mono">W, S 키</span><br>
+                    파워/발사: <span class="text-white font-mono">좌측 Shift</span>
+                </div>
+                
+                <!-- 중앙 알림 텍스트 -->
+                <div id="center-message" class="text-3xl font-bold text-yellow-400 drop-shadow-md">
+                    준비 중...
+                </div>
+
+                <div id="controls-p2" class="controls-info text-red-300 border border-red-500">
+                    <div class="font-bold mb-1">[Player 2 조작]</div>
+                    각도 조절: <span class="text-white font-mono">↑, ↓ 방향키</span><br>
+                    파워/발사: <span class="text-white font-mono">Space 키</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 게임 오버 스크린 -->
+        <div id="game-over-screen">
+            <h2 id="winner-text" class="text-5xl font-bold text-yellow-400 mb-6 drop-shadow-lg text-center whitespace-pre-line">Player 1 승리!</h2>
+            <button id="btn-restart" class="px-8 py-3 bg-white text-gray-900 font-bold rounded-full hover:bg-gray-200 transition-colors shadow-lg text-xl">
+                다시 플레이
+            </button>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // UI Elements
+    const p1HpBar = document.getElementById('p1-hp-bar');
+    const p2HpBar = document.getElementById('p2-hp-bar');
+    const p1TurnText = document.getElementById('p1-turn-text');
+    const p2TurnText = document.getElementById('p2-turn-text');
+    const centerMessage = document.getElementById('center-message');
+    const windDirText = document.getElementById('wind-dir');
+    const windSpeedText = document.getElementById('wind-speed');
+    const gameOverScreen = document.getElementById('game-over-screen');
+    const winnerText = document.getElementById('winner-text');
+
+    // Game Constants
+    const GRAVITY = 0.2;
+    const MAX_POWER = 50;
+    const MAX_HP = 100;
+    const GROUND_Y = 300; // Sky is 0-300, Ground is 300-500
+    const BASE_DAMAGE = 20; // 몸통 데미지 20으로 수정
+
+    // Game State
+    let gameState = 'START_SCREEN'; // 'START_SCREEN', 'P1_TURN', 'P2_TURN', 'SHOOTING', 'GAME_OVER'
+    let currentTurn = 1; // 1: Player 1, 2: Player 2
+    let wind = 0; // Negative is left, Positive is right
+    let particles = [];
+
+    // Players (위치 고정)
+    let p1 = {
+        id: 1, x: 150, y: GROUND_Y,
+        angle: -45, power: 0, hp: MAX_HP,
+        isCharging: false, facing: 1, color: '#3B82F6' // Blue
+    };
+    
+    let p2 = {
+        id: 2, x: 850, y: GROUND_Y,
+        angle: -135, power: 0, hp: MAX_HP,
+        isCharging: false, facing: -1, color: '#EF4444' // Red
+    };
+
+    // Arrow
+    let arrow = {
+        active: false,
+        x: 0, y: 0,
+        vx: 0, vy: 0,
+        angle: 0,
+        shooter: 0,
+        flightTime: 0
+    };
+
+    // Input State
+    const keys = {};
+
+    // --- Input Handling ---
+    window.addEventListener('keydown', (e) => {
+        // Prevent default scrolling for game keys
+        if(['ArrowUp', 'ArrowDown', 'Space', 'ShiftLeft'].includes(e.code)) {
+            e.preventDefault();
+        }
+
+        keys[e.code] = true;
+
+        if (e.code === 'ShiftLeft' || (e.key === 'Shift' && e.location === 1)) {
+            keys['p1_shoot'] = true;
+        }
+        if (e.code === 'Space') {
+            keys['p2_shoot'] = true;
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+
+        if (e.code === 'ShiftLeft' || (e.key === 'Shift' && e.location === 1)) {
+            keys['p1_shoot'] = false;
+        }
+        if (e.code === 'Space') {
+            keys['p2_shoot'] = false;
+        }
+    });
+
+    // 창이 포커스를 잃었을 때 키 눌림 상태 초기화 (키 씹힘 방지)
+    window.addEventListener('blur', () => {
+        for(let key in keys) {
+            keys[key] = false;
+        }
+    });
+
+    // --- Game Management ---
+    function startGame(startingPlayer) {
+        currentTurn = startingPlayer;
+        document.getElementById('start-screen').style.display = 'none';
+        
+        gameState = 'INIT'; // 상태를 변경하여 resetGame 내부에서 setTurnState가 호출되도록 함
+        resetGame(false); // UI 초기화를 위해 false 전달
+    }
+
+    function backToStart() {
+        gameOverScreen.style.display = 'none';
+        document.getElementById('start-screen').style.display = 'flex';
+        gameState = 'START_SCREEN';
+    }
+
+    // --- Game Logic ---
+    function generateWind() {
+        // Wind speed between -0.15 and 0.15
+        wind = (Math.random() - 0.5) * 0.3;
+        
+        // Update UI
+        let speedDisplay = Math.round(Math.abs(wind * 100));
+        windSpeedText.innerText = speedDisplay;
+        if (speedDisplay === 0) {
+            windDirText.innerText = '-';
+        } else {
+            windDirText.innerText = wind > 0 ? '→' : '←';
+        }
+    }
+
+    function shootArrow(player) {
+        player.isCharging = false;
+        gameState = 'SHOOTING';
+        centerMessage.innerText = "";
+
+        let rad = player.angle * Math.PI / 180;
+        let force = (player.power / MAX_POWER) * 20 + 5; // Min speed 5, Max speed 25
+
+        // Arrow starts at the bow (크기 1.2배에 맞게 어깨 높이와 활의 반지름 조정)
+        arrow.x = player.x + Math.cos(rad) * 24;
+        arrow.y = player.y - 30 + Math.sin(rad) * 24;
+        arrow.vx = Math.cos(rad) * force;
+        arrow.vy = Math.sin(rad) * force;
+        arrow.angle = rad;
+        arrow.active = true;
+        arrow.shooter = player.id;
+        arrow.flightTime = 0;
+    }
+
+    function checkCollision(ax, ay) {
+        // Check Ground
+        if (ay >= GROUND_Y) {
+            return { hit: true, target: 'ground' };
+        }
+
+        // Check Screen Bounds (Miss completely)
+        if (ax < -500 || ax > 1500) {
+            return { hit: true, target: 'out' };
+        }
+
+        // P1 Hitbox (크기 1.2배에 맞게 범위 확장)
+        let hitP1Head = Math.hypot(ax - p1.x, ay - (p1.y - 48)) <= 14.5;
+        let hitP1Body = ax >= p1.x - 18 && ax <= p1.x + 18 && ay >= p1.y - 36 && ay <= p1.y + 12;
+        
+        if (hitP1Head || hitP1Body) {
+            // 발사 직후 자신에게 바로 맞는 것을 방지 (화살이 어느 정도 날아갔거나 떨어질 때만 자해 가능)
+            if (arrow.shooter !== 1 || arrow.vy > 0 || arrow.flightTime > 15) {
+                return { hit: true, target: hitP1Head ? 'p1_head' : 'p1_body' };
+            }
+        }
+
+        // P2 Hitbox (크기 1.2배에 맞게 범위 확장)
+        let hitP2Head = Math.hypot(ax - p2.x, ay - (p2.y - 48)) <= 14.5;
+        let hitP2Body = ax >= p2.x - 18 && ax <= p2.x + 18 && ay >= p2.y - 36 && ay <= p2.y + 12;
+        
+        if (hitP2Head || hitP2Body) {
+            if (arrow.shooter !== 2 || arrow.vy > 0 || arrow.flightTime > 15) {
+                return { hit: true, target: hitP2Head ? 'p2_head' : 'p2_body' };
+            }
+        }
+
+        return { hit: false };
+    }
+
+    function createBloodParticles(x, y, color) {
+        for (let i = 0; i < 15; i++) {
+            particles.push({
+                x: x, y: y,
+                vx: (Math.random() - 0.5) * 6,
+                vy: (Math.random() - 1) * 6,
+                life: 1.0,
+                color: color
+            });
+        }
+    }
+
+    function handleHit(target) {
+        arrow.active = false;
+        
+        let isHeadshot = target.includes('head');
+        let isP1Hit = target.startsWith('p1');
+        let isP2Hit = target.startsWith('p2');
+        
+        if (isP1Hit || isP2Hit) {
+            let victim = isP1Hit ? p1 : p2;
+            let hpBar = isP1Hit ? p1HpBar : p2HpBar;
+            
+            createBloodParticles(arrow.x, arrow.y, '#EF4444');
+            
+            let damage = BASE_DAMAGE; // 랜덤 수치 제거, 고정 20 데미지
+            
+            // 헤드샷 처리
+            if (isHeadshot) {
+                damage = Math.floor(damage * 1.5); // 1.5배 데미지 (30)
+                centerMessage.innerText = "헤드샷! 추가 턴!";
+                centerMessage.className = "text-4xl font-bold text-red-500 drop-shadow-md animate-bounce";
+            }
+            
+            victim.hp -= damage;
+            if (victim.hp < 0) victim.hp = 0;
+            hpBar.style.width = victim.hp + '%';
+        }
+
+        // 잠시 대기 후 턴을 넘기거나 게임 종료 처리
+        setTimeout(() => {
+            if (p1.hp <= 0 || p2.hp <= 0) {
+                endGame();
+            } else {
+                if (isHeadshot) {
+                    // 헤드샷일 경우 턴을 바꾸지 않고 한 번 더 플레이
+                    setTurnState();
+                } else {
+                    nextTurn();
+                }
+            }
+        }, 1500);
+    }
+
+    function setTurnState() {
+        if (currentTurn === 1) {
+            gameState = 'P1_TURN';
+            centerMessage.innerText = "Player 1의 턴!";
+            centerMessage.className = "text-3xl font-bold text-blue-400 drop-shadow-md";
+            p1TurnText.style.opacity = "1";
+            p2TurnText.style.opacity = "0.5";
+        } else {
+            gameState = 'P2_TURN';
+            centerMessage.innerText = "Player 2의 턴!";
+            centerMessage.className = "text-3xl font-bold text-red-400 drop-shadow-md";
+            p1TurnText.style.opacity = "0.5";
+            p2TurnText.style.opacity = "1";
+        }
+    }
+
+    function nextTurn() {
+        if (p1.hp <= 0 || p2.hp <= 0) return;
+
+        // 턴 교체
+        currentTurn = currentTurn === 1 ? 2 : 1;
+        
+        // 턴이 넘어갈 때마다 바람 갱신
+        generateWind();
+        
+        setTurnState();
+    }
+
+    function endGame() {
+        gameState = 'GAME_OVER';
+        gameOverScreen.style.display = 'flex';
+        
+        if (p1.hp <= 0 && p2.hp <= 0) {
+            winnerText.innerText = "무승부! (동시 사망)";
+            winnerText.className = "text-5xl font-bold text-white mb-6 drop-shadow-lg text-center whitespace-pre-line";
+        } else if (p1.hp <= 0) {
+            if (arrow.shooter === 1) { // Player 1이 쏜 화살에 맞음
+                winnerText.innerText = "Player 1 자멸!\nPlayer 2 승리!";
+            } else {
+                winnerText.innerText = "Player 2 승리!";
+            }
+            winnerText.className = "text-5xl font-bold text-red-500 mb-6 drop-shadow-lg text-center whitespace-pre-line";
+        } else {
+            if (arrow.shooter === 2) { // Player 2가 쏜 화살에 맞음
+                winnerText.innerText = "Player 2 자멸!\nPlayer 1 승리!";
+            } else {
+                winnerText.innerText = "Player 1 승리!";
+            }
+            winnerText.className = "text-5xl font-bold text-blue-500 mb-6 drop-shadow-lg text-center whitespace-pre-line";
+        }
+    }
+
+    function resetGame(fullReset = true) {
+        p1.hp = MAX_HP;
+        p2.hp = MAX_HP;
+        p1HpBar.style.width = '100%';
+        p2HpBar.style.width = '100%';
+        p1.power = 0; p2.power = 0;
+        p1.angle = -45;
+        p2.angle = -135;
+        p1.isCharging = false; p2.isCharging = false;
+        arrow.active = false;
+        particles = [];
+        
+        if (fullReset) {
+            currentTurn = 1;
+        }
+        
+        // 초기화 시 눌려있는 키 상태 강제 해제
+        for(let key in keys) keys[key] = false;
+
+        gameOverScreen.style.display = 'none';
+        
+        generateWind();
+        if (gameState !== 'START_SCREEN') {
+            setTurnState();
+        }
+    }
+
+
+    // --- Update and Render ---
+    function update() {
+        if (gameState === 'P1_TURN') {
+            // Angle
+            if (keys['KeyW']) p1.angle -= 1.5; // 위로 조준
+            if (keys['KeyS']) p1.angle += 1.5; // 아래로 조준
+            
+            // Limit to min 30 degrees (-90 to -30)
+            p1.angle = Math.max(-90, Math.min(-30, p1.angle));
+
+            // Power
+            if (keys['p1_shoot']) {
+                if (!p1.isCharging) {
+                    p1.isCharging = true;
+                    p1.power = 0;
+                }
+                p1.power += 0.5; // 게이지 증가 속도 늦춤 (기존 1.5 -> 0.5)
+                if (p1.power > MAX_POWER) p1.power = MAX_POWER;
+            } else if (p1.isCharging) {
+                shootArrow(p1);
+            }
+        } 
+        else if (gameState === 'P2_TURN') {
+            // Angle
+            if (keys['ArrowUp']) p2.angle += 1.5; // 위로 조준 (-150 to -90)
+            if (keys['ArrowDown']) p2.angle -= 1.5; // 아래로 조준 (-150 to -90)
+            
+            // Limit to min 30 degrees (-150 to -90)
+            p2.angle = Math.max(-150, Math.min(-90, p2.angle));
+
+            // Power
+            if (keys['p2_shoot']) {
+                if (!p2.isCharging) {
+                    p2.isCharging = true;
+                    p2.power = 0;
+                }
+                p2.power += 0.5; // 게이지 증가 속도 늦춤 (기존 1.5 -> 0.5)
+                if (p2.power > MAX_POWER) p2.power = MAX_POWER;
+            } else if (p2.isCharging) {
+                shootArrow(p2);
+            }
+        } 
+        else if (gameState === 'SHOOTING' && arrow.active) {
+            arrow.flightTime++;
+            
+            // Physics
+            arrow.vy += GRAVITY;
+            arrow.vx += wind;
+            arrow.x += arrow.vx;
+            arrow.y += arrow.vy;
+            arrow.angle = Math.atan2(arrow.vy, arrow.vx);
+
+            // Collisions
+            let collision = checkCollision(arrow.x, arrow.y);
+            if (collision.hit) {
+                handleHit(collision.target);
+            }
+        }
+
+        // Update Particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.vy += GRAVITY * 0.5;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.02;
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+    }
+
+    function drawPlayer(p) {
+        ctx.save();
+        ctx.translate(p.x, p.y); // 원점을 플레이어의 발 밑(Ground)으로 이동
+        ctx.scale(1.2, 1.2);     // 플레이어 전체 크기 1.2배 스케일 적용
+
+        ctx.strokeStyle = p.color;
+        ctx.fillStyle = p.color;
+        ctx.lineWidth = 3;
+
+        // Body (Stickman) - 기준점을 (0, 0)으로 하여 그리기
+        ctx.beginPath();
+        // Head
+        ctx.arc(0, -40, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        // Torso
+        ctx.beginPath();
+        ctx.moveTo(0, -32);
+        ctx.lineTo(0, -10);
+        
+        // Legs
+        ctx.lineTo(-10 * p.facing, 0); // Back leg
+        ctx.moveTo(0, -10);
+        ctx.lineTo(10 * p.facing, 0); // Front leg
+        ctx.stroke();
+
+        // Arm and Bow
+        ctx.save();
+        ctx.translate(0, -25); // Shoulder point
+        
+        let bowAngle = p.angle * Math.PI / 180;
+        ctx.rotate(bowAngle);
+
+        // Arms
+        ctx.beginPath();
+        ctx.strokeStyle = '#fff'; // Arms color
+        ctx.lineWidth = 2;
+        ctx.moveTo(0, 0);
+        ctx.lineTo(10, 0); // Front arm reaching to bow
+        ctx.stroke();
+
+        let pullDist = p.isCharging ? (p.power / MAX_POWER) * 15 : 0;
+        
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-pullDist, 0); // Back arm pulling string
+        ctx.stroke();
+
+        // Bow (Black color)
+        ctx.beginPath();
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        // Draw an arc for the bow
+        ctx.arc(10, 0, 20, -Math.PI/2.5, Math.PI/2.5);
+        ctx.stroke();
+
+        // String
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1;
+        // Math to find end points of the bow arc
+        let bowEndX = 10 + Math.cos(Math.PI/2.5) * 20;
+        let bowEndY = Math.sin(Math.PI/2.5) * 20;
+        
+        ctx.moveTo(bowEndX, -bowEndY);
+        ctx.lineTo(-pullDist, 0);
+        ctx.lineTo(bowEndX, bowEndY);
+        ctx.stroke();
+
+        // Loaded Arrow (if charging or their turn)
+        if (p.isCharging || (gameState === `P${p.id}_TURN` && !arrow.active)) {
+            ctx.beginPath();
+            ctx.strokeStyle = '#E2E8F0';
+            ctx.lineWidth = 2;
+            ctx.moveTo(-pullDist, 0);
+            ctx.lineTo(25, 0); // Arrow shaft
+            ctx.stroke();
+            
+            // Arrowhead
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.moveTo(25, 0);
+            ctx.lineTo(20, -3);
+            ctx.lineTo(20, 3);
+            ctx.fill();
+        }
+
+        ctx.restore(); // 어깨 및 각도 변환(Translate/Rotate) 복구
+        ctx.restore(); // 1.2배 스케일 및 전체 좌표 변환 복구
+
+        // Draw Power Bar UI below player (스케일 영향받지 않도록 외부에서 그림)
+        if (gameState === `P${p.id}_TURN`) {
+            // Angle indicator text
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 16px monospace';
+            ctx.textAlign = 'center';
+            // 왼쪽을 보든 오른쪽을 보든 바닥을 기준으로 한 각도로 표시해 줍니다.
+            let displayAngle = p.facing === 1 ? Math.abs(p.angle) : 180 - Math.abs(p.angle);
+            ctx.fillText(`${Math.round(displayAngle)}°`, p.x, p.y - 75); // 머리가 커졌으므로 텍스트 위치 살짝 위로 이동
+
+            // Power Bar
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(p.x - 25, p.y + 10, 50, 6);
+            ctx.fillStyle = p.isCharging ? '#F59E0B' : '#4B5563'; // Orange when charging
+            ctx.fillRect(p.x - 25, p.y + 10, (p.power / MAX_POWER) * 50, 6);
+            ctx.strokeStyle = '#1F2937';
+            ctx.strokeRect(p.x - 25, p.y + 10, 50, 6);
+        }
+    }
+
+    function drawArrow() {
+        if (!arrow.active) return;
+        
+        ctx.save();
+        ctx.translate(arrow.x, arrow.y);
+        ctx.rotate(arrow.angle);
+        
+        // Shaft
+        ctx.beginPath();
+        ctx.strokeStyle = '#E2E8F0';
+        ctx.lineWidth = 2;
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(5, 0);
+        ctx.stroke();
+
+        // Head
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.moveTo(10, 0);
+        ctx.lineTo(0, -4);
+        ctx.lineTo(0, 4);
+        ctx.fill();
+        
+        // Fletching (Feathers)
+        ctx.strokeStyle = '#EF4444';
+        ctx.beginPath();
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(-20, -3);
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(-20, 3);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    function drawParticles() {
+        particles.forEach(p => {
+            ctx.fillStyle = `rgba(239, 68, 68, ${p.life})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw players
+        drawPlayer(p1);
+        drawPlayer(p2);
+
+        // Draw active arrow
+        drawArrow();
+
+        // Draw hit particles
+        drawParticles();
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // --- 버튼 이벤트 리스너 등록 (CSP 보안 정책 호환 및 스페이스바 중복 클릭 방지) ---
+    document.getElementById('btn-start-p1').addEventListener('click', () => {
+        if (document.activeElement) document.activeElement.blur(); // 버튼 클릭 후 포커스 해제
+        startGame(1);
+    });
+    
+    document.getElementById('btn-start-p2').addEventListener('click', () => {
+        if (document.activeElement) document.activeElement.blur(); // 스페이스바 간섭 차단
+        startGame(2);
+    });
+    
+    document.getElementById('btn-restart').addEventListener('click', () => {
+        if (document.activeElement) document.activeElement.blur();
+        backToStart();
+    });
+
+    // Initialize
+    // 시작 화면 띄우고 게임 루프는 백그라운드 대기 상태로 시작
+    gameLoop();
+
+</script>
+</body>
+</html>

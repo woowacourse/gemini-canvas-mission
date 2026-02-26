@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>회고 AI 코치 기능 설계 및 프로토타입</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              darkBg: "#0f172a",
+              darkPanel: "#1e293b",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap");
+
+      body {
+        font-family: "Inter", "Noto Sans KR", sans-serif;
+        transition:
+          background-color 0.3s ease,
+          color 0.3s ease;
+      }
+
+      .glass-panel {
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(226, 232, 240, 0.8);
+      }
+
+      .dark .glass-panel {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(51, 65, 85, 0.8);
+      }
+
+      .loading-dots span {
+        animation: bounce 1.4s infinite ease-in-out both;
+      }
+      .loading-dots span:nth-child(1) {
+        animation-delay: -0.32s;
+      }
+      .loading-dots span:nth-child(2) {
+        animation-delay: -0.16s;
+      }
+
+      @keyframes bounce {
+        0%,
+        80%,
+        100% {
+          transform: scale(0);
+        }
+        40% {
+          transform: scale(1);
+        }
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+
+      /* Custom Scrollbar */
+      #chatDisplay::-webkit-scrollbar {
+        width: 4px;
+      }
+      #chatDisplay::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 10px;
+      }
+    </style>
+  </head>
+  <body
+    class="min-h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100"
+  >
+    <!-- Header -->
+    <header
+      class="glass-panel sticky top-0 z-50 px-6 py-4 shadow-sm transition-colors duration-300"
+    >
+      <div class="max-w-6xl mx-auto flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+          <div class="bg-blue-600 p-2 rounded-lg">
+            <i class="fas fa-brain text-white text-xl"></i>
+          </div>
+          <h1 class="text-xl font-bold text-slate-800 dark:text-white">
+            회고 AI 코치
+            <span class="text-sm font-normal text-slate-500">v1.1</span>
+          </h1>
+        </div>
+        <div class="flex items-center space-x-4 md:space-x-8">
+          <nav
+            class="hidden md:flex space-x-6 text-sm font-medium text-slate-600 dark:text-slate-400"
+          >
+            <a
+              href="#overview"
+              class="hover:text-blue-600 dark:hover:text-blue-400 transition"
+              >기능 개요</a
+            >
+            <a
+              href="#prototype"
+              class="hover:text-blue-600 dark:hover:text-blue-400 transition"
+              >AI 코칭 실행</a
+            >
+            <a
+              href="#design"
+              class="hover:text-blue-600 dark:hover:text-blue-400 transition"
+              >상세 설계</a
+            >
+          </nav>
+          <!-- Dark Mode Toggle -->
+          <button
+            onclick="toggleDarkMode()"
+            id="theme-toggle"
+            class="p-2 w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-yellow-400 transition-all hover:ring-2 hover:ring-blue-400"
+          >
+            <i class="fas fa-moon dark:hidden"></i>
+            <i class="fas fa-sun hidden dark:inline"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-grow max-w-6xl mx-auto w-full p-4 md:p-8 space-y-12">
+      <!-- Section 1: Overview -->
+      <section id="overview" class="space-y-6">
+        <div class="text-center max-w-3xl mx-auto">
+          <h2 class="text-3xl font-bold text-slate-900 dark:text-white mb-4">
+            성장을 위한 질문의 힘, 회고 AI 코치
+          </h2>
+          <p class="text-slate-600 dark:text-slate-400 leading-relaxed">
+            회고 AI 코치는 사용자의 피상적인 기록을 넘어
+            <span class="font-bold text-slate-800 dark:text-slate-200"
+              >STAR 기법</span
+            >을 활용한 심층적인 자기 성찰을 유도합니다. 단순한 기록 도구가 아닌,
+            성장의 동반자로서 논리적인 피드백과 통찰력을 제공합니다.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div
+            class="p-6 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition hover:shadow-md"
+          >
+            <div
+              class="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl flex items-center justify-center mb-4 text-xl"
+            >
+              <i class="fas fa-comments"></i>
+            </div>
+            <h3 class="font-bold text-lg mb-2 text-slate-800 dark:text-white">
+              심층 꼬리 질문
+            </h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm">
+              사용자의 답변에서 부족한 STAR 성분을 찾아내어 심화 질문을
+              던집니다.
+            </p>
+          </div>
+          <div
+            class="p-6 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition hover:shadow-md"
+          >
+            <div
+              class="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-xl flex items-center justify-center mb-4 text-xl"
+            >
+              <i class="fas fa-spell-check"></i>
+            </div>
+            <h3 class="font-bold text-lg mb-2 text-slate-800 dark:text-white">
+              논리 피드백
+            </h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm">
+              인과관계가 부족하거나 모호한 표현을 논리적으로 교정해 드립니다.
+            </p>
+          </div>
+          <div
+            class="p-6 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition hover:shadow-md"
+          >
+            <div
+              class="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-center mb-4 text-xl"
+            >
+              <i class="fas fa-lightbulb"></i>
+            </div>
+            <h3 class="font-bold text-lg mb-2 text-slate-800 dark:text-white">
+              성장 인사이트
+            </h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm">
+              기록된 내용을 분석하여 맞춤형 학습 키워드와 감정 케어를
+              제공합니다.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: AI Coaching Application -->
+      <section id="prototype" class="space-y-6">
+        <div class="flex items-center space-x-2">
+          <span
+            class="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm"
+            >02</span
+          >
+          <h2 class="text-2xl font-bold text-slate-900 dark:text-white">
+            AI 코칭 실행하기
+          </h2>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[750px]">
+          <!-- Left: Editor Area -->
+          <div class="flex flex-col space-y-4">
+            <div
+              class="flex-grow bg-white dark:bg-slate-900 rounded-3xl shadow-xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden"
+            >
+              <div
+                class="bg-slate-50 dark:bg-slate-800/50 px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center"
+              >
+                <span class="font-semibold text-slate-700 dark:text-slate-300"
+                  >오늘의 회고 작성</span
+                >
+                <span class="text-xs text-slate-400" id="char-count">0자</span>
+              </div>
+              <textarea
+                id="userInput"
+                class="flex-grow p-6 bg-transparent text-slate-700 dark:text-slate-200 focus:outline-none resize-none leading-relaxed text-lg"
+                placeholder="오늘 겪었던 일이나 프로젝트 진행 사항을 자유롭게 적어보세요..."
+              ></textarea>
+              <div
+                class="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-2"
+              >
+                <button
+                  onclick="runCoach('tail')"
+                  class="py-3 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-1 shadow-lg shadow-blue-200 dark:shadow-none"
+                >
+                  <i class="fas fa-question-circle"></i>
+                  <span>꼬리 질문</span>
+                </button>
+                <button
+                  onclick="runCoach('feedback')"
+                  class="py-3 px-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-1 shadow-lg shadow-purple-200 dark:shadow-none"
+                >
+                  <i class="fas fa-check-double"></i>
+                  <span>논리 체크</span>
+                </button>
+                <button
+                  onclick="runCoach('insight')"
+                  class="py-3 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition flex items-center justify-center space-x-1 shadow-lg shadow-emerald-200 dark:shadow-none"
+                >
+                  <i class="fas fa-seedling"></i>
+                  <span>인사이트</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: AI Interaction & Chat Area -->
+          <div
+            class="flex flex-col h-full bg-slate-900 dark:bg-slate-900/50 rounded-3xl shadow-2xl overflow-hidden text-white relative border dark:border-slate-800"
+          >
+            <div
+              class="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50"
+            >
+              <div class="flex items-center space-x-3">
+                <div
+                  class="w-10 h-10 bg-gradient-to-tr from-blue-500 to-purple-500 rounded-full flex items-center justify-center shadow-lg"
+                >
+                  <i class="fas fa-robot text-white"></i>
+                </div>
+                <div>
+                  <p class="font-bold">AI Coach</p>
+                  <p class="text-xs text-slate-400">대화형 코칭 진행 중</p>
+                </div>
+              </div>
+              <button
+                onclick="resetChat()"
+                class="text-xs text-slate-500 hover:text-white transition underline decoration-dotted"
+              >
+                대화 초기화
+              </button>
+            </div>
+
+            <!-- Chat Messages Display -->
+            <div
+              id="chatDisplay"
+              class="flex-grow overflow-y-auto p-6 space-y-6 scroll-smooth"
+            >
+              <div class="flex flex-col space-y-2">
+                <div
+                  class="bg-slate-800 p-4 rounded-2xl rounded-tl-none text-slate-200 text-sm leading-relaxed border border-slate-700"
+                >
+                  안녕하세요! 저는 당신의 성장을 돕는 AI 코치입니다. 회고를
+                  작성하고 왼쪽 버튼을 누르면 코칭이 시작됩니다. 궁금한 점이
+                  생기면 언제든 이 채팅창에 물어보세요!
+                </div>
+              </div>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div id="loading" class="hidden px-6 py-2">
+              <div
+                class="bg-slate-800 border border-slate-700 p-3 rounded-2xl flex items-center space-x-3 w-max"
+              >
+                <div class="loading-dots flex space-x-1">
+                  <span class="w-2 h-2 bg-blue-400 rounded-full"></span>
+                  <span class="w-2 h-2 bg-blue-400 rounded-full"></span>
+                  <span class="w-2 h-2 bg-blue-400 rounded-full"></span>
+                </div>
+                <span class="text-xs text-slate-400 italic"
+                  >답변 작성 중...</span
+                >
+              </div>
+            </div>
+
+            <!-- Follow-up Chat Input -->
+            <div class="p-4 bg-slate-800/50 border-t border-slate-800">
+              <div
+                class="flex items-center space-x-2 bg-slate-900 border border-slate-700 rounded-2xl px-4 py-1 focus-within:border-blue-500 transition shadow-inner"
+              >
+                <input
+                  id="chatInput"
+                  type="text"
+                  class="flex-grow bg-transparent border-none text-sm text-slate-200 focus:outline-none py-3"
+                  placeholder="추가 질문이나 생각을 입력하세요..."
+                  onkeypress="if (event.keyCode == 13) sendFollowUp();"
+                />
+                <button
+                  onclick="sendFollowUp()"
+                  class="text-blue-500 hover:text-blue-400 p-2 transition-transform active:scale-90"
+                >
+                  <i class="fas fa-paper-plane"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 3: Detailed Specification -->
+      <section
+        id="design"
+        class="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 p-8 space-y-10"
+      >
+        <div class="border-b border-slate-100 dark:border-slate-800 pb-6">
+          <h2 class="text-2xl font-bold text-slate-900 dark:text-white">
+            회고 AI 코치 상세 기능 명세
+          </h2>
+        </div>
+
+        <div class="space-y-4">
+          <div
+            class="flex items-center space-x-3 text-blue-600 dark:text-blue-400"
+          >
+            <i class="fas fa-angle-right"></i>
+            <h3 class="text-xl font-bold text-slate-800 dark:text-slate-200">
+              2.1. AI의 꼬리 질문 (Deep-Dive) 상세 설계
+            </h3>
+          </div>
+          <div class="pl-7 space-y-4 text-slate-600 dark:text-slate-400">
+            <p>
+              사용자의 짧은 입력을 기반으로
+              <span class="font-semibold">STAR 기법</span>의 각 요소가
+              누락되었는지 판단하고, 이를 채우기 위한 연쇄 질문을 생성합니다.
+            </p>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div
+            class="flex items-center space-x-3 text-purple-600 dark:text-purple-400"
+          >
+            <i class="fas fa-angle-right"></i>
+            <h3 class="text-xl font-bold text-slate-800 dark:text-slate-200">
+              2.2. 글쓰기 피드백 및 논리 체크
+            </h3>
+          </div>
+          <div class="pl-7">
+            <div class="bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl">
+              <table class="w-full text-sm text-left">
+                <tbody class="text-slate-700 dark:text-slate-300">
+                  <tr class="border-b border-slate-100 dark:border-slate-700">
+                    <td class="py-3 font-semibold">인과 관계 체크</td>
+                    <td class="py-3 italic">
+                      "이 행동이 어떻게 그 결과로 이어졌나요?" 등의 성과 연결성
+                      확인
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="py-3 font-semibold">모호함 제거</td>
+                    <td class="py-3 italic">
+                      "'열심히' 대신 구체적인 시간을 적어보세요" 등 정량화 유도
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="bg-slate-900 text-slate-500 py-12 px-6 border-t border-slate-800 text-center"
+    >
+      <div
+        class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center text-sm"
+      >
+        <p class="text-white font-bold mb-2 md:mb-0">
+          회고 AI 코치 설계 프레임워크 v1.1
+        </p>
+        <p>© 2025 Retrospective AI Coach Designer. All Rights Reserved.</p>
+      </div>
+    </footer>
+
+    <script>
+      const apiKey = "";
+      const chatDisplay = document.getElementById("chatDisplay");
+      const loading = document.getElementById("loading");
+      const userInput = document.getElementById("userInput");
+      const charCount = document.getElementById("char-count");
+      const chatInput = document.getElementById("chatInput");
+
+      // State Management
+      let chatHistory = [];
+
+      // Theme Management
+      function toggleDarkMode() {
+        document.documentElement.classList.toggle("dark");
+        const isDark = document.documentElement.classList.contains("dark");
+        localStorage.setItem("theme", isDark ? "dark" : "light");
+      }
+
+      // Initialize Theme
+      if (
+        localStorage.getItem("theme") === "dark" ||
+        (!("theme" in localStorage) &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches)
+      ) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+
+      userInput.addEventListener("input", () => {
+        charCount.innerText = `${userInput.value.length}자`;
+      });
+
+      function resetChat() {
+        chatHistory = [];
+        chatDisplay.innerHTML = `
+                <div class="flex flex-col space-y-2">
+                    <div class="bg-slate-800 p-4 rounded-2xl rounded-tl-none text-slate-200 text-sm border border-slate-700">
+                        대화가 초기화되었습니다. 회고 작성을 계속하거나 새로운 질문을 해주세요.
+                    </div>
+                </div>
+            `;
+      }
+
+      async function fetchAI(userMessageText, systemInstruction) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const contents = [
+          ...chatHistory,
+          { role: "user", parts: [{ text: userMessageText }] },
+        ];
+
+        const payload = {
+          contents: contents,
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+        };
+
+        let delay = 1000;
+        for (let i = 0; i < 5; i++) {
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (!response.ok) throw new Error("API Error");
+            const result = await response.json();
+            const aiText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            if (aiText) {
+              chatHistory.push({
+                role: "user",
+                parts: [{ text: userMessageText }],
+              });
+              chatHistory.push({ role: "model", parts: [{ text: aiText }] });
+              if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+            }
+            return aiText || "AI가 답변을 생성하지 못했습니다.";
+          } catch (error) {
+            if (i === 4) throw error;
+            await new Promise((res) => setTimeout(res, delay));
+            delay *= 2;
+          }
+        }
+      }
+
+      function appendMessage(role, content, title = "") {
+        const div = document.createElement("div");
+        div.className =
+          "flex flex-col space-y-2 opacity-0 transform translate-y-4 transition duration-500";
+
+        if (role === "user") {
+          div.innerHTML = `
+                    <div class="flex justify-end">
+                        <div class="bg-blue-600 p-4 rounded-2xl rounded-tl-none text-white text-sm leading-relaxed max-w-[85%] shadow-md">
+                            ${content}
+                        </div>
+                    </div>
+                `;
+        } else {
+          let colorClass = "bg-slate-800 border-slate-700";
+          let icon = "fa-robot";
+          if (title.includes("Tail")) {
+            colorClass = "bg-blue-900/40 border-blue-500/30";
+            icon = "fa-question-circle text-blue-400";
+          } else if (title.includes("Feedback")) {
+            colorClass = "bg-purple-900/40 border-purple-500/30";
+            icon = "fa-check-double text-purple-400";
+          } else if (title.includes("Insight")) {
+            colorClass = "bg-emerald-900/40 border-emerald-500/50";
+            icon = "fa-seedling text-emerald-400";
+          }
+
+          div.innerHTML = `
+                    <div class="flex flex-col space-y-2">
+                        <div class="${colorClass} p-5 rounded-2xl rounded-tl-none text-slate-200 text-sm leading-relaxed border relative shadow-xl">
+                            ${
+                              title
+                                ? `<div class="flex items-center space-x-2 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                <i class="fas ${icon}"></i>
+                                <span>${title}</span>
+                            </div>`
+                                : ""
+                            }
+                            <pre class="font-sans leading-relaxed whitespace-pre-wrap">${content}</pre>
+                        </div>
+                    </div>
+                `;
+        }
+
+        chatDisplay.appendChild(div);
+        chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        setTimeout(
+          () => div.classList.remove("opacity-0", "translate-y-4"),
+          50,
+        );
+      }
+
+      async function runCoach(mode) {
+        const text = userInput.value.trim();
+        if (!text) return alert("회고 내용을 작성해주세요.");
+
+        loading.classList.remove("hidden");
+        let systemPrompt = "",
+          title = "";
+
+        if (mode === "tail") {
+          title = "Tail Question Coach";
+          systemPrompt =
+            "당신은 회고 AI 코치입니다. STAR 기법 관점에서 분석하여 질문 3개를 던지세요.";
+        } else if (mode === "feedback") {
+          title = "Logic Feedback Coach";
+          systemPrompt =
+            "당신은 글쓰기 코치입니다. 논리적 비약이나 모호한 표현을 찾아 피드백을 제공하세요.";
+        } else if (mode === "insight") {
+          title = "Growth Insight Coach";
+          systemPrompt = "당신은 커리어 멘토입니다. 인사이트를 제공하세요.";
+        }
+
+        try {
+          const aiResponse = await fetchAI(
+            `[${title} 모드 실행]\n회고 본문: ${text}`,
+            systemPrompt,
+          );
+          appendMessage("model", aiResponse, title);
+        } catch (error) {
+          appendMessage("model", "오류가 발생했습니다.", "Error");
+        } finally {
+          loading.classList.add("hidden");
+        }
+      }
+
+      async function sendFollowUp() {
+        const query = chatInput.value.trim();
+        if (!query) return;
+
+        chatInput.value = "";
+        appendMessage("user", query);
+        loading.classList.remove("hidden");
+        const systemPrompt =
+          "당신은 회고 코치입니다. 사용자의 질문에 짧고 명료하게 답변하세요.";
+
+        try {
+          const aiResponse = await fetchAI(query, systemPrompt);
+          appendMessage("model", aiResponse, "AI Coach Response");
+        } catch (error) {
+          appendMessage("model", "문제가 발생했습니다.", "Error");
+        } finally {
+          loading.classList.add("hidden");
+        }
+      }
+    </script>
+  </body>
+</html>

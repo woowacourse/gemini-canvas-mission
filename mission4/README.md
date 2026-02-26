@@ -1,5 +1,5 @@
 # 💧 눈 건강 지킴이
-### 배포 링크: https://gemini.google.com/share/9289840959b5
+### 배포 링크: https://gemini.google.com/share/9fad003152a5
 
 ### 프로젝트 개요
 

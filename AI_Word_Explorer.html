@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Word Explorer - 이미지 기반 언어 학습</title>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', 'Noto Sans KR', sans-serif; }
+        .hidden { display: none; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .spinner { border: 4px solid rgba(255,255,255,0.3); width: 48px; height: 48px; border-radius: 50%; border-left-color: #ffffff; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #vocab-list::-webkit-scrollbar { width: 6px; }
+        #vocab-list::-webkit-scrollbar-thumb { background-color: #e2e8f0; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+    <div id="app" class="max-w-6xl mx-auto p-4 md:p-8">
+
+        <!-- Page 1: Main (Upload) -->
+        <section id="page1" class="fade-in">
+            <div class="text-center mb-12">
+                <h1 class="text-4xl font-bold text-gray-900 mb-4">AI Word Explorer</h1>
+                <p class="text-gray-600">이미지를 업로드하고 외국어 단어를 마스터하세요.</p>
+            </div>
+
+            <div class="max-w-2xl mx-auto bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+                <div class="mb-8">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">학습할 언어 선택</label>
+                    <div class="flex gap-4">
+                        <button onclick="setLanguage('en')" id="lang-en" class="flex-1 py-3 px-4 rounded-xl border-2 border-blue-500 bg-blue-50 text-blue-700 font-bold transition-all">English (영어)</button>
+                        <button onclick="setLanguage('es')" id="lang-es" class="flex-1 py-3 px-4 rounded-xl border-2 border-gray-200 text-gray-500 font-bold hover:border-blue-200 transition-all">Español (스페인어)</button>
+                    </div>
+                </div>
+
+                <div id="drop-zone" class="border-2 border-dashed border-gray-300 rounded-2xl p-12 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all relative">
+                    <input type="file" id="file-input" class="hidden" accept="image/*">
+                    <div id="preview-container" class="mb-4 hidden">
+                        <img id="upload-preview" class="max-h-64 mx-auto rounded-lg shadow-md">
+                    </div>
+                    <div id="upload-prompt">
+                        <svg class="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        <p class="text-gray-500 font-medium">이미지 파일을 선택하거나<br><span class="text-blue-600 font-bold text-sm">여기에 Ctrl+V로 이미지를 붙여넣으세요</span></p>
+                    </div>
+                </div>
+
+                <button onclick="processImage()" id="start-btn" class="w-full mt-8 bg-blue-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all" disabled>
+                    학습 시작하기
+                </button>
+            </div>
+        </section>
+
+        <!-- Page 2: Study Dashboard -->
+        <section id="page2" class="hidden fade-in">
+            <div class="flex flex-wrap justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100 gap-4">
+                <button onclick="resetToHome()" class="flex items-center gap-2 text-gray-600 hover:text-blue-600 font-bold transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                    처음으로 돌아가기
+                </button>
+                <div id="current-lang-badge" class="bg-blue-100 text-blue-800 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">English</div>
+            </div>
+
+            <div class="flex flex-col lg:flex-row gap-8">
+                <div class="lg:w-1/2 flex flex-col gap-6">
+                    <div class="bg-white rounded-2xl shadow-lg p-4">
+                        <img id="study-image" class="w-full rounded-lg shadow-inner">
+                    </div>
+                    <div class="bg-blue-50 rounded-2xl p-6 border border-blue-100">
+                        <h3 class="text-lg font-bold text-blue-800 mb-4 flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            이미지 해설
+                        </h3>
+                        <div id="image-explanation" class="prose prose-blue prose-sm max-w-none text-gray-700 leading-relaxed">분석 중...</div>
+                    </div>
+                </div>
+
+                <div class="lg:w-1/2 flex flex-col gap-6">
+                    <div class="bg-white rounded-2xl shadow-lg p-6 overflow-hidden">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-2xl font-bold">단어장</h2>
+                            <div class="flex gap-2">
+                                <button onclick="saveVocabAsImage()" class="flex items-center gap-2 bg-gray-100 text-gray-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-gray-200 transition-all border border-gray-200">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                    이미지 저장
+                                </button>
+                                <button onclick="goToPage(3)" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 shadow-md transition-all">퀴즈 시작</button>
+                            </div>
+                        </div>
+                        <div id="vocab-capture-area" class="bg-white p-2">
+                            <div id="vocab-list" class="space-y-4 max-h-[500px] overflow-y-auto pr-2"></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-900 rounded-2xl shadow-xl flex flex-col h-[450px]">
+                        <div class="p-4 border-b border-gray-800 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                <h3 class="text-white font-bold text-sm">Gemini AI 선생님</h3>
+                            </div>
+                        </div>
+                        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+                        <div class="p-4 border-t border-gray-800 flex gap-2">
+                            <input type="text" id="chat-input" class="flex-1 bg-gray-800 border-none rounded-lg px-4 py-2 text-white text-sm focus:ring-1 focus:ring-blue-500" placeholder="질문을 입력하세요..." onkeypress="if(event.key==='Enter') sendMessage()">
+                            <button onclick="sendMessage()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700">전송</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Page 3: Quiz -->
+        <section id="page3" class="hidden fade-in max-w-3xl mx-auto">
+            <div class="bg-white rounded-3xl shadow-2xl p-8 md:p-12 relative overflow-hidden">
+                <div id="quiz-header" class="flex justify-between items-center mb-8">
+                    <div>
+                        <h2 id="quiz-title" class="text-3xl font-extrabold text-gray-900">Word Quiz</h2>
+                        <p id="quiz-mode-text" class="text-sm text-blue-600 font-bold mt-1">단어 마스터하기</p>
+                    </div>
+                    <button onclick="resetToHome()" class="text-gray-400 hover:text-red-500 font-medium transition-all">학습 종료</button>
+                </div>
+
+                <div id="quiz-content">
+                    <div class="mb-8">
+                        <div class="flex justify-between text-xs font-bold text-gray-400 mb-2 uppercase">
+                            <span id="quiz-progress">문제 1 / 10</span>
+                            <span id="quiz-score-text">정답 수: 0</span>
+                        </div>
+                        <div class="w-full bg-gray-100 rounded-full h-1.5">
+                            <div id="quiz-bar" class="bg-blue-600 h-1.5 rounded-full transition-all duration-500" style="width: 10%"></div>
+                        </div>
+                    </div>
+
+                    <div id="quiz-question-box" class="min-h-[250px] flex flex-col justify-center items-center text-center">
+                        <h3 id="quiz-question" class="text-2xl font-bold mb-10 leading-snug text-gray-800">...</h3>
+                        <div id="quiz-options" class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full"></div>
+                    </div>
+
+                    <div id="quiz-feedback" class="mt-8 text-center font-bold text-lg p-4 rounded-xl hidden"></div>
+                </div>
+
+                <div id="quiz-result" class="hidden text-center py-8">
+                    <div id="result-emoji" class="text-6xl mb-4">🎉</div>
+                    <h2 id="result-title" class="text-3xl font-bold mb-2 text-gray-900">학습 완료!</h2>
+                    <p id="final-score" class="text-xl text-gray-600 mb-8"></p>
+                    <div id="incorrect-review-box" class="hidden mb-8 p-6 bg-red-50 rounded-2xl border border-red-100 text-center">
+                        <p class="text-red-700 font-bold mb-2">틀린 문제가 <span id="incorrect-count">0</span>개 있습니다.</p>
+                        <button onclick="startIncorrectQuiz()" class="bg-red-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-red-700 shadow-lg transition-all">오답 정복하기</button>
+                    </div>
+                    <div class="flex flex-wrap gap-4 justify-center">
+                        <button onclick="goToPage(2)" class="bg-gray-200 text-gray-700 px-8 py-3 rounded-xl font-bold hover:bg-gray-300">단어장 다시보기</button>
+                        <button onclick="resetToHome()" class="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700">새로운 이미지 학습</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- 로딩 및 안내 레이어 -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex flex-col items-center justify-center z-[9999]">
+        <div class="spinner mb-6"></div>
+        <p id="loading-text" class="text-white text-xl font-bold animate-pulse text-center px-4">AI가 작업 중입니다...</p>
+    </div>
+
+    <script>
+        const apiKey = ""; 
+
+        let currentLang = 'en';
+        let uploadedImageData = null;
+        let vocabData = [];
+        let quizzes = [];
+        let currentQuizIndex = 0;
+        let score = 0;
+        let totalIncorrectRemaining = []; 
+        let isReviewMode = false;
+
+        // --- 이미지 붙여넣기 기능 개선 ---
+        document.addEventListener('paste', (e) => {
+            // 현재 페이지가 업로드 페이지일 때만 작동하도록 제한 (필요 시)
+            const isUploadPage = !document.getElementById('page1').classList.contains('hidden');
+            if (!isUploadPage) return;
+
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf("image") !== -1) {
+                    const blob = items[i].getAsFile();
+                    handleFiles([blob]);
+                    // 붙여넣기 성공 피드백 (시각적 효과)
+                    const dropZone = document.getElementById('drop-zone');
+                    dropZone.classList.add('border-blue-500', 'bg-blue-50');
+                    setTimeout(() => dropZone.classList.remove('border-blue-500', 'bg-blue-50'), 500);
+                    break;
+                }
+            }
+        });
+
+        function handleFiles(files) {
+            if (files && files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    uploadedImageData = e.target.result;
+                    const previewContainer = document.getElementById('preview-container');
+                    const uploadPreview = document.getElementById('upload-preview');
+                    const uploadPrompt = document.getElementById('upload-prompt');
+                    const startBtn = document.getElementById('start-btn');
+
+                    uploadPreview.src = uploadedImageData;
+                    previewContainer.classList.remove('hidden');
+                    uploadPrompt.classList.add('hidden');
+                    startBtn.disabled = false;
+                };
+                reader.readAsDataURL(files[0]);
+            }
+        }
+        // ------------------------------
+
+        function goToPage(pageNum) {
+            document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
+            const targetPage = document.getElementById(`page${pageNum}`);
+            if (targetPage) targetPage.classList.remove('hidden');
+            window.scrollTo(0, 0);
+            
+            if(pageNum === 3 && !isReviewMode) {
+                if (vocabData.length > 0) {
+                    initQuiz();
+                } else {
+                    alert("학습할 단어가 없습니다. 이미지를 먼저 분석해 주세요.");
+                    goToPage(2);
+                }
+            }
+        }
+
+        function resetToHome() {
+            uploadedImageData = null; vocabData = []; quizzes = []; currentQuizIndex = 0; score = 0;
+            totalIncorrectRemaining = []; isReviewMode = false;
+            document.getElementById('upload-preview').src = "";
+            document.getElementById('preview-container').classList.add('hidden');
+            document.getElementById('upload-prompt').classList.remove('hidden');
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('file-input').value = "";
+            document.getElementById('chat-messages').innerHTML = "";
+            document.getElementById('quiz-content').classList.remove('hidden');
+            document.getElementById('quiz-result').classList.add('hidden');
+            goToPage(1);
+        }
+
+        const fileInput = document.getElementById('file-input');
+        const dropZone = document.getElementById('drop-zone');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            document.getElementById('lang-en').className = lang === 'en' ? 'flex-1 py-3 px-4 rounded-xl border-2 border-blue-500 bg-blue-50 text-blue-700 font-bold' : 'flex-1 py-3 px-4 rounded-xl border-2 border-gray-200 text-gray-500 font-bold';
+            document.getElementById('lang-es').className = lang === 'es' ? 'flex-1 py-3 px-4 rounded-xl border-2 border-blue-500 bg-blue-50 text-blue-700 font-bold' : 'flex-1 py-3 px-4 rounded-xl border-2 border-gray-200 text-gray-500 font-bold';
+            document.getElementById('current-lang-badge').innerText = lang === 'en' ? 'English' : 'Español';
+        }
+
+        dropZone.onclick = () => fileInput.click();
+        fileInput.onchange = (e) => handleFiles(e.target.files);
+
+        async function processImage() {
+            loadingText.innerText = "이미지에서 핵심 단어를 추출하는 중...";
+            loadingOverlay.classList.remove('hidden');
+            const base64Data = uploadedImageData.split(',')[1];
+            const systemPrompt = `JSON ONLY. Analyze image. 1. Detailed Korean explanation. 2. 10 useful words from image. JSON: {"vocab": [{"word": "...", "meaning": "뜻", "example": "...", "example_ko": "해석"}], "explanation": "Markdown"}`;
+            try {
+                const response = await callGeminiWithImage(systemPrompt, base64Data);
+                const data = JSON.parse(response);
+                vocabData = data.vocab;
+                document.getElementById('image-explanation').innerHTML = marked.parse(data.explanation || "");
+                document.getElementById('study-image').src = uploadedImageData;
+                renderVocab();
+                loadingOverlay.classList.add('hidden');
+                goToPage(2);
+            } catch (e) {
+                loadingOverlay.classList.add('hidden');
+                alert("이미지 분석에 실패했습니다. 다른 이미지를 시도해 보세요.");
+            }
+        }
+
+        function renderVocab() {
+            const container = document.getElementById('vocab-list');
+            container.innerHTML = vocabData.map(item => `
+                <div class="p-4 bg-white rounded-xl border border-gray-100 shadow-sm">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xl font-bold text-blue-600">${item.word}</span>
+                        <span class="text-xs font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded">${item.meaning}</span>
+                    </div>
+                    <div class="text-sm text-gray-600 italic mt-1">"${item.example}"</div>
+                </div>
+            `).join('');
+        }
+
+        async function initQuiz() {
+            loadingText.innerText = "단어장의 모든 단어로 퀴즈를 만들고 있습니다...";
+            loadingOverlay.classList.remove('hidden');
+            score = 0; currentQuizIndex = 0; totalIncorrectRemaining = []; isReviewMode = false;
+            
+            const systemPrompt = `JSON ONLY. Create exactly ${vocabData.length} multiple-choice quizzes using EVERY word in this list: ${JSON.stringify(vocabData)}. 
+            - NO DUPLICATE questions.
+            - Ensure EVERY word from the input is used as a correct answer exactly once.
+            - Question in Korean (Asking meaning of the word). Options in ${currentLang === 'en' ? 'English' : 'Spanish'}.
+            - Format: {"quizzes": [{"question": "...", "options": ["A","B","C","D"], "answerIndex": 0}]}`;
+
+            try {
+                const response = await callGemini("모든 단어를 활용해 중복 없이 퀴즈를 만들어줘.", systemPrompt, true);
+                const data = JSON.parse(response);
+                
+                if (data && data.quizzes && data.quizzes.length > 0) {
+                    quizzes = data.quizzes;
+                    loadingOverlay.classList.add('hidden');
+                    showQuiz();
+                } else {
+                    throw new Error("Invalid quiz data structure");
+                }
+            } catch (e) {
+                console.error("Quiz Init Error:", e);
+                loadingOverlay.classList.add('hidden');
+                alert("퀴즈를 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+                goToPage(2);
+            }
+        }
+
+        function showQuiz() {
+            if (currentQuizIndex >= quizzes.length) { renderQuizResult(); return; }
+            const quiz = quizzes[currentQuizIndex];
+            
+            document.getElementById('quiz-progress').innerText = `문제 ${currentQuizIndex + 1} / ${quizzes.length}`;
+            document.getElementById('quiz-score-text').innerText = `정답 수: ${score}`;
+            document.getElementById('quiz-bar').style.width = `${((currentQuizIndex + 1) / quizzes.length) * 100}%`;
+            document.getElementById('quiz-question').innerText = quiz.question;
+            
+            const optionsBox = document.getElementById('quiz-options');
+            optionsBox.innerHTML = '';
+            
+            quiz.options.forEach((opt, i) => {
+                const btn = document.createElement('button');
+                btn.className = "p-4 bg-gray-50 border-2 border-gray-100 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all font-medium text-left";
+                btn.innerText = opt;
+                btn.onclick = () => checkAnswer(i);
+                optionsBox.appendChild(btn);
+            });
+        }
+
+        function checkAnswer(idx) {
+            const quiz = quizzes[currentQuizIndex];
+            const feedback = document.getElementById('quiz-feedback');
+            document.getElementById('quiz-options').querySelectorAll('button').forEach(b => b.disabled = true);
+            feedback.classList.remove('hidden');
+            
+            if (idx === quiz.answerIndex) {
+                score++;
+                feedback.innerText = "✅ 정답입니다!";
+                feedback.className = "mt-8 text-center font-bold text-lg p-4 rounded-xl text-green-700 bg-green-50 animate-pulse";
+            } else {
+                totalIncorrectRemaining.push(quiz);
+                feedback.innerHTML = `❌ 오답입니다.<br><span class="text-sm font-normal">정답: ${quiz.options[quiz.answerIndex]}</span>`;
+                feedback.className = "mt-8 text-center font-bold text-lg p-4 rounded-xl text-red-700 bg-red-50";
+            }
+            
+            setTimeout(() => { 
+                feedback.classList.add('hidden'); 
+                currentQuizIndex++; 
+                showQuiz(); 
+            }, 1500);
+        }
+
+        function renderQuizResult() {
+            document.getElementById('quiz-content').classList.add('hidden');
+            document.getElementById('quiz-result').classList.remove('hidden');
+            document.getElementById('final-score').innerText = `${quizzes.length}문제 중 ${score}문제를 맞췄습니다.`;
+            
+            const reviewBox = document.getElementById('incorrect-review-box');
+            if(totalIncorrectRemaining.length > 0) {
+                reviewBox.classList.remove('hidden');
+                document.getElementById('incorrect-count').innerText = totalIncorrectRemaining.length;
+            } else { 
+                reviewBox.classList.add('hidden'); 
+            }
+        }
+
+        function startIncorrectQuiz() {
+            quizzes = [...totalIncorrectRemaining];
+            totalIncorrectRemaining = []; currentQuizIndex = 0; score = 0; isReviewMode = true;
+            document.getElementById('quiz-result').classList.add('hidden');
+            document.getElementById('quiz-content').classList.remove('hidden');
+            document.getElementById('quiz-mode-text').innerText = "오답 정복 모드";
+            showQuiz();
+        }
+
+        async function saveVocabAsImage() {
+            const vocabList = document.getElementById('vocab-list');
+            const captureArea = document.getElementById('vocab-capture-area');
+            const originalMaxHeight = vocabList.style.maxHeight;
+            const originalOverflowY = vocabList.style.overflowY;
+            
+            vocabList.style.maxHeight = 'none';
+            vocabList.style.overflowY = 'visible';
+            
+            loadingText.innerText = "단어장 전체를 이미지로 저장 중...";
+            loadingOverlay.classList.remove('hidden');
+
+            try {
+                const canvas = await html2canvas(captureArea, { 
+                    backgroundColor: '#ffffff', 
+                    scale: 2,
+                    useCORS: true
+                });
+                const link = document.createElement('a');
+                link.download = `VocaList_${new Date().getTime()}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            } catch (err) {
+                alert("이미지 저장에 실패했습니다.");
+            } finally {
+                vocabList.style.maxHeight = originalMaxHeight;
+                vocabList.style.overflowY = originalOverflowY;
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+            appendChatMessage('user', message);
+            input.value = '';
+            try {
+                const response = await callGemini(message, "친절한 언어 교사. 한국어로 2-3줄 답변.");
+                appendChatMessage('ai', response);
+            } catch (e) { appendChatMessage('ai', "선생님과 연결이 원활하지 않습니다."); }
+        }
+
+        function appendChatMessage(sender, text) {
+            const container = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = sender === 'user' ? 'bg-blue-600 text-white p-3 rounded-xl self-end max-w-[90%] ml-auto text-sm' : 'bg-gray-800 text-gray-200 p-3 rounded-xl self-start max-w-[90%] text-sm';
+            div.innerHTML = marked.parse(text);
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function callGemini(prompt, sys, isJson = false) {
+            const payload = { contents: [{ parts: [{ text: prompt }] }], systemInstruction: { parts: [{ text: sys }] } };
+            if (isJson) payload.generationConfig = { responseMimeType: "application/json" };
+            return await apiRequest(payload);
+        }
+
+        async function callGeminiWithImage(sys, base64) {
+            const payload = { contents: [{ parts: [{ text: "이미지를 분석해서 JSON 형식으로 결과만 보여줘." }, { inlineData: { mimeType: "image/png", data: base64 } }] }], systemInstruction: { parts: [{ text: sys }] }, generationConfig: { responseMimeType: "application/json" } };
+            return await apiRequest(payload);
+        }
+
+        async function apiRequest(payload) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+                    const result = await res.json();
+                    if (result && result.candidates && result.candidates[0].content.parts[0].text) {
+                        return result.candidates[0].content.parts[0].text;
+                    }
+                    throw new Error("Empty Response");
+                } catch (e) { 
+                    await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000)); 
+                }
+            }
+            throw new Error("API Max Retries Exceeded");
+        }
+    </script>
+</body>
+</html>

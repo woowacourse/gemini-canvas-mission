@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우아한 레이싱</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .hud-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .hud-item {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        #actual-score-value { color: #ff55ff; font-size: 36px; text-shadow: 0 0 10px #ff55ff; }
+        #speed-value { color: #00ffcc; font-size: 32px; }
+        #score-value { color: #ffcc00; font-size: 32px; }
+
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            pointer-events: auto;
+            z-index: 20;
+        }
+
+        h1 {
+            font-size: 64px;
+            margin: 0 0 20px 0;
+            color: #ff4444;
+            text-shadow: 3px 3px 0 #000;
+            text-align: center;
+        }
+
+        p {
+            font-size: 24px;
+            margin-bottom: 30px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .btn {
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #111;
+            background: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 0 #ccc;
+        }
+
+        .btn:hover {
+            background: #e0e0e0;
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #999;
+        }
+
+        .btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #999;
+        }
+
+        #game-over-screen {
+            display: none;
+        }
+
+        #pause-screen {
+            display: none;
+        }
+
+        #pause-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 30;
+            padding: 10px 20px;
+            font-size: 16px;
+            pointer-events: auto;
+        }
+        
+        .controls-info {
+            color: #aaa;
+            font-size: 18px;
+            margin-top: 40px;
+        }
+    </style>
+    <!-- Three.js 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div class="hud-container">
+            <div class="hud-item">점수: <span id="actual-score-value">0</span> 점</div>
+            <div class="hud-item">속도: <span id="speed-value">0</span> km/h</div>
+            <div class="hud-item">이동 거리: <span id="score-value">0</span> m</div>
+            <div class="hud-item" id="item-hud" style="color: #fff; display: none;">아이템 (E): <span id="current-item" style="color: #aaa;">없음</span></div>
+        </div>
+        <button class="btn" id="pause-btn" style="display: none;">일시정지 (P)</button>
+    </div>
+
+    <!-- 시작 화면 -->
+    <div id="start-screen" class="overlay">
+        <h1 style="color: #00ffcc;">우아한 레이싱</h1>
+        <p>도로를 질주하며 다른 차들을 피하세요!<br><br>
+           <span style="color:#ffff00; font-weight:bold;">[노란 보석] 부스터</span>: 무적 & 초고속 돌파<br>
+           <span style="color:#00bbff; font-weight:bold;">[파란 보석] 보호막</span>: 충돌 1회 완벽 방어<br>
+           <span style="color:#dd88ff; font-weight:bold;">[보라 보석] 소형화</span>: 차체가 작아져 회피 특화
+        </p>
+        <button class="btn" id="start-btn">게임 시작</button>
+        <div class="controls-info">
+            조작법: [W][A][S][D] 또는 [방향키]<br>
+            가속: ↑ / 브레이크: ↓ / 좌우 이동: ← →<br>
+            대쉬: [Shift] + 좌우 방향키<br>
+            아이템 사용: [E] / 일시정지: [P] 또는 [ESC]
+        </div>
+    </div>
+
+    <!-- 일시정지 화면 -->
+    <div id="pause-screen" class="overlay">
+        <h1 style="color: #fff;">일시정지</h1>
+        <button class="btn" id="resume-btn">계속하기</button>
+        <button class="btn" id="main-menu-btn" style="margin-top: 15px; background: #ff4444; color: white;">메인화면으로</button>
+    </div>
+
+    <!-- 게임 오버 화면 -->
+    <div id="game-over-screen" class="overlay">
+        <h1>충돌!</h1>
+        <p>최종 점수: <span id="final-score" style="color:#ff55ff; font-size:48px; font-weight:bold;">0</span> 점</p>
+        <p>주행 거리: <span id="final-distance" style="color:#ffcc00; font-weight:bold;">0</span> m</p>
+        <button class="btn" id="restart-btn">다시 시작</button>
+    </div>
+
+    <script>
+        // --- 게임 변수 설정 ---
+        let scene, camera, renderer;
+        let speed = 0;
+        let distance = 0;
+        let score = 0;
+        let isGameRunning = false;
+        let isGameOver = false;
+        let isPaused = false;
+
+        // 다중 아이템 시스템 변수
+        let currentItem = null; // 'boost', 'shield', 'mini'
+        let isBoosting = false;
+        let boostTimer = 0;
+        let isShieldActive = false;
+        let isMiniActive = false;
+        let miniTimer = 0;
+        const collectibleItems = [];
+
+        // 차량 및 물리 관련 설정
+        let MAX_SPEED = 2.5; // 최대 속도 (가변)
+        const MAX_SPEED_NORMAL = 2.5; // 기본 최대 속도
+        const MAX_SPEED_BOOST = 6.0; // 부스터 최대 속도 (엄청 빠르게!)
+        const ACCELERATION = 0.015; // 가속도
+        const DECELERATION = 0.005; // 자연 감속
+        const BRAKE_POWER = 0.03; // 브레이크 힘
+        const TURN_SPEED = 0.15; // 핸들링 감도
+
+        // 키 입력 상태
+        const keys = {
+            ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
+            w: false, a: false, s: false, d: false, Shift: false
+        };
+
+        // 환경 오브젝트 배열
+        const roadLines = [];
+        const trees = [];
+        const obstacles = [];
+        let steeringWheel;
+        let boostLight, shieldLight, miniLight; // 특수 효과용 조명들
+
+        // 대쉬 관련 변수
+        let dashTime = 0;
+        let dashDirection = 0;
+        let dashCooldown = 0;
+
+        // --- 오디오 시스템 변수 ---
+        let audioCtx;
+        let engineOsc, engineGain, engineFilter;
+        let bgmInterval;
+        let isAudioInitialized = false;
+
+        // --- 초기화 함수 ---
+        function init() {
+            // 1. 씬(Scene) 생성
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // 하늘색
+            scene.fog = new THREE.Fog(0x87CEEB, 30, 250); // 안개 효과로 멀리 있는 팝인 현상 가림
+
+            // 2. 카메라 생성 (1인칭 시점)
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.8, 0); // 운전석 높이
+            scene.add(camera);
+
+            // 3. 렌더러 생성
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // 4. 조명 설정
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            dirLight.position.set(100, 200, 50);
+            scene.add(dirLight);
+
+            // 5. 월드 생성
+            createWorld();
+            createPlayerCar();
+
+            // 6. 특수 효과 조명 생성 (카메라에 부착)
+            boostLight = new THREE.PointLight(0xffff00, 0, 50);
+            boostLight.position.set(0, 2, -2);
+            camera.add(boostLight);
+
+            shieldLight = new THREE.PointLight(0x0088ff, 0, 50);
+            shieldLight.position.set(0, 2, -2);
+            camera.add(shieldLight);
+
+            miniLight = new THREE.PointLight(0xaa00ff, 0, 50);
+            miniLight.position.set(0, 2, -2);
+            camera.add(miniLight);
+
+            // 7. 이벤트 리스너 등록
+            window.addEventListener('resize', onWindowResize, false);
+            document.addEventListener('keydown', onKeyDown, false);
+            document.addEventListener('keyup', onKeyUp, false);
+
+            document.getElementById('start-btn').addEventListener('click', startGame);
+            document.getElementById('restart-btn').addEventListener('click', restartGame);
+            document.getElementById('pause-btn').addEventListener('click', togglePause);
+            document.getElementById('resume-btn').addEventListener('click', togglePause);
+            document.getElementById('main-menu-btn').addEventListener('click', returnToMainMenu);
+
+            // 8. 애니메이션 루프 시작
+            animate();
+        }
+
+        // --- 월드(환경) 생성 ---
+        function createWorld() {
+            // 잔디밭 (바닥)
+            const groundGeo = new THREE.PlaneGeometry(1000, 1000);
+            const groundMat = new THREE.MeshLambertMaterial({ color: 0x3b7a3b });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = 0;
+            scene.add(ground);
+
+            // 아스팔트 도로
+            const roadGeo = new THREE.PlaneGeometry(30, 1000);
+            const roadMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            const road = new THREE.Mesh(roadGeo, roadMat);
+            road.rotation.x = -Math.PI / 2;
+            road.position.y = 0.01; // Z-fighting 방지
+            scene.add(road);
+
+            // 차선 (중앙선 2개)
+            const lineGeo = new THREE.PlaneGeometry(0.3, 4);
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            
+            for (let i = 0; i < 40; i++) {
+                // 왼쪽 차선
+                let lineL = new THREE.Mesh(lineGeo, lineMat);
+                lineL.rotation.x = -Math.PI / 2;
+                lineL.position.set(-5, 0.02, -i * 8);
+                scene.add(lineL);
+                roadLines.push(lineL);
+
+                // 오른쪽 차선
+                let lineR = new THREE.Mesh(lineGeo, lineMat);
+                lineR.rotation.x = -Math.PI / 2;
+                lineR.position.set(5, 0.02, -i * 8);
+                scene.add(lineR);
+                roadLines.push(lineR);
+            }
+
+            // 가로수 (나무) 생성
+            const trunkGeo = new THREE.CylinderGeometry(0.4, 0.6, 2);
+            const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5c4033 });
+            const leavesGeo = new THREE.ConeGeometry(2.5, 6, 8);
+            const leavesMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 });
+
+            for (let i = 0; i < 80; i++) {
+                const tree = new THREE.Group();
+                const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                trunk.position.y = 1;
+                const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+                leaves.position.y = 4;
+                tree.add(trunk);
+                tree.add(leaves);
+
+                // 도로 양옆으로 랜덤 배치
+                const isLeft = Math.random() > 0.5;
+                const xPos = (isLeft ? -1 : 1) * (18 + Math.random() * 20);
+                const zPos = -Math.random() * 300;
+                
+                tree.position.set(xPos, 0, zPos);
+                scene.add(tree);
+                trees.push(tree);
+            }
+
+            // 장애물 (다른 차들) 생성
+            const carColors = [0xff0000, 0x0000ff, 0xffa500, 0xff00ff, 0x00ffff, 0xaaaaaa];
+            const obsGeo = new THREE.BoxGeometry(3.5, 2, 6);
+            const tailLightGeo = new THREE.PlaneGeometry(0.8, 0.4);
+            const tailLightMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+
+            for (let i = 0; i < 8; i++) { // 개수 하향 조정 (12 -> 8)
+                const carGroup = new THREE.Group();
+                
+                // 차체
+                const color = carColors[Math.floor(Math.random() * carColors.length)];
+                const obsMat = new THREE.MeshLambertMaterial({ color: color });
+                const carBody = new THREE.Mesh(obsGeo, obsMat);
+                carBody.position.y = 1;
+                carGroup.add(carBody);
+
+                // 브레이크 등 (후면)
+                const lightL = new THREE.Mesh(tailLightGeo, tailLightMat);
+                lightL.position.set(-1.2, 1.2, 3.01);
+                carGroup.add(lightL);
+                
+                const lightR = new THREE.Mesh(tailLightGeo, tailLightMat);
+                lightR.position.set(1.2, 1.2, 3.01);
+                carGroup.add(lightR);
+
+                // 초기 위치 설정
+                resetObstacle(carGroup, true);
+                scene.add(carGroup);
+                obstacles.push(carGroup);
+            }
+
+            // 신규 장애물: 차선 위의 바리케이드 (공사 구간)
+            const barrierGeo = new THREE.BoxGeometry(4, 1.5, 1);
+            const barrierMat = new THREE.MeshLambertMaterial({ color: 0xff6600 }); // 주황색
+            const stripeGeo = new THREE.BoxGeometry(0.6, 1.51, 1.01);
+            const stripeMat = new THREE.MeshBasicMaterial({ color: 0x111111 }); // 검은색 줄무늬
+
+            for (let i = 0; i < 3; i++) { // 개수 하향 조정 (6 -> 3)
+                const barrierGroup = new THREE.Group();
+                const mainObj = new THREE.Mesh(barrierGeo, barrierMat);
+                barrierGroup.add(mainObj);
+                
+                // 검은 줄무늬 패턴 추가
+                for(let j = -1.5; j <= 1.5; j += 1.5) {
+                    const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+                    stripe.position.x = j;
+                    barrierGroup.add(stripe);
+                }
+                
+                barrierGroup.position.y = 0.75;
+                barrierGroup.userData.isBarrier = true; // 바리케이드 식별용 플래그
+                
+                resetBarrier(barrierGroup, true);
+                scene.add(barrierGroup);
+                obstacles.push(barrierGroup);
+            }
+
+            // 아이템 생성 (다양한 색상의 보석)
+            const itemGeo = new THREE.OctahedronGeometry(1.2);
+            for (let i = 0; i < 3; i++) {
+                const itemMat = new THREE.MeshLambertMaterial({ color: 0xffffff }); // 색상은 초기화 시 랜덤 부여
+                const item = new THREE.Mesh(itemGeo, itemMat);
+                item.position.y = 1;
+                resetItem(item, true);
+                scene.add(item);
+                collectibleItems.push(item);
+            }
+        }
+
+        // --- 1인칭 플레이어 차량(UI) 생성 ---
+        function createPlayerCar() {
+            // 자동차 보닛 (화면 하단)
+            const hoodGeo = new THREE.BoxGeometry(6, 1, 4);
+            const hoodMat = new THREE.MeshLambertMaterial({ color: 0x111111 }); // 검정색
+            const hood = new THREE.Mesh(hoodGeo, hoodMat);
+            hood.position.set(0, -1.2, -3); // 카메라 기준 위치
+            
+            // 보닛의 포인트 라인
+            const stripeGeo = new THREE.BoxGeometry(1, 1.01, 4);
+            const stripeMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+            const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+            stripe.position.set(0, 0, 0);
+            hood.add(stripe);
+            
+            camera.add(hood);
+
+            // 스티어링 휠 (핸들)
+            const wheelGeo = new THREE.TorusGeometry(0.6, 0.08, 16, 32);
+            const wheelMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+            steeringWheel = new THREE.Mesh(wheelGeo, wheelMat);
+            
+            // 핸들 중앙 기둥
+            const spokeGeo = new THREE.BoxGeometry(0.1, 1.2, 0.05);
+            const spoke = new THREE.Mesh(spokeGeo, wheelMat);
+            steeringWheel.add(spoke);
+            
+            const spoke2 = new THREE.Mesh(spokeGeo, wheelMat);
+            spoke2.rotation.z = Math.PI / 2;
+            steeringWheel.add(spoke2);
+
+            steeringWheel.position.set(0, -0.6, -1.5);
+            steeringWheel.rotation.x = -Math.PI / 5;
+            camera.add(steeringWheel);
+        }
+
+        // --- 오디오 시스템 (Web Audio API) ---
+        function initAudio() {
+            if (isAudioInitialized) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+            // 1. 엔진 사운드 (지속음)
+            engineOsc = audioCtx.createOscillator();
+            engineOsc.type = 'sawtooth'; // 거친 엔진 소리
+            engineFilter = audioCtx.createBiquadFilter();
+            engineFilter.type = 'lowpass';
+            engineFilter.frequency.value = 400;
+            engineGain = audioCtx.createGain();
+            engineGain.gain.value = 0; // 초기 볼륨 0
+
+            engineOsc.connect(engineFilter);
+            engineFilter.connect(engineGain);
+            engineGain.connect(audioCtx.destination);
+            engineOsc.start();
+
+            isAudioInitialized = true;
+            playBGM();
+        }
+
+        function playSound(type) {
+            if (!isAudioInitialized || !audioCtx) return;
+            const now = audioCtx.currentTime;
+            const gain = audioCtx.createGain();
+            gain.connect(audioCtx.destination);
+
+            if (type === 'item') {
+                // 띠링! 하는 아이템 획득음
+                const osc = audioCtx.createOscillator();
+                osc.type = 'sine';
+                osc.connect(gain);
+                osc.frequency.setValueAtTime(880, now);
+                osc.frequency.exponentialRampToValueAtTime(1760, now + 0.1);
+                gain.gain.setValueAtTime(0.5, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            } else if (type === 'crash') {
+                // 쾅! 하는 화이트 노이즈 충돌음
+                const bufferSize = audioCtx.sampleRate * 0.5;
+                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+                
+                const noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 800;
+                
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.gain.setValueAtTime(1.0, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                noise.start(now);
+            } else if (type === 'boost') {
+                // 쓔웅! 하는 부스터 발동음
+                const osc = audioCtx.createOscillator();
+                osc.type = 'square';
+                osc.connect(gain);
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(800, now + 0.5);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 1.0);
+                osc.start(now);
+                osc.stop(now + 1.0);
+            } else if (type === 'shield_up') {
+                // 우웅~ 하는 보호막 전개음
+                const osc = audioCtx.createOscillator();
+                osc.type = 'sine';
+                osc.connect(gain);
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.linearRampToValueAtTime(1200, now + 0.3);
+                gain.gain.setValueAtTime(0.5, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            } else if (type === 'shield_break') {
+                // 쨍그랑! 보호막 깨지는 소리
+                const osc = audioCtx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.connect(gain);
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+                gain.gain.setValueAtTime(0.8, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            } else if (type === 'mini_down') {
+                // 뾰로롱~ 작아지는 소리
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.connect(gain);
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.linearRampToValueAtTime(200, now + 0.4);
+                gain.gain.setValueAtTime(0.5, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            } else if (type === 'dash') {
+                // 휙! 하는 대쉬 사운드
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.connect(gain);
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+                gain.gain.setValueAtTime(0.5, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            }
+        }
+
+        function playBGM() {
+            if (bgmInterval) clearInterval(bgmInterval);
+            // 레트로 신스웨이브 스타일의 둥둥거리는 베이스 라인
+            const notes = [110, 110, 110, 110, 130, 130, 98, 98]; 
+            let noteIdx = 0;
+
+            bgmInterval = setInterval(() => {
+                if (!isGameRunning || isPaused || isGameOver || !isAudioInitialized) return;
+                
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                const filter = audioCtx.createBiquadFilter();
+                
+                osc.type = 'sawtooth';
+                osc.frequency.value = notes[noteIdx];
+                
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, audioCtx.currentTime);
+                filter.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1);
+
+                gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+                
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.15);
+                
+                noteIdx = (noteIdx + 1) % notes.length;
+            }, 150); // 빠른 템포
+        }
+
+        // --- 장애물 재배치 로직 ---
+        function resetObstacle(obs, isInit = false) {
+            const lanes = [-10, 0, 10]; // 3차선 (왼쪽, 중앙, 오른쪽)
+            const lane = lanes[Math.floor(Math.random() * lanes.length)];
+            
+            obs.position.x = lane;
+            // 초기 배치일 때는 더 넓게 분포, 아닐 때는 저 멀리서 스폰 (거리 늘림)
+            obs.position.z = isInit ? (-150 - Math.random() * 600) : (-300 - Math.random() * 200);
+            
+            // 난이도 조절: 거리가 늘어날수록 마주오는 차(역주행) 생성 확률 증가 (확률 하향)
+            let difficulty = Math.min(distance * 0.00005, 0.8); // 증가 속도 감소
+            let isOncoming = Math.random() < (difficulty * 0.2); // 최대 16% 확률로 역주행 (40%->16% 대폭 하향)
+            
+            if (isOncoming && !isInit) {
+                // 역주행 차량 (무섭게 빠르게 다가옴)
+                obs.userData.speed = -1.5 - (Math.random() * difficulty * 2); 
+                obs.rotation.y = Math.PI; // 차체를 반대로 돌림
+            } else {
+                // 정주행 차량 (플레이어보다 느림)
+                obs.userData.speed = Math.random() * (MAX_SPEED_NORMAL * 0.5) + 0.3;
+                obs.rotation.y = 0;
+            }
+        }
+
+        // --- 바리케이드 재배치 로직 ---
+        function resetBarrier(obs, isInit = false) {
+            const laneLines = [-5, 5]; // 차선 위 (꼼수 방지용)
+            obs.position.x = laneLines[Math.floor(Math.random() * laneLines.length)];
+            obs.position.z = isInit ? (-200 - Math.random() * 500) : (-350 - Math.random() * 300); // 간격 넓힘
+            obs.userData.speed = 0; // 공사 바리케이드는 도로 위에 멈춰있음
+        }
+
+        // --- 아이템 재배치 로직 ---
+        function resetItem(item, isInit = false) {
+            const lanes = [-10, 0, 10];
+            item.position.x = lanes[Math.floor(Math.random() * lanes.length)];
+            item.position.z = isInit ? (-300 - Math.random() * 500) : (-400 - Math.random() * 400);
+            item.userData.active = true;
+            item.visible = true;
+
+            // 랜덤 아이템 부여
+            const types = ['boost', 'shield', 'mini'];
+            const colors = { 'boost': 0xffff00, 'shield': 0x0088ff, 'mini': 0xaa00ff };
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            item.userData.type = type;
+            item.material.color.setHex(colors[type]);
+            item.material.emissive.setHex(colors[type]);
+            item.material.emissiveIntensity = 0.6;
+        }
+
+        // --- 키보드 입력 처리 ---
+        function onKeyDown(event) {
+            const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+            if (keys.hasOwnProperty(key)) keys[key] = true;
+
+            // 한/영 키보드 모드와 상관없이 W, A, S, D가 작동하도록 추가 처리
+            if (event.code === 'KeyW') keys['w'] = true;
+            if (event.code === 'KeyA') keys['a'] = true;
+            if (event.code === 'KeyS') keys['s'] = true;
+            if (event.code === 'KeyD') keys['d'] = true;
+            if (event.key === 'Shift') keys['Shift'] = true; // 확실한 처리를 위해 추가
+
+            // 단발성 키 입력 (event.code를 사용해 한글 'ㄷ'으로 인식되어도 무조건 작동하게 수정!)
+            if ((event.code === 'KeyE' || key === 'e' || key === 'ㄷ') && isGameRunning && !isPaused && !isGameOver) {
+                useItem();
+            }
+            if ((event.code === 'KeyP' || key === 'p' || key === 'ㅔ' || event.key === 'Escape') && isGameRunning && !isGameOver) {
+                togglePause();
+            }
+        }
+
+        function onKeyUp(event) {
+            const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+            if (keys.hasOwnProperty(key)) keys[key] = false;
+            
+            // 한/영 키보드 모드 대응
+            if (event.code === 'KeyW') keys['w'] = false;
+            if (event.code === 'KeyA') keys['a'] = false;
+            if (event.code === 'KeyS') keys['s'] = false;
+            if (event.code === 'KeyD') keys['d'] = false;
+            if (event.key === 'Shift') keys['Shift'] = false;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- 게임 상태 관리 ---
+        function startGame() {
+            initAudio(); // 브라우저 정책상 사용자 클릭 이후에 AudioContext 생성
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('pause-btn').style.display = 'block';
+            document.getElementById('item-hud').style.display = 'block';
+            isGameRunning = true;
+            isGameOver = false;
+            isPaused = false;
+            speed = 0;
+            distance = 0;
+            score = 0;
+            
+            // 상태 초기화
+            currentItem = null;
+            isBoosting = false;
+            isShieldActive = false;
+            isMiniActive = false;
+            if (boostLight) boostLight.intensity = 0;
+            if (shieldLight) shieldLight.intensity = 0;
+            if (miniLight) miniLight.intensity = 0;
+            
+            updateItemHUD();
+        }
+
+        function restartGame() {
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
+            document.getElementById('game-over-screen').style.display = 'none';
+            document.getElementById('pause-btn').style.display = 'block';
+            speed = 0;
+            distance = 0;
+            score = 0;
+            
+            currentItem = null;
+            isBoosting = false;
+            isShieldActive = false;
+            isMiniActive = false;
+            if (boostLight) boostLight.intensity = 0;
+            if (shieldLight) shieldLight.intensity = 0;
+            if (miniLight) miniLight.intensity = 0;
+
+            MAX_SPEED = MAX_SPEED_NORMAL;
+            camera.fov = 60;
+            camera.updateProjectionMatrix();
+            updateItemHUD();
+
+            camera.position.x = 0;
+            camera.rotation.z = 0;
+            steeringWheel.rotation.z = 0;
+            
+            // 장애물 및 아이템 초기화
+            obstacles.forEach(obs => {
+                if (obs.userData.isBarrier) resetBarrier(obs, true);
+                else resetObstacle(obs, true);
+            });
+            collectibleItems.forEach(item => resetItem(item, true));
+            
+            isGameOver = false;
+            isPaused = false;
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            document.getElementById('pause-screen').style.display = isPaused ? 'flex' : 'none';
+            if (!isPaused && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function returnToMainMenu() {
+            // UI 전환
+            document.getElementById('pause-screen').style.display = 'none';
+            document.getElementById('start-screen').style.display = 'flex';
+            document.getElementById('pause-btn').style.display = 'none';
+            document.getElementById('item-hud').style.display = 'none';
+            
+            // 상태 초기화
+            isGameRunning = false;
+            isPaused = false;
+            isGameOver = false;
+            speed = 0;
+            distance = 0;
+            score = 0;
+            
+            // 화면 텍스트 초기화
+            document.getElementById('actual-score-value').innerText = "0";
+            document.getElementById('score-value').innerText = "0";
+            document.getElementById('speed-value').innerText = "0";
+            
+            // 아이템 및 효과 초기화
+            currentItem = null;
+            isBoosting = false;
+            isShieldActive = false;
+            isMiniActive = false;
+            MAX_SPEED = MAX_SPEED_NORMAL;
+            if (boostLight) boostLight.intensity = 0;
+            if (shieldLight) shieldLight.intensity = 0;
+            if (miniLight) miniLight.intensity = 0;
+            
+            camera.fov = 60;
+            camera.updateProjectionMatrix();
+            camera.position.x = 0;
+            camera.rotation.z = 0;
+            steeringWheel.rotation.z = 0;
+            
+            updateItemHUD();
+
+            // 오브젝트 재배치
+            obstacles.forEach(obs => {
+                if (obs.userData.isBarrier) resetBarrier(obs, true);
+                else resetObstacle(obs, true);
+            });
+            collectibleItems.forEach(item => resetItem(item, true));
+
+            // 오디오 정지
+            if (isAudioInitialized && engineGain) {
+                engineGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+            }
+            if (audioCtx && audioCtx.state === 'running') {
+                audioCtx.suspend(); // BGM 및 엔진음 완전 정지
+            }
+        }
+
+        function triggerCrash() {
+            if (isBoosting) return; // 부스터 중에는 무적 판정
+
+            playSound('crash');
+            isGameOver = true;
+            document.getElementById('game-over-screen').style.display = 'flex';
+            document.getElementById('pause-btn').style.display = 'none';
+            
+            // 최종 점수 콤마(,) 포맷 적용하여 표시
+            document.getElementById('final-score').innerText = Math.floor(score).toLocaleString();
+            document.getElementById('final-distance').innerText = Math.floor(distance).toLocaleString();
+        }
+
+        function updateItemHUD() {
+            const el = document.getElementById('current-item');
+            if (currentItem === 'boost') { el.innerText = '부스터 (노랑)'; el.style.color = '#ffff00'; }
+            else if (currentItem === 'shield') { el.innerText = '보호막 (파랑)'; el.style.color = '#0088ff'; }
+            else if (currentItem === 'mini') { el.innerText = '소형화 (보라)'; el.style.color = '#dd88ff'; }
+            else { el.innerText = '없음'; el.style.color = '#aaa'; }
+        }
+
+        function useItem() {
+            if (!currentItem) return;
+
+            if (currentItem === 'boost') {
+                if (isBoosting) return;
+                playSound('boost');
+                isBoosting = true;
+                boostTimer = 180; // 약 3초 지속
+                MAX_SPEED = MAX_SPEED_BOOST;
+                speed = MAX_SPEED; // 즉시 최고속도로 튀어나감
+                boostLight.intensity = 2.0;
+            } else if (currentItem === 'shield') {
+                if (isShieldActive) return;
+                playSound('shield_up');
+                isShieldActive = true;
+                shieldLight.intensity = 2.0;
+            } else if (currentItem === 'mini') {
+                if (isMiniActive) return;
+                playSound('mini_down');
+                isMiniActive = true;
+                miniTimer = 300; // 약 5초 지속
+                miniLight.intensity = 2.0;
+            }
+
+            // 아이템 사용 후 빈 슬롯으로
+            currentItem = null;
+            updateItemHUD();
+        }
+
+        // --- 메인 애니메이션 루프 ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isGameRunning && !isGameOver && !isPaused) {
+                
+                let targetCameraY = 1.8; // 기본 카메라 높이
+                let crashRadius = 2.8;   // 기본 충돌 판정 너비
+
+                // 소형화 (Mini) 효과 처리
+                if (isMiniActive) {
+                    miniTimer--;
+                    targetCameraY = 0.8; // 바닥에 붙어서 달림
+                    crashRadius = 1.2;   // 충돌 판정이 대폭 감소하여 사이로 지나가기 쉬워짐
+                    miniLight.intensity = 1.5 + Math.sin(Date.now() * 0.01) * 0.5; // 보랏빛 깜빡임
+                    
+                    if (miniTimer <= 0) {
+                        isMiniActive = false;
+                        miniLight.intensity = 0;
+                    }
+                }
+
+                // 보호막 (Shield) 효과 처리
+                if (isShieldActive) {
+                    shieldLight.intensity = 1.5 + Math.sin(Date.now() * 0.005) * 0.5; // 파란빛 깜빡임
+                }
+
+                // 부스터 효과 처리
+                if (isBoosting) {
+                    boostTimer--;
+                    // 시야각(FOV) 넓히기
+                    camera.fov = THREE.MathUtils.lerp(camera.fov, 110, 0.1); 
+                    // 황금빛 조명 깜빡임 연출
+                    boostLight.intensity = 2.0 + Math.sin(Date.now() * 0.02) * 0.5;
+
+                    camera.updateProjectionMatrix();
+                    
+                    if (boostTimer <= 0) {
+                        // 부스터 종료
+                        isBoosting = false;
+                        MAX_SPEED = MAX_SPEED_NORMAL;
+                        boostLight.intensity = 0; // 조명 끄기
+                    }
+                } else {
+                    camera.fov = THREE.MathUtils.lerp(camera.fov, 60, 0.1);
+                    camera.updateProjectionMatrix();
+                }
+
+                // 1. 속도 조절 로직
+                if (keys.ArrowUp || keys.w) {
+                    speed += ACCELERATION;
+                } else if (keys.ArrowDown || keys.s) {
+                    speed -= BRAKE_POWER;
+                } else {
+                    speed -= DECELERATION;
+                }
+
+                // 속도 제한 (0 ~ MAX_SPEED)
+                speed = Math.max(0, Math.min(speed, MAX_SPEED));
+
+                // 차가 도로를 벗어나 잔디로 가면 속도가 크게 감소
+                if (Math.abs(camera.position.x) > 15) {
+                    speed *= 0.95;
+                }
+
+                // UI 업데이트
+                distance += speed * 0.2;
+                
+                // 점수 계산 (속도가 빠를수록 가중치 증가 - 수치 대폭 하향 조정)
+                let speedRatio = speed / MAX_SPEED_NORMAL; // 0 ~ 1.0 (부스터 시 최대 2.4)
+                // 가중치 배율 축소 (기존: 최대 18배 -> 변경: 최대 약 6배)
+                let scoreMultiplier = 1 + Math.pow(speedRatio, 2); 
+                // 기본 획득량 자체를 1/10 수준으로 감소
+                score += (speed * 0.1) * scoreMultiplier; 
+
+                document.getElementById('actual-score-value').innerText = Math.floor(score).toLocaleString();
+                document.getElementById('score-value').innerText = Math.floor(distance);
+                const kmh = Math.floor((speed / MAX_SPEED) * 220); // 시속 표시용 계산
+                document.getElementById('speed-value').innerText = kmh;
+
+                // 2. 조향(Steering) 및 대쉬(Dash) 로직
+                let turnAmount = 0;
+                
+                if (dashCooldown > 0) dashCooldown--;
+
+                // 대쉬 입력 감지 (매 프레임마다 상태를 체크하여 조작감 대폭 향상!)
+                if (keys['Shift'] && (keys['ArrowLeft'] || keys['a']) && dashCooldown <= 0) {
+                    dashTime = 10;
+                    dashDirection = -1; // 왼쪽
+                    dashCooldown = 30; // 0.5초 쿨다운
+                    playSound('dash');
+                } else if (keys['Shift'] && (keys['ArrowRight'] || keys['d']) && dashCooldown <= 0) {
+                    dashTime = 10;
+                    dashDirection = 1; // 오른쪽
+                    dashCooldown = 30;
+                    playSound('dash');
+                }
+
+                if (dashTime > 0) {
+                    // 대쉬 중일 때 강제 이동 (10프레임 동안 1.0씩 이동 = 차선 1개 넓이 10m)
+                    camera.position.x += dashDirection * 1.0;
+                    turnAmount = dashDirection * -1; // 카메라 틸트 효과
+                    dashTime--;
+                } else if (speed > 0) {
+                    // 속도에 비례하여 핸들링이 민첩해짐
+                    const currentTurnSpeed = TURN_SPEED * (0.3 + (speed / MAX_SPEED) * 0.7);
+                    
+                    if (keys.ArrowLeft || keys.a) {
+                        camera.position.x -= currentTurnSpeed;
+                        turnAmount = 1;
+                    }
+                    if (keys.ArrowRight || keys.d) {
+                        camera.position.x += currentTurnSpeed;
+                        turnAmount = -1;
+                    }
+                }
+
+                // 플레이어가 도로 밖으로 무한정 나가지 않도록 X축 제한
+                camera.position.x = Math.max(-14, Math.min(14, camera.position.x));
+
+                // 핸들과 카메라 기울기 및 높이 애니메이션 (레이싱 게임의 타격감/몰입감)
+                steeringWheel.rotation.z = THREE.MathUtils.lerp(steeringWheel.rotation.z, turnAmount * 0.8, 0.1);
+                camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, turnAmount * 0.05, 0.1);
+                
+                // 고속 주행 시 카메라 약간의 흔들림(Shake) + 소형화 높이 반영
+                if (speed > MAX_SPEED * 0.7) {
+                    camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetCameraY + Math.sin(Date.now() * 0.05) * 0.02, 0.2);
+                } else {
+                    camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetCameraY, 0.2);
+                }
+
+                // 엔진 사운드 업데이트 (속도에 비례해 소리 높낮이 및 볼륨 증가)
+                if (isAudioInitialized && engineGain) {
+                    engineGain.gain.setTargetAtTime(0.05 + (speed / MAX_SPEED) * 0.15, audioCtx.currentTime, 0.1);
+                    let targetFreq = 40 + (speed / MAX_SPEED_NORMAL) * 80;
+                    if (isBoosting) targetFreq = 150 + Math.random() * 30; // 부스터 시 엔진 진동음
+                    engineOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.1);
+                }
+
+                // 3. 환경 오브젝트 이동 (월드가 플레이어에게 다가오는 방식)
+                roadLines.forEach(line => {
+                    line.position.z += speed;
+                    if (line.position.z > 5) line.position.z -= 320;
+                });
+
+                trees.forEach(tree => {
+                    tree.position.z += speed;
+                    if (tree.position.z > 10) {
+                        tree.position.z -= 300;
+                        const isLeft = Math.random() > 0.5;
+                        tree.position.x = (isLeft ? -1 : 1) * (18 + Math.random() * 20);
+                    }
+                });
+
+                // 아이템 이동 및 획득 체크
+                collectibleItems.forEach(item => {
+                    if (!item.userData.active) return;
+                    
+                    item.position.z += speed;
+                    item.rotation.y += 0.05; // 빙글빙글 도는 애니메이션
+                    item.rotation.x += 0.02;
+
+                    // 화면 뒤로 지나가면 재배치
+                    if (item.position.z > 10) {
+                        resetItem(item);
+                    }
+
+                    // 충돌 판정 (아이템 획득 반경은 일정함)
+                    if (item.position.z > -5 && item.position.z < 1) {
+                        if (Math.abs(camera.position.x - item.position.x) < 4) {
+                            item.userData.active = false;
+                            item.visible = false;
+                            
+                            // 새 아이템 획득 (기존 아이템 덮어쓰기)
+                            currentItem = item.userData.type;
+                            playSound('item');
+                            updateItemHUD();
+                        }
+                    }
+                });
+
+                // 4. 장애물 이동 및 충돌 체크
+                obstacles.forEach(obs => {
+                    // 장애물도 자체 속도로 이동 (상대 속도 계산)
+                    const relativeSpeed = speed - obs.userData.speed;
+                    obs.position.z += relativeSpeed;
+
+                    // 카메라 뒤로 넘어가면 재배치
+                    if (obs.position.z > 10) {
+                        if (obs.userData.isBarrier) resetBarrier(obs);
+                        else resetObstacle(obs);
+                    }
+
+                    // --- 충돌 판정 (Bounding Box 근사치) ---
+                    // 장애물이 플레이어 근처(Z축)에 왔을 때
+                    if (obs.position.z > -4.5 && obs.position.z < 2) {
+                        // X축(좌우) 거리가 가깝다면 충돌! (소형화 시 crashRadius가 좁아짐)
+                        if (Math.abs(camera.position.x - obs.position.x) < crashRadius) {
+                            
+                            if (isBoosting) {
+                                // 부스터 중이면 장애물을 하늘로 시원하게 날려버림!
+                                obs.position.y += 5;
+                                obs.position.x += (Math.random() - 0.5) * 5;
+                                playSound('crash');
+                            } else if (isShieldActive) {
+                                // 보호막이 켜져 있으면 1회 방어 후 보호막 파괴
+                                isShieldActive = false;
+                                shieldLight.intensity = 0;
+                                playSound('shield_break');
+                                obs.position.y += 5; // 장애물도 함께 파괴(튕겨냄)
+                            } else {
+                                // 일반 상태면 게임 오버
+                                triggerCrash();
+                            }
+                        }
+                    }
+                });
+            } else {
+                // 게임 오버 또는 일시정지 시 엔진 소리 조용하게
+                if (isAudioInitialized && engineGain) {
+                    engineGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                }
+            }
+
+            // 화면 렌더링
+            renderer.render(scene, camera);
+        }
+
+        // 스크립트 로드 완료 후 초기화 실행
+        window.onload = init;
+
+    </script>
+</body>
+</html>

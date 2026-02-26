@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>토익 스피킹 모의고사 - Part 1 ~ 5 (AI Dynamic Generation)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .progress-bar { transition: width 1s linear; }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .recording-dot { animation: pulse-ring 2s infinite; }
+        .spinner {
+            border: 4px solid rgba(0,0,0,0.1); width: 40px; height: 40px; border-radius: 50%;
+            border-left-color: #2563eb; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* 표 스타일 보강 */
+        .schedule-table th { background-color: #f1f5f9; font-weight: 600; text-align: left; }
+        .schedule-table td, .schedule-table th { border: 1px solid #cbd5e1; padding: 0.75rem; }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+
+<!-- 메인 앱 컨테이너 -->
+<div id="app" class="w-full max-w-4xl bg-white shadow-2xl rounded-2xl overflow-hidden h-[750px] flex flex-col relative border border-slate-200">
+    <!-- 동적 렌더링 영역 -->
+</div>
+
+<script>
+    // --- 앱 상태 및 데이터 ---
+    const STATES = {
+        START: 'START',
+        GENERATING_TEST: 'GENERATING_TEST', // 새로운 문제 생성 로딩 상태
+        PART_DIRECTIONS: 'PART_DIRECTIONS',
+        LOADING_IMAGE: 'LOADING_IMAGE',
+        READING_QUESTION: 'READING_QUESTION',
+        PREPARATION: 'PREPARATION',
+        RESPONSE: 'RESPONSE',
+        END_PART: 'END_PART',
+        TEST_COMPLETE: 'TEST_COMPLETE'
+    };
+
+    const textApiKey = ""; // 텍스트 생성용 API Key (Part 1, 3, 4, 5)
+    let imageApiKey = ""; // 이미지 생성용 API Key (Part 2, 사용자 입력)
+
+    let currentState = STATES.START;
+    let currentPart = 1;
+    let currentQuestionIndex = 0;
+    let timerInterval = null;
+    let timeLeft = 0;
+    let totalTime = 0;
+    let currentNextAction = null;
+    let preloadedImage = null;
+
+    // Part 4 기본 일정표 (API 실패 시 대비용 Fallback)
+    const defaultScheduleHTML = `
+            <div class="bg-white p-4 border border-slate-300 rounded-lg shadow-sm mb-4 w-full text-left text-sm">
+                <h3 class="text-xl font-bold text-center text-blue-900 mb-1">Annual Digital Marketing Summit</h3>
+                <p class="text-center text-slate-600 mb-4 font-semibold">Date: October 15 | Location: Grand Hotel, Room 302</p>
+                <table class="w-full border-collapse schedule-table">
+                    <tr><th>Time</th><th>Event</th><th>Speaker / Details</th></tr>
+                    <tr><td>9:00 AM - 10:00 AM</td><td>Keynote: Future of AI in Marketing</td><td>Dr. Sarah Jenkins</td></tr>
+                    <tr><td>10:00 AM - 11:30 AM</td><td>Social Media Strategies</td><td>Mark Robinson</td></tr>
+                    <tr><td>11:30 AM - 12:30 PM</td><td colspan="2" class="italic text-slate-500 text-center bg-slate-50">Lunch Break (Main Dining Hall)</td></tr>
+                    <tr><td class="line-through text-red-500">12:30 PM - 2:00 PM</td><td class="line-through text-red-500">Content Creation Workshop</td><td class="text-red-500 font-bold">Cancelled (Speaker ill)</td></tr>
+                    <tr><td>2:00 PM - 3:30 PM</td><td>Email Marketing Trends</td><td>David Lee</td></tr>
+                    <tr><td>3:30 PM - 4:30 PM</td><td>Panel Discussion: Q&A with Experts</td><td>Moderator: Dr. Sarah Jenkins</td></tr>
+                </table>
+            </div>
+        `;
+
+    // 모의고사 데이터 배열 (API가 덮어씌울 템플릿)
+    let questions = [
+        // Part 1
+        { part: 1, questionNumber: 1, type: 'text', prepTime: 45, responseTime: 45,
+            directions: "In this part of the test, you will read aloud the text on the screen. You will have 45 seconds to prepare. Then you will have 45 seconds to read the text aloud.",
+            content: "Attention all passengers waiting for flight 802 to London. This flight has been delayed due to severe weather conditions. We now expect to depart at 4:30 PM. Please remain in the terminal and listen for further announcements. We apologize for any inconvenience this may cause." },
+        { part: 1, questionNumber: 2, type: 'text', prepTime: 45, responseTime: 45,
+            directions: "In this part of the test, you will read aloud the text on the screen. You will have 45 seconds to prepare. Then you will have 45 seconds to read the text aloud.",
+            content: "Are you looking for a reliable landscaping service? At Green Thumb Landscaping, we specialize in making your garden look its best all year round. Whether you need lawn mowing, tree trimming, or seasonal planting, our expert team is here to help. Call us today at 555-0192 for a free estimate." },
+
+        // Part 2 (이미지는 고정 프롬프트 사용)
+        { part: 2, questionNumber: 3, type: 'image', prepTime: 45, responseTime: 30,
+            directions: "In this part of the test, you will describe the picture on your screen in as much detail as you can. You will have 45 seconds to prepare your response. Then you will have 30 seconds to speak about the picture.",
+            prompt: "A realistic photograph of three colleagues in a modern office. Two people are looking at a laptop screen on a desk, and one person is pointing at the screen. Bright lighting, indoor plants in the background." },
+        { part: 2, questionNumber: 4, type: 'image', prepTime: 45, responseTime: 30,
+            directions: "In this part of the test, you will describe the picture on your screen in as much detail as you can. You will have 45 seconds to prepare your response. Then you will have 30 seconds to speak about the picture.",
+            prompt: "A realistic photograph of people enjoying a sunny day in an outdoor park. A woman is walking a golden retriever dog on a path, and a man is riding a bicycle in the background. Green trees and clear sky." },
+
+        // Part 3
+        { part: 3, questionNumber: 5, type: 'interview', readTime: 10, prepTime: 3, responseTime: 15,
+            directions: "In this part of the test, you will answer three questions. You will have 3 seconds to prepare after you hear each question. You will have 15 seconds to respond to Questions 5 and 6, and 30 seconds to respond to Question 7.",
+            intro: "Imagine that a Canadian marketing firm is doing research in your country. You have agreed to participate in a telephone interview about traveling.",
+            questionText: "When was the last time you went on a vacation, and who did you go with?" },
+        { part: 3, questionNumber: 6, type: 'interview', readTime: 10, prepTime: 3, responseTime: 15,
+            directions: "In this part of the test, you will answer three questions. You will have 3 seconds to prepare after you hear each question...",
+            intro: "Imagine that a Canadian marketing firm is doing research in your country. You have agreed to participate in a telephone interview about traveling.",
+            questionText: "How do you usually get information when planning a trip?" },
+        { part: 3, questionNumber: 7, type: 'interview', readTime: 10, prepTime: 3, responseTime: 30,
+            directions: "In this part of the test, you will answer three questions. You will have 3 seconds to prepare after you hear each question...",
+            intro: "Imagine that a Canadian marketing firm is doing research in your country. You have agreed to participate in a telephone interview about traveling.",
+            questionText: "What do you think is the most important factor when choosing a travel destination: cost, distance, or activities? Why?" },
+
+        // Part 4
+        { part: 4, questionNumber: 8, type: 'schedule', readTime: 30, prepTime: 3, responseTime: 15,
+            directions: "In this part of the test, you will answer three questions based on the information provided. You will have 45 seconds to read the information before the questions begin. For each question, you will have 3 seconds to prepare. You will have 15 seconds to respond to Questions 8 and 9, and 30 seconds to respond to Question 10.",
+            intro: "Hi, I'm planning to attend the Digital Marketing Summit on October 15th, but I misplaced my schedule. Could you help me?",
+            questionText: "What time does the first session begin, and who is leading it?",
+            schedule: defaultScheduleHTML },
+        { part: 4, questionNumber: 9, type: 'schedule', readTime: 10, prepTime: 3, responseTime: 15,
+            directions: "In this part of the test, you will answer three questions based on the information provided...",
+            intro: "Hi, I'm planning to attend the Digital Marketing Summit on October 15th, but I misplaced my schedule. Could you help me?",
+            questionText: "I heard there is a Content Creation Workshop scheduled right after the lunch break. Is that correct?",
+            schedule: defaultScheduleHTML },
+        { part: 4, questionNumber: 10, type: 'schedule', readTime: 10, prepTime: 3, responseTime: 30,
+            directions: "In this part of the test, you will answer three questions based on the information provided...",
+            intro: "Hi, I'm planning to attend the Digital Marketing Summit on October 15th, but I misplaced my schedule. Could you help me?",
+            questionText: "I am very interested in hearing from Dr. Sarah Jenkins. Could you give me all the details of the sessions she will be involved in?",
+            schedule: defaultScheduleHTML },
+
+        // Part 5
+        { part: 5, questionNumber: 11, type: 'opinion', readTime: 10, prepTime: 45, responseTime: 60,
+            directions: "In this part of the test, you will give your opinion about a specific topic. Be sure to say as much as you can in the time allowed. You will have 45 seconds to prepare. Then you will have 60 seconds to speak.",
+            questionText: "Do you agree or disagree with the following statement?\n\nIt is better for employees to work in teams rather than working individually.\n\nUse specific reasons and examples to support your opinion." }
+    ];
+
+    // --------------------------------------------------------
+    // Gemini AI Text Generation (모의고사 문제 동적 생성 로직)
+    // --------------------------------------------------------
+    async function generateDynamicTestContent() {
+        const promptText = `You are a professional TOEIC Speaking test creator. Generate a unique, realistic mock test in English. Follow these exact requirements:
+
+1. Part 1 (Q1, Q2): Provide two short reading texts (about 4 sentences each). Topics: flight announcements, store advertisements, or news broadcasts.
+2. Part 3 (Q5, Q6, Q7): A telephone interview scenario. Pick a random everyday theme (e.g., dining out, online shopping, fitness).
+   - Intro: A short text explaining the situation (e.g., "Imagine that a market research firm is doing a survey...").
+   - Q5: A basic fact question (When/Where/Who).
+   - Q6: A specific detail or preference question (What/How).
+   - Q7: An opinion or logical reasoning question.
+3. Part 4 (Q8, Q9, Q10): A schedule-based scenario (e.g., interview schedule, conference, itinerary).
+   - Schedule HTML: Generate a raw HTML table string. MUST wrap in this exact structure:
+     <div class="bg-white p-4 border border-slate-300 rounded-lg shadow-sm mb-4 w-full text-left text-sm"><h3 class="text-xl font-bold text-center text-blue-900 mb-1">[Event Title]</h3><p class="text-center text-slate-600 mb-4 font-semibold">[Date/Location]</p><table class="w-full border-collapse schedule-table"><tr><th>Time</th><th>Event</th><th>Details/Speaker</th></tr>[Generate 5-6 rows. EXACTLY ONE ROW MUST BE CANCELLED by applying class="line-through text-red-500" to its <td> tags and writing 'Cancelled' in the details column]</table></div>
+   - Intro: A brief intro from a caller asking about the schedule.
+   - Q8: Asks about the very first event or basic top-level info.
+   - Q9: Asks to confirm the event that was cancelled (the caller has wrong info).
+   - Q10: Asks to list all events related to a specific person/theme.
+4. Part 5 (Q11): An opinion question ("Do you agree or disagree..."). Topics: workplace, education, society. Include "Use specific reasons and examples to support your opinion."`;
+
+        try {
+            // 텍스트 생성용 API 키(textApiKey) 적용
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${textApiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: promptText }] }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                part1_q1: { type: "STRING" },
+                                part1_q2: { type: "STRING" },
+                                part3_intro: { type: "STRING" },
+                                part3_q5: { type: "STRING" },
+                                part3_q6: { type: "STRING" },
+                                part3_q7: { type: "STRING" },
+                                part4_schedule: { type: "STRING" },
+                                part4_intro: { type: "STRING" },
+                                part4_q8: { type: "STRING" },
+                                part4_q9: { type: "STRING" },
+                                part4_q10: { type: "STRING" },
+                                part5_q11: { type: "STRING" }
+                            },
+                            required: ["part1_q1", "part1_q2", "part3_intro", "part3_q5", "part3_q6", "part3_q7", "part4_schedule", "part4_intro", "part4_q8", "part4_q9", "part4_q10", "part5_q11"]
+                        }
+                    }
+                })
+            });
+
+            const data = await response.json();
+
+            if(data.error) {
+                console.error("API 에러 상세:", data.error.message);
+                return;
+            }
+
+            if(data.candidates && data.candidates[0].content.parts[0].text) {
+                const testContent = JSON.parse(data.candidates[0].content.parts[0].text);
+
+                // 생성된 데이터로 문제 배열 업데이트 (매칭)
+                questions[0].content = testContent.part1_q1;
+                questions[1].content = testContent.part1_q2;
+
+                questions[4].intro = testContent.part3_intro;
+                questions[4].questionText = testContent.part3_q5;
+                questions[5].intro = testContent.part3_intro;
+                questions[5].questionText = testContent.part3_q6;
+                questions[6].intro = testContent.part3_intro;
+                questions[6].questionText = testContent.part3_q7;
+
+                questions[7].schedule = testContent.part4_schedule;
+                questions[7].intro = testContent.part4_intro;
+                questions[7].questionText = testContent.part4_q8;
+
+                questions[8].schedule = testContent.part4_schedule;
+                questions[8].intro = testContent.part4_intro;
+                questions[8].questionText = testContent.part4_q9;
+
+                questions[9].schedule = testContent.part4_schedule;
+                questions[9].intro = testContent.part4_intro;
+                questions[9].questionText = testContent.part4_q10;
+
+                questions[10].questionText = testContent.part5_q11.replace(/\\n/g, '\n');
+            }
+        } catch (error) {
+            console.error("문제 생성 실패, 기본 문제 세트로 진행합니다.", error);
+        }
+    }
+
+    const appDiv = document.getElementById('app');
+
+    // Gemini AI 이미지 생성 API 호출 (Part 2 용)
+    async function generateImage(prompt) {
+        const fallbackImage = `https://picsum.photos/seed/${encodeURIComponent(prompt.substring(0, 10))}/600/400`;
+
+        try {
+            // 이미지 생성용 API 키(imageApiKey) 적용
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${imageApiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instances: [{ prompt: prompt }],
+                    parameters: { sampleCount: 1 }
+                })
+            });
+            const data = await response.json();
+
+            if (data.predictions && data.predictions[0]) {
+                return `data:image/jpeg;base64,${data.predictions[0].bytesBase64Encoded}`;
+            } else {
+                return fallbackImage;
+            }
+        } catch (error) {
+            return fallbackImage;
+        }
+    }
+
+    function playBeep() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+            osc.connect(gainNode); gainNode.connect(ctx.destination);
+            osc.type = 'sine'; osc.frequency.setValueAtTime(600, ctx.currentTime);
+            gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+            osc.start(); osc.stop(ctx.currentTime + 0.4);
+        } catch(e) { console.log("Audio not supported"); }
+    }
+
+    // --- 렌더링 함수들 ---
+
+    function renderHeader(title) {
+        const isTestActive = currentState === STATES.PREPARATION || currentState === STATES.RESPONSE || currentState === STATES.READING_QUESTION;
+        const skipBtnHtml = isTestActive ?
+            `<button onclick="skipPhase()" class="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition flex-shrink-0">Skip &gt;&gt;</button>`
+            : '';
+
+        return `
+                <div class="bg-blue-800 text-white p-4 flex justify-between items-center shadow-md">
+                    <h1 class="text-xl font-bold tracking-wide truncate">${title}</h1>
+                    <div class="flex items-center space-x-4">
+                        ${skipBtnHtml}
+                        <span class="text-sm bg-blue-900 px-3 py-1 rounded-full border border-blue-700 hidden sm:inline-block">Volume: ||||||||||</span>
+                    </div>
+                </div>
+            `;
+    }
+
+    function renderTimer() {
+        const percentage = (timeLeft / totalTime) * 100;
+        const isResponse = currentState === STATES.RESPONSE;
+        const isReading = currentState === STATES.READING_QUESTION;
+        const barColor = isResponse ? 'bg-red-500' : (isReading ? 'bg-green-500' : 'bg-blue-500');
+        const statusText = isResponse ? 'Recording...' : (isReading ? 'Reading Question...' : 'Preparation Time');
+
+        return `
+                <div class="w-full bg-slate-100 p-4 border-b border-slate-200 flex flex-col items-center">
+                    <div class="flex items-center space-x-2 mb-2">
+                        ${isResponse ? '<div class="w-3 h-3 rounded-full bg-red-600 recording-dot"></div>' : ''}
+                        <span class="font-bold text-lg ${isResponse ? 'text-red-600' : (isReading ? 'text-green-600' : 'text-blue-700')}">${statusText}: ${timeLeft} Seconds</span>
+                    </div>
+                    <div class="w-full max-w-2xl bg-gray-300 rounded-full h-2.5">
+                        <div class="${barColor} h-2.5 rounded-full progress-bar" style="width: ${percentage}%"></div>
+                    </div>
+                </div>
+            `;
+    }
+
+    function render() {
+        let html = '';
+        const q = questions[currentQuestionIndex] || {};
+
+        switch(currentState) {
+            case STATES.START:
+                html = `
+                        ${renderHeader('TOEIC Speaking Mock Test')}
+                        <div class="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50">
+                            <h2 class="text-4xl font-bold text-slate-800 mb-4">TOEIC Speaking Test</h2>
+                            <p class="text-slate-600 mb-6 max-w-lg">Part 1 ~ Part 5 모의고사입니다.<br>Start 버튼을 누르면 AI가 새로운 문제를 생성합니다.</p>
+
+                            <div class="mb-8 w-full max-w-md text-left">
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">Gemini API Key (Part 2 이미지 생성용, 선택)</label>
+                                <input type="password" id="imageApiKeyInput" placeholder="AIzaSy..." class="w-full p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <p class="text-xs text-slate-500 mt-2">* 미입력 시 Part 2 사진은 더미(대체) 이미지로 표시됩니다.</p>
+                            </div>
+
+                            <button onclick="startTest()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-10 rounded-lg text-xl transition transform hover:scale-105 shadow-lg">
+                                Start Test
+                            </button>
+                        </div>
+                    `;
+                break;
+
+            case STATES.GENERATING_TEST:
+                html = `
+                        ${renderHeader('Preparing Mock Test...')}
+                        <div class="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50">
+                            <div class="spinner mb-4"></div>
+                            <h2 class="text-2xl font-bold text-slate-800">Generating New Questions...</h2>
+                            <p class="text-slate-500 mt-2">AI가 새로운 모의고사 문제를 출제하고 있습니다.</p>
+                        </div>
+                    `;
+                break;
+
+            case STATES.PART_DIRECTIONS:
+                html = `
+                        ${renderHeader(`Part ${currentPart} Directions`)}
+                        <div class="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50">
+                            <div class="bg-white p-8 rounded-xl shadow-md border border-slate-200 max-w-2xl text-center">
+                                <h2 class="text-2xl font-bold text-slate-800 mb-6">Directions</h2>
+                                <p class="text-xl text-slate-700 leading-relaxed mb-8">${q.directions}</p>
+                                <div class="text-blue-600 font-semibold animate-pulse">The test will begin shortly...</div>
+                            </div>
+                        </div>
+                    `;
+                break;
+
+            case STATES.LOADING_IMAGE:
+                html = `
+                        ${renderHeader(`Question ${q.questionNumber} of 11`)}
+                        <div class="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50">
+                            <div class="spinner mb-4"></div>
+                            <h2 class="text-xl font-bold text-slate-700">Generating AI Image...</h2>
+                            <p class="text-slate-500 mt-2">Gemini 모델이 사진을 생성하고 있습니다. 잠시만 기다려주세요.</p>
+                        </div>
+                    `;
+                break;
+
+            case STATES.READING_QUESTION:
+            case STATES.PREPARATION:
+            case STATES.RESPONSE:
+                let contentHtml = '';
+                if (q.type === 'text') {
+                    contentHtml = `<div class="max-w-3xl text-3xl text-slate-800 leading-relaxed font-medium p-4 text-center">"${q.content}"</div>`;
+                } else if (q.type === 'image') {
+                    contentHtml = `<img src="${preloadedImage}" alt="Test Image" class="max-h-[350px] object-contain rounded-lg shadow-md border border-slate-200">`;
+                } else if (q.type === 'interview') {
+                    contentHtml = `
+                            <div class="max-w-3xl w-full bg-slate-50 p-6 rounded-lg mb-8 border border-slate-200 shadow-sm text-left">
+                                <p class="text-xl text-slate-700 font-medium leading-relaxed">"${q.intro}"</p>
+                            </div>
+                            <div class="max-w-3xl w-full text-4xl text-slate-800 leading-normal font-bold p-4 text-center">
+                                ${q.questionText}
+                            </div>
+                        `;
+                } else if (q.type === 'schedule') {
+                    contentHtml = `
+                            <div class="w-full max-w-4xl flex flex-col items-center px-4 overflow-y-auto max-h-full">
+                                ${q.schedule}
+                                <div class="w-full bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg mt-2 mb-4">
+                                    <p class="text-sm text-blue-700 font-semibold mb-1">Caller:</p>
+                                    <p class="text-xl text-slate-800 font-bold">"${q.questionText}"</p>
+                                </div>
+                            </div>
+                        `;
+                } else if (q.type === 'opinion') {
+                    contentHtml = `
+                            <div class="max-w-3xl w-full text-3xl text-slate-800 leading-relaxed font-medium p-4 text-center whitespace-pre-line">
+                                ${q.questionText}
+                            </div>
+                        `;
+                }
+
+                html = `
+                        ${renderHeader(`Question ${q.questionNumber} of 11`)}
+                        ${renderTimer()}
+                        <div class="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 bg-white overflow-hidden">
+                            <div class="text-slate-500 mb-4 text-lg font-semibold tracking-wide flex-shrink-0">
+                                Directions: ${q.type === 'text' ? 'Read the text below aloud.' : q.type === 'image' ? 'Describe the picture on your screen.' : q.type === 'schedule' ? 'Respond to the question using the information provided.' : q.type === 'opinion' ? 'Express your opinion on the topic.' : 'Respond to the question.'}
+                            </div>
+                            ${contentHtml}
+                        </div>
+                    `;
+                break;
+
+            case STATES.END_PART:
+                html = `
+                        ${renderHeader(`End of Part ${currentPart}`)}
+                        <div class="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50">
+                            <h2 class="text-3xl font-bold text-slate-800 mb-6">Part ${currentPart} is Complete</h2>
+                            <p class="text-lg text-slate-600 mb-8">Great job! Prepare for the next section.</p>
+                            <button onclick="nextPart()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-xl shadow-md transition">
+                                Continue to Part ${currentPart + 1}
+                            </button>
+                        </div>
+                    `;
+                break;
+
+            case STATES.TEST_COMPLETE:
+                html = `
+                        ${renderHeader('Test Complete')}
+                        <div class="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50">
+                            <h2 class="text-4xl font-bold text-green-600 mb-6">Congratulations!</h2>
+                            <p class="text-xl text-slate-700 mb-8">You have completed Part 1 through Part 5 of the mock test.</p>
+                            <button onclick="location.reload()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 px-8 rounded-lg text-lg shadow-md transition">
+                                Return to Home
+                            </button>
+                        </div>
+                    `;
+                break;
+        }
+
+        appDiv.innerHTML = html;
+    }
+
+    // --- 흐름 제어 로직 ---
+
+    function startTimer(seconds, nextAction) {
+        clearInterval(timerInterval);
+        totalTime = seconds;
+        timeLeft = seconds;
+        currentNextAction = nextAction;
+        render();
+
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            render();
+
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                if (currentNextAction) currentNextAction();
+            }
+        }, 1000);
+    }
+
+    function skipPhase() {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            playBeep();
+            if (currentNextAction) currentNextAction();
+        }
+    }
+
+    // 테스트 시작 시 동적 데이터 생성 후 방향 안내(Directions) 화면으로 이동
+    async function startTest() {
+        const keyInput = document.getElementById('imageApiKeyInput');
+        if(keyInput) imageApiKey = keyInput.value.trim();
+
+        currentState = STATES.GENERATING_TEST;
+        render();
+
+        await generateDynamicTestContent(); // AI 기반 텍스트 생성
+
+        currentPart = 1;
+        currentQuestionIndex = 0;
+        startPartDirections();
+    }
+
+    function nextPart() {
+        currentPart++;
+        const nextIndex = questions.findIndex(q => q.part === currentPart);
+        if (nextIndex !== -1) {
+            currentQuestionIndex = nextIndex;
+            startPartDirections();
+        } else {
+            currentState = STATES.TEST_COMPLETE;
+            render();
+        }
+    }
+
+    function startPartDirections() {
+        currentState = STATES.PART_DIRECTIONS;
+        render();
+        setTimeout(() => {
+            prepareNextQuestion();
+        }, 5000);
+    }
+
+    async function prepareNextQuestion() {
+        const q = questions[currentQuestionIndex];
+
+        if (q.type === 'image') {
+            currentState = STATES.LOADING_IMAGE;
+            render();
+            preloadedImage = await generateImage(q.prompt);
+        }
+
+        if (q.readTime) {
+            startReadingQuestion();
+        } else {
+            startPreparation();
+        }
+    }
+
+    function startReadingQuestion() {
+        currentState = STATES.READING_QUESTION;
+        const q = questions[currentQuestionIndex];
+        startTimer(q.readTime, startPreparation);
+    }
+
+    function startPreparation() {
+        currentState = STATES.PREPARATION;
+        const q = questions[currentQuestionIndex];
+        startTimer(q.prepTime, startResponse);
+    }
+
+    function startResponse() {
+        playBeep();
+        currentState = STATES.RESPONSE;
+        const q = questions[currentQuestionIndex];
+
+        startTimer(q.responseTime, () => {
+            playBeep();
+            currentQuestionIndex++;
+
+            if (currentQuestionIndex < questions.length) {
+                const nextQ = questions[currentQuestionIndex];
+                if (nextQ.part === currentPart) {
+                    setTimeout(prepareNextQuestion, 1500);
+                } else {
+                    currentState = STATES.END_PART;
+                    render();
+                }
+            } else {
+                currentState = STATES.TEST_COMPLETE;
+                render();
+            }
+        });
+    }
+
+    render();
+
+</script>
+</body>
+</html>

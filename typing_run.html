@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>타이핑 다이노 레이스</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=JetBrains+Mono:wght@700&display=swap');
+        body { 
+            font-family: 'Noto Sans KR', sans-serif; 
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        canvas { 
+            image-rendering: pixelated; 
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center min-h-screen py-8 overflow-hidden transition-colors duration-150">
+    
+    <!-- 점수판 -->
+    <div class="flex justify-between w-full max-w-4xl px-4 mb-3">
+        <div class="flex items-center gap-4">
+            <div class="text-xl font-bold">점수: <span id="scoreDisplay" class="text-yellow-400 text-2xl">0</span></div>
+            <div class="flex bg-gray-800 border border-gray-600 rounded-lg p-1">
+                <button id="btnEasy" onclick="setDifficulty('easy')" class="px-3 py-1 rounded-md bg-emerald-500 text-white text-sm font-bold transition-colors">쉬움</button>
+                <button id="btnHard" onclick="setDifficulty('hard')" class="px-3 py-1 rounded-md text-gray-400 hover:text-white text-sm font-bold transition-colors hover:bg-gray-700">어려움</button>
+            </div>
+        </div>
+        <div class="text-gray-400 text-sm flex items-end hidden md:flex">※ 영어 자판으로 설정 후 타이핑해주세요.</div>
+    </div>
+
+    <!-- 캔버스 및 오버레이 (게임 화면) -->
+    <div class="relative rounded-2xl overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.5)] border border-gray-700 bg-gray-800 w-full max-w-4xl">
+        <canvas id="gameCanvas" width="896" height="320" class="w-full h-auto block"></canvas>
+        
+        <!-- 게임 오버 화면 -->
+        <div id="gameOverScreen" class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center hidden z-20 cursor-pointer">
+            <h2 class="text-5xl font-bold text-red-500 mb-4 tracking-wider">GAME OVER</h2>
+            <p class="text-2xl mb-2 text-gray-200">최종 점수: <span id="finalScore" class="font-bold text-yellow-400 text-3xl">0</span></p>
+            <p class="text-gray-400 mt-6 animate-pulse">스페이스바를 누르거나 클릭하여 다시 시작</p>
+        </div>
+
+        <!-- 시작 대기 화면 -->
+        <div id="startScreen" class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-20 cursor-pointer">
+            <h2 class="text-4xl font-bold text-emerald-400 mb-4">준비되셨나요?</h2>
+            <p class="text-gray-300 animate-pulse text-lg">화면을 클릭하거나 스페이스바를 눌러 시작하세요</p>
+            <div class="mt-8 text-sm text-gray-400 text-center space-y-2">
+                <p>🟩 하단 좁은 장애물 -> <b>짧은 점프</b></p>
+                <p>🟥 하단 넓은 장애물 -> <b>긴 점프</b></p>
+                <p>🟦 상단 좁은 장애물 -> <b>짧은 수그리기</b></p>
+                <p>🟪 상단 넓은 장애물 -> <b>긴 수그리기</b></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 타이핑 UI 영역 -->
+    <div id="typingUI" class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 w-full max-w-4xl px-4">
+        <!-- JS에서 채워짐 -->
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 단어 데이터베이스 (영단어 위주)
+        const wordsDb = [
+            'wind', 'rock', 'sun', 'moon', 'star', 'tree', 'car', 'cat', 'dog', 'fire', 'ice', 'sea',
+            'run', 'walk', 'fly', 'fast', 'slow', 'high', 'low', 'good', 'hot', 'cold', 'hard', 'soft',
+            'big', 'small', 'apple', 'water', 'milk', 'hero', 'king', 'lion', 'bear', 'time', 'year', 'game',
+            'stop', 'left', 'right', 'up', 'down', 'next', 'bird', 'fish', 'sand', 'ant', 'bat', 'bee',
+            'cow', 'fox', 'pig', 'owl', 'duck', 'frog', 'wolf', 'deer', 'swan', 'mouse', 'sheep', 'snake',
+            'horse', 'panda', 'tiger', 'dust', 'dirt', 'mud', 'leaf', 'root', 'wood', 'iron', 'gold', 'rain',
+            'snow', 'sky', 'cloud', 'storm', 'wave', 'egg', 'nut', 'pie', 'tea', 'jam', 'cake', 'meat',
+            'rice', 'soup', 'corn', 'bean', 'beef', 'pork', 'salt', 'sugar', 'bread', 'grape', 'lemon', 'melon',
+            'peach', 'eye', 'ear', 'lip', 'arm', 'leg', 'toe', 'jaw', 'nose', 'hand', 'foot', 'head', 'hair',
+            'face', 'neck', 'bone', 'cup', 'box', 'pen', 'bed', 'hat', 'map', 'bag', 'toy', 'key', 'door',
+            'book', 'desk', 'chair', 'clock', 'shoe', 'phone', 'ship', 'boat', 'ring', 'coin', 'bell', 'lamp',
+            'jump', 'kick', 'push', 'pull', 'sing', 'talk', 'read', 'swim', 'play', 'cook', 'wash', 'draw',
+            'make', 'find', 'give', 'take', 'help', 'keep', 'show', 'tall', 'dry', 'wet', 'new', 'old',
+            'rich', 'poor', 'dark', 'light', 'warm', 'cool', 'free', 'busy', 'easy', 'day', 'night', 'week',
+            'month', 'life', 'love', 'hope', 'fact', 'idea', 'rule', 'plan', 'goal', 'mind', 'soul'
+        ];
+
+        let gameRunning = false;
+        let animationId;
+        let score = 0;
+        let gameSpeed = 5;
+        let minGap = 400;
+        let currentInput = "";
+        let timeScale = 1.0;
+        let targetTimeScale = 1.0;
+        let hintTimer = 0;
+        let difficulty = 'easy';
+
+        function setDifficulty(level) {
+            difficulty = level;
+            const btnEasy = document.getElementById('btnEasy');
+            const btnHard = document.getElementById('btnHard');
+            if (level === 'easy') {
+                btnEasy.className = "px-3 py-1 rounded-md bg-emerald-500 text-white text-sm font-bold transition-colors";
+                btnHard.className = "px-3 py-1 rounded-md text-gray-400 hover:text-white text-sm font-bold transition-colors hover:bg-gray-700";
+            } else {
+                btnHard.className = "px-3 py-1 rounded-md bg-red-500 text-white text-sm font-bold transition-colors";
+                btnEasy.className = "px-3 py-1 rounded-md text-gray-400 hover:text-white text-sm font-bold transition-colors hover:bg-gray-700";
+            }
+            document.activeElement.blur();
+        }
+
+        const GROUND_Y = 270;
+        let player = {
+            x: 80, y: 230, width: 40, height: 40,
+            vy: 0, gravity: 0,
+            isJumping: false, isDucking: false, duckFrames: 0
+        };
+
+        let obstacles = [];
+        let groundParticles = [];
+        let clouds = [
+            { x: 100, y: 50, speed: 0.3, scale: 1 },
+            { x: 400, y: 80, speed: 0.5, scale: 0.8 },
+            { x: 750, y: 40, speed: 0.2, scale: 1.2 }
+        ];
+
+        for(let i=0; i<30; i++) {
+            groundParticles.push({
+                x: Math.random() * canvas.width,
+                y: GROUND_Y + 5 + Math.random() * 30,
+                w: Math.random() * 4 + 1, h: 2
+            });
+        }
+
+        const targetConfig = [
+            { id: 'shortJump', label: '짧은 점프', color: 'text-emerald-400', border: 'border-emerald-500' },
+            { id: 'longJump', label: '긴 점프', color: 'text-red-400', border: 'border-red-500' },
+            { id: 'shortDuck', label: '짧은 수그리기', color: 'text-blue-400', border: 'border-blue-500' },
+            { id: 'longDuck', label: '긴 수그리기', color: 'text-purple-400', border: 'border-purple-500' }
+        ];
+
+        let targets = {
+            shortJump: { word: "", nextWord: "" },
+            longJump: { word: "", nextWord: "" },
+            shortDuck: { word: "", nextWord: "" },
+            longDuck: { word: "", nextWord: "" }
+        };
+
+        const uiContainer = document.getElementById('typingUI');
+        targetConfig.forEach(cfg => {
+            uiContainer.innerHTML += `
+                <div id="ui-${cfg.id}" class="bg-gray-800 p-3 md:p-4 rounded-xl text-center border-2 border-transparent transition-all shadow-md relative overflow-hidden flex flex-col justify-between h-40">
+                    <div class="flex flex-col flex-grow justify-center">
+                        <div class="text-sm md:text-base font-bold ${cfg.color} mb-1 z-10">${cfg.label}</div>
+                        <div class="text-2xl md:text-3xl font-mono font-bold tracking-widest word-display text-gray-300 z-10 drop-shadow-md"></div>
+                    </div>
+                    <div class="text-sm md:text-base text-gray-400 mt-2 z-10 border-t border-gray-600 pt-2 bg-gray-900/60 -mx-4 -mb-4 pb-3 flex justify-center items-center gap-2">NEXT: <span class="word-next font-bold text-gray-200"></span></div>
+                </div>
+            `;
+        });
+
+        function getRandomWord() {
+            let selected;
+            do {
+                selected = wordsDb[Math.floor(Math.random() * wordsDb.length)];
+            } while (Object.values(targets).some(t => t.word === selected || t.nextWord === selected));
+            return selected;
+        }
+
+        function updateUI() {
+            for (const [key, target] of Object.entries(targets)) {
+                const parent = document.getElementById(`ui-${key}`);
+                const displayEl = parent.querySelector('.word-display');
+                const nextEl = parent.querySelector('.word-next');
+                const cfg = targetConfig.find(c => c.id === key);
+
+                let html = '';
+                let isTargeting = currentInput.length > 0 && target.word.startsWith(currentInput);
+
+                if (isTargeting) {
+                    parent.className = `bg-gray-700 p-3 md:p-4 rounded-xl text-center border-2 ${cfg.border} transition-all shadow-lg scale-105 h-40 flex flex-col justify-between relative overflow-hidden`;
+                    html += `<span class="text-white">${currentInput}</span>`;
+                    html += `<span class="text-gray-400 opacity-50">${target.word.slice(currentInput.length)}</span>`;
+                } else {
+                    parent.className = `bg-gray-800 p-3 md:p-4 rounded-xl text-center border-2 border-transparent transition-all shadow-md opacity-80 h-40 flex flex-col justify-between relative overflow-hidden`;
+                    html = `<span class="text-gray-300">${target.word}</span>`;
+                }
+                displayEl.innerHTML = html;
+                nextEl.innerText = target.nextWord.toUpperCase();
+            }
+        }
+
+        function handleInput(char) {
+            let potentialInput = currentInput + char;
+            let exactMatch = null;
+            let prefixMatch = false;
+
+            for (const [key, target] of Object.entries(targets)) {
+                if (target.word === potentialInput) exactMatch = key;
+                else if (target.word.startsWith(potentialInput)) prefixMatch = true;
+            }
+
+            if (exactMatch) {
+                executeAction(exactMatch);
+                targets[exactMatch].word = targets[exactMatch].nextWord;
+                targets[exactMatch].nextWord = getRandomWord();
+                currentInput = "";
+                updateUI();
+                return;
+            }
+
+            if (prefixMatch) {
+                currentInput = potentialInput;
+                updateUI();
+            } else {
+                let startsNew = false;
+                for (const [key, target] of Object.entries(targets)) {
+                    if (target.word.startsWith(char)) startsNew = true;
+                }
+                if (startsNew) {
+                    currentInput = char;
+                    updateUI();
+                } else {
+                    currentInput = "";
+                    triggerErrorVisual();
+                    updateUI();
+                }
+            }
+        }
+
+        function triggerErrorVisual() {
+            document.body.classList.add('bg-red-900');
+            setTimeout(() => document.body.classList.remove('bg-red-900'), 150);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                if (!gameRunning) resetGame();
+                return;
+            }
+            if (!gameRunning) return;
+            if (e.key === 'Backspace') {
+                currentInput = currentInput.slice(0, -1);
+                updateUI();
+                return;
+            }
+            if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
+                handleInput(e.key.toLowerCase());
+            }
+        });
+
+        document.getElementById('startScreen').addEventListener('click', resetGame);
+        document.getElementById('gameOverScreen').addEventListener('click', resetGame);
+
+        function executeAction(action) {
+            if (!gameRunning) return;
+            if (action === 'shortJump') {
+                player.isJumping = true;
+                player.isDucking = false;
+                player.duckFrames = 0;
+                player.vy = -12.5; 
+                player.gravity = 0.45; 
+            } else if (action === 'longJump') {
+                player.isJumping = true;
+                player.isDucking = false;
+                player.duckFrames = 0;
+                player.vy = -14;
+                player.gravity = 0.4; 
+            } else if (action === 'shortDuck') {
+                player.isDucking = true;
+                player.duckFrames = 45; 
+                if (player.isJumping) player.vy = 20;
+            } else if (action === 'longDuck') {
+                player.isDucking = true;
+                player.duckFrames = 90; 
+                if (player.isJumping) player.vy = 20;
+            }
+        }
+
+        function spawnObstacle() {
+            const typeRand = Math.random();
+            let obs = { x: canvas.width, passedSlowMo: false };
+            if (typeRand < 0.25) {
+                obs.type = 'ground_small';
+                obs.w = 30; obs.h = 45; obs.y = GROUND_Y - obs.h; obs.color = '#10b981';
+            } else if (typeRand < 0.5) {
+                obs.type = 'ground_wide';
+                obs.w = 140; obs.h = 45; obs.y = GROUND_Y - obs.h; obs.color = '#ef4444';
+            } else if (typeRand < 0.75) {
+                obs.type = 'high_small';
+                obs.w = 45; obs.h = 245; obs.y = 0; obs.color = '#3b82f6';
+            } else {
+                obs.type = 'high_wide';
+                obs.w = 180; obs.h = 245; obs.y = 0; obs.color = '#a855f7';
+            }
+            obstacles.push(obs);
+        }
+
+        function checkCollision(r1, r2) {
+            const padX = 6;
+            const padY = 6;
+            return r1.x + padX < r2.x + r2.w - padX &&
+                   r1.x + r1.width - padX > r2.x + padX &&
+                   r1.y + padY < r2.y + r2.h - padY &&
+                   r1.y + r1.height - padY > r2.y + padY;
+        }
+
+        function update() {
+            let upcomingObs = obstacles.find(o => o.x > player.x && !o.passedSlowMo);
+            if (upcomingObs) {
+                let dist = upcomingObs.x - (player.x + player.width);
+                if (dist > 0 && dist < 220) {
+                    upcomingObs.passedSlowMo = true;
+                    hintTimer = 80;
+                }
+            }
+
+            if (hintTimer > 0) {
+                targetTimeScale = (difficulty === 'easy') ? 0.3 : 1.0;
+                hintTimer--;
+            } else {
+                targetTimeScale = 1.0;
+            }
+            
+            timeScale += (targetTimeScale - timeScale) * 0.1;
+
+            if (player.isJumping) {
+                player.y += player.vy * timeScale;
+                player.vy += player.gravity * timeScale;
+                if (player.y < 0) {
+                    player.y = 0;
+                    player.vy = 0;
+                }
+                if (player.y >= GROUND_Y - player.height) {
+                    player.y = GROUND_Y - player.height;
+                    player.isJumping = false;
+                    player.vy = 0;
+                }
+            }
+            
+            if (player.isDucking && !player.isJumping) {
+                player.height = 20;
+                player.y = GROUND_Y - 20;
+                player.duckFrames -= timeScale;
+                if (player.duckFrames <= 0) player.isDucking = false;
+            } else if (!player.isJumping) {
+                player.height = 40;
+                player.y = GROUND_Y - 40;
+            }
+
+            gameSpeed += 0.001 * timeScale; 
+            score += (gameSpeed / 10) * timeScale;
+            document.getElementById('scoreDisplay').innerText = Math.floor(score);
+
+            let lastObs = obstacles[obstacles.length - 1];
+            if (!lastObs || (canvas.width - lastObs.x > minGap)) {
+                if (Math.random() < (0.02 + (gameSpeed * 0.001)) * timeScale) {
+                    spawnObstacle();
+                    minGap = 350 + (gameSpeed * 20) + Math.random() * 200; 
+                }
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                obs.x -= gameSpeed * timeScale;
+                if (checkCollision(player, obs)) gameOver();
+                if (obs.x + obs.w < 0) obstacles.splice(i, 1);
+            }
+
+            groundParticles.forEach(p => {
+                p.x -= gameSpeed * timeScale;
+                if (p.x < 0) p.x = canvas.width + Math.random() * 50;
+            });
+            clouds.forEach(c => {
+                c.x -= c.speed * timeScale;
+                if (c.x < -100) c.x = canvas.width + 50;
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#4b5563';
+            clouds.forEach(c => {
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, 20 * c.scale, 0, Math.PI * 2);
+                ctx.arc(c.x + 20 * c.scale, c.y - 10 * c.scale, 25 * c.scale, 0, Math.PI * 2);
+                ctx.arc(c.x + 40 * c.scale, c.y, 20 * c.scale, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            ctx.strokeStyle = '#6b7280';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, GROUND_Y);
+            ctx.lineTo(canvas.width, GROUND_Y);
+            ctx.stroke();
+
+            ctx.fillStyle = '#6b7280';
+            groundParticles.forEach(p => ctx.fillRect(p.x, p.y, p.w, p.h));
+
+            obstacles.forEach(obs => {
+                ctx.fillStyle = obs.color;
+                ctx.beginPath();
+                if (obs.type.includes('ground')) {
+                    ctx.roundRect(obs.x, obs.y, obs.w, obs.h, 4);
+                    ctx.fill();
+                    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                    ctx.fillRect(obs.x + 5, obs.y + 5, 5, obs.h - 10);
+                } else {
+                    ctx.roundRect(obs.x, obs.y, obs.w, obs.h, 4);
+                    ctx.fill();
+                    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                    ctx.fillRect(obs.x + 10, obs.y, 10, obs.h - 10);
+                }
+            });
+
+            ctx.fillStyle = '#eab308';
+            ctx.beginPath();
+            ctx.roundRect(player.x, player.y, player.width, player.height, 6);
+            ctx.fill();
+            
+            ctx.fillStyle = 'white';
+            let eyeY = player.isDucking ? player.y + 5 : player.y + 10;
+            ctx.beginPath();
+            ctx.arc(player.x + 28, eyeY, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(player.x + 30, eyeY, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (hintTimer > 0) {
+                let textAlpha = Math.min(1, hintTimer / 20);
+                if (difficulty === 'easy' && timeScale < 0.95) {
+                    ctx.fillStyle = `rgba(0, 0, 0, ${(1 - timeScale) * 0.4})`;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                } else if (difficulty === 'hard') {
+                    ctx.fillStyle = `rgba(0, 0, 0, ${0.2 * textAlpha})`;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+            }
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+            update();
+            draw();
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            document.getElementById('finalScore').innerText = Math.floor(score);
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+        }
+
+        function resetGame() {
+            gameRunning = true;
+            score = 0;
+            gameSpeed = 4.5;
+            obstacles = [];
+            currentInput = "";
+            timeScale = 1.0;
+            targetTimeScale = 1.0;
+            hintTimer = 0;
+            player = {
+                x: 80, y: GROUND_Y - 40, width: 40, height: 40,
+                vy: 0, gravity: 0, isJumping: false, isDucking: false, duckFrames: 0
+            };
+
+            for (let key in targets) {
+                targets[key].word = getRandomWord();
+                targets[key].nextWord = getRandomWord();
+            }
+            updateUI();
+
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('gameOverScreen').classList.add('hidden');
+            
+            cancelAnimationFrame(animationId);
+            gameLoop();
+        }
+
+        draw();
+    </script>
+</body>
+</html>

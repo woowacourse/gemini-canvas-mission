@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우아한테크코스 별: 행성이 신발 던지기</title>
+    <style>
+        :root {
+            --bg-color: #0a0e27;
+            --primary-color: #ffffff;
+            --accent-color: #ff4d4d;
+            --gauge-color: #4caf50;
+            --wind-color: #00f2fe;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Pretendard', sans-serif;
+            background-color: var(--bg-color);
+            color: white;
+            user-select: none;
+        }
+
+        /* 배경 우주 스타일 */
+        .stars {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at bottom, #1B2735 0%, #090A0F 100%);
+            z-index: -1;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.2; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); box-shadow: 0 0 8px white; }
+        }
+
+        /* 별똥별 */
+        .shooting-star {
+            position: absolute;
+            width: 2px;
+            height: 100px;
+            background: linear-gradient(to bottom, rgba(255,255,255,1), transparent);
+            border-radius: 50%;
+            animation: shoot 5s infinite ease-in;
+            z-index: 0;
+            top: -100px;
+            left: 70%;
+            transform: rotate(-45deg);
+            opacity: 0;
+        }
+
+        @keyframes shoot {
+            0% { transform: translate(0, 0) rotate(-45deg); opacity: 1; }
+            20% { transform: translate(-500px, 500px) rotate(-45deg); opacity: 0; }
+            100% { opacity: 0; }
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 캐릭터 선택 화면 */
+        #setup-screen {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 2rem;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 800px;
+            width: 90%;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            z-index: 100;
+        }
+
+        .selection-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .planet-card {
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 15px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .planet-card svg { display: block; margin: 0 auto; }
+        .planet-card:hover { transform: scale(1.05); background: rgba(255,255,255,0.1); }
+        .planet-card.selected { border-color: #60efff; background: rgba(96, 239, 255, 0.2); box-shadow: 0 0 15px #60efff; }
+
+        .input-group { margin-top: 20px; }
+        input {
+            padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3);
+            margin: 5px; width: 220px; background: rgba(0,0,0,0.5); color: white; outline: none;
+        }
+        button {
+            padding: 12px 40px; background: #60efff; border: none; border-radius: 30px;
+            color: #000; font-weight: bold; cursor: pointer; font-size: 1.1rem;
+            margin-top: 20px; transition: transform 0.2s;
+        }
+        button:active { transform: scale(0.95); }
+        button:disabled { background: #555; cursor: not-allowed; }
+
+        /* 게임 실행 화면 */
+        #game-screen { display: none; width: 100%; height: 100%; position: relative; }
+
+        .hud {
+            position: absolute; top: 20px; width: 100%; display: flex;
+            justify-content: space-between; padding: 0 50px; box-sizing: border-box; z-index: 20;
+        }
+
+        #wind-indicator {
+            position: relative; background: rgba(0, 242, 254, 0.2); padding: 10px 20px;
+            border-radius: 15px; border: 1px solid var(--wind-color); text-align: center; min-width: 120px;
+        }
+        .wind-arrow { font-size: 1.5rem; display: inline-block; transition: transform 0.3s; }
+        .player-info { display: flex; flex-direction: column; align-items: center; z-index: 20; }
+        
+        /* 하트 UI 스타일 */
+        .hearts { display: flex; gap: 8px; margin-top: 8px; }
+        .heart-svg { width: 24px; height: 24px; filter: drop-shadow(0 0 5px rgba(255, 77, 77, 0.6)); }
+
+        .game-world { position: relative; width: 100%; height: 100%; overflow: hidden; }
+
+        /* 우주선 */
+        .spaceship {
+            position: absolute;
+            width: 120px;
+            height: 60px;
+            top: 15%;
+            left: -150px;
+            animation: flySpaceship 25s linear infinite;
+            z-index: 1;
+            opacity: 0.8;
+            pointer-events: none;
+        }
+
+        @keyframes flySpaceship {
+            0% { transform: translate(0, 0) rotate(10deg) scale(0.8); }
+            50% { transform: translate(60vw, -80px) rotate(0deg) scale(1); }
+            100% { transform: translate(120vw, 30px) rotate(15deg) scale(0.8); }
+        }
+
+        /* 달 표면 */
+        .moon-ground {
+            position: absolute;
+            bottom: -200px;
+            left: -10%;
+            width: 120%;
+            height: 350px;
+            background: radial-gradient(ellipse at top, #cfd8dc 0%, #90a4ae 50%, #546e7a 100%);
+            border-radius: 50%;
+            z-index: 2;
+            box-shadow: inset 0 20px 50px rgba(0,0,0,0.4), 0 -10px 30px rgba(255,255,255,0.1);
+        }
+
+        .crater {
+            position: absolute;
+            background: rgba(0,0,0,0.15);
+            border-radius: 50%;
+            box-shadow: inset 2px 5px 15px rgba(0,0,0,0.3), 1px 1px 3px rgba(255,255,255,0.3);
+        }
+
+        .planet-view {
+            position: absolute;
+            bottom: 130px;
+            width: 120px;
+            height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3;
+        }
+
+        #p1-display { left: 15%; }
+        #p2-display { right: 15%; transform: scaleX(-1); }
+
+        /* 발사 가이드 SVG (궤적 및 방향 화살표) */
+        #trajectory-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 4;
+        }
+
+        #shoe {
+            position: absolute;
+            width: 50px;
+            height: 30px;
+            display: none;
+            z-index: 5;
+            filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5));
+        }
+
+        #gauge-container {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 400px;
+            height: 24px;
+            background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 12px;
+            overflow: hidden;
+            display: none;
+            z-index: 20;
+        }
+
+        #gauge-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #4caf50, #ffeb3b, #f44336);
+        }
+
+        /* 조작 안내 문구 */
+        .controls-hint {
+            position: absolute;
+            bottom: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.6);
+            z-index: 21;
+            letter-spacing: 1px;
+            animation: pulse 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 0.8; }
+        }
+
+        .turn-indicator {
+            position: absolute;
+            bottom: 110px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.8rem;
+            font-weight: 900;
+            text-shadow: 0 0 15px rgba(96, 239, 255, 0.8);
+            color: #fff;
+            z-index: 20;
+        }
+
+        #result-screen {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 200; flex-direction: column;
+            justify-content: center; align-items: center;
+        }
+
+        .floating { animation: float 3s ease-in-out infinite; }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-15px); }
+        }
+
+        .message-box {
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.9); color: black; padding: 15px 30px;
+            border-radius: 30px; font-weight: bold; display: none; z-index: 50;
+            box-shadow: 0 0 20px rgba(255,255,255,0.5); font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="stars" id="stars-container"></div>
+<div class="shooting-star"></div>
+
+<div id="game-container">
+    <div id="setup-screen">
+        <h1>🌌 우아한테크코스 별 슈즈컵</h1>
+        <p>캐릭터와 이름을 정하고 대결을 시작하세요!</p>
+        <div class="selection-grid" id="planet-options"></div>
+        <div class="input-group">
+            <input type="text" id="p1-name" placeholder="플레이어 1 닉네임" maxlength="8">
+            <input type="text" id="p2-name" placeholder="플레이어 2 닉네임" maxlength="8">
+        </div>
+        <button id="start-btn" disabled>달 표면으로 이동!</button>
+    </div>
+
+    <div id="game-screen">
+        <div class="hud">
+            <div class="player-info">
+                <h3 id="p1-label">Player 1</h3>
+                <div class="hearts" id="p1-hearts"></div>
+            </div>
+            <div id="wind-indicator">
+                <div style="font-size: 0.8rem; margin-bottom: 2px;">우주 바람</div>
+                <span id="wind-arrow" class="wind-arrow">→</span>
+                <span id="wind-value">0</span>
+            </div>
+            <div class="player-info">
+                <h3 id="p2-label">Player 2</h3>
+                <div class="hearts" id="p2-hearts"></div>
+            </div>
+        </div>
+
+        <div class="turn-indicator" id="turn-text"></div>
+
+        <div class="game-world" id="world">
+            <div class="spaceship">
+                <svg viewBox="0 0 100 50" width="100%" height="100%">
+                    <path d="M15,25 Q40,5 90,25 Q40,45 15,25" fill="#e0e0e0"/>
+                    <ellipse cx="50" cy="20" rx="15" ry="8" fill="#60efff"/>
+                    <circle cx="30" cy="25" r="3" fill="#ff4d4d"/>
+                    <circle cx="50" cy="28" r="3" fill="#ff4d4d"/>
+                    <circle cx="70" cy="25" r="3" fill="#ff4d4d"/>
+                    <path d="M15,20 L0,25 L15,30 Z" fill="#ff9800"/>
+                </svg>
+            </div>
+
+            <div class="moon-ground">
+                <div class="crater" style="width: 80px; height: 25px; top: 40px; left: 15%"></div>
+                <div class="crater" style="width: 150px; height: 40px; top: 80px; left: 45%"></div>
+                <div class="crater" style="width: 60px; height: 20px; top: 30px; left: 80%"></div>
+                <div class="crater" style="width: 40px; height: 15px; top: 120px; left: 25%"></div>
+                <div class="crater" style="width: 90px; height: 30px; top: 100px; left: 75%"></div>
+            </div>
+
+            <div id="p1-display" class="planet-view floating"></div>
+            <div id="p2-display" class="planet-view floating"></div>
+            
+            <!-- 가이드 가이드 (점선 궤적 + 직선 방향선) -->
+            <svg id="trajectory-svg">
+                <!-- 직선 방향선 -->
+                <line id="aim-line" stroke="#60efff" stroke-width="4" stroke-linecap="round" stroke-dasharray="2 6" />
+                <circle id="aim-tip" r="5" fill="#60efff" />
+                <!-- 포물선 궤적 -->
+                <path id="trajectory-path" fill="none" stroke="#ffeb3b" stroke-width="4" stroke-dasharray="8 8" stroke-linecap="round"/>
+            </svg>
+            
+            <div id="shoe">
+                <svg viewBox="0 0 100 60" width="50" height="30">
+                    <path d="M 5,50 L 95,50 C 97,50 98,48 98,46 L 98,44 C 98,42 97,40 95,40 L 5,40 C 3,40 2,42 2,44 L 2,46 C 2,48 3,50 5,50 Z" fill="#ffffff" stroke="#ccc" stroke-width="1"/>
+                    <line x1="5" y1="45" x2="95" y2="45" stroke="#333" stroke-width="1"/>
+                    <path d="M 5,40 L 5,20 C 5,10 15,5 25,5 L 45,5 C 55,5 65,15 75,25 L 95,35 C 98,36 98,40 95,40 L 5,40 Z" fill="#e53935"/>
+                    <path d="M 70,20 L 95,35 C 98,36 98,40 95,40 L 70,40 Z" fill="#ffffff"/>
+                    <path d="M 25,40 L 45,20 L 55,20 L 35,40 Z" fill="#ffffff" opacity="0.8"/>
+                    <line x1="45" y1="5" x2="55" y2="15" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="55" y1="5" x2="65" y2="15" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="65" y1="10" x2="72" y2="20" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+                    <ellipse cx="25" cy="5" rx="15" ry="5" fill="#333"/>
+                </svg>
+            </div>
+        </div>
+
+        <div id="gauge-container">
+            <div id="gauge-fill"></div>
+        </div>
+        
+        <!-- 조작 안내 UI -->
+        <div class="controls-hint">마우스 왼쪽 버튼을 길게 눌러 파워를 조절하세요!</div>
+    </div>
+
+    <div id="result-screen">
+        <h1 id="winner-text" style="font-size: 3rem; color: #60efff;">승리!</h1>
+        <div id="winner-visual" style="margin: 30px 0;"></div>
+        <button onclick="location.reload()">지구로 돌아가기 (다시 하기)</button>
+    </div>
+
+    <div id="msg-box" class="message-box"></div>
+</div>
+
+<script>
+    const HEART_SVG = `<svg class="heart-svg" viewBox="0 0 32 32"><path d="M16 28.5L14.1 26.8C7.1 20.6 2.5 16.4 2.5 11.3C2.5 7.1 5.8 3.8 10 3.8C12.4 3.8 14.6 4.9 16 6.7C17.4 4.9 19.6 3.8 22 3.8C26.2 3.8 29.5 7.1 29.5 11.3C29.5 16.4 24.9 20.6 17.9 26.8L16 28.5Z" fill="#ff4d4d"/></svg>`;
+
+    const PLANET_TYPES = [
+        { id: 'exercise', name: '운동하는 행성', svg: `<svg viewBox="0 0 200 200" width="120" height="120"><circle cx="100" cy="80" r="50" fill="none" stroke="white" stroke-width="4"/><ellipse cx="100" cy="80" rx="75" ry="20" fill="none" stroke="white" stroke-width="3" transform="rotate(10, 100, 80)"/><circle cx="85" cy="75" r="4" fill="white"/><circle cx="115" cy="75" r="4" fill="white"/><path d="M125 60 Q 135 65 125 70 M 125 80 Q 135 85 125 90" fill="none" stroke="#60efff" stroke-width="3"/><path d="M80 125 L 70 150 M 120 125 L 130 150" stroke="white" stroke-width="5" stroke-linecap="round"/><rect x="50" y="145" width="100" height="10" rx="5" fill="#60efff" /><circle cx="50" cy="150" r="18" fill="none" stroke="white" stroke-width="4"/><circle cx="150" cy="150" r="18" fill="none" stroke="white" stroke-width="4"/></svg>`},
+        { id: 'party', name: '파티하는 행성', svg: `<svg viewBox="0 0 200 200" width="120" height="120"><circle cx="100" cy="100" r="50" fill="none" stroke="white" stroke-width="4"/><ellipse cx="100" cy="100" rx="75" ry="20" fill="none" stroke="white" stroke-width="3" transform="rotate(-15, 100, 100)"/><path d="M80 60 L 100 20 L 120 60 Z" fill="#ff4d4d" stroke="white" stroke-width="2"/><path d="M75 90 L 90 90 M 110 90 L 125 90" stroke="white" stroke-width="4"/><path d="M80 145 L 90 165 M 110 165 L 120 145" stroke="white" stroke-width="5"/><path d="M130 50 L 150 20 M 150 20 L 170 30" stroke="#60efff" stroke-width="3"/><path d="M150 20 L 140 10 L 160 10 Z" fill="#ffeb3b"/></svg>`},
+        { id: 'coding', name: '코딩하는 행성', svg: `<svg viewBox="0 0 200 200" width="120" height="120"><circle cx="100" cy="80" r="50" fill="none" stroke="white" stroke-width="4"/><ellipse cx="100" cy="80" rx="75" ry="20" fill="none" stroke="white" stroke-width="3"/><rect x="70" y="70" width="22" height="16" rx="2" fill="none" stroke="white" stroke-width="3"/><rect x="108" y="70" width="22" height="16" rx="2" fill="none" stroke="white" stroke-width="3"/><line x1="92" y1="78" x2="108" y2="78" stroke="white" stroke-width="2"/><rect x="60" y="135" width="80" height="45" rx="5" fill="none" stroke="#60efff" stroke-width="4"/><path d="M70 145 H 120 M 70 155 H 100" stroke="white" stroke-width="2"/></svg>`},
+        { id: 'sleeping', name: '잠자는 행성', svg: `<svg viewBox="0 0 200 200" width="120" height="120"><circle cx="100" cy="100" r="50" fill="none" stroke="white" stroke-width="4"/><ellipse cx="100" cy="100" rx="75" ry="20" fill="none" stroke="white" stroke-width="3" transform="rotate(5, 100, 100)"/><path d="M80 90 Q 90 80 100 90 M 110 90 Q 120 80 130 90" fill="none" stroke="white" stroke-width="3"/><text x="140" y="60" fill="#60efff" font-family="Arial" font-weight="bold" font-size="24">Z</text><text x="160" y="40" fill="#60efff" font-family="Arial" font-weight="bold" font-size="16">z</text><path d="M90 150 L 95 170 M 105 170 L 110 150" stroke="white" stroke-width="5"/></svg>`},
+        { id: 'basic', name: '기본 행성', svg: `<svg viewBox="0 0 200 200" width="120" height="120"><circle cx="100" cy="100" r="50" fill="none" stroke="white" stroke-width="4"/><ellipse cx="100" cy="100" rx="80" ry="25" fill="none" stroke="white" stroke-width="3" transform="rotate(-10, 100, 100)"/><circle cx="85" cy="95" r="5" fill="white"/><circle cx="115" cy="95" r="5" fill="white"/><path d="M90 120 Q 100 135 110 120" fill="none" stroke="#ff4d4d" stroke-width="3"/><path d="M90 150 L 95 175 M 105 175 L 110 150" stroke="white" stroke-width="5"/></svg>`}
+    ];
+
+    let selectedPlanets = [];
+    let players = [null, null];
+    let currentTurn = 0;
+    let isCharging = false;
+    let gaugeValue = 0;
+    let gaugeDirection = 1;
+    let gaugeInterval = null;
+    let isThrowing = false;
+    let windPower = 0;
+
+    function init() {
+        createStars();
+        renderSelectionCards();
+        document.getElementById('start-btn').onclick = startGame;
+        
+        window.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            if (!isThrowing && document.getElementById('game-screen').style.display === 'block') startCharging();
+        });
+        window.addEventListener('mouseup', (e) => {
+            if (e.button !== 0) return;
+            if (isCharging) stopChargingAndThrow();
+        });
+    }
+
+    function createStars() {
+        const container = document.getElementById('stars-container');
+        for (let i = 0; i < 150; i++) {
+            const star = document.createElement('div');
+            star.style.position = 'absolute';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            const size = Math.random() * 2 + 1;
+            star.style.width = size + 'px';
+            star.style.height = size + 'px';
+            star.style.backgroundColor = 'white';
+            star.style.borderRadius = '50%';
+            star.style.opacity = Math.random() * 0.8 + 0.2;
+            star.style.animation = `twinkle ${Math.random() * 4 + 2}s infinite alternate`;
+            container.appendChild(star);
+        }
+    }
+
+    function renderSelectionCards() {
+        const container = document.getElementById('planet-options');
+        PLANET_TYPES.forEach(type => {
+            const card = document.createElement('div');
+            card.className = 'planet-card';
+            card.innerHTML = `${type.svg}<div style="margin-top:10px; font-weight:bold;">${type.name}</div>`;
+            card.onclick = () => {
+                const idx = selectedPlanets.indexOf(type);
+                if (idx > -1) {
+                    selectedPlanets.splice(idx, 1);
+                    card.classList.remove('selected');
+                } else if (selectedPlanets.length < 2) {
+                    selectedPlanets.push(type);
+                    card.classList.add('selected');
+                }
+                document.getElementById('start-btn').disabled = selectedPlanets.length !== 2;
+            };
+            container.appendChild(card);
+        });
+    }
+
+    function startGame() {
+        players = [
+            { name: document.getElementById('p1-name').value || "행성이1", type: selectedPlanets[0], hp: 5 },
+            { name: document.getElementById('p2-name').value || "행성이2", type: selectedPlanets[1], hp: 5 }
+        ];
+        document.getElementById('setup-screen').style.display = 'none';
+        document.getElementById('game-screen').style.display = 'block';
+        document.getElementById('p1-label').innerText = players[0].name;
+        document.getElementById('p2-label').innerText = players[1].name;
+        updateHearts();
+        nextTurn();
+    }
+
+    function updateHearts() {
+        document.getElementById('p1-hearts').innerHTML = HEART_SVG.repeat(players[0].hp);
+        document.getElementById('p2-hearts').innerHTML = HEART_SVG.repeat(players[1].hp);
+    }
+
+    function nextTurn() {
+        isThrowing = false;
+        windPower = (Math.random() * 6 - 3).toFixed(1);
+        const windArrow = document.getElementById('wind-arrow');
+        const windValue = document.getElementById('wind-value');
+        windValue.innerText = Math.abs(windPower);
+        windArrow.innerText = windPower > 0 ? "→" : "←";
+        windArrow.style.color = Math.abs(windPower) > 2 ? "#ffeb3b" : "var(--wind-color)";
+
+        document.getElementById('turn-text').innerText = `${players[currentTurn].name}의 턴!`;
+        
+        const p1View = document.getElementById('p1-display');
+        const p2View = document.getElementById('p2-display');
+        p1View.innerHTML = players[0].type.svg;
+        p2View.innerHTML = players[1].type.svg;
+
+        // 가이드 지우기
+        document.getElementById('trajectory-path').setAttribute('d', '');
+        document.getElementById('aim-line').setAttribute('x1', '0');
+        document.getElementById('aim-line').setAttribute('y1', '0');
+        document.getElementById('aim-line').setAttribute('x2', '0');
+        document.getElementById('aim-line').setAttribute('y2', '0');
+        document.getElementById('aim-tip').setAttribute('cx', '-10');
+
+        document.getElementById('gauge-container').style.display = 'block';
+        document.getElementById('gauge-fill').style.width = '0%';
+    }
+
+    function startCharging() {
+        isCharging = true;
+        gaugeValue = 0;
+        gaugeDirection = 1;
+
+        if (gaugeInterval) clearInterval(gaugeInterval);
+        gaugeInterval = setInterval(() => {
+            gaugeValue += 2 * gaugeDirection;
+            if (gaugeValue >= 100 || gaugeValue <= 0) gaugeDirection *= -1;
+            document.getElementById('gauge-fill').style.width = gaugeValue + '%';
+            
+            drawTrajectory(gaugeValue);
+        }, 16);
+    }
+
+    function drawTrajectory(power) {
+        const world = document.getElementById('world');
+        const attackerEl = currentTurn === 0 ? document.getElementById('p1-display') : document.getElementById('p2-display');
+        
+        const startX = currentTurn === 0 ? (attackerEl.offsetLeft + 100) : (attackerEl.offsetLeft + 20);
+        const startY = attackerEl.offsetTop + 40;
+        
+        const g = 0.2;
+        const angleRad = 45 * (Math.PI / 180);
+        const baseSpeed = 16;
+        const initialSpeed = (power / 100) * baseSpeed + 4;
+        
+        let vx = Math.cos(angleRad) * initialSpeed;
+        if (currentTurn === 1) vx = -vx;
+        let vy = -Math.sin(angleRad) * initialSpeed;
+        const windAcc = windPower * 0.02;
+        
+        // 1. 직선 방향 화살표 업데이트
+        const lineLen = 30 + (power * 1.5); // 파워에 따라 길이 변화
+        const lineEndX = startX + (currentTurn === 0 ? Math.cos(angleRad) * lineLen : -Math.cos(angleRad) * lineLen);
+        const lineEndY = startY - Math.sin(angleRad) * lineLen;
+        
+        const aimLine = document.getElementById('aim-line');
+        aimLine.setAttribute('x1', startX);
+        aimLine.setAttribute('y1', startY);
+        aimLine.setAttribute('x2', lineEndX);
+        aimLine.setAttribute('y2', lineEndY);
+        
+        const aimTip = document.getElementById('aim-tip');
+        aimTip.setAttribute('cx', lineEndX);
+        aimTip.setAttribute('cy', lineEndY);
+
+        // 2. 포물선 궤적 업데이트
+        let pathStr = `M ${startX} ${startY}`;
+        let simX = startX;
+        let simY = startY;
+        let simVx = vx;
+        let simVy = vy;
+        
+        for (let step = 0; step < 150; step++) {
+            simVx += windAcc;
+            simVy += g;
+            simX += simVx;
+            simY += simVy;
+            if (step % 4 === 0) pathStr += ` L ${simX} ${simY}`;
+            if (simY > world.offsetHeight - 140) break;
+        }
+        document.getElementById('trajectory-path').setAttribute('d', pathStr);
+    }
+
+    function stopChargingAndThrow() {
+        isCharging = false;
+        isThrowing = true;
+        clearInterval(gaugeInterval);
+        
+        // 가이드선 숨기기
+        document.getElementById('trajectory-path').setAttribute('d', ''); 
+        document.getElementById('aim-line').setAttribute('x1', '0');
+        document.getElementById('aim-line').setAttribute('y1', '0');
+        document.getElementById('aim-line').setAttribute('x2', '0');
+        document.getElementById('aim-line').setAttribute('y2', '0');
+        document.getElementById('aim-tip').setAttribute('cx', '-10');
+
+        throwShoe(gaugeValue);
+    }
+
+    function throwShoe(power) {
+        const shoe = document.getElementById('shoe');
+        const world = document.getElementById('world');
+        const attackerEl = currentTurn === 0 ? document.getElementById('p1-display') : document.getElementById('p2-display');
+        const defenderEl = currentTurn === 0 ? document.getElementById('p2-display') : document.getElementById('p1-display');
+        
+        const startX = currentTurn === 0 ? (attackerEl.offsetLeft + 100) : (attackerEl.offsetLeft + 20);
+        const startY = attackerEl.offsetTop + 40;
+        
+        shoe.style.display = 'block';
+        
+        const g = 0.2;
+        const angleRad = 45 * (Math.PI / 180);
+        const baseSpeed = 16;
+        const initialSpeed = (power / 100) * baseSpeed + 4;
+        
+        let vx = Math.cos(angleRad) * initialSpeed;
+        if (currentTurn === 1) vx = -vx;
+        let vy = -Math.sin(angleRad) * initialSpeed;
+        const windAcc = windPower * 0.02;
+
+        let x = startX;
+        let y = startY;
+        let t = 0;
+
+        function animate() {
+            t += 1;
+            vx += windAcc;
+            vy += g;
+            x += vx;
+            y += vy;
+
+            shoe.style.left = x + 'px';
+            shoe.style.top = y + 'px';
+            shoe.style.transform = `rotate(${t * 10}deg)`;
+
+            const shoeCenterX = x + 25;
+            const shoeCenterY = y + 15;
+            const targetCenterX = defenderEl.offsetLeft + 60;
+            const targetCenterY = defenderEl.offsetTop + 60;
+            
+            const dx = shoeCenterX - targetCenterX;
+            const dy = shoeCenterY - targetCenterY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < 55) {
+                checkHit(true, defenderEl);
+                return;
+            }
+
+            if (y > world.offsetHeight - 140 || x > world.offsetWidth + 100 || x < -100) {
+                checkHit(false, defenderEl);
+            } else {
+                requestAnimationFrame(animate);
+            }
+        }
+        requestAnimationFrame(animate);
+    }
+
+    function checkHit(isHit, targetEl) {
+        const shoe = document.getElementById('shoe');
+
+        if (isHit) {
+            players[1 - currentTurn].hp -= 1;
+            updateHearts();
+            showMessage("직격탄! 👟💥");
+            targetEl.style.filter = 'drop-shadow(0 0 30px #ff4d4d) brightness(2)';
+            setTimeout(() => targetEl.style.filter = '', 600);
+        } else {
+            showMessage("아쉬워요! 💨");
+        }
+
+        shoe.style.display = 'none';
+
+        if (players[0].hp <= 0 || players[1].hp <= 0) {
+            setTimeout(showWinner, 1000);
+        } else {
+            setTimeout(() => {
+                currentTurn = 1 - currentTurn;
+                nextTurn();
+            }, 1000);
+        }
+    }
+
+    function showMessage(msg) {
+        const box = document.getElementById('msg-box');
+        box.innerText = msg;
+        box.style.display = 'block';
+        setTimeout(() => box.style.display = 'none', 1500);
+    }
+
+    function showWinner() {
+        const winner = players[0].hp > 0 ? players[0] : players[1];
+        document.getElementById('game-screen').style.display = 'none';
+        document.getElementById('result-screen').style.display = 'flex';
+        document.getElementById('winner-text').innerText = `${winner.name} 우승!`;
+        document.getElementById('winner-visual').innerHTML = winner.type.svg;
+    }
+
+    window.onload = init;
+</script>
+
+</body>
+</html>

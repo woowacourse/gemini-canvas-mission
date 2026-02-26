@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DB 마스터</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <style>
+        :root {
+            --toss-blue: #3182F6;
+            --toss-blue-hover: #1b64da;
+            --toss-bg: #F2F4F6;
+            --toss-surface: #FFFFFF;
+            --toss-text: #191F28;
+            --toss-text-secondary: #8B95A1;
+            --toss-green: #34C759;
+            --toss-red: #FF3B30;
+        }
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: var(--toss-bg);
+            color: var(--toss-text);
+            overflow-x: hidden;
+            user-select: none;
+        }
+
+        /* 애니메이션 */
+        @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes bounceGlow {
+            0%, 100% { box-shadow: 0 0 10px rgba(49, 130, 246, 0.4); transform: translateY(0); }
+            50% { box-shadow: 0 0 20px rgba(49, 130, 246, 0.8); transform: translateY(-5px); }
+        }
+
+        .animate-slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        .animate-pop-in { animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        
+        .island-active { animation: bounceGlow 2s infinite; border: 4px solid var(--toss-blue); }
+        .island-locked { filter: grayscale(100%); opacity: 0.6; }
+        
+        /* 바텀 시트 */
+        .bottom-sheet-backdrop {
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(2px);
+        }
+        .bottom-sheet {
+            border-radius: 24px 24px 0 0;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+        }
+
+        /* 선택지 버튼 */
+        .option-btn {
+            transition: all 0.2s ease;
+        }
+        .option-btn:active {
+            transform: scale(0.97);
+        }
+        .option-btn.selected {
+            background-color: #E8F3FF;
+            border-color: var(--toss-blue);
+            color: var(--toss-blue);
+        }
+        .option-btn.correct {
+            background-color: #E6F4EA;
+            border-color: var(--toss-green);
+            color: #137333;
+        }
+        .option-btn.wrong {
+            background-color: #FCE8E6;
+            border-color: var(--toss-red);
+            color: #C5221F;
+        }
+
+        /* 지도 경로 */
+        .path-line {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            transition: stroke-dashoffset 1.5s ease-in-out;
+        }
+
+        /* 배지 애니메이션 */
+        .badge-glow {
+            background: radial-gradient(circle, rgba(255,215,0,0.6) 0%, rgba(255,215,0,0) 70%);
+            animation: spinGlow 4s linear infinite;
+        }
+        @keyframes spinGlow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* 인포그래픽 애니메이션 관련 헬퍼 클래스 */
+        .info-step-hidden { opacity: 0; transform: translateY(10px); }
+        .info-step-visible { opacity: 1; transform: translateY(0); }
+    </style>
+</head>
+<body class="h-screen w-screen flex justify-center bg-gray-100 overflow-hidden">
+
+    <!-- 모바일 컨테이너 -->
+    <div id="app-container" class="relative w-full max-w-md h-full bg-white shadow-2xl overflow-hidden flex flex-col">
+        
+        <!-- 1. 지도 화면 -->
+        <div id="screen-map" class="absolute inset-0 flex flex-col z-10 bg-[#F2F4F6] overflow-y-auto">
+            <div class="px-6 pt-12 pb-6 bg-white rounded-b-3xl shadow-sm z-20">
+                <h1 class="text-3xl font-extrabold text-[#191F28] tracking-tight">DB 마스터</h1>
+                <p class="text-[#8B95A1] mt-2 font-medium">데이터베이스 정복을 위한 여정</p>
+                <div class="mt-4 flex items-center bg-[#F2F4F6] rounded-xl p-3">
+                    <div class="flex-1">
+                        <div class="text-sm font-bold text-[#191F28]">나의 진행도</div>
+                        <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                            <div id="progress-bar-overall" class="bg-blue-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="ml-4 font-bold text-blue-500" id="progress-text">0%</div>
+                </div>
+            </div>
+
+            <div class="relative flex-1 py-12 px-4 flex flex-col items-center justify-between min-h-[600px]">
+                <!-- 경로 SVG -->
+                <svg class="absolute top-0 left-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <path id="map-path" class="path-line" d="M50 90 Q 20 75 50 50 T 50 10" fill="none" stroke="#E5E8EB" stroke-width="2" stroke-linecap="round"/>
+                    <path id="map-path-active" class="path-line" d="M50 90 Q 20 75 50 50 T 50 10" fill="none" stroke="#3182F6" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+
+                <!-- 섬 리스트 (JS로 렌더링) -->
+                <div id="islands-container" class="w-full h-full flex flex-col-reverse items-center justify-between relative z-10 pb-8 pt-8">
+                    <!-- 섬이 이곳에 주입됩니다 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 퀴즈 화면 -->
+        <div id="screen-quiz" class="absolute inset-0 flex flex-col z-20 bg-white hidden">
+            <!-- 헤더 -->
+            <div class="flex items-center justify-between p-4 border-b border-gray-100">
+                <button onclick="returnToMap()" class="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <div class="font-bold text-[#191F28]" id="quiz-stage-title">1단계: 입문</div>
+                <div class="w-10"></div>
+            </div>
+
+            <!-- 진행률 -->
+            <div class="px-6 py-4">
+                <div class="flex justify-between text-sm font-bold text-[#8B95A1] mb-2">
+                    <span id="quiz-progress-text">문제 1 / 10</span>
+                    <span id="quiz-score-text" class="text-blue-500">맞춘 개수: 0</span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-2">
+                    <div id="quiz-progress-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 10%"></div>
+                </div>
+            </div>
+
+            <!-- 문제 -->
+            <div class="px-6 py-4 flex-1 overflow-y-auto">
+                <div class="bg-[#F9FAFB] p-5 rounded-2xl mb-6">
+                    <h2 id="question-text" class="text-xl font-bold text-[#191F28] leading-snug break-keep">
+                        <!-- 문제가 이곳에 들어갑니다 -->
+                    </h2>
+                </div>
+
+                <!-- 선택지 -->
+                <div id="options-container" class="flex flex-col gap-3">
+                    <!-- 선택지가 이곳에 주입됩니다 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 결과 화면 -->
+        <div id="screen-result" class="absolute inset-0 flex flex-col z-30 bg-white hidden items-center justify-center p-6 text-center">
+            <div id="result-icon" class="text-7xl mb-4 animate-pop-in">🎉</div>
+            <h2 id="result-title" class="text-3xl font-extrabold text-[#191F28] mb-2">클리어 성공!</h2>
+            <p id="result-desc" class="text-[#8B95A1] text-lg mb-8">8개 이상 맞혀 다음 섬이 열렸습니다.</p>
+            
+            <div class="bg-[#F2F4F6] rounded-3xl p-6 w-full max-w-xs mb-8">
+                <div class="text-sm font-bold text-[#8B95A1] mb-1">최종 점수</div>
+                <div class="text-5xl font-extrabold text-blue-500" id="result-score">8<span class="text-2xl text-gray-400">/10</span></div>
+            </div>
+
+            <button onclick="returnToMap()" id="result-btn" class="w-full py-4 bg-blue-500 text-white rounded-2xl font-bold text-lg hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/30">
+                지도에서 확인하기
+            </button>
+        </div>
+
+        <!-- 4. 최종 배지 화면 -->
+        <div id="screen-badge" class="absolute inset-0 flex flex-col z-40 bg-[#191F28] hidden items-center justify-center p-6 text-center overflow-hidden">
+            <div class="absolute inset-0 badge-glow opacity-30"></div>
+            
+            <div class="relative z-10 flex flex-col items-center animate-slide-up">
+                <h2 class="text-3xl font-extrabold text-white mb-2">모든 관문 통과!</h2>
+                <p class="text-[#8B95A1] text-lg mb-10">당신의 열정과 노력에 박수를 보냅니다.</p>
+
+                <div class="relative w-48 h-48 mb-10 animate-pop-in flex items-center justify-center">
+                    <!-- 메달 SVG -->
+                    <svg viewBox="0 0 200 200" class="w-full h-full drop-shadow-2xl">
+                        <circle cx="100" cy="100" r="90" fill="#FFD700" stroke="#F5B041" stroke-width="8"/>
+                        <circle cx="100" cy="100" r="75" fill="#FFC300"/>
+                        <!-- 리본 -->
+                        <path d="M 50 170 L 30 250 L 70 230 L 100 250 L 80 170 Z" fill="#E74C3C"/>
+                        <path d="M 150 170 L 170 250 L 130 230 L 100 250 L 120 170 Z" fill="#C0392B"/>
+                        <!-- 내부 장식 -->
+                        <path d="M 50 100 A 50 50 0 1 1 150 100 A 50 50 0 1 1 50 100 Z" fill="none" stroke="#F39C12" stroke-width="4" stroke-dasharray="10 5"/>
+                        <text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" font-family="Pretendard" font-weight="900" font-size="28" fill="#B9770E">DB</text>
+                        <text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" font-family="Pretendard" font-weight="900" font-size="24" fill="#B9770E">마스터</text>
+                    </svg>
+                </div>
+
+                <div class="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 text-white text-sm leading-relaxed mb-8">
+                    DBMS 기초부터 JOIN, 정규화, 인덱스와 트랜잭션까지.<br>
+                    데이터베이스의 핵심을 모두 마스터하셨습니다.<br>
+                    이제 훌륭한 백엔드/DBA 전문가로 성장하세요!
+                </div>
+
+                <button onclick="resetGame()" class="px-8 py-4 bg-white text-[#191F28] rounded-2xl font-bold text-lg hover:bg-gray-100 transition-colors shadow-lg">
+                    처음부터 다시하기
+                </button>
+            </div>
+        </div>
+
+        <!-- 해설 바텀 시트 (애니메이션 인포그래픽) -->
+        <div id="explanation-modal" class="absolute inset-0 z-50 hidden flex-col justify-end">
+            <div class="absolute inset-0 bottom-sheet-backdrop" onclick="nextQuestion()"></div>
+            <div class="bottom-sheet bg-white w-full h-[85%] relative flex flex-col animate-slide-up">
+                <div class="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mt-3 mb-2"></div>
+                
+                <div class="p-6 flex-1 overflow-y-auto">
+                    <!-- 동적 정답/오답 헤더 -->
+                    <div id="result-header" class="flex items-center font-bold text-lg mb-4">
+                        <!-- JS에서 채워짐 -->
+                    </div>
+                    
+                    <h3 class="text-xl font-bold text-[#191F28] mb-4" id="exp-title">동작 과정 시각화</h3>
+                    
+                    <!-- 인포그래픽 박스 -->
+                    <div class="bg-[#191F28] rounded-2xl p-4 mb-6 flex items-center justify-center min-h-[220px] overflow-hidden shadow-inner" id="infographic-container">
+                        <!-- 카테고리에 기반한 실시간 애니메이션 시각화가 주입됩니다 -->
+                    </div>
+
+                    <div class="bg-[#F9FAFB] border border-gray-100 rounded-2xl p-5">
+                        <p class="text-[#333D4B] leading-relaxed break-keep font-medium" id="exp-text">
+                            설명이 여기에 들어갑니다.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="p-6 border-t border-gray-100 bg-white shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-10">
+                    <button onclick="nextQuestion()" class="w-full py-4 bg-blue-500 text-white rounded-2xl font-bold text-lg hover:bg-blue-600 transition-colors">
+                        다음 문제로
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- 1. 퀴즈 데이터 정의 ---
+        const stagesData = [
+            {
+                id: 1, title: "1단계: 입문", desc: "데이터베이스 기초 및 SQL 문법", color: "bg-blue-100 text-blue-600", icon: "🌱",
+                questions: [
+                    { q: "데이터베이스(DB)와 데이터베이스 관리 시스템(DBMS)의 차이로 가장 올바른 것은?", options: ["DB는 데이터를 저장하는 물리적 디스크이고, DBMS는 메모리이다.", "DB는 저장된 데이터의 집합이며, DBMS는 이 데이터를 관리하고 운영하는 소프트웨어이다.", "DB는 관계형 데이터를, DBMS는 비관계형 데이터를 의미한다.", "두 용어는 완전히 동일한 의미로 사용된다."], answer: 1, category: "dbms", explanation: "DB(Database)는 유용한 데이터의 집합 자체를 의미하며, DBMS(Database Management System)는 사용자가 DB를 생성하고 관리할 수 있도록 도와주는 소프트웨어(예: MySQL, Oracle)입니다." },
+                    { q: "다음 중 관계형 데이터베이스(RDBMS)의 특징이 아닌 것은?", options: ["데이터를 테이블(Table) 형태로 행과 열로 저장한다.", "SQL(Structured Query Language)을 사용하여 데이터를 조작한다.", "데이터의 스키마(Schema)가 고정되어 있지 않아 자유롭다.", "데이터 무결성 유지를 위해 트랜잭션의 ACID 속성을 보장한다."], answer: 2, category: "rdbms", explanation: "스키마가 고정되어 있지 않고 유연한 구조를 가지는 것은 NoSQL의 주요 특징입니다. RDBMS는 명확히 정의된 스키마(Schema)를 따릅니다." },
+                    { q: "테이블에서 특정 조건에 맞는 데이터를 조회할 때 사용하는 SQL 구문은?", options: ["SELECT", "INSERT", "UPDATE", "DELETE"], answer: 0, category: "select", explanation: "데이터를 조회할 때는 SELECT 문을 사용합니다. 구조: SELECT 컬럼 FROM 테이블 WHERE 조건;" },
+                    { q: "사용자 테이블(Users)에서 나이가 20살 이상인 사람의 이름(Name)을 조회하는 쿼리로 올바른 것은?", options: ["SELECT Name FROM Users HAVING Age >= 20;", "SELECT Name FROM Users WHERE Age >= 20;", "FIND Name IN Users IF Age >= 20;", "SEARCH Name FROM Users WHERE Age >= 20;"], answer: 1, category: "select", explanation: "조건을 지정할 때는 WHERE 절을 사용해야 합니다. HAVING은 주로 GROUP BY로 그룹화된 결과에 조건을 줄 때 사용합니다." },
+                    { q: "조회된 데이터의 결과를 특정 컬럼 기준으로 정렬하고 싶을 때 사용하는 구문은?", options: ["GROUP BY", "ORDER BY", "SORT BY", "ALIGN BY"], answer: 1, category: "orderby", explanation: "ORDER BY 구문을 사용하여 오름차순(ASC) 또는 내림차순(DESC)으로 데이터를 정렬할 수 있습니다." },
+                    { q: "데이터베이스 테이블에 새로운 데이터를 삽입하기 위해 사용하는 DML 명령어는?", options: ["CREATE", "INSERT", "UPDATE", "ADD"], answer: 1, category: "insert", explanation: "새로운 행(Row)을 추가할 때는 INSERT 문을 사용합니다. CREATE는 테이블이나 데이터베이스 자체(객체)를 만들 때 사용하는 DDL입니다." },
+                    { q: "이미 저장된 데이터를 수정하려고 할 때 사용하는 명령어는?", options: ["CHANGE", "MODIFY", "UPDATE", "ALTER"], answer: 2, category: "update", explanation: "데이터(레코드)의 값을 변경할 때는 UPDATE 문을 사용합니다. ALTER는 테이블의 구조(스키마)를 변경할 때 사용합니다." },
+                    { q: "DELETE 문을 사용할 때 WHERE 절을 생략하면 어떤 일이 발생하는가?", options: ["문법 오류가 발생하여 실행되지 않는다.", "가장 최근에 추가된 데이터 1건만 삭제된다.", "테이블 자체(구조 포함)가 삭제된다.", "테이블의 모든 데이터(행)가 삭제된다."], answer: 3, category: "delete", explanation: "DELETE 문에서 WHERE 조건절을 생략하면 해당 테이블의 모든 레코드가 삭제되므로 매우 주의해야 합니다. (테이블 구조는 남음)" },
+                    { q: "다음 중 DML(Data Manipulation Language)에 속하지 않는 명령어는?", options: ["INSERT", "UPDATE", "DELETE", "DROP"], answer: 3, category: "dml", explanation: "DROP은 데이터베이스 객체(테이블, 뷰 등)를 삭제하는 DDL(Data Definition Language)입니다. DML은 SELECT, INSERT, UPDATE, DELETE 입니다." },
+                    { q: "가장 대표적인 오픈소스 RDBMS로, 이 돌고래 모양의 로고를 사용하는 데이터베이스는?", options: ["Oracle", "MySQL", "MongoDB", "Redis"], answer: 1, category: "mysql", explanation: "MySQL은 돌고래(Sakila)를 로고로 사용하는 세계에서 가장 인기 있는 오픈소스 RDBMS입니다." }
+                ]
+            },
+            {
+                id: 2, title: "2단계: 기본", desc: "데이터 관계와 조인", color: "bg-green-100 text-green-600", icon: "🌿",
+                questions: [
+                    { q: "두 개 이상의 테이블을 공통된 컬럼을 기준으로 결합하여 조회하는 SQL 문법은?", options: ["MERGE", "UNION", "JOIN", "BIND"], answer: 2, category: "join", explanation: "JOIN은 관계형 데이터베이스에서 두 개 이상의 테이블을 연결하여 하나의 결과 집합으로 만드는 핵심 기능입니다." },
+                    { q: "조인(JOIN) 방식 중, 두 테이블 모두에 일치하는 데이터가 있는 경우에만 결과를 반환하는 것은?", options: ["LEFT OUTER JOIN", "INNER JOIN", "CROSS JOIN", "FULL OUTER JOIN"], answer: 1, category: "innerjoin", explanation: "INNER JOIN은 교집합과 같습니다. 조인 조건에 일치하는 행(Row)만 양쪽 테이블에서 가져와 결합합니다." },
+                    { q: "왼쪽 테이블의 모든 데이터를 포함하고, 오른쪽 테이블에 일치하는 데이터가 없으면 NULL로 채워 반환하는 조인은?", options: ["INNER JOIN", "LEFT OUTER JOIN", "RIGHT OUTER JOIN", "NATURAL JOIN"], answer: 1, category: "leftjoin", explanation: "LEFT OUTER JOIN은 기준이 되는 왼쪽 테이블의 데이터는 무조건 살리고, 일치하는 우측 테이블 데이터가 없으면 빈 칸(NULL)으로 둡니다." },
+                    { q: "여러 행의 데이터를 그룹화하여 합계, 평균 등의 통계를 내기 위해 사용하는 구문은?", options: ["GROUP BY", "ORDER BY", "PARTITION BY", "CLUSTER BY"], answer: 0, category: "groupby", explanation: "GROUP BY 절은 특정 컬럼을 기준으로 데이터를 그룹화합니다. 주로 SUM, AVG, COUNT 등의 집계 함수와 함께 사용됩니다." },
+                    { q: "GROUP BY로 그룹화된 결과에 대하여 조건을 걸어 필터링할 때 사용하는 구문은?", options: ["WHERE", "HAVING", "FILTER", "LIMIT"], answer: 1, category: "having", explanation: "WHERE 절은 그룹화하기 전에 개별 행을 필터링하고, HAVING 절은 그룹화가 완료된 후 집계 결과에 조건을 걸 때 사용합니다." },
+                    { q: "하나의 SQL 문 안에 포함되어 있는 또 다른 SQL 문을 무엇이라 부르는가?", options: ["서브쿼리 (Subquery)", "조인 (Join)", "프로시저 (Procedure)", "뷰 (View)"], answer: 0, category: "subquery", explanation: "서브쿼리는 메인 쿼리 내부에 작성된 쿼리로, 복잡한 로직을 해결하기 위해 괄호 () 안에 SELECT 문을 중첩하여 사용합니다." },
+                    { q: "자주 사용하는 복잡한 쿼리를 가상의 테이블로 만들어 재사용성을 높이는 데이터베이스 객체는?", options: ["Index (인덱스)", "View (뷰)", "Trigger (트리거)", "Cursor (커서)"], answer: 1, category: "view", explanation: "뷰(View)는 실제 데이터를 저장하지 않고 질의(Query)만 저장해 둔 가상의 테이블로, 보안 강화 및 쿼리 단순화를 위해 사용합니다." },
+                    { q: "SQL에서 조건에 따라 다른 값을 반환하도록 하는 조건문(IF-THEN-ELSE 역할)은?", options: ["CASE 문", "CHOOSE 문", "SWITCH 문", "EVAL 문"], answer: 0, category: "case", explanation: "CASE WHEN 조건 THEN 결과 ELSE 결과 END 형식을 사용하여 SQL 내에서 분기 처리를 할 수 있습니다." },
+                    { q: "테이블에서 각 행을 고유하게 식별할 수 있도록 보장하며, NULL 값을 가질 수 없는 제약조건은?", options: ["Foreign Key (외래키)", "Unique Key (고유키)", "Primary Key (기본키)", "Check (체크)"], answer: 2, category: "pk", explanation: "Primary Key(기본키)는 테이블의 각 레코드를 고유하게 식별하는 컬럼으로, 중복과 NULL을 허용하지 않습니다 (Entity 무결성)." },
+                    { q: "다른 테이블의 기본키(PK)를 참조하여 두 테이블 간의 관계를 맺어주는 제약조건은?", options: ["Primary Key", "Foreign Key", "Reference Key", "Relation Key"], answer: 1, category: "fk", explanation: "Foreign Key(외래키)는 다른 테이블의 레코드를 참조하기 위한 키로, 참조 무결성을 유지하는 역할을 합니다." }
+                ]
+            },
+            {
+                id: 3, title: "3단계: 설계", desc: "모델링 및 정규화", color: "bg-purple-100 text-purple-600", icon: "🏛️",
+                questions: [
+                    { q: "데이터베이스 설계 과정 중, 현실 세계의 요구사항을 추상화하여 ERD(개체-관계 다이어그램)를 그리는 단계는?", options: ["요구사항 분석", "개념적 설계", "논리적 설계", "물리적 설계"], answer: 1, category: "erd", explanation: "개념적 설계 단계에서는 요구사항을 바탕으로 DBMS에 독립적인 개념적 데이터 모델(예: ERD)을 작성합니다." },
+                    { q: "ERD에서 개체(Entity)를 표현할 때 주로 사용하는 도형은?", options: ["원 (Circle)", "마름모 (Rhombus)", "사각형 (Rectangle)", "삼각형 (Triangle)"], answer: 2, category: "erd", explanation: "ERD(Entity-Relationship Diagram)에서 개체(Entity)는 사각형, 관계(Relationship)는 마름모, 속성(Attribute)은 타원으로 표현합니다." },
+                    { q: "데이터베이스의 이상(Anomaly) 현상을 방지하고 데이터 중복을 최소화하기 위해 테이블을 분해하는 과정은?", options: ["역정규화 (Denormalization)", "정규화 (Normalization)", "인덱싱 (Indexing)", "트랜잭션 (Transaction)"], answer: 1, category: "normalize", explanation: "정규화는 데이터의 일관성을 유지하고 중복을 없애기 위해 테이블을 잘게 쪼개는 구조화 과정입니다." },
+                    { q: "테이블의 모든 속성(컬럼) 값이 원자값(더 이상 쪼개질 수 없는 값)을 가지도록 하는 정규화 단계는?", options: ["제1정규형 (1NF)", "제2정규형 (2NF)", "제3정규형 (3NF)", "BCNF"], answer: 0, category: "normalize", explanation: "제1정규형(1NF)은 도메인이 원자값이어야 한다는 원칙입니다. 한 칸에 두 개 이상의 값이 쉼표로 나열되어 있으면 안 됩니다." },
+                    { q: "기본키의 일부분에만 종속되는 '부분 함수 종속성'을 제거하여, 모든 속성이 완전 함수 종속이 되도록 하는 단계는?", options: ["제1정규형 (1NF)", "제2정규형 (2NF)", "제3정규형 (3NF)", "BCNF"], answer: 1, category: "normalize", explanation: "제2정규형(2NF)은 기본키가 2개 이상의 컬럼(복합키)일 때, 기본키 전체가 아닌 일부에만 종속된 일반 컬럼을 다른 테이블로 분리하는 과정입니다." },
+                    { q: "기본키가 아닌 일반 속성들 간의 종속성(이행적 함수 종속)을 제거하는 정규화 단계는? (예: A->B, B->C 일 때 A->C)", options: ["제1정규형 (1NF)", "제2정규형 (2NF)", "제3정규형 (3NF)", "제4정규형 (4NF)"], answer: 2, category: "normalize", explanation: "제3정규형(3NF)은 이행적 함수 종속성을 제거합니다. 즉, 기본키가 아닌 컬럼이 다른 일반 컬럼을 결정하면 안 됩니다." },
+                    { q: "모든 결정자가 후보키가 되도록 하는 강력한 제3정규형이라고 불리는 정규화 단계는?", options: ["제1정규형 (1NF)", "제2정규형 (2NF)", "제3정규형 (3NF)", "BCNF"], answer: 3, category: "normalize", explanation: "Boyce-Codd Normal Form(BCNF)은 모든 결정자가 후보키 집합에 속해야 한다는 원칙으로, 3NF의 이상 현상을 추가로 해결합니다." },
+                    { q: "조회 성능 향상을 위해 의도적으로 정규화 원칙을 위배하고 테이블을 통합하거나 중복 데이터를 허용하는 기법은?", options: ["슈퍼 정규화", "역정규화 (반정규화)", "클러스터링", "파티셔닝"], answer: 1, category: "normalize", explanation: "역정규화(Denormalization)는 시스템의 성능 향상(특히 READ 성능)을 위해 정규화된 데이터 모델을 통합, 중복, 분리하는 과정입니다." },
+                    { q: "데이터베이스 물리적 설계 단계에서 성능을 위해 특정 컬럼의 검색 속도를 높일 목적으로 생성하는 객체는?", options: ["View (뷰)", "Trigger (트리거)", "Index (인덱스)", "Procedure (프로시저)"], answer: 2, category: "index", explanation: "인덱스는 책의 '찾아보기(색인)'와 같이, 테이블의 검색 속도를 극적으로 향상시키기 위해 만드는 자료구조입니다." },
+                    { q: "물리적 설계 단계에서 각 컬럼에 저장될 데이터의 성격에 맞게 지정하는 것은 무엇인가? (예: INT, VARCHAR, DATE)", options: ["제약조건", "데이터 타입", "기본키", "외래키"], answer: 1, category: "dbms", explanation: "데이터 타입(Data Type)은 해당 컬럼이 문자, 숫자, 날짜 중 어떤 형태의 데이터를 얼마나 크게 저장할지 결정합니다. 공간 효율성과 관련이 깊습니다." }
+                ]
+            },
+            {
+                id: 4, title: "4단계: 고급", desc: "성능 최적화 및 운영", color: "bg-red-100 text-red-600", icon: "🚀",
+                questions: [
+                    { q: "대부분의 RDBMS에서 인덱스를 구현할 때 사용하는 대표적인 트리(Tree) 자료 구조는?", options: ["Binary Tree", "B-Tree (B+Tree)", "Red-Black Tree", "AVL Tree"], answer: 1, category: "index", explanation: "RDBMS는 데이터베이스 인덱스를 구성할 때 디스크 I/O를 최소화하기 위해 자식이 2개 이상인 균형 트리인 B-Tree(또는 B+Tree)를 주로 사용합니다." },
+                    { q: "실행된 SQL 쿼리가 내부적으로 어떤 인덱스를 타고 어떻게 처리되는지 실행 계획을 확인할 때 사용하는 명령어는?", options: ["PLAN", "TRACE", "EXPLAIN", "ANALYZE"], answer: 2, category: "select", explanation: "EXPLAIN(또는 EXPLAIN PLAN) 명령어를 쿼리 앞에 붙이면, 옵티마이저가 쿼리를 어떻게 실행할지(Table Scan, Index Scan 등) 계획을 보여줍니다." },
+                    { q: "데이터베이스의 상태를 변화시키는 논리적 작업 단위를 의미하며, 'All or Nothing'의 성격을 가지는 것은?", options: ["프로시저 (Procedure)", "트랜잭션 (Transaction)", "커밋 (Commit)", "세션 (Session)"], answer: 1, category: "transaction", explanation: "트랜잭션은 쪼갤 수 없는 하나의 작업 단위입니다. 은행 송금처럼 내 계좌 출금과 상대 계좌 입금이 모두 성공하거나 모두 실패해야 합니다." },
+                    { q: "트랜잭션의 4가지 속성(ACID) 중, 트랜잭션이 성공적으로 완료되면 그 결과가 영구적으로 반영되어야 한다는 속성은?", options: ["Atomicity (원자성)", "Consistency (일관성)", "Isolation (고립성)", "Durability (지속성)"], answer: 3, category: "transaction", explanation: "Durability(지속성)는 시스템에 장애가 발생하더라도 성공한(Commit) 트랜잭션의 결과는 손실되지 않고 DB에 보존되어야 한다는 원칙입니다." },
+                    { q: "복수의 트랜잭션이 동시에 실행될 때, 서로의 연산에 영향을 주지 않도록 제어하는 트랜잭션의 격리 수준(Isolation Level) 중 가장 엄격한 것은?", options: ["READ UNCOMMITTED", "READ COMMITTED", "REPEATABLE READ", "SERIALIZABLE"], answer: 3, category: "transaction", explanation: "SERIALIZABLE은 트랜잭션들을 순차적으로 실행하는 것과 동일한 결과를 보장하는 가장 높은 수준의 격리 수준으로, 동시성이 가장 떨어집니다." },
+                    { q: "행과 행 간의 관계를 쉽게 정의하기 위해 사용하며, GROUP BY와 달리 결과 행의 개수가 줄어들지 않고 원본 데이터를 유지하면서 집계/순위를 구하는 함수는?", options: ["집계 함수", "스칼라 함수", "윈도우 함수 (Window Function)", "문자열 함수"], answer: 2, category: "select", explanation: "윈도우 함수(예: RANK(), ROW_NUMBER() OVER (...))는 특정 윈도우(범위) 내에서 집계, 순위 연산을 수행하며 원본 레코드를 그대로 출력합니다." },
+                    { q: "복잡한 쿼리를 작성할 때 가독성을 높이기 위해 'WITH' 구문을 사용하여 임시로 결과를 저장해두는 것을 무엇이라 하는가?", options: ["CTE (Common Table Expression)", "임시 테이블 (Temp Table)", "서브쿼리 (Subquery)", "인라인 뷰 (Inline View)"], answer: 0, category: "select", explanation: "CTE는 WITH 절을 사용하여 쿼리 내에서 재사용 가능한 임시 결과 집합을 정의하는 고급 SQL 문법입니다." },
+                    { q: "장애 대비를 위해 데이터베이스 서버를 Master(주)와 Slave(보조)로 나누어 데이터를 실시간으로 복사하는 운영 기법은?", options: ["파티셔닝 (Partitioning)", "샤딩 (Sharding)", "레플리케이션 (Replication)", "클러스터링 (Clustering)"], answer: 2, category: "replication", explanation: "레플리케이션(Replication)은 Master 노드에서 발생한 변경사항(트랜잭션 로그)을 하나 이상의 Slave 노드에 비동기/동기적으로 복제하여 가용성을 높이고 부하를 분산합니다." },
+                    { q: "데이터베이스 테이블이 너무 커져서 관리나 성능 향상을 위해 여러 개의 물리적인 공간으로 분할하는 기법은?", options: ["미러링 (Mirroring)", "파티셔닝 (Partitioning)", "인덱싱 (Indexing)", "조인 (Join)"], answer: 1, category: "normalize", explanation: "파티셔닝은 하나의 큰 테이블을 논리적으로는 유지하되 물리적으로는 분할(예: 날짜별, 지역별)하여 I/O 성능과 관리 편의성을 높이는 기법입니다." },
+                    { q: "DB에 심각한 장애가 발생하여 데이터를 복구해야 할 때, 마지막 백업 시점 이후의 변경 내역을 재실행(Redo)하기 위해 반드시 필요한 파일은?", options: ["데이터 파일 (Data File)", "컨트롤 파일 (Control File)", "트랜잭션 로그 (Transaction Log / Redo Log)", "환경설정 파일 (Config File)"], answer: 2, category: "transaction", explanation: "트랜잭션 로그(Redo Log, WAL 등)에는 데이터 변경 이력이 모두 순차적으로 기록되어 있어, 시스템 크래시 발생 시 이를 기반으로 복구를 수행합니다." }
+                ]
+            }
+        ];
+
+        // --- 2. 상태 관리 ---
+        let currentStageIndex = 0;
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let unlockedStages = [0]; 
+        let animationTimer = null; // 인포그래픽 애니메이션 타이머
+
+        // --- 3. DOM 요소 ---
+        const screens = {
+            map: document.getElementById('screen-map'),
+            quiz: document.getElementById('screen-quiz'),
+            result: document.getElementById('screen-result'),
+            badge: document.getElementById('screen-badge')
+        };
+        const explanationModal = document.getElementById('explanation-modal');
+
+        // --- 4. 초기화 및 맵 렌더링 ---
+        function initApp() {
+            renderMap();
+            updateOverallProgress();
+        }
+
+        function renderMap() {
+            const container = document.getElementById('islands-container');
+            container.innerHTML = '';
+            
+            const maxUnlocked = Math.max(...unlockedStages);
+            const pathProgress = (maxUnlocked / (stagesData.length - 1)) * 100;
+            const offset = 1000 - (1000 * (pathProgress / 100));
+            document.getElementById('map-path-active').style.strokeDashoffset = offset;
+
+            stagesData.forEach((stage, index) => {
+                const isUnlocked = unlockedStages.includes(index);
+                const isCurrent = index === maxUnlocked;
+                
+                const btn = document.createElement('div');
+                btn.className = `relative flex flex-col items-center justify-center cursor-pointer transition-transform duration-300 hover:scale-105 ${!isUnlocked ? 'island-locked pointer-events-none' : ''}`;
+                
+                const alignLeft = index % 2 === 0;
+                btn.style.alignSelf = alignLeft ? 'flex-start' : 'flex-end';
+                btn.style.margin = alignLeft ? '0 10% 20px 20%' : '0 20% 20px 10%';
+                
+                if (isCurrent) btn.classList.add('animate-pop-in');
+
+                const circle = document.createElement('div');
+                circle.className = `w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-lg bg-white relative z-10 ${isCurrent ? 'island-active' : 'border-4 border-gray-200'}`;
+                circle.innerHTML = stage.icon;
+                
+                if (isCurrent) {
+                    const flag = document.createElement('div');
+                    flag.className = 'absolute -top-4 -right-2 text-2xl animate-bounce';
+                    flag.innerHTML = '🚩';
+                    circle.appendChild(flag);
+                }
+
+                const label = document.createElement('div');
+                label.className = `mt-3 px-4 py-1.5 rounded-full font-bold text-sm text-center shadow-sm ${isUnlocked ? stage.color : 'bg-gray-200 text-gray-500'}`;
+                label.innerHTML = `<div>${stage.title}</div><div class="text-[10px] font-normal opacity-80 mt-0.5">${stage.desc}</div>`;
+
+                btn.appendChild(circle);
+                btn.appendChild(label);
+
+                if (isUnlocked) btn.onclick = () => openQuiz(index);
+                container.appendChild(btn);
+            });
+        }
+
+        function updateOverallProgress() {
+            const percentage = Math.round((Math.max(...unlockedStages) / 4) * 100);
+            document.getElementById('progress-bar-overall').style.width = `${percentage}%`;
+            document.getElementById('progress-text').innerText = `${percentage}%`;
+        }
+
+        function switchScreen(screenName) {
+            Object.values(screens).forEach(s => s.classList.add('hidden'));
+            screens[screenName].classList.remove('hidden');
+            if(screenName === 'map') renderMap();
+        }
+
+        function returnToMap() {
+            switchScreen('map');
+            updateOverallProgress();
+        }
+
+        // --- 5. 퀴즈 로직 ---
+        function openQuiz(stageIndex) {
+            currentStageIndex = stageIndex;
+            currentQuestionIndex = 0;
+            score = 0;
+            document.getElementById('quiz-stage-title').innerText = stagesData[stageIndex].title;
+            switchScreen('quiz');
+            loadQuestion();
+        }
+
+        function loadQuestion() {
+            const stage = stagesData[currentStageIndex];
+            const qData = stage.questions[currentQuestionIndex];
+            
+            document.getElementById('quiz-progress-text').innerText = `문제 ${currentQuestionIndex + 1} / 10`;
+            document.getElementById('quiz-score-text').innerText = `맞춘 개수: ${score}`;
+            document.getElementById('quiz-progress-bar').style.width = `${((currentQuestionIndex) / 10) * 100}%`;
+            
+            document.getElementById('question-text').innerText = qData.q;
+            
+            const optionsContainer = document.getElementById('options-container');
+            optionsContainer.innerHTML = '';
+            
+            qData.options.forEach((optText, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn w-full text-left p-4 rounded-xl border-2 border-[#E5E8EB] bg-white font-medium text-[#333D4B] hover:bg-gray-50 break-keep leading-snug flex items-start';
+                
+                const numBox = document.createElement('div');
+                numBox.className = 'w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-500 mr-3 flex-shrink-0 mt-0.5';
+                numBox.innerText = idx + 1;
+                
+                const textSpan = document.createElement('span');
+                textSpan.innerText = optText;
+
+                btn.appendChild(numBox);
+                btn.appendChild(textSpan);
+                
+                btn.onclick = () => selectAnswer(idx, btn);
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        function selectAnswer(selectedIndex, btnElement) {
+            // 버튼 일시 비활성화
+            const buttons = document.querySelectorAll('.option-btn');
+            buttons.forEach(b => b.style.pointerEvents = 'none');
+
+            const stage = stagesData[currentStageIndex];
+            const qData = stage.questions[currentQuestionIndex];
+            const isCorrect = selectedIndex === qData.answer;
+
+            btnElement.classList.add('selected');
+
+            setTimeout(() => {
+                btnElement.classList.remove('selected');
+                
+                if (isCorrect) {
+                    btnElement.classList.add('correct');
+                    score++;
+                    document.getElementById('quiz-score-text').innerText = `맞춘 개수: ${score}`;
+                } else {
+                    btnElement.classList.add('wrong');
+                    buttons[qData.answer].classList.add('correct'); // 정답 표시
+                }
+
+                // 정답 여부에 상관없이 설명(인포그래픽) 창 띄우기
+                setTimeout(() => showExplanation(qData, isCorrect), 600);
+            }, 300);
+        }
+
+        function nextQuestion() {
+            explanationModal.classList.add('hidden');
+            if(animationTimer) clearInterval(animationTimer); // 애니메이션 정지
+            
+            currentQuestionIndex++;
+            if (currentQuestionIndex < 10) {
+                loadQuestion();
+            } else {
+                finishQuiz();
+            }
+        }
+
+        // --- 6. 실시간 애니메이션 인포그래픽 로직 ---
+        function showExplanation(qData, isCorrect) {
+            document.getElementById('exp-text').innerText = qData.explanation;
+            
+            const resultHeader = document.getElementById('result-header');
+            
+            // 오답/정답에 따른 헤더 디자인 변경
+            if (isCorrect) {
+                resultHeader.innerHTML = `<svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> 정답입니다!`;
+                resultHeader.className = "flex items-center text-green-500 font-bold text-lg mb-4";
+            } else {
+                resultHeader.innerHTML = `<svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg> 오답입니다!`;
+                resultHeader.className = "flex items-center text-red-500 font-bold text-lg mb-4";
+            }
+
+            const visualContainer = document.getElementById('infographic-container');
+            visualContainer.innerHTML = ''; // 기존 애니메이션 초기화
+
+            explanationModal.classList.remove('hidden');
+            explanationModal.classList.add('flex');
+
+            // 새 애니메이션 시작
+            if(animationTimer) clearInterval(animationTimer);
+            startInfographicAnimation(qData.category, visualContainer);
+        }
+
+        function startInfographicAnimation(category, container) {
+            let html = '';
+            let steps = [];
+
+            // 1. 쿼리 실행 흐름 (SELECT, DML 등)
+            if (['select', 'insert', 'update', 'delete', 'mysql', 'dbms'].includes(category)) {
+                html = `
+                    <div class="flex flex-col items-center w-full relative h-48 py-4">
+                        <!-- Step 1: 클라이언트 쿼리 요청 -->
+                        <div id="step1" class="info-step-hidden absolute top-0 bg-[#2C313C] text-green-400 font-mono text-xs p-2 rounded w-11/12 text-center shadow-lg border border-gray-700 z-10 transition-all duration-500">
+                            <span id="q-cmd" class="text-blue-400 font-bold">SELECT</span> * <span id="q-from" class="text-white">FROM</span> users <span id="q-where" class="text-[#E5C07B]">WHERE</span> name='gildong'
+                        </div>
+                        
+                        <!-- Step 2: DBMS 파서/옵티마이저 -->
+                        <div id="step2" class="info-step-hidden absolute top-[4.5rem] flex gap-2 w-full justify-center transition-all duration-500">
+                            <div class="bg-blue-900/50 border border-blue-500 text-blue-200 text-[10px] px-2 py-1.5 rounded shadow-lg">1. Parser (문법확인)</div>
+                            <svg class="w-4 h-4 text-gray-500 my-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path></svg>
+                            <div class="bg-purple-900/50 border border-purple-500 text-purple-200 text-[10px] px-2 py-1.5 rounded shadow-lg">2. Optimizer (경로최적화)</div>
+                        </div>
+
+                        <!-- Step 3: 스토리지 엔진 (디스크) -->
+                        <div id="step3" class="info-step-hidden absolute top-[9.5rem] bg-[#1E232B] border-2 border-gray-600 rounded-lg p-2 flex flex-col items-center justify-center w-32 h-14 shadow-2xl transition-all duration-500 z-10">
+                            <svg class="w-5 h-5 text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+                            <span class="text-[10px] font-bold text-gray-300">Storage Engine</span>
+                        </div>
+
+                        <!-- 연결선 (SVG) -->
+                        <svg class="absolute inset-0 w-full h-full pointer-events-none z-0">
+                            <path id="line1" d="M 50% 35 L 50% 70" stroke="#4B5563" stroke-width="2" stroke-dasharray="100" stroke-dashoffset="100" class="transition-all duration-500 ease-linear"/>
+                            <path id="line2" d="M 50% 105 L 50% 150" stroke="#4B5563" stroke-width="2" stroke-dasharray="100" stroke-dashoffset="100" class="transition-all duration-500 ease-linear"/>
+                            <path id="line-res" d="M 60% 150 L 60% 35" stroke="#10B981" stroke-width="2" stroke-dasharray="150" stroke-dashoffset="150" class="transition-all duration-700 ease-out"/>
+                        </svg>
+                    </div>
+                `;
+                container.innerHTML = html;
+                steps = [
+                    () => { document.getElementById('step1').classList.remove('info-step-hidden'); }, // 쿼리 전송
+                    () => { document.getElementById('line1').style.strokeDashoffset = "0"; }, // 선 이동
+                    () => { document.getElementById('step2').classList.remove('info-step-hidden'); }, // 옵티마이저 도달
+                    () => { document.getElementById('line2').style.strokeDashoffset = "0"; }, // 선 이동
+                    () => { 
+                        const disk = document.getElementById('step3');
+                        disk.classList.remove('info-step-hidden'); 
+                        disk.classList.add('border-blue-500', 'shadow-[0_0_15px_rgba(59,130,246,0.5)]'); // 디스크 접근 강조
+                    },
+                    () => { 
+                        document.getElementById('line-res').style.strokeDashoffset = "0"; // 데이터 반환 (초록색 선 위로)
+                        document.getElementById('step1').classList.replace('border-gray-700', 'border-green-500'); // 결과 성공 강조
+                    }
+                ];
+            } 
+            // 2. 조인/관계 흐름 (JOIN, FK 등)
+            else if (['join', 'innerjoin', 'leftjoin', 'fk', 'erd'].includes(category)) {
+                 html = `
+                    <div class="flex flex-col items-center w-full relative h-48 py-4">
+                        <div class="flex w-full justify-around z-10">
+                            <div id="tableA" class="info-step-hidden flex flex-col items-center transition-all duration-500">
+                                <div class="text-[10px] font-bold text-blue-300 mb-1">Users Table</div>
+                                <div class="w-20 bg-[#2C313C] border border-blue-500/50 rounded grid grid-rows-2 text-[10px] text-center text-gray-300 overflow-hidden shadow-lg">
+                                    <div class="border-b border-blue-500/30 bg-blue-900/40 py-1 font-bold">id (PK)</div>
+                                    <div id="rowA" class="py-1 transition-colors duration-300">1</div>
+                                </div>
+                            </div>
+                            <div id="tableB" class="info-step-hidden flex flex-col items-center transition-all duration-500">
+                                <div class="text-[10px] font-bold text-green-300 mb-1">Orders Table</div>
+                                <div class="w-20 bg-[#2C313C] border border-green-500/50 rounded grid grid-rows-2 text-[10px] text-center text-gray-300 overflow-hidden shadow-lg">
+                                    <div class="border-b border-green-500/30 bg-green-900/40 py-1 font-bold">user_id (FK)</div>
+                                    <div id="rowB" class="py-1 transition-colors duration-300">1</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="resultTable" class="info-step-hidden mt-8 flex flex-col items-center transition-all duration-500 z-10">
+                            <div class="text-[10px] font-bold mb-1 text-purple-400">JOIN Result</div>
+                            <div class="w-40 h-10 bg-purple-900/40 border border-purple-500 rounded flex items-center justify-center text-xs text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]">
+                                [ id: 1 | user_id: 1 ] 결합!
+                            </div>
+                        </div>
+
+                        <svg class="absolute inset-0 w-full h-full pointer-events-none">
+                            <path id="jline1" d="M 25% 70 Q 50% 110 50% 135" fill="none" stroke="#A855F7" stroke-width="2" stroke-dasharray="120" stroke-dashoffset="120" class="transition-all duration-500 ease-out"/>
+                            <path id="jline2" d="M 75% 70 Q 50% 110 50% 135" fill="none" stroke="#A855F7" stroke-width="2" stroke-dasharray="120" stroke-dashoffset="120" class="transition-all duration-500 ease-out"/>
+                        </svg>
+                    </div>
+                 `;
+                 container.innerHTML = html;
+                 steps = [
+                     () => { 
+                         document.getElementById('tableA').classList.remove('info-step-hidden');
+                         document.getElementById('tableB').classList.remove('info-step-hidden');
+                     },
+                     () => {
+                         // 공통 키 하이라이트
+                         document.getElementById('rowA').classList.add('bg-blue-600', 'text-white', 'font-bold');
+                         document.getElementById('rowB').classList.add('bg-green-600', 'text-white', 'font-bold');
+                     },
+                     () => {
+                         // 결합 선 이동
+                         document.getElementById('jline1').style.strokeDashoffset = "0";
+                         document.getElementById('jline2').style.strokeDashoffset = "0";
+                     },
+                     () => {
+                         // 결과 테이블 등장 및 팝 효과
+                         const res = document.getElementById('resultTable');
+                         res.classList.remove('info-step-hidden');
+                         res.classList.add('scale-110');
+                         setTimeout(()=> res.classList.remove('scale-110'), 300);
+                     }
+                 ];
+            } 
+            // 3. 인덱스/B-Tree 흐름 (검색 과정)
+            else if (['index', 'btree'].includes(category)) {
+                 html = `
+                    <div class="flex flex-col items-center w-full relative h-48 py-2">
+                        <!-- Root Node -->
+                        <div id="nodeRoot" class="info-step-hidden w-14 h-8 bg-gray-700 border border-gray-500 rounded-full flex items-center justify-center text-[10px] text-white font-bold z-10 transition-colors duration-300">Root</div>
+                        
+                        <!-- Branch Nodes -->
+                        <div class="flex justify-between w-40 mt-6 z-10">
+                            <div id="nodeL" class="info-step-hidden w-12 h-8 bg-gray-700 border border-gray-500 rounded-full flex items-center justify-center text-[10px] text-white transition-colors duration-300">1~50</div>
+                            <div id="nodeR" class="info-step-hidden w-12 h-8 bg-gray-700 border border-gray-500 rounded-full flex items-center justify-center text-[10px] text-white transition-colors duration-300">51~99</div>
+                        </div>
+
+                        <!-- Leaf Node -->
+                        <div class="flex justify-end pr-10 w-full mt-6 z-10">
+                             <div id="nodeLeaf" class="info-step-hidden w-16 h-8 bg-gray-700 border border-gray-500 rounded-md flex items-center justify-center text-[10px] text-white transition-all duration-300">Data: 77</div>
+                        </div>
+
+                        <!-- Tree Lines -->
+                        <svg class="absolute inset-0 w-full h-full pointer-events-none z-0">
+                            <line x1="50%" y1="35" x2="35%" y2="65" stroke="#4B5563" stroke-width="2" />
+                            <line x1="50%" y1="35" x2="65%" y2="65" stroke="#4B5563" stroke-width="2" />
+                            <line x1="65%" y1="95" x2="70%" y2="125" stroke="#4B5563" stroke-width="2" />
+                            <line x1="65%" y1="95" x2="60%" y2="125" stroke="#4B5563" stroke-width="2" />
+                            
+                            <!-- Search Highlight Circle (빨간 점 이동) -->
+                            <circle id="searchDot" cx="50%" cy="20" r="5" fill="#EF4444" class="opacity-0 transition-all duration-700 ease-in-out shadow-[0_0_10px_rgba(239,68,68,1)]" />
+                        </svg>
+                        <div id="searchText" class="absolute bottom-2 left-4 text-[10px] text-red-400 font-bold opacity-0 transition-opacity">77을 찾는 중...</div>
+                    </div>
+                 `;
+                 container.innerHTML = html;
+                 steps = [
+                     () => { 
+                         // 노드 전체 등장
+                         ['nodeRoot', 'nodeL', 'nodeR', 'nodeLeaf'].forEach(id => document.getElementById(id).classList.remove('info-step-hidden'));
+                     },
+                     () => {
+                         // 검색 시작 (Root)
+                         document.getElementById('searchText').classList.remove('opacity-0');
+                         const dot = document.getElementById('searchDot');
+                         dot.classList.remove('opacity-0');
+                         document.getElementById('nodeRoot').classList.replace('bg-gray-700', 'bg-red-500');
+                     },
+                     () => {
+                         // 우측 브랜치로 이동 (51~99)
+                         const dot = document.getElementById('searchDot');
+                         dot.setAttribute('cx', '65%');
+                         dot.setAttribute('cy', '80');
+                         document.getElementById('nodeRoot').classList.replace('bg-red-500', 'bg-gray-700');
+                         document.getElementById('nodeR').classList.replace('bg-gray-700', 'bg-red-500');
+                     },
+                     () => {
+                         // 리프 노드로 이동 (Data: 77)
+                         const dot = document.getElementById('searchDot');
+                         dot.setAttribute('cx', '70%');
+                         dot.setAttribute('cy', '140');
+                         document.getElementById('nodeR').classList.replace('bg-red-500', 'bg-gray-700');
+                         const leaf = document.getElementById('nodeLeaf');
+                         leaf.classList.replace('bg-gray-700', 'bg-blue-600');
+                         leaf.classList.replace('border-gray-500', 'border-blue-400');
+                         leaf.classList.add('scale-110', 'shadow-[0_0_15px_rgba(37,99,235,0.8)]');
+                         document.getElementById('searchText').innerText = "발견! (디스크 I/O 최소화)";
+                         document.getElementById('searchText').classList.replace('text-red-400', 'text-blue-400');
+                     }
+                 ];
+            } 
+            // 4. 정규화 / 분할 흐름
+            else if (['normalize', 'denormalize'].includes(category)) {
+                 html = `
+                    <div class="flex flex-col items-center w-full relative h-48 py-4">
+                        <div id="bigTable" class="info-step-hidden p-2 bg-[#2C313C] border-2 border-dashed border-red-500/50 rounded w-56 text-center text-xs shadow-lg transition-all duration-500">
+                            <div class="font-bold border-b border-gray-600 pb-1 mb-1 text-red-400">회원_주문 테이블 (중복 이상)</div>
+                            <div class="text-[9px] text-gray-400">길동 | 주문A | 길동 | 주문B</div>
+                        </div>
+
+                        <div id="splitArrow" class="opacity-0 transition-all duration-300 mt-3">
+                             <svg class="w-6 h-6 text-blue-400 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+                        </div>
+
+                        <div class="flex w-full justify-around mt-3">
+                             <div id="normA" class="info-step-hidden w-24 bg-[#1E232B] border border-blue-500/50 rounded text-center py-2 shadow-[0_0_10px_rgba(59,130,246,0.2)]">
+                                 <div class="text-[10px] font-bold text-blue-300 border-b border-blue-500/30 pb-1 mx-2">회원 테이블</div>
+                                 <div class="text-[9px] text-gray-400 mt-1">길동 (ID:1)</div>
+                             </div>
+                             <div id="normB" class="info-step-hidden w-24 bg-[#1E232B] border border-green-500/50 rounded text-center py-2 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                                 <div class="text-[10px] font-bold text-green-300 border-b border-green-500/30 pb-1 mx-2">주문 테이블</div>
+                                 <div class="text-[9px] text-gray-400 mt-1">주문A (User:1)<br>주문B (User:1)</div>
+                             </div>
+                        </div>
+                    </div>
+                 `;
+                 container.innerHTML = html;
+                 steps = [
+                     () => document.getElementById('bigTable').classList.remove('info-step-hidden'), // 큰 테이블 등장
+                     () => { // 경고 효과
+                         document.getElementById('bigTable').classList.replace('border-red-500/50', 'border-red-500');
+                         document.getElementById('bigTable').classList.add('bg-red-900/20');
+                     },
+                     () => document.getElementById('splitArrow').classList.remove('opacity-0'), // 분리 화살표
+                     () => { // 두 개로 분할
+                         document.getElementById('bigTable').style.opacity = '0.2';
+                         document.getElementById('normA').classList.remove('info-step-hidden');
+                         document.getElementById('normB').classList.remove('info-step-hidden');
+                     }
+                 ];
+            } 
+            // 5. 트랜잭션 (All or Nothing) / 복제
+            else if (['transaction', 'acid_d', 'isolation', 'replication', 'redolog'].includes(category)) {
+                html = `
+                    <div class="flex flex-col items-center w-full relative h-48 py-6">
+                        <div class="text-[10px] font-bold text-gray-400 mb-6 bg-gray-800 px-3 py-1 rounded-full border border-gray-600 shadow-inner">Transaction Begin</div>
+                        
+                        <div class="flex justify-between w-48 relative z-10">
+                            <!-- 출금 노드 -->
+                            <div id="txA" class="info-step-hidden w-12 h-12 bg-[#2C313C] border-2 border-gray-600 rounded-full flex flex-col items-center justify-center text-white transition-all duration-300 shadow-lg">
+                                <span class="text-xs">A</span>
+                                <span id="txAmtA" class="text-[8px] opacity-0 text-red-400 font-bold">-100</span>
+                            </div>
+                            <!-- 입금 노드 -->
+                            <div id="txB" class="info-step-hidden w-12 h-12 bg-[#2C313C] border-2 border-gray-600 rounded-full flex flex-col items-center justify-center text-white transition-all duration-300 shadow-lg">
+                                <span class="text-xs">B</span>
+                                <span id="txAmtB" class="text-[8px] opacity-0 text-green-400 font-bold">+100</span>
+                            </div>
+                            
+                            <!-- 진행 바 -->
+                            <div class="absolute top-1/2 left-8 right-8 h-1 bg-gray-700 -mt-0.5 z-[-1] rounded overflow-hidden">
+                                <div id="txProg" class="h-full bg-blue-500 w-0 transition-all duration-700 ease-linear shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
+                            </div>
+                        </div>
+
+                        <div id="txResult" class="info-step-hidden mt-8 text-xs font-bold px-4 py-2 rounded shadow-lg text-white border border-transparent transition-all duration-500 scale-95">
+                            대기중...
+                        </div>
+                    </div>
+                `;
+                container.innerHTML = html;
+                steps = [
+                    () => { // 양쪽 계좌 등장
+                        document.getElementById('txA').classList.remove('info-step-hidden');
+                        document.getElementById('txB').classList.remove('info-step-hidden');
+                    },
+                    () => { // 출금 발생
+                        document.getElementById('txA').classList.replace('border-gray-600', 'border-blue-500');
+                        document.getElementById('txAmtA').classList.remove('opacity-0');
+                    },
+                    () => { // 데이터 이동
+                        document.getElementById('txProg').style.width = '100%';
+                    },
+                    () => { // 입금 완료
+                        document.getElementById('txB').classList.replace('border-gray-600', 'border-green-500');
+                        document.getElementById('txAmtB').classList.remove('opacity-0');
+                    },
+                    () => { // 커밋 완료 (All Success)
+                        const res = document.getElementById('txResult');
+                        res.classList.remove('info-step-hidden', 'scale-95');
+                        res.classList.add('bg-green-600/20', 'border-green-500', 'text-green-400', 'scale-100');
+                        res.innerText = 'COMMIT (전체 성공 반영)';
+                    }
+                ];
+            } 
+            // 6. 기본(기타) 애니메이션
+            else {
+                html = `
+                    <div class="flex flex-col items-center w-full relative h-40 pt-8">
+                        <div class="flex items-center gap-12 z-10">
+                            <!-- App -->
+                            <div id="defClient" class="info-step-hidden w-12 h-16 bg-[#2C313C] rounded-md flex flex-col items-center justify-center text-gray-300 shadow-lg border border-gray-600 transition-all duration-500">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                            </div>
+                            <!-- DB -->
+                            <div id="defDB" class="info-step-hidden w-14 h-16 bg-blue-900 rounded-md flex flex-col items-center justify-center text-blue-300 shadow-[0_0_15px_rgba(30,58,138,0.5)] border border-blue-600 transition-all duration-500">
+                                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+                            </div>
+                        </div>
+                        <svg class="absolute inset-0 w-full h-full pointer-events-none z-0">
+                            <path id="defReq" d="M 35% 55 L 65% 55" stroke="#60A5FA" stroke-width="2" stroke-dasharray="120" stroke-dashoffset="120" class="transition-all duration-500 ease-out"/>
+                            <path id="defRes" d="M 65% 75 L 35% 75" stroke="#34D399" stroke-width="2" stroke-dasharray="120" stroke-dashoffset="120" class="transition-all duration-500 ease-out"/>
+                        </svg>
+                        <div id="defText" class="opacity-0 transition-all duration-500 mt-6 text-[10px] font-bold text-gray-400 bg-[#1E232B] px-3 py-1 rounded-full border border-gray-600">데이터베이스 통신</div>
+                    </div>
+                `;
+                container.innerHTML = html;
+                steps = [
+                    () => { // 컴포넌트 등장
+                        document.getElementById('defClient').classList.remove('info-step-hidden');
+                        document.getElementById('defDB').classList.remove('info-step-hidden');
+                    },
+                    () => { // 요청
+                        document.getElementById('defReq').style.strokeDashoffset = "0";
+                    },
+                    () => { // DB 처리 효과
+                        const db = document.getElementById('defDB');
+                        db.classList.add('scale-110', 'bg-blue-600', 'text-white');
+                        setTimeout(() => db.classList.remove('scale-110', 'bg-blue-600', 'text-white'), 300);
+                    },
+                    () => { // 응답
+                        document.getElementById('defRes').style.strokeDashoffset = "0";
+                    },
+                    () => { // 완료 텍스트
+                        const txt = document.getElementById('defText');
+                        txt.classList.remove('opacity-0');
+                        txt.classList.replace('text-gray-400', 'text-green-400');
+                        txt.innerText = "처리 완료";
+                    }
+                ];
+            }
+
+            // 순차적 애니메이션 실행 엔진
+            let currentStep = 0;
+            const stepInterval = 800; // 스텝당 지연 시간(ms)
+            
+            steps[currentStep](); 
+            currentStep++;
+
+            animationTimer = setInterval(() => {
+                if(currentStep < steps.length) {
+                    steps[currentStep]();
+                    currentStep++;
+                } else {
+                    clearInterval(animationTimer); // 애니메이션 완료 시 타이머 종료
+                }
+            }, stepInterval);
+        }
+
+        // --- 7. 결과 및 진행 ---
+        function finishQuiz() {
+            switchScreen('result');
+            document.getElementById('result-score').innerHTML = `${score}<span class="text-2xl text-gray-400">/10</span>`;
+            
+            const title = document.getElementById('result-title');
+            const desc = document.getElementById('result-desc');
+            const icon = document.getElementById('result-icon');
+            const btn = document.getElementById('result-btn');
+
+            if (score >= 8) {
+                icon.innerText = "🎉";
+                title.innerText = "클리어 성공!";
+                title.className = "text-3xl font-extrabold text-[#191F28] mb-2";
+                
+                if (currentStageIndex === 3) {
+                    desc.innerText = "축하합니다! 모든 관문을 통과했습니다.";
+                    btn.innerText = "최종 배지 확인하기";
+                    btn.onclick = showBadge;
+                } else {
+                    desc.innerText = "훌륭합니다! 다음 섬이 열렸습니다.";
+                    btn.innerText = "다음 섬으로 가기";
+                    btn.onclick = returnToMap;
+                    if (!unlockedStages.includes(currentStageIndex + 1)) {
+                        unlockedStages.push(currentStageIndex + 1);
+                    }
+                }
+            } else {
+                icon.innerText = "💪";
+                title.innerText = "아쉽네요!";
+                title.className = "text-3xl font-extrabold text-red-500 mb-2";
+                desc.innerText = "8개 이상 맞혀야 다음 섬으로 갈 수 있어요.";
+                btn.innerText = "다시 도전하기";
+                btn.onclick = returnToMap;
+            }
+        }
+
+        function showBadge() {
+            switchScreen('badge');
+        }
+
+        function resetGame() {
+            unlockedStages = [0];
+            returnToMap();
+        }
+
+        // 앱 시작
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>

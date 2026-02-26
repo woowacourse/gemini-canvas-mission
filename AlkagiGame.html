@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>클래식 알까기 - 조준 떨림 추가</title>
+    <style>
+        :root {
+            --bg-color: #3e2723;
+            --ui-bg: #fff8e1;
+            --accent-color: #795548;
+            --p1-color: #212121;
+            --p2-color: #ffffff;
+            --drag-line: #d32f2f;
+            --wind-color: #1976d2;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: var(--bg-color);
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            color: #3e2723;
+        }
+
+        #game-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        #ui-layer {
+            width: 95%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px 15px;
+            background: var(--ui-bg);
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+            box-sizing: border-box;
+        }
+
+        .player-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-weight: 800;
+            padding: 6px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            font-size: 0.9rem;
+        }
+
+        .player-info.active {
+            background-color: #efe0b9;
+            border-color: var(--accent-color);
+            transform: translateY(-2px);
+        }
+
+        .stone-count {
+            font-size: 0.8rem;
+            color: #795548;
+        }
+
+        #wind-indicator {
+            flex: 0 0 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 5px;
+            border-radius: 8px;
+            margin: 0 10px;
+            border: 1px solid rgba(121, 85, 72, 0.2);
+        }
+
+        #wind-arrow {
+            width: 24px;
+            height: 24px;
+            transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        #wind-label {
+            font-size: 0.65rem;
+            font-weight: 900;
+            color: var(--accent-color);
+            letter-spacing: 1px;
+            text-align: center;
+        }
+
+        #wind-strength {
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: var(--wind-color);
+        }
+
+        #main-area {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            max-width: 100%;
+        }
+
+        canvas {
+            background-color: #d2b48c; 
+            border: 10px solid #5d4037; 
+            border-radius: 8px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+            cursor: crosshair;
+            aspect-ratio: 1 / 1;
+            width: 600px;
+            height: 600px;
+            max-width: 80vmin; 
+            max-height: 80vmin;
+            image-rendering: -webkit-optimize-contrast;
+        }
+
+        #side-panel {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 10px;
+            background: var(--ui-bg);
+            padding: 10px 8px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            min-width: 50px;
+        }
+
+        .indicator-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        #elevation-legend {
+            width: 12px;
+            height: 80px;
+            background: linear-gradient(to top, #f5e6d3, #d2b48c, #9e7e5e);
+            border-radius: 6px;
+            border: 1.5px solid #5d4037;
+        }
+
+        .legend-text {
+            font-size: 0.6rem;
+            font-weight: bold;
+            color: #5d4037;
+        }
+
+        #elevation-label {
+            font-size: 0.55rem;
+            font-weight: 900;
+            color: var(--accent-color);
+            text-align: center;
+            line-height: 1.1;
+        }
+
+        #msg-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 248, 225, 0.98);
+            padding: 30px 50px;
+            border-radius: 16px;
+            text-align: center;
+            display: none;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            z-index: 20;
+            border: 3px solid var(--accent-color);
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #5d4037;
+        }
+
+        .hint {
+            margin-top: 10px;
+            font-size: 0.8rem;
+            color: #d7ccc8;
+            text-align: center;
+            background: rgba(0,0,0,0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-layer">
+            <div id="p1-ui" class="player-info active">
+                <span>흑 (P1)</span>
+                <span id="p1-count" class="stone-count">5개</span>
+            </div>
+
+            <div id="wind-indicator">
+                <div id="wind-label">WIND</div>
+                <svg id="wind-arrow" viewBox="0 0 24 24" fill="none" stroke="var(--wind-color)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                </svg>
+                <div id="wind-strength">0.0</div>
+            </div>
+
+            <div id="p2-ui" class="player-info">
+                <span>백 (P2)</span>
+                <span id="p2-count" class="stone-count">5개</span>
+            </div>
+        </div>
+
+        <div id="main-area">
+            <canvas id="gameBoard"></canvas>
+            
+            <div id="side-panel">
+                <div class="indicator-box">
+                    <span class="legend-text">높음</span>
+                    <div id="elevation-legend"></div>
+                    <span class="legend-text">낮음</span>
+                    <div id="elevation-label">지형<br>높이</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="msg-overlay">
+            <h2 id="winner-text">승리!</h2>
+            <button onclick="resetGame()">다시 시작</button>
+        </div>
+
+        <p class="hint">긴장해서 조준선이 떨립니다! 신중하게 발사하세요.</p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameBoard');
+        const ctx = canvas.getContext('2d');
+        const p1Ui = document.getElementById('p1-ui');
+        const p2Ui = document.getElementById('p2-ui');
+        const p1CountText = document.getElementById('p1-count');
+        const p2CountText = document.getElementById('p2-count');
+        const overlay = document.getElementById('msg-overlay');
+        const windArrow = document.getElementById('wind-arrow');
+        const windStrengthText = document.getElementById('wind-strength');
+
+        const BOARD_SIZE = 600;
+        const STONE_RADIUS = 18;
+        const FRICTION = 0.978; 
+        const SLOPE_STRENGTH = 0.04; 
+        const STATIC_THRESHOLD = 0.20; 
+        const WIND_MAX_FORCE = 0.022; 
+        const INITIAL_STONES = 5;
+        const TREMBLE_MAGNITUDE = 4; // 조준 시 떨림 강도
+
+        const DPR = window.devicePixelRatio || 2;
+        
+        function setupCanvas() {
+            canvas.width = BOARD_SIZE * DPR;
+            canvas.height = BOARD_SIZE * DPR;
+            ctx.scale(DPR, DPR);
+            
+            canvas.style.width = 'min(600px, 80vmin)';
+            canvas.style.height = 'min(600px, 80vmin)';
+        }
+
+        let stones = [];
+        let terrain = [];
+        let terrainCanvas = null;
+        let currentPlayer = 1;
+        let isMoving = false;
+        let dragStart = null;
+        let selectedStone = null;
+        let power = { x: 0, y: 0 };
+        
+        let currentWind = { x: 0, y: 0, angle: 0, strength: 0 };
+
+        function updateWind() {
+            currentWind.angle = Math.random() * Math.PI * 2;
+            currentWind.strength = Math.random() * WIND_MAX_FORCE;
+            
+            currentWind.x = Math.cos(currentWind.angle) * currentWind.strength;
+            currentWind.y = Math.sin(currentWind.angle) * currentWind.strength;
+
+            const rotationDegree = (currentWind.angle * 180 / Math.PI) + 90;
+            windArrow.style.transform = `rotate(${rotationDegree}deg)`;
+            windStrengthText.innerText = (currentWind.strength * 100).toFixed(1);
+        }
+
+        function generateTerrain() {
+            const gridSize = 10; 
+            const elevation = [];
+            for (let y = 0; y <= gridSize; y++) {
+                elevation[y] = [];
+                for (let x = 0; x <= gridSize; x++) {
+                    elevation[y][x] = (Math.random() - 0.5) * 0.7;
+                }
+            }
+            terrain = elevation;
+            
+            terrainCanvas = document.createElement('canvas');
+            terrainCanvas.width = BOARD_SIZE * DPR;
+            terrainCanvas.height = BOARD_SIZE * DPR;
+            const tCtx = terrainCanvas.getContext('2d');
+            tCtx.scale(DPR, DPR);
+            
+            const cellW = BOARD_SIZE / gridSize;
+            const cellH = BOARD_SIZE / gridSize;
+
+            for (let y = 0; y < gridSize; y++) {
+                for (let x = 0; x < gridSize; x++) {
+                    const avg = (elevation[y][x] + elevation[y+1][x] + elevation[y][x+1] + elevation[y+1][x+1]) / 4;
+                    const r = Math.floor(212 + (avg * 25));
+                    const g = Math.floor(182 + (avg * 35));
+                    const b = Math.floor(142 + (avg * 45));
+                    tCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                    tCtx.fillRect(x * cellW, y * cellH, cellW + 1, cellH + 1);
+                    tCtx.strokeStyle = 'rgba(0,0,0,0.02)';
+                    tCtx.strokeRect(x * cellW, y * cellH, cellW, cellH);
+                }
+            }
+            
+            tCtx.strokeStyle = 'rgba(62, 39, 35, 0.1)';
+            tCtx.lineWidth = 1;
+            for(let i=1; i<10; i++) {
+                tCtx.beginPath();
+                tCtx.moveTo(i * (BOARD_SIZE/10), 0); tCtx.lineTo(i * (BOARD_SIZE/10), BOARD_SIZE);
+                tCtx.stroke();
+                tCtx.beginPath();
+                tCtx.moveTo(0, i * (BOARD_SIZE/10)); tCtx.lineTo(BOARD_SIZE, i * (BOARD_SIZE/10));
+                tCtx.stroke();
+            }
+        }
+
+        function getSlopeAt(px, py) {
+            const gridSize = terrain.length - 1;
+            const cellW = BOARD_SIZE / gridSize;
+            const cellH = BOARD_SIZE / gridSize;
+            const gx = Math.max(0, Math.min(gridSize - 1, Math.floor(px / cellW)));
+            const gy = Math.max(0, Math.min(gridSize - 1, Math.floor(py / cellH)));
+            
+            const slopeX = (terrain[gy][gx+1] - terrain[gy][gx]);
+            const slopeY = (terrain[gy+1][gx] - terrain[gy][gx]);
+            
+            return { x: slopeX * SLOPE_STRENGTH, y: slopeY * SLOPE_STRENGTH };
+        }
+
+        class Stone {
+            constructor(x, y, player) {
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.player = player;
+                this.radius = STONE_RADIUS;
+                this.isOut = false;
+            }
+
+            draw() {
+                if (this.isOut) return;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(this.x + 3, this.y + 3, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                const grad = ctx.createRadialGradient(this.x-5, this.y-5, 2, this.x, this.y, this.radius);
+                if (this.player === 1) {
+                    grad.addColorStop(0, '#444');
+                    grad.addColorStop(1, '#111');
+                } else {
+                    grad.addColorStop(0, '#fff');
+                    grad.addColorStop(1, '#eee');
+                }
+                ctx.fillStyle = grad;
+                ctx.fill();
+                ctx.strokeStyle = this.player === 1 ? '#000' : '#ccc';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            update() {
+                if (this.isOut) return;
+
+                const slope = getSlopeAt(this.x, this.y);
+                const currentSpeed = Math.sqrt(this.vx**2 + this.vy**2);
+                const slopeForce = Math.sqrt(slope.x**2 + slope.y**2);
+
+                if (currentSpeed < 0.2 && slopeForce < STATIC_THRESHOLD) {
+                    this.vx = 0;
+                    this.vy = 0;
+                } else {
+                    this.vx -= slope.x;
+                    this.vy -= slope.y;
+                    this.vx += currentWind.x;
+                    this.vy += currentWind.y;
+                    this.vx *= FRICTION;
+                    this.vy *= FRICTION;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (Math.abs(this.vx) < 0.05) this.vx = 0;
+                if (Math.abs(this.vy) < 0.05) this.vy = 0;
+
+                if (this.x < 0 || this.x > BOARD_SIZE || this.y < 0 || this.y > BOARD_SIZE) {
+                    this.isOut = true;
+                }
+            }
+        }
+
+        function initGame() {
+            setupCanvas();
+            generateTerrain();
+            updateWind(); 
+            stones = [];
+            for (let i = 0; i < INITIAL_STONES; i++) {
+                stones.push(new Stone(100 + i * 100, BOARD_SIZE - 70, 1));
+            }
+            for (let i = 0; i < INITIAL_STONES; i++) {
+                stones.push(new Stone(100 + i * 100, 70, 2));
+            }
+            updateUI();
+        }
+
+        function resolveCollision(s1, s2) {
+            const dx = s2.x - s1.x;
+            const dy = s2.y - s1.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < s1.radius + s2.radius) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+                const overlap = s1.radius + s2.radius - dist;
+                s1.x -= nx * overlap / 2;
+                s1.y -= ny * overlap / 2;
+                s2.x += nx * overlap / 2;
+                s2.y += ny * overlap / 2;
+
+                const v1n = s1.vx * nx + s1.vy * ny;
+                const v2n = s2.vx * nx + s2.vy * ny;
+                const impulse = (v1n - v2n) * 1.05;
+
+                s1.vx -= impulse * nx;
+                s1.vy -= impulse * ny;
+                s2.vx += impulse * nx;
+                s2.vy += impulse * ny;
+            }
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+            if (terrainCanvas) {
+                ctx.drawImage(terrainCanvas, 0, 0, BOARD_SIZE, BOARD_SIZE);
+            }
+
+            let movingCount = 0;
+            stones.forEach((s, i) => {
+                if (s.isOut) return;
+                s.update();
+                s.draw();
+                if (Math.abs(s.vx) > 0 || Math.abs(s.vy) > 0) movingCount++;
+
+                for (let j = i + 1; j < stones.length; j++) {
+                    if (!stones[j].isOut) resolveCollision(s, stones[j]);
+                }
+            });
+
+            // 조준 및 떨림 로직
+            if (dragStart && selectedStone) {
+                ctx.save();
+                
+                // 시각적 떨림을 위한 오프셋 계산
+                const trembleX = (Math.random() - 0.5) * TREMBLE_MAGNITUDE;
+                const trembleY = (Math.random() - 0.5) * TREMBLE_MAGNITUDE;
+                
+                ctx.beginPath();
+                ctx.moveTo(selectedStone.x, selectedStone.y);
+                // 끝점에 미세한 떨림 추가
+                ctx.lineTo(selectedStone.x + power.x + trembleX, selectedStone.y + power.y + trembleY);
+                ctx.strokeStyle = 'var(--drag-line)';
+                ctx.setLineDash([4, 4]);
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                ctx.beginPath();
+                ctx.arc(selectedStone.x, selectedStone.y, STONE_RADIUS+4, 0, Math.PI*2);
+                ctx.strokeStyle = 'rgba(211, 47, 47, 0.4)';
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            if (isMoving && movingCount === 0) {
+                isMoving = false;
+                checkGameOver();
+                currentPlayer = currentPlayer === 1 ? 2 : 1;
+                updateWind(); 
+                updateUI();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateUI() {
+            const p1 = stones.filter(s => s.player === 1 && !s.isOut).length;
+            const p2 = stones.filter(s => s.player === 2 && !s.isOut).length;
+            p1CountText.innerText = `${p1}개`;
+            p2CountText.innerText = `${p2}개`;
+            p1Ui.className = `player-info ${currentPlayer === 1 ? 'active' : ''}`;
+            p2Ui.className = `player-info ${currentPlayer === 2 ? 'active' : ''}`;
+        }
+
+        function checkGameOver() {
+            const p1 = stones.filter(s => s.player === 1 && !s.isOut).length;
+            const p2 = stones.filter(s => s.player === 2 && !s.isOut).length;
+            if (p1 === 0 || p2 === 0) {
+                overlay.style.display = 'block';
+                document.getElementById('winner-text').innerText = p1 === 0 ? "백돌(Player 2) 승리!" : "흑돌(Player 1) 승리!";
+            }
+        }
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const cx = e.touches ? e.touches[0].clientX : e.clientX;
+            const cy = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: (cx - rect.left) * (BOARD_SIZE / rect.width),
+                y: (cy - rect.top) * (BOARD_SIZE / rect.height)
+            };
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (isMoving) return;
+            const pos = getMousePos(e);
+            selectedStone = stones.find(s => !s.isOut && s.player === currentPlayer && Math.sqrt((s.x-pos.x)**2 + (s.y-pos.y)**2) < s.radius * 1.5);
+            if (selectedStone) {
+                dragStart = pos;
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!dragStart) return;
+            const pos = getMousePos(e);
+            power.x = dragStart.x - pos.x;
+            power.y = dragStart.y - pos.y;
+            const dist = Math.sqrt(power.x**2 + power.y**2);
+            if (dist > 180) {
+                power.x *= 180 / dist;
+                power.y *= 180 / dist;
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (!dragStart || !selectedStone) return;
+            
+            // 발사 시에도 미세한 랜덤 오차 추가 (물리적 난이도 상향)
+            const errorX = (Math.random() - 0.5) * 0.8;
+            const errorY = (Math.random() - 0.5) * 0.8;
+            
+            selectedStone.vx = (power.x + errorX) * 0.18;
+            selectedStone.vy = (power.y + errorY) * 0.18;
+            
+            dragStart = null;
+            selectedStone = null;
+            power = {x: 0, y: 0};
+            isMoving = true;
+        });
+
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); }, {passive: false});
+
+        function resetGame() {
+            overlay.style.display = 'none';
+            currentPlayer = 1;
+            isMoving = false;
+            initGame();
+        }
+
+        initGame();
+        gameLoop();
+    </script>
+</body>
+</html>

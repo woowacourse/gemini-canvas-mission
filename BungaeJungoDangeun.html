@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>번개중고당근 - AI 통합 중고 시세 분석</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;800&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #fcfcfc; color: #333; }
+        
+        :root {
+            --point-color: #EF8200;
+            --lightning-red: #ef151e;
+            --joonggo-green: #03c75a;
+        }
+
+        .bg-point { background-color: var(--point-color); }
+        .text-point { color: var(--point-color); }
+        .border-point { border-color: var(--point-color); }
+        
+        .loading-spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid #fff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .card-shadow { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); }
+        .progress-bar { height: 6px; border-radius: 3px; background: #f0f0f0; overflow: hidden; }
+        .progress-fill { height: 100%; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        /* 로고 애니메이션 */
+        .logo-shake:hover {
+            animation: shake 0.5s ease-in-out infinite;
+        }
+        @keyframes shake {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-5deg); }
+            75% { transform: rotate(5deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-20">
+
+    <!-- Header -->
+    <header class="bg-white border-b sticky top-0 z-30">
+        <div class="max-w-md mx-auto px-5 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <!-- 통합 로고: 번개(빨강) + 중고(초록) + 당근(오렌지) -->
+                <div class="logo-shake cursor-pointer transition-transform">
+                    <svg width="36" height="36" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <!-- 당근 잎 (Green) -->
+                        <path d="M45 15C45 10 50 5 55 10C60 15 55 20 50 20C45 20 40 15 45 15Z" fill="#4ADE80"/>
+                        <path d="M55 15C55 10 60 5 65 10C70 15 65 20 60 20C55 20 50 15 55 15Z" fill="#22C55E"/>
+                        <!-- 당근 몸체이자 중고 박스 (Carrot Orange #EF8200) -->
+                        <path d="M30 30H70L65 80C65 85 60 90 50 90C40 90 35 85 35 80L30 30Z" fill="#EF8200"/>
+                        <!-- 박스 덮개 라인 (Naver/Joonggo Green #03c75a) -->
+                        <path d="M30 40H70" stroke="#03c75a" stroke-width="3"/>
+                        <path d="M50 30V40" stroke="#03c75a" stroke-width="3"/>
+                        <!-- 번개 무늬 (Lightning Market Red #ef151e) -->
+                        <path d="M50 45L60 55H40L55 75" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M50 45L60 55H40L55 75" stroke="#ef151e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <h1 class="text-xl font-extrabold tracking-tighter">
+                    <span style="color: var(--lightning-red)">번개</span><span style="color: var(--joonggo-green)">중고</span><span style="color: var(--point-color)">당근</span>
+                </h1>
+            </div>
+            <!-- 통합 새로고침/초기화 버튼 -->
+            <button id="header-reset-btn" class="bg-gray-50 p-2 rounded-full text-gray-400 hover:text-point transition-colors" title="초기화">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-md mx-auto px-5 mt-8">
+        <!-- Step 1: Image Upload Area -->
+        <section id="upload-section" class="space-y-5">
+            <div class="bg-white p-12 rounded-[2rem] border-2 border-dashed border-gray-200 text-center hover:border-point transition-all cursor-pointer group" id="drop-area">
+                <input type="file" id="file-input" accept="image/*" class="hidden">
+                <label for="file-input" class="cursor-pointer flex flex-col items-center">
+                    <div class="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center mb-5 group-hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-point" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                    </div>
+                    <span class="text-gray-900 font-bold text-lg">상품 사진 올리기</span>
+                    <p class="text-gray-400 text-sm mt-1 font-medium">AI가 시세를 분석해드려요</p>
+                </label>
+            </div>
+
+            <!-- Preview Container -->
+            <div id="preview-container" class="hidden space-y-5">
+                <div class="relative rounded-[2rem] overflow-hidden card-shadow aspect-square bg-white border border-gray-100">
+                    <img id="image-preview" class="w-full h-full object-contain" alt="Preview">
+                </div>
+                <button id="calculate-btn" class="bg-point w-full text-white py-4.5 rounded-[1.25rem] font-bold text-lg card-shadow active:scale-[0.98] transition-all flex items-center justify-center gap-3 py-4">
+                    <span id="btn-text">시세 분석 시작하기</span>
+                    <div id="loading-spinner" class="loading-spinner hidden"></div>
+                </button>
+            </div>
+        </section>
+
+        <!-- Result Section -->
+        <section id="result-section" class="hidden mt-8 space-y-6">
+            <!-- Price Summary Card -->
+            <div class="bg-white rounded-[2.5rem] p-8 card-shadow border border-gray-50 text-center relative overflow-hidden">
+                <div class="absolute -right-4 -top-4 opacity-5">
+                    <svg width="100" height="100" viewBox="0 0 100 100" fill="#EF8200">
+                        <path d="M50 10L90 30V70L50 90L10 70V30L50 10Z"/>
+                    </svg>
+                </div>
+                <h3 class="text-gray-400 text-[11px] font-bold uppercase tracking-[0.2em] mb-3">AI 권장 판매 가격</h3>
+                <div class="flex items-baseline justify-center gap-1">
+                    <span id="res-price" class="text-5xl font-extrabold text-gray-900 tracking-tighter">0</span>
+                    <span class="text-2xl font-bold text-gray-900">원</span>
+                </div>
+                
+                <div class="mt-8 flex items-center justify-center gap-3 text-xs font-bold">
+                    <div class="px-5 py-2.5 bg-gray-50 rounded-2xl text-gray-500">
+                        평균 <span id="res-range">---</span>
+                    </div>
+                    <div class="px-5 py-2.5 bg-orange-50 rounded-2xl text-point">
+                        상태 <span id="res-grade">---</span> 등급
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analysis Details -->
+            <div class="bg-white rounded-[2rem] p-7 card-shadow border border-gray-50 space-y-6">
+                <h4 class="font-bold text-gray-900 text-base">데이터 분석 리포트</h4>
+                
+                <div class="space-y-5">
+                    <div class="flex justify-between items-center text-sm font-semibold">
+                        <span class="text-gray-400">신제품 추정가</span>
+                        <span id="basis-original-price" class="text-gray-800">--- 원</span>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-end">
+                            <span class="text-[11px] font-bold text-gray-400">상품 감가율</span>
+                            <span id="basis-depreciation-text" class="text-[11px] font-bold text-red-500">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="basis-depreciation-bar" class="progress-fill bg-red-400" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-end">
+                            <span class="text-[11px] font-bold text-gray-400">중고 거래 수요</span>
+                            <span id="basis-demand-text" class="text-[11px] font-bold text-point">보통</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="basis-demand-bar" class="progress-fill bg-point" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-6 border-t border-gray-50">
+                    <p id="res-name" class="text-gray-900 font-bold text-lg mb-3"></p>
+                    <div id="res-condition-reason" class="text-gray-500 text-sm leading-relaxed bg-gray-50 p-5 rounded-2xl font-medium italic">
+                        상태 분석 내용이 표시됩니다.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Selling Tips -->
+            <div class="space-y-3">
+                <h4 class="font-bold text-gray-900 px-1 text-base">판매 성공 가이드</h4>
+                <div id="res-tips" class="space-y-2.5"></div>
+            </div>
+
+            <!-- AI Sales Post -->
+            <div class="space-y-3">
+                <h4 class="font-bold text-gray-900 px-1 text-base">AI가 작성한 판매글</h4>
+                <div class="bg-white rounded-[2rem] p-7 card-shadow border border-gray-50 space-y-5">
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-gray-300 uppercase tracking-widest">제목</label>
+                        <p id="post-title" class="text-gray-900 font-bold text-lg leading-snug"></p>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-gray-300 uppercase tracking-widest">본문 내용</label>
+                        <p id="post-description" class="text-gray-600 text-sm whitespace-pre-wrap leading-relaxed font-medium"></p>
+                    </div>
+                    <button id="copy-btn" class="w-full bg-point text-white py-4.5 rounded-2xl font-bold text-base hover:opacity-95 transition-all flex items-center justify-center gap-2 py-4 mt-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                        </svg>
+                        판매글 전체 복사하기
+                    </button>
+                    <div id="copy-toast" class="hidden text-center text-[11px] text-point font-bold animate-pulse">복사되었습니다! 이제 플랫폼에 붙여넣으세요.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Error Message -->
+        <div id="error-box" class="hidden mt-6 p-5 bg-red-50 text-red-600 rounded-2xl text-sm font-bold border border-red-100 text-center">
+            분석에 실패했습니다. 사진을 다시 확인해 주세요.
+        </div>
+    </main>
+
+    <script>
+        const apiKey = "";
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'lightning-used-carrot-v3';
+
+        const fileInput = document.getElementById('file-input');
+        const previewContainer = document.getElementById('preview-container');
+        const imagePreview = document.getElementById('image-preview');
+        const calculateBtn = document.getElementById('calculate-btn');
+        const resultSection = document.getElementById('result-section');
+        const btnText = document.getElementById('btn-text');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const headerResetBtn = document.getElementById('header-reset-btn');
+        const errorBox = document.getElementById('error-box');
+
+        const resPrice = document.getElementById('res-price');
+        const resRange = document.getElementById('res-range');
+        const resGrade = document.getElementById('res-grade');
+        const resName = document.getElementById('res-name');
+        const resConditionReason = document.getElementById('res-condition-reason');
+        const resTips = document.getElementById('res-tips');
+
+        const basisOriginalPrice = document.getElementById('basis-original-price');
+        const basisDepreciationText = document.getElementById('basis-depreciation-text');
+        const basisDepreciationBar = document.getElementById('basis-depreciation-bar');
+        const basisDemandText = document.getElementById('basis-demand-text');
+        const basisDemandBar = document.getElementById('basis-demand-bar');
+
+        const postTitle = document.getElementById('post-title');
+        const postDescription = document.getElementById('post-description');
+        const copyBtn = document.getElementById('copy-btn');
+        const copyToast = document.getElementById('copy-toast');
+
+        let base64Image = null;
+
+        // 사진 선택 시 프리뷰 표시
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    imagePreview.src = event.target.result;
+                    base64Image = event.target.result.split(',')[1];
+                    previewContainer.classList.remove('hidden');
+                    calculateBtn.classList.remove('hidden'); 
+                    btnText.innerText = "시세 분석 시작하기";
+                    document.getElementById('upload-section').firstElementChild.classList.add('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 앱 초기화 함수 (헤더의 새로고침 버튼에 연결)
+        const resetApp = () => {
+            fileInput.value = "";
+            base64Image = null;
+            previewContainer.classList.add('hidden');
+            resultSection.classList.add('hidden');
+            calculateBtn.classList.remove('hidden');
+            document.getElementById('upload-section').firstElementChild.classList.remove('hidden');
+            errorBox.classList.add('hidden');
+            btnText.innerText = "시세 분석 시작하기";
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        headerResetBtn.addEventListener('click', resetApp);
+
+        async function analyzeImage(base64Data, retryCount = 0) {
+            const systemPrompt = `당신은 번개장터, 중고나라, 당근마켓의 빅데이터를 분석하는 '번개중고당근' AI 시세 전문가입니다. 
+            반드시 아래 JSON 구조로만 응답하세요:
+            {
+              "item_name": "정확한 상품 모델명",
+              "condition_grade": "S/A/B/C",
+              "condition_reason": "사진 분석을 통한 상태 설명",
+              "recommended_price": 50000,
+              "price_range_min": 45000,
+              "price_range_max": 55000,
+              "analysis_metrics": {
+                "original_price_est": 120000,
+                "depreciation_rate": 30,
+                "demand_score": 85,
+                "demand_level": "높음"
+              },
+              "selling_tips": ["꿀팁1", "꿀팁2", "꿀팁3"],
+              "sales_post": {
+                "title": "눈길을 끄는 판매 제목",
+                "description": "정확하고 친절한 상품 설명 본문"
+              }
+            }`;
+
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: "이 이미지의 상품 시세를 분석해줘." },
+                        { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+                    ]
+                }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { responseMimeType: "application/json" }
+            };
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    if (retryCount < 5) {
+                        const waitTime = Math.pow(2, retryCount) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                        return analyzeImage(base64Data, retryCount + 1);
+                    }
+                    throw new Error('API request failed');
+                }
+
+                const result = await response.json();
+                return JSON.parse(result.candidates?.[0]?.content?.parts?.[0]?.text);
+            } catch (error) {
+                console.error(error);
+                throw error;
+            }
+        }
+
+        calculateBtn.addEventListener('click', async () => {
+            if (!base64Image) return;
+
+            calculateBtn.disabled = true;
+            btnText.innerText = "시세를 분석 중입니다...";
+            loadingSpinner.classList.remove('hidden');
+            errorBox.classList.add('hidden');
+            resultSection.classList.add('hidden');
+
+            try {
+                const data = await analyzeImage(base64Image);
+                
+                resName.innerText = data.item_name;
+                resPrice.innerText = data.recommended_price.toLocaleString();
+                resRange.innerText = `${data.price_range_min.toLocaleString()}~${data.price_range_max.toLocaleString()}원`;
+                resGrade.innerText = data.condition_grade;
+                resConditionReason.innerText = data.condition_reason;
+
+                const metrics = data.analysis_metrics;
+                basisOriginalPrice.innerText = `${metrics.original_price_est.toLocaleString()} 원`;
+                basisDepreciationText.innerText = `${metrics.depreciation_rate}%`;
+                basisDepreciationBar.style.width = `${metrics.depreciation_rate}%`;
+                basisDemandText.innerText = metrics.demand_level;
+                basisDemandBar.style.width = `${metrics.demand_score}%`;
+                
+                resTips.innerHTML = data.selling_tips.map(tip => `
+                    <div class="flex gap-3 bg-white p-4 rounded-2xl border border-gray-100 text-sm card-shadow font-medium">
+                        <span class="text-point font-bold">✓</span>
+                        <p class="text-gray-600">${tip}</p>
+                    </div>
+                `).join('');
+
+                postTitle.innerText = data.sales_post.title;
+                postDescription.innerText = data.sales_post.description;
+
+                resultSection.classList.remove('hidden');
+                calculateBtn.classList.add('hidden'); 
+                resultSection.scrollIntoView({ behavior: 'smooth' });
+
+            } catch (err) {
+                errorBox.classList.remove('hidden');
+                btnText.innerText = "시세 분석 시작하기";
+            } finally {
+                calculateBtn.disabled = false;
+                loadingSpinner.classList.add('hidden');
+            }
+        });
+
+        copyBtn.addEventListener('click', () => {
+            const fullText = `[제목]\n${postTitle.innerText}\n\n[가격]\n${resPrice.innerText}원\n\n[설명]\n${postDescription.innerText}`;
+            const textarea = document.createElement('textarea');
+            textarea.value = fullText;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+
+            copyToast.classList.remove('hidden');
+            setTimeout(() => copyToast.classList.add('hidden'), 2500);
+        });
+    </script>
+</body>
+</html>

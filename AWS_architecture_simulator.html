@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AWS 아키텍처 시뮬레이터</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background-color: #0f172a; /* Slate 900 */
+      color: #f8fafc; /* Slate 50 */
+    }
+
+    .board-container {
+      position: relative;
+      background-color: #1e293b; /* Slate 800 */
+      background-image: radial-gradient(#334155 1px, transparent 1px);
+      background-size: 20px 20px;
+      border-radius: 0.75rem;
+      overflow: hidden;
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+    }
+
+    .node {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 80px;
+      text-align: center;
+      z-index: 10;
+      transition: all 0.3s ease;
+    }
+
+    .node-icon-wrapper {
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #334155;
+      border: 2px solid #475569;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+      margin-bottom: 8px;
+      transition: all 0.3s ease;
+    }
+
+    .node.active .node-icon-wrapper {
+      border-color: #f97316; /* Orange 500 - AWS Color */
+      box-shadow: 0 0 15px rgba(249, 115, 22, 0.4);
+    }
+
+    .node.inactive {
+      opacity: 0.2;
+      filter: grayscale(100%);
+    }
+
+    .node-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      white-space: nowrap;
+      background: rgba(15, 23, 42, 0.8);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    #svg-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .connection-line {
+      stroke: #475569;
+      stroke-width: 2;
+      fill: none;
+      stroke-dasharray: 4;
+      animation: dash 20s linear infinite;
+    }
+
+    .connection-line.active-path {
+      stroke: #f97316;
+      stroke-width: 3;
+      opacity: 0.6;
+    }
+
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -1000;
+      }
+    }
+
+    /* The data packet animation */
+    .packet {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      background-color: #38bdf8; /* Sky 400 */
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 10px #38bdf8, 0 0 20px #38bdf8;
+      z-index: 20;
+      opacity: 0;
+      transition: left 0.6s linear, top 0.6s linear;
+    }
+
+    .packet.db-packet {
+      background-color: #f43f5e; /* Rose 500 */
+      box-shadow: 0 0 10px #f43f5e, 0 0 20px #f43f5e;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+<!-- Header -->
+<header class="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-md z-20">
+  <div class="flex items-center gap-3">
+    <i data-lucide="cloud" class="text-orange-500 w-8 h-8"></i>
+    <h1 class="text-xl font-bold tracking-tight">AWS 아키텍처 시뮬레이터</h1>
+  </div>
+  <div class="text-sm text-slate-400">
+    <span id="status-text">대기 중... 옵션을 선택하고 시뮬레이션을 실행하세요.</span>
+  </div>
+</header>
+
+<!-- Main Content -->
+<main class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+
+  <!-- Left Sidebar: Controls -->
+  <aside class="w-full lg:w-80 bg-slate-900 border-r border-slate-700 p-6 overflow-y-auto flex flex-col gap-6 shadow-xl z-10">
+    <div>
+      <h2 class="text-lg font-semibold mb-4 text-slate-200 border-b border-slate-700 pb-2">아키텍처 옵션</h2>
+
+      <!-- Frontend Serving -->
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-slate-400 mb-2">1. 정적 에셋 서빙 (Frontend)</label>
+        <select id="opt-frontend" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 transition-colors">
+          <option value="cdn">CloudFront + S3 (SPA 권장)</option>
+          <option value="server">웹 서버 직접 서빙 (SSR/모놀리식)</option>
+        </select>
+      </div>
+
+      <!-- API Gateway / Load Balancer -->
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-slate-400 mb-2">2. API 진입점 (Entry Point)</label>
+        <select id="opt-entry" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 transition-colors">
+          <option value="alb">Application Load Balancer (ALB)</option>
+          <option value="apigw">Amazon API Gateway</option>
+        </select>
+      </div>
+
+      <!-- Compute -->
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-slate-400 mb-2">3. 컴퓨팅 엔진 (Backend)</label>
+        <select id="opt-compute" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 transition-colors">
+          <option value="ec2">EC2 (가상 머신 / 모놀리식)</option>
+          <option value="ecs">ECS / EKS (도커 컨테이너)</option>
+          <option value="lambda">AWS Lambda (서버리스)</option>
+        </select>
+      </div>
+
+      <!-- Caching -->
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-slate-400 mb-2">4. 인메모리 캐시 (Caching)</label>
+        <select id="opt-cache" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 transition-colors">
+          <option value="none">사용 안 함</option>
+          <option value="elasticache">ElastiCache (Redis / Memcached)</option>
+        </select>
+      </div>
+
+      <!-- Database -->
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-slate-400 mb-2">5. 데이터베이스 (Database)</label>
+        <select id="opt-db" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 transition-colors">
+          <option value="rds">Amazon RDS (관계형 DB)</option>
+          <option value="dynamodb">Amazon DynamoDB (NoSQL)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mt-auto">
+      <button id="btn-simulate" class="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:shadow-orange-500/30 transition-all flex items-center justify-center gap-2">
+        <i data-lucide="play" class="w-5 h-5"></i>
+        전체 흐름 시뮬레이션
+      </button>
+    </div>
+
+    <div id="info-panel" class="mt-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700 text-xs text-slate-300 leading-relaxed hidden">
+      <!-- Dynamic explanation will go here -->
+    </div>
+  </aside>
+
+  <!-- Right Content: Interactive Diagram -->
+  <section class="flex-1 p-6 flex flex-col relative">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-xl font-bold text-slate-200">아키텍처 토폴로지</h2>
+      <div class="flex gap-4 text-xs font-medium">
+        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-sky-400"></span> 사용자 요청 (Request)</div>
+        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-rose-500"></span> 데이터 조회 (Query)</div>
+      </div>
+    </div>
+
+    <div id="board" class="board-container flex-1 w-full h-full relative">
+      <!-- SVG for drawing connecting lines -->
+      <svg id="svg-canvas"></svg>
+
+      <!-- Data Packets for animation -->
+      <div id="packet1" class="packet"></div>
+      <div id="packet2" class="packet db-packet"></div>
+
+      <!-- Nodes will be injected here by JS -->
+    </div>
+  </section>
+</main>
+
+<script>
+  // Initialize Lucide icons
+  lucide.createIcons();
+
+  // --------------------------------------------------------
+  // State & Configuration
+  // --------------------------------------------------------
+  const state = {
+    frontend: 'cdn',
+    entry: 'alb',
+    compute: 'ec2',
+    cache: 'none',
+    db: 'rds',
+    isAnimating: false
+  };
+
+  // Node definitions with coordinates (percentages)
+  const nodeDefs = {
+    user:       { id: 'user',       x: 8,  y: 50, label: '클라이언트 (User)', icon: 'laptop', color: 'text-slate-300' },
+    route53:    { id: 'route53',    x: 22, y: 50, label: 'Route 53 (DNS)', icon: 'book-open', color: 'text-orange-400' },
+
+    // Frontend Path
+    cloudfront: { id: 'cloudfront', x: 40, y: 20, label: 'CloudFront (CDN)', icon: 'zap', color: 'text-purple-400' },
+    s3:         { id: 's3',         x: 60, y: 20, label: 'S3 (정적 호스팅)', icon: 'hard-drive', color: 'text-green-500' },
+
+    // Backend Path
+    gateway:    { id: 'gateway',    x: 40, y: 80, label: 'Load Balancer', icon: 'share-2', color: 'text-indigo-400' },
+    compute:    { id: 'compute',    x: 60, y: 80, label: 'EC2 (서버)', icon: 'server', color: 'text-orange-500' },
+
+    // Data Tier
+    cache:      { id: 'cache',      x: 75, y: 50, label: 'ElastiCache', icon: 'zap-off', color: 'text-blue-400' }, // zap-off as placeholder, will change
+    db:         { id: 'db',         x: 88, y: 80, label: 'RDS (RDBMS)', icon: 'database', color: 'text-blue-500' }
+  };
+
+  const board = document.getElementById('board');
+  const svgCanvas = document.getElementById('svg-canvas');
+  const packet1 = document.getElementById('packet1');
+  const packet2 = document.getElementById('packet2');
+  const statusText = document.getElementById('status-text');
+  const infoPanel = document.getElementById('info-panel');
+
+  // --------------------------------------------------------
+  // DOM Elements & Event Listeners
+  // --------------------------------------------------------
+  const selects = ['frontend', 'entry', 'compute', 'cache', 'db'];
+  selects.forEach(key => {
+    document.getElementById(`opt-${key}`).addEventListener('change', (e) => {
+      state[key] = e.target.value;
+      updateNodesBasedOnState();
+      renderLines();
+      updateInfoPanel();
+    });
+  });
+
+  document.getElementById('btn-simulate').addEventListener('click', runSimulation);
+
+  // Handle window resize to redraw lines properly
+  window.addEventListener('resize', renderLines);
+
+  // --------------------------------------------------------
+  // Initialization & Rendering
+  // --------------------------------------------------------
+  function init() {
+    // Render all nodes initially
+    Object.values(nodeDefs).forEach(def => {
+      const nodeEl = document.createElement('div');
+      nodeEl.id = `node-${def.id}`;
+      nodeEl.className = 'node';
+      nodeEl.style.left = `${def.x}%`;
+      nodeEl.style.top = `${def.y}%`;
+
+      nodeEl.innerHTML = `
+                    <div class="node-icon-wrapper">
+                        <i data-lucide="${def.icon}" class="${def.color}"></i>
+                    </div>
+                    <div class="node-label">${def.label}</div>
+                `;
+      board.appendChild(nodeEl);
+    });
+
+    lucide.createIcons();
+    updateNodesBasedOnState();
+    renderLines();
+    updateInfoPanel();
+  }
+
+  function updateNodesBasedOnState() {
+    // 1. Frontend
+    const useCdn = state.frontend === 'cdn';
+    toggleNode('cloudfront', useCdn);
+    toggleNode('s3', useCdn);
+
+    // 2. Gateway Update
+    const gwNode = document.getElementById('node-gateway');
+    if (state.entry === 'alb') {
+      updateNodeContent(gwNode, 'ALB (로드밸런서)', 'share-2', 'text-indigo-400');
+    } else {
+      updateNodeContent(gwNode, 'API Gateway', 'door-open', 'text-pink-500');
+    }
+
+    // 3. Compute Update
+    const compNode = document.getElementById('node-compute');
+    if (state.compute === 'ec2') {
+      updateNodeContent(compNode, 'EC2 (가상 머신)', 'server', 'text-orange-500');
+    } else if (state.compute === 'ecs') {
+      updateNodeContent(compNode, 'ECS (컨테이너)', 'box', 'text-sky-500');
+    } else {
+      updateNodeContent(compNode, 'Lambda (서버리스)', 'code-2', 'text-orange-400');
+    }
+
+    // 4. Cache
+    toggleNode('cache', state.cache !== 'none');
+    const cacheNode = document.getElementById('node-cache');
+    if(state.cache !== 'none') {
+      updateNodeContent(cacheNode, 'ElastiCache', 'cpu', 'text-blue-400');
+    }
+
+    // 5. Database Update
+    const dbNode = document.getElementById('node-db');
+    if (state.db === 'rds') {
+      updateNodeContent(dbNode, 'RDS (관계형)', 'database', 'text-blue-600');
+    } else {
+      updateNodeContent(dbNode, 'DynamoDB (NoSQL)', 'table', 'text-blue-400');
+    }
+
+    // Make active nodes pop
+    Object.keys(nodeDefs).forEach(key => {
+      const el = document.getElementById(`node-${key}`);
+      if (!el.classList.contains('inactive')) {
+        el.classList.add('active');
+      } else {
+        el.classList.remove('active');
+      }
+    });
+  }
+
+  function toggleNode(id, isVisible) {
+    const el = document.getElementById(`node-${id}`);
+    if (isVisible) {
+      el.classList.remove('inactive');
+    } else {
+      el.classList.add('inactive');
+    }
+  }
+
+  function updateNodeContent(el, label, iconName, colorClass) {
+    const wrapper = el.querySelector('.node-icon-wrapper');
+    const labelEl = el.querySelector('.node-label');
+    labelEl.textContent = label;
+    wrapper.innerHTML = `<i data-lucide="${iconName}" class="${colorClass}"></i>`;
+    lucide.createIcons({ root: wrapper });
+  }
+
+  function updateInfoPanel() {
+    infoPanel.classList.remove('hidden');
+    let text = "<strong>현재 아키텍처 특성:</strong><br><br>";
+
+    if (state.frontend === 'cdn') text += "🌐 <strong>프론트엔드:</strong> S3에 빌드된 정적 파일(React/Vue 등)을 저장하고 CloudFront(CDN)를 통해 전 세계 사용자에게 엣지 로케이션에서 빠르게 캐싱하여 전달합니다.<br>";
+    else text += "🌐 <strong>프론트엔드:</strong> 백엔드 서버(EC2 등)가 직접 HTML을 렌더링(SSR)하여 응답합니다. CloudFront/S3를 거치지 않습니다.<br>";
+
+    if (state.compute === 'lambda' && state.entry === 'apigw') {
+      text += "⚙️ <strong>백엔드 (서버리스):</strong> API Gateway가 RESTful 요청을 받아 Lambda 함수를 트리거합니다. 트래픽에 따라 자동 확장되며 서버 관리가 필요 없습니다.<br>";
+    } else if (state.compute === 'ecs') {
+      text += "⚙️ <strong>백엔드 (컨테이너):</strong> Docker 이미지로 패키징된 애플리케이션이 ECS 상에서 실행되며, 로드 밸런서가 트래픽을 각 컨테이너로 분산합니다.<br>";
+    } else {
+      text += "⚙️ <strong>백엔드 (가상머신):</strong> 전통적인 EC2 인스턴스에 서버가 구축되어 있으며, 지속적인 트래픽 처리에 유리합니다.<br>";
+    }
+
+    if (state.cache !== 'none') {
+      text += "⚡ <strong>캐싱:</strong> ElastiCache를 도입하여 자주 조회되는 DB 데이터를 메모리에 올려 읽기 성능을 극대화하고 DB 부하를 줄입니다.<br>";
+    }
+
+    if (state.db === 'rds') {
+      text += "💾 <strong>데이터베이스:</strong> RDS를 사용하여 복잡한 트랜잭션과 관계형 스키마(SQL)가 필요한 데이터를 안전하게 관리합니다.";
+    } else {
+      text += "💾 <strong>데이터베이스:</strong> DynamoDB를 사용하여 방대한 양의 데이터를 밀리초 단위로 응답하는 유연한 NoSQL 스키마를 구성합니다.";
+    }
+
+    infoPanel.innerHTML = text;
+  }
+
+  // --------------------------------------------------------
+  // Line Drawing (SVG)
+  // --------------------------------------------------------
+  function renderLines() {
+    svgCanvas.innerHTML = ''; // Clear existing
+
+    const p = (id) => ({ x: nodeDefs[id].x, y: nodeDefs[id].y });
+
+    // User -> Route53 (Always)
+    drawLine(p('user'), p('route53'));
+
+    if (state.frontend === 'cdn') {
+      // Route53 -> CloudFront -> S3
+      drawLine(p('route53'), p('cloudfront'));
+      drawLine(p('cloudfront'), p('s3'));
+    } else {
+      // If direct server rendering, Route53 points directly to Load Balancer/APIGW
+      drawLine(p('route53'), p('gateway'));
+    }
+
+    // Route53 -> API Entry (For API calls from the loaded frontend)
+    // Even with CDN, the client eventually makes API calls to backend
+    if (state.frontend === 'cdn') {
+      drawLine(p('route53'), p('gateway'), true); // dashed to show secondary path
+    }
+
+    // API Entry -> Compute
+    drawLine(p('gateway'), p('compute'));
+
+    // Compute -> Cache -> DB
+    if (state.cache !== 'none') {
+      drawLine(p('compute'), p('cache'));
+      drawLine(p('cache'), p('db'));
+      // Cache miss path (Compute -> DB directly)
+      drawLine(p('compute'), p('db'), true);
+    } else {
+      // Compute -> DB
+      drawLine(p('compute'), p('db'));
+    }
+  }
+
+  function drawLine(start, end, isDashedAlternative = false) {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', `${start.x}%`);
+    line.setAttribute('y1', `${start.y}%`);
+    line.setAttribute('x2', `${end.x}%`);
+    line.setAttribute('y2', `${end.y}%`);
+    line.setAttribute('class', 'connection-line');
+    if (isDashedAlternative) {
+      line.style.opacity = '0.3';
+      line.style.strokeDasharray = '2 6';
+    }
+    svgCanvas.appendChild(line);
+  }
+
+  // --------------------------------------------------------
+  // Simulation Animation
+  // --------------------------------------------------------
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  async function movePacket(packet, fromId, toId, duration = 600) {
+    const fromNode = nodeDefs[fromId];
+    const toNode = nodeDefs[toId];
+
+    // Set initial position immediately (no transition)
+    packet.style.transition = 'none';
+    packet.style.left = `${fromNode.x}%`;
+    packet.style.top = `${fromNode.y}%`;
+    packet.style.opacity = '1';
+
+    // Force reflow
+    void packet.offsetWidth;
+
+    // Apply transition
+    packet.style.transition = `left ${duration}ms linear, top ${duration}ms linear`;
+    packet.style.left = `${toNode.x}%`;
+    packet.style.top = `${toNode.y}%`;
+
+    await sleep(duration);
+  }
+
+  async function hidePacket(packet) {
+    packet.style.transition = 'opacity 0.2s ease';
+    packet.style.opacity = '0';
+    await sleep(200);
+  }
+
+  function pulseNode(id) {
+    const wrapper = document.querySelector(`#node-${id} .node-icon-wrapper`);
+    if (wrapper) {
+      wrapper.style.transform = 'scale(1.2)';
+      wrapper.style.backgroundColor = '#475569';
+      setTimeout(() => {
+        wrapper.style.transform = 'scale(1)';
+        wrapper.style.backgroundColor = '#334155';
+      }, 300);
+    }
+  }
+
+  async function runSimulation() {
+    if (state.isAnimating) return;
+    state.isAnimating = true;
+    document.getElementById('btn-simulate').disabled = true;
+    document.getElementById('btn-simulate').classList.add('opacity-50', 'cursor-not-allowed');
+
+    const pkt = packet1;
+    const dbPkt = packet2;
+
+    // ---------------------------------------------
+    // PHASE 1: Fetching Frontend Assets
+    // ---------------------------------------------
+    statusText.textContent = "1. 프론트엔드 에셋(HTML/JS) 요청 중...";
+
+    pulseNode('user');
+    await movePacket(pkt, 'user', 'route53', 500);
+    pulseNode('route53');
+
+    if (state.frontend === 'cdn') {
+      await movePacket(pkt, 'route53', 'cloudfront', 600);
+      pulseNode('cloudfront');
+
+      statusText.textContent = "CDN 캐시 확인 중...";
+      await sleep(400);
+
+      // Assuming cache miss for simulation sake to show S3
+      statusText.textContent = "원본 S3 버킷에서 에셋 가져오기...";
+      await movePacket(pkt, 'cloudfront', 's3', 500);
+      pulseNode('s3');
+
+      // Return to User
+      await movePacket(pkt, 's3', 'cloudfront', 500);
+      await movePacket(pkt, 'cloudfront', 'user', 600);
+    } else {
+      statusText.textContent = "웹 서버(EC2)에서 직접 렌더링 (SSR)...";
+      await movePacket(pkt, 'route53', 'gateway', 600);
+      pulseNode('gateway');
+      await movePacket(pkt, 'gateway', 'compute', 500);
+      pulseNode('compute');
+
+      // Return to user
+      await movePacket(pkt, 'compute', 'gateway', 500);
+      await movePacket(pkt, 'gateway', 'user', 600);
+    }
+
+    pulseNode('user');
+    await hidePacket(pkt);
+    await sleep(500);
+
+    // ---------------------------------------------
+    // PHASE 2: API Data Request (Backend)
+    // ---------------------------------------------
+    statusText.textContent = "2. 브라우저에서 백엔드로 API 데이터 요청...";
+
+    pulseNode('user');
+    await movePacket(pkt, 'user', 'route53', 500);
+    pulseNode('route53');
+
+    await movePacket(pkt, 'route53', 'gateway', 600);
+    pulseNode('gateway');
+
+    statusText.textContent = "컴퓨팅 엔진에서 로직 처리 중...";
+    await movePacket(pkt, 'gateway', 'compute', 500);
+    pulseNode('compute');
+    await hidePacket(pkt);
+
+    // Trigger DB logic from Compute
+    if (state.cache !== 'none') {
+      statusText.textContent = "ElastiCache에서 데이터 조회...";
+      await movePacket(dbPkt, 'compute', 'cache', 400);
+      pulseNode('cache');
+
+      // Simulate Cache Miss, fallback to DB
+      statusText.textContent = "캐시 미스! 원본 DB에서 데이터 조회...";
+      await sleep(400);
+      await movePacket(dbPkt, 'cache', 'compute', 400); // return to app logic
+      await movePacket(dbPkt, 'compute', 'db', 500);
+    } else {
+      statusText.textContent = "DB에서 쿼리 실행 중...";
+      await movePacket(dbPkt, 'compute', 'db', 600);
+    }
+
+    pulseNode('db');
+    await sleep(500);
+
+    // ---------------------------------------------
+    // PHASE 3: Response Return
+    // ---------------------------------------------
+    statusText.textContent = "데이터 조회 완료. 클라이언트로 응답 반환 중...";
+    await movePacket(dbPkt, 'db', 'compute', 500);
+    if (state.cache !== 'none') {
+      // Update cache asynchronously (visual logic)
+      statusText.textContent = "조회된 데이터 캐시에 저장 및 응답...";
+      movePacket(packet1, 'compute', 'cache', 400).then(() => hidePacket(packet1));
+    }
+    pulseNode('compute');
+
+    await movePacket(dbPkt, 'compute', 'gateway', 500);
+    pulseNode('gateway');
+
+    await movePacket(dbPkt, 'gateway', 'user', 800);
+    pulseNode('user');
+    await hidePacket(dbPkt);
+
+    statusText.textContent = "시뮬레이션 완료! (사용자 화면에 데이터 렌더링)";
+
+    // Reset
+    state.isAnimating = false;
+    document.getElementById('btn-simulate').disabled = false;
+    document.getElementById('btn-simulate').classList.remove('opacity-50', 'cursor-not-allowed');
+  }
+
+  // Start
+  window.onload = init;
+
+</script>
+</body>
+</html>

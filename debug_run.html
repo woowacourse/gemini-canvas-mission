@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>디버그 런 (Debug Run)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Noto+Sans+KR:wght@400;700&display=swap');
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background-color: #0f172a; /* Slate 900 */
+      color: #f8fafc;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .code-font {
+      font-family: 'Fira Code', monospace;
+    }
+
+    /* 게임 영역 커스텀 스크롤바 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+    /* 애니메이션 */
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-8px); }
+      40% { transform: translateX(8px); }
+      60% { transform: translateX(-4px); }
+      80% { transform: translateX(4px); }
+    }
+    .animate-shake {
+      animation: shake 0.4s ease-in-out;
+    }
+
+    @keyframes flashRed {
+      0% { background-color: rgba(239, 68, 68, 0.3); }
+      100% { background-color: transparent; }
+    }
+    .flash-red {
+      animation: flashRed 0.5s ease-out;
+    }
+
+    @keyframes flashGreen {
+      0% { background-color: rgba(34, 197, 94, 0.2); }
+      100% { background-color: transparent; }
+    }
+    .flash-green {
+      animation: flashGreen 0.5s ease-out;
+    }
+
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translateY(0) scale(1); }
+      100% { opacity: 0; transform: translateY(-60px) scale(1.5); }
+    }
+    .floating-score {
+      position: fixed;
+      color: #4ade80;
+      font-weight: 900;
+      font-size: 1.5rem;
+      pointer-events: none;
+      animation: floatUp 0.8s forwards ease-out;
+      z-index: 50;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+
+    /* 디버깅 클릭 영역 */
+    .bug-zone {
+      cursor: crosshair;
+      border-radius: 2px;
+      /* 기본적으로는 티가 나지 않아야 함 */
+    }
+
+    .code-container {
+      cursor: crosshair;
+    }
+
+    /* 성공/실패 시 정답 표시용 */
+    .reveal-bug {
+      background-color: #ef4444 !important;
+      color: white !important;
+      font-weight: bold;
+      padding: 0 4px;
+      border-radius: 4px;
+    }
+    .reveal-bug-success {
+      background-color: #22c55e !important;
+      color: white !important;
+      font-weight: bold;
+      padding: 0 4px;
+      border-radius: 4px;
+    }
+
+    /* 해설 모달 트랜지션 */
+    .modal-enter {
+      animation: fadeIn 0.3s ease-out forwards;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+<!-- 화면 깜빡임 효과를 위한 오버레이 -->
+<div id="flash-overlay" class="fixed inset-0 pointer-events-none z-40"></div>
+
+<!-- 1. 시작 화면 -->
+<div id="start-screen" class="w-full max-w-2xl bg-slate-800 rounded-2xl p-8 shadow-2xl text-center transform transition-all duration-300">
+  <div class="mb-6 inline-block p-4 bg-slate-700 rounded-full">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+    </svg>
+  </div>
+  <h1 class="text-4xl font-bold mb-2 text-white">디버그 런 (Debug Run)</h1>
+  <p class="text-slate-400 mb-8 text-lg">제한시간 안에 코드 속 숨은 오류를 클릭하세요!</p>
+
+  <div class="bg-slate-700 rounded-xl p-4 mb-8 border border-slate-600">
+    <p class="text-xl">환영합니다, <span id="player-name" class="font-bold text-yellow-400"></span> 님!</p>
+    <p class="text-sm text-slate-400 mt-2">최고 기록: <span id="high-score-display" class="text-white font-bold">0</span>점</p>
+  </div>
+
+  <h2 class="text-xl font-semibold mb-4">도전할 언어를 선택하세요</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <button onclick="startGame('javascript')" class="group relative px-6 py-4 bg-[#f7df1e] text-black font-bold rounded-xl hover:scale-105 transition-transform shadow-lg">
+      JavaScript
+      <div class="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 rounded-xl transition-opacity"></div>
+    </button>
+    <button onclick="startGame('java')" class="group relative px-6 py-4 bg-[#f89820] text-white font-bold rounded-xl hover:scale-105 transition-transform shadow-lg">
+      Java
+      <div class="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 rounded-xl transition-opacity"></div>
+    </button>
+    <button onclick="startGame('kotlin')" class="group relative px-6 py-4 bg-[#7f52ff] text-white font-bold rounded-xl hover:scale-105 transition-transform shadow-lg">
+      Kotlin
+      <div class="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 rounded-xl transition-opacity"></div>
+    </button>
+  </div>
+</div>
+
+<!-- 2. 게임 화면 -->
+<div id="game-screen" class="hidden w-full max-w-4xl h-[85vh] flex flex-col bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700">
+
+  <!-- 상단 상태바 -->
+  <div class="flex justify-between items-center p-4 bg-slate-900 border-b border-slate-700">
+    <div class="flex gap-6 items-center">
+      <div class="text-lg">점수: <span id="score" class="font-bold text-blue-400 text-2xl">0</span></div>
+      <div class="text-lg">콤보: <span id="combo" class="font-bold text-orange-400">0</span>🔥</div>
+    </div>
+    <div class="text-lg font-bold bg-slate-800 px-3 py-1 rounded border border-slate-600" id="current-lang-display">
+      JS
+    </div>
+    <div class="text-2xl tracking-widest" id="lives">❤️❤️❤️</div>
+  </div>
+
+  <!-- 타이머 막대 -->
+  <div class="h-2 w-full bg-slate-700 relative">
+    <div id="timer-bar" class="absolute top-0 left-0 h-full bg-blue-500 transition-colors duration-300" style="width: 100%;"></div>
+  </div>
+
+  <!-- 코드 영역 -->
+  <div class="flex-1 p-6 flex flex-col items-center justify-center relative bg-[#1e1e1e] overflow-hidden">
+    <div id="code-wrapper" class="w-full h-full flex items-center justify-center">
+      <pre id="code-container" class="code-container text-[#d4d4d4] text-sm sm:text-base lg:text-lg leading-relaxed p-6 rounded-lg whitespace-pre-wrap break-all max-w-full text-left code-font" onclick="handleCodeClick(event)"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 오답 해설 모달 -->
+<div id="explanation-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
+  <div class="bg-slate-800 p-8 rounded-2xl max-w-lg w-full text-center border border-slate-600 shadow-2xl modal-enter">
+    <h2 id="explanation-title" class="text-3xl font-bold mb-4 text-red-500">틀렸습니다!</h2>
+    <div class="bg-slate-900 p-4 rounded-lg mb-6 text-left border border-slate-700">
+      <p class="text-blue-400 font-bold mb-2 text-sm">💡 디버깅 노트</p>
+      <p id="explanation-text" class="text-base text-slate-300 leading-relaxed"></p>
+    </div>
+    <button onclick="closeExplanation()" class="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-colors shadow-lg">
+      확인 및 계속하기
+    </button>
+  </div>
+</div>
+
+<!-- 3. 게임 오버 화면 -->
+<div id="game-over-screen" class="hidden w-full max-w-md bg-slate-800 rounded-2xl p-8 shadow-2xl text-center transform transition-all duration-300 border border-slate-700">
+  <h1 class="text-4xl font-bold mb-2 text-red-500">GAME OVER</h1>
+  <p class="text-slate-400 mb-6">생명을 모두 소진했습니다.</p>
+
+  <div class="bg-slate-900 rounded-xl p-6 mb-8 border border-slate-700">
+    <div class="text-lg text-slate-400 mb-1">최종 점수</div>
+    <div id="final-score" class="text-5xl font-bold text-blue-400 mb-4">0</div>
+
+    <div class="flex justify-between text-sm px-4">
+      <span class="text-slate-500">최대 콤보: <span id="final-max-combo" class="text-orange-400 font-bold">0</span></span>
+      <span class="text-slate-500">최고 기록: <span id="final-high-score" class="text-yellow-400 font-bold">0</span></span>
+    </div>
+  </div>
+
+  <button onclick="showStartScreen()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-colors shadow-lg">
+    다시 플레이
+  </button>
+</div>
+
+<script>
+  // --- 1. 데이터 베이스 (코드 스니펫 모음) ---
+  // __BUG_START__ 와 __BUG_END__ 사이에 있는 텍스트가 클릭해야 할 정답 영역입니다.
+  const codeSnippets = {
+    javascript: [
+      {
+        code: `// 유저 데이터를 서버에서 가져옵니다.\nasync function getUserProfile(userId) {\n  try {\n    const response = await fetch(\`/api/users/\${userId}\`);\n    if (!response.ok) throw new Error("Network Error");\n    \n    const data = await response.json();\n    return data;\n  } __BUG_START__cacth__BUG_END__ (error) {\n    console.error("데이터 로드 실패:", error);\n    return null;\n  }\n}`,
+        explanation: "<code>try...catch</code> 문에서 에러를 잡는 키워드는 <code>cacth</code>가 아니라 <strong><code>catch</code></strong>입니다. 오타가 잦은 키워드 중 하나입니다."
+      },
+      {
+        code: `class Counter {\n  constructor() {\n    this.count = 0;\n  }\n\n  increment() {\n    this.count++;\n  }\n\n  getCount() {\n    return this.count;\n  }\n}\n\nconst myCounter = new Counter();\nconsole.log(myCounter.count__BUG_START__()__BUG_END__);`,
+        explanation: "클래스의 속성(property)에 접근할 때는 괄호 <code>()</code>를 붙이지 않습니다. 메서드를 호출할 때만 <code>()</code>가 필요합니다."
+      },
+      {
+        code: `const itemList = ['Apple', 'Banana', 'Cherry'];\n\n// 모든 과일 이름을 대문자로 출력합니다.\nfor (let i = 0; i < itemList.__BUG_START__lenght__BUG_END__; i++) {\n  const currentItem = itemList[i];\n  console.log(currentItem.toUpperCase());\n}\n\nconsole.log("출력 완료");`,
+        explanation: "배열의 길이를 반환하는 속성은 <code>lenght</code>가 아니라 <strong><code>length</code></strong>입니다. 빈번하게 발생하는 영어 스펠링 오류입니다."
+      },
+      {
+        code: `// 사용자 입력값을 검증하는 함수\n__BUG_START__fuction__BUG_END__ validateInput(inputStr) {\n  if (inputStr === undefined || inputStr === null) {\n    return false;\n  }\n  \n  if (inputStr.trim() === "") {\n    return false;\n  }\n  \n  return true;\n}`,
+        explanation: "함수를 선언하는 키워드는 <code>fuction</code>이 아니라 'n'이 포함된 <strong><code>function</code></strong>입니다."
+      },
+      {
+        code: `const renderUI = async () => {\n  console.log("UI 렌더링 시작...");\n  \n  // 비동기 데이터 대기\n  const userData = __BUG_START__awiat__BUG_END__ fetchUserData();\n  \n  if (userData) {\n    document.getElementById('profile').innerText = userData.name;\n  }\n};`,
+        explanation: "비동기 함수의 결과를 기다리는 키워드는 <code>awiat</code>가 아니라 <strong><code>await</code></strong>입니다."
+      }
+    ],
+    java: [
+      {
+        code: `import java.util.Scanner;\n\npublic class Calculator {\n    public static void __BUG_START__mian__BUG_END__(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        System.out.println("숫자를 입력하세요:");\n        \n        int number = scanner.nextInt();\n        System.out.println("입력한 숫자: " + number);\n        \n        scanner.close();\n    }\n}`,
+        explanation: "Java 애플리케이션의 시작점 역할을 하는 메인 메서드의 이름은 <code>mian</code>이 아니라 <strong><code>main</code></strong>이어야 합니다."
+      },
+      {
+        code: `public class ScoreBoard {\n    public void printAverage(int[] scores) {\n        int total = 0;\n        \n        // 모든 점수 합산\n        for (int i = 0; i < scores.__BUG_START__length()__BUG_END__; i++) {\n            total += scores[i];\n        }\n        \n        double average = (double) total / scores.length;\n        System.out.println("평균 점수: " + average);\n    }\n}`,
+        explanation: "Java에서 배열의 길이를 구할 때는 메서드 형태인 <code>length()</code>가 아니라 속성인 <strong><code>length</code></strong>를 사용합니다. (String은 <code>length()</code>를 사용합니다.)"
+      },
+      {
+        code: `public class Greeter {\n    private String name;\n    \n    public Greeter(String name) {\n        this.name = name;\n    }\n    \n    public void sayHello() {\n        System.__BUG_START__Out__BUG_END__.println("Hello, " + this.name + "!");\n    }\n}`,
+        explanation: "표준 출력 스트림을 참조하는 정적 멤버는 대문자 <code>Out</code>이 아니라 소문자 <strong><code>out</code></strong>입니다."
+      },
+      {
+        code: `package com.example.game;\n\npublic __BUG_START__calss__BUG_END__ PlayerCharacter {\n    private int health = 100;\n    private int mana = 50;\n    \n    public void takeDamage(int damage) {\n        this.health -= damage;\n        if (this.health < 0) this.health = 0;\n    }\n}`,
+        explanation: "클래스를 정의하는 키워드는 <code>calss</code>가 아니라 <strong><code>class</code></strong>입니다."
+      },
+      {
+        code: `public class DatabaseConfig {\n    private __BUG_START__Stirng__BUG_END__ hostUrl;\n    private int portNumber;\n    \n    public DatabaseConfig(String hostUrl, int portNumber) {\n        this.hostUrl = hostUrl;\n        this.portNumber = portNumber;\n    }\n    \n    public void connect() {\n        // 연결 로직...\n    }\n}`,
+        explanation: "Java에서 문자열 객체를 다루는 클래스는 <code>Stirng</code>이 아니라 <strong><code>String</code></strong>입니다."
+      }
+    ],
+    kotlin: [
+      {
+        code: `data class User(\n    val id: Long,\n    val username: String,\n    val isActive: Boolean = true\n)\n\nfun getUserDescription(user: User): __BUG_START__Stirng__BUG_END__ {\n    return if (user.isActive) {\n        "활성 사용자: \${user.username}"\n    } else {\n        "비활성 사용자"\n    }\n}`,
+        explanation: "반환 타입을 명시할 때 문자열 클래스의 이름은 <code>Stirng</code>이 아니라 <strong><code>String</code></strong>이어야 합니다."
+      },
+      {
+        code: `fun processNumbers(numbers: List<Int>) {\n    var sum = 0\n    \n    for (num in numbers) {\n        if (num % 2 == 0) {\n            sum += num\n        } __BUG_START__esle__BUG_END__ {\n            println("홀수는 건너뜁니다: $num")\n        }\n    }\n    \n    println("짝수의 합: $sum")\n}`,
+        explanation: "조건문의 거짓 분기를 나타내는 키워드는 <code>esle</code>가 아니라 <strong><code>else</code></strong>입니다."
+      },
+      {
+        code: `class NetworkManager {\n    fun connectToServer(url: String) {\n        __BUG_START__prinltn__BUG_END__("서버 연결 시도 중: $url")\n        // 네트워크 연결 로직 작성\n        Thread.sleep(1000)\n        println("연결 성공!")\n    }\n}`,
+        explanation: "콘솔에 문장을 출력하고 줄바꿈을 하는 함수는 <code>prinltn</code>이 아니라 <strong><code>println</code></strong>입니다."
+      },
+      {
+        code: `fun calculateDiscount(price: Double, percent: Int): Double {\n    if (price <= 0.0) {\n        return 0.0\n    }\n    \n    val discountAmount = price * (percent / 100.0)\n    __BUG_START__reutrn__BUG_END__ price - discountAmount\n}`,
+        explanation: "함수에서 결과값을 반환하는 키워드는 <code>reutrn</code>이 아니라 <strong><code>return</code></strong>입니다."
+      },
+      {
+        code: `// 앱 설정 초기화\nfun __BUG_START__mian__BUG_END__(args: Array<String>) {\n    println("애플리케이션 초기화 중...")\n    \n    val appConfig = AppConfig()\n    appConfig.load()\n    \n    println("초기화 완료. 앱을 시작합니다.")\n}`,
+        explanation: "Kotlin 프로그램의 시작 진입점 함수 이름은 <code>mian</code>이 아니라 <strong><code>main</code></strong>입니다."
+      }
+    ]
+  };
+
+  const devNames = [
+    '이게왜되지', '이게왜안되지', '내PC에선됐는데', '스택오버플로우VIP',
+    '복붙장인', '머지충돌마스터', '커밋안하고퇴근', '오류보고도망감',
+    'print로디버깅', '코드깎는노인', '기도메타개발자', '커피수혈중',
+    '오타제조기', '야근하는코딩머신', '괄호찾아삼만리', '세미콜론살인마',
+    '1일1버그생성', '어제는분명됐는데', '강제종료의달인'
+  ];
+
+  // --- 2. 전역 상태 ---
+  let state = {
+    score: 0,
+    combo: 0,
+    maxCombo: 0,
+    lives: 3,
+    turnCount: 0,
+    currentLang: '',
+    isAcceptingInput: false,
+    turnDuration: 10000,
+    turnStartTime: 0,
+    timerRAF: null,
+    currentExplanation: '', // 현재 턴의 오답 해설 저장
+    highScore: localStorage.getItem('debugRush_highScore') || 0
+  };
+
+  // --- 3. DOM 요소 ---
+  const screens = {
+    start: document.getElementById('start-screen'),
+    game: document.getElementById('game-screen'),
+    gameOver: document.getElementById('game-over-screen')
+  };
+  const UI = {
+    playerName: document.getElementById('player-name'),
+    highScoreDisplay: document.getElementById('high-score-display'),
+    score: document.getElementById('score'),
+    combo: document.getElementById('combo'),
+    lives: document.getElementById('lives'),
+    timerBar: document.getElementById('timer-bar'),
+    codeContainer: document.getElementById('code-container'),
+    codeWrapper: document.getElementById('code-wrapper'),
+    currentLang: document.getElementById('current-lang-display'),
+    flashOverlay: document.getElementById('flash-overlay'),
+    finalScore: document.getElementById('final-score'),
+    finalMaxCombo: document.getElementById('final-max-combo'),
+    finalHighScore: document.getElementById('final-high-score'),
+    explanationModal: document.getElementById('explanation-modal'),
+    explanationTitle: document.getElementById('explanation-title'),
+    explanationText: document.getElementById('explanation-text')
+  };
+
+  // --- 4. 초기화 로직 ---
+  function initApp() {
+    UI.playerName.textContent = devNames[Math.floor(Math.random() * devNames.length)];
+    UI.highScoreDisplay.textContent = state.highScore;
+  }
+
+  function switchScreen(screenName) {
+    Object.values(screens).forEach(s => s.classList.add('hidden'));
+    screens[screenName].classList.remove('hidden');
+  }
+
+  function showStartScreen() {
+    initApp();
+    switchScreen('start');
+  }
+
+  function startGame(lang) {
+    state.score = 0;
+    state.combo = 0;
+    state.maxCombo = 0;
+    state.lives = 3;
+    state.turnCount = 0;
+    state.currentLang = lang;
+
+    updateTopBar();
+    UI.currentLang.textContent = lang.toUpperCase();
+    UI.explanationModal.classList.add('hidden'); // 혹시 모를 모달 초기화
+
+    switchScreen('game');
+    nextTurn();
+  }
+
+  // --- 5. 게임 흐름 로직 ---
+  function nextTurn() {
+    state.isAcceptingInput = false;
+
+    // 난이도 조절: 턴이 지날수록 시간 단축 (최소 3.5초로 여유 확보)
+    state.turnDuration = Math.max(3500, 10000 * Math.pow(0.92, state.turnCount));
+    state.turnCount++;
+
+    // 랜덤 스니펫 선택
+    const list = codeSnippets[state.currentLang];
+    const randomSnippetObj = list[Math.floor(Math.random() * list.length)];
+
+    state.currentExplanation = randomSnippetObj.explanation;
+    renderSnippet(randomSnippetObj.code);
+
+    // 약간의 딜레이 후 턴 시작 (화면 전환 느낌)
+    setTimeout(() => {
+      state.isAcceptingInput = true;
+      startTimer();
+    }, 300);
+  }
+
+  function renderSnippet(rawCode) {
+    // 정규식을 사용하여 버그 영역 분리 및 span 태그 래핑
+    const regex = /__BUG_START__(.*?)__BUG_END__/g;
+    let formattedCode = rawCode.replace(regex, '<span class="bug-zone" id="the-bug">$1</span>');
+
+    // HTML 특수문자 처리를 완벽하게 하려면 이스케이프가 필요하지만
+    // 현재 스니펫 구조상 꺾쇠(<, >)는 직접 작성되어 있어 주의가 필요.
+    // 스니펫 내부의 <, > 를 html 엔티티로 변환 후 래핑 복구
+    // 단순화를 위해 DOM의 innerHTML을 직접 활용
+    UI.codeContainer.innerHTML = formattedCode;
+
+    // 색상 초기화
+    UI.codeContainer.classList.remove('animate-shake');
+  }
+
+  function startTimer() {
+    cancelAnimationFrame(state.timerRAF);
+    state.turnStartTime = performance.now();
+
+    function updateTimer(timestamp) {
+      if (!state.isAcceptingInput) return;
+
+      let elapsed = timestamp - state.turnStartTime;
+      let remaining = state.turnDuration - elapsed;
+      let percentage = Math.max(0, (remaining / state.turnDuration) * 100);
+
+      UI.timerBar.style.width = percentage + '%';
+
+      if (percentage < 30) {
+        UI.timerBar.classList.replace('bg-blue-500', 'bg-red-500');
+        UI.timerBar.classList.add('animate-pulse');
+      } else {
+        UI.timerBar.classList.replace('bg-red-500', 'bg-blue-500');
+        UI.timerBar.classList.remove('animate-pulse');
+      }
+
+      if (remaining <= 0) {
+        handleFail(true); // 타임아웃
+      } else {
+        state.timerRAF = requestAnimationFrame(updateTimer);
+      }
+    }
+    state.timerRAF = requestAnimationFrame(updateTimer);
+  }
+
+  // --- 6. 입력 처리 ---
+  function handleCodeClick(event) {
+    if (!state.isAcceptingInput) return;
+
+    // 클릭한 요소가 정답(버그 영역)인지 확인
+    if (event.target.classList.contains('bug-zone') || event.target.id === 'the-bug') {
+      handleSuccess(event);
+    } else {
+      handleFail(false);
+    }
+  }
+
+  function handleSuccess(event) {
+    state.isAcceptingInput = false;
+    cancelAnimationFrame(state.timerRAF);
+
+    // 점수 계산 (기본 10 + 콤보 추가점)
+    const earnedScore = 10 + state.combo;
+    state.score += earnedScore;
+    state.combo++;
+    if(state.combo > state.maxCombo) state.maxCombo = state.combo;
+
+    updateTopBar();
+
+    // 플로팅 텍스트 효과
+    createFloatingText(event.clientX, event.clientY, `+${earnedScore}`);
+
+    // 시각적 피드백 (화면 초록색 깜빡임, 정답 표시)
+    triggerFlash('green');
+    const bugEl = document.getElementById('the-bug');
+    if(bugEl) bugEl.classList.add('reveal-bug-success');
+
+    setTimeout(nextTurn, 600);
+  }
+
+  function handleFail(isTimeout) {
+    state.isAcceptingInput = false;
+    cancelAnimationFrame(state.timerRAF);
+
+    state.combo = 0;
+    state.lives--;
+    updateTopBar();
+
+    // 시각적 피드백 (화면 흔들림, 빨간색 깜빡임, 정답 강제 표시)
+    UI.codeWrapper.classList.add('animate-shake');
+    setTimeout(() => UI.codeWrapper.classList.remove('animate-shake'), 400);
+    triggerFlash('red');
+
+    const bugEl = document.getElementById('the-bug');
+    if(bugEl) bugEl.classList.add('reveal-bug');
+
+    // 0.8초 후 오답 해설 모달 표시
+    setTimeout(() => {
+      UI.explanationTitle.textContent = isTimeout ? '⏰ 시간 초과!' : '❌ 틀렸습니다!';
+      UI.explanationText.innerHTML = state.currentExplanation;
+      UI.explanationModal.classList.remove('hidden');
+    }, 800);
+  }
+
+  function closeExplanation() {
+    UI.explanationModal.classList.add('hidden');
+
+    // 생명이 없으면 게임 오버, 아니면 다음 턴
+    if (state.lives <= 0) {
+      gameOver();
+    } else {
+      nextTurn();
+    }
+  }
+
+  // --- 7. UI 업데이트 및 유틸리티 ---
+  function updateTopBar() {
+    UI.score.textContent = state.score;
+    UI.combo.textContent = state.combo;
+
+    let hearts = '';
+    for(let i=0; i<3; i++) {
+      hearts += (i < state.lives) ? '❤️' : '🖤';
+    }
+    UI.lives.textContent = hearts;
+  }
+
+  function triggerFlash(color) {
+    UI.flashOverlay.className = `fixed inset-0 pointer-events-none z-40 flash-${color}`;
+    setTimeout(() => {
+      UI.flashOverlay.className = 'fixed inset-0 pointer-events-none z-40';
+    }, 500);
+  }
+
+  function createFloatingText(x, y, text) {
+    const el = document.createElement('div');
+    el.className = 'floating-score';
+    el.textContent = text;
+    el.style.left = (x - 20) + 'px';
+    el.style.top = (y - 20) + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+  }
+
+  function gameOver() {
+    if (state.score > state.highScore) {
+      state.highScore = state.score;
+      localStorage.setItem('debugRush_highScore', state.highScore);
+    }
+
+    UI.finalScore.textContent = state.score;
+    UI.finalMaxCombo.textContent = state.maxCombo;
+    UI.finalHighScore.textContent = state.highScore;
+
+    switchScreen('gameOver');
+  }
+
+  // 초기 시작
+  initApp();
+
+</script>
+</body>
+</html>

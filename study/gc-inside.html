@@ -1,0 +1,2319 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GC-Inside</title>
+    <style>
+        /* * 무채색 및 초록색 포인트 컬러 시스템 적용
+         */
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --border-color: #333333;
+            --text-main: #e0e0e0;
+            --text-muted: #888888;
+            --accent: #22c55e;
+            /* 포인트 컬러: 초록색 */
+            --accent-dim: rgba(34, 197, 94, 0.15);
+            --dead-color: #444444;
+            --stw-color: rgba(255, 60, 60, 0.2);
+            /* Stop-the-world 강조용 */
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace, 'Malgun Gothic', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 헤더 영역 */
+        header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--panel-bg);
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        header h1::before {
+            content: '';
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background-color: var(--accent);
+            border-radius: 50%;
+        }
+
+        /* 메인 레이아웃 */
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 왼쪽 패널 (제어부 및 코드) */
+        .left-panel {
+            width: 420px;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            background-color: var(--panel-bg);
+            z-index: 10;
+        }
+
+        .scenario-selector {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 160px;
+            /* 약 3개 정도의 블록만 보이도록 높이 축소 */
+            overflow-y: auto;
+        }
+
+        /* 스크롤바 스타일링 */
+        .scenario-selector::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .scenario-selector::-webkit-scrollbar-track {
+            background: var(--bg-color);
+        }
+
+        .scenario-selector::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        .scenario-selector::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        .scenario-btn {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+            padding: 0.75rem 1rem;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            line-height: 1.3;
+        }
+
+        .scenario-btn.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background-color: var(--accent-dim);
+            font-weight: bold;
+        }
+
+        .code-display {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .code-line {
+            padding: 4px 8px;
+            border-left: 3px solid transparent;
+            color: var(--text-muted);
+            transition: all 0.3s;
+            white-space: pre;
+        }
+
+        .code-line.active {
+            color: var(--text-main);
+            border-left-color: var(--accent);
+            background-color: var(--accent-dim);
+        }
+
+        .description-box {
+            padding: 1.5rem;
+            border-top: 1px solid var(--border-color);
+            min-height: 140px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            color: var(--text-main);
+        }
+
+        .controls {
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 1rem;
+        }
+
+        button.action-btn {
+            flex: 1;
+            background-color: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 0.8rem;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        button.action-btn:hover {
+            background-color: var(--accent);
+            color: var(--bg-color);
+        }
+
+        button.action-btn:disabled {
+            border-color: var(--border-color);
+            color: var(--border-color);
+            cursor: not-allowed;
+            background-color: transparent;
+        }
+
+        /* 오른쪽 패널 (JVM 메모리 시각화 영역) */
+        .right-panel {
+            flex: 1;
+            position: relative;
+            padding: 2rem;
+            display: flex;
+            gap: 2rem;
+            background-image: radial-gradient(var(--border-color) 1px, transparent 1px);
+            background-size: 30px 30px;
+            transition: background-color 0.5s;
+        }
+
+        /* Stop the world 시각 효과 */
+        .right-panel.stw-active {
+            background-color: var(--stw-color);
+        }
+
+        /* 참조선(화살표)을 그릴 SVG 레이어 */
+        #svg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* 힙에 존재하는 객체들이 절대 위치로 배치될 레이어 */
+        #objects-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 4;
+        }
+
+        .memory-column {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .stack-column {
+            width: 150px;
+            z-index: 2;
+        }
+
+        .heap-column {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            z-index: 2;
+        }
+
+        .area-title {
+            text-align: center;
+            font-weight: bold;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .memory-box {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            position: relative;
+            background-color: rgba(30, 30, 30, 0.8);
+            transition: all 0.5s;
+        }
+
+        /* 하이라이트 효과 */
+        .memory-box.highlight {
+            border-color: var(--accent);
+            box-shadow: inset 0 0 20px var(--accent-dim);
+        }
+
+        .memory-box::before {
+            content: attr(data-label);
+            position: absolute;
+            top: -10px;
+            left: 15px;
+            background-color: var(--panel-bg);
+            padding: 0 5px;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        /* Stack Variables */
+        #stack-area {
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .stack-var {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            text-align: center;
+            border-radius: 4px;
+            transition: all 0.3s;
+            position: relative;
+            font-weight: bold;
+        }
+
+        .stack-var.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 10px var(--accent-dim);
+        }
+
+        /* Heap Regions */
+        .young-gen {
+            display: flex;
+            gap: 1rem;
+            height: 200px;
+        }
+
+        #region-eden {
+            flex: 2;
+        }
+
+        .survivor-spaces {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        #region-s0 {
+            flex: 1;
+        }
+
+        #region-s1 {
+            flex: 1;
+        }
+
+        #region-old {
+            height: 200px;
+        }
+
+        /* Memory Object (Absolute Positioned in JS) */
+        .heap-obj {
+            position: absolute;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+            /* 이동 애니메이션의 핵심 */
+            transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1),
+                border-color 0.5s, background-color 0.5s, color 0.5s, opacity 0.5s;
+        }
+
+        /* 살아있는 객체 (초록색 포인트) */
+        .heap-obj.live {
+            border: 2px solid var(--accent);
+            background-color: var(--bg-color);
+            color: var(--accent);
+            box-shadow: 0 0 15px var(--accent-dim);
+            z-index: 10;
+        }
+
+        /* 참조가 끊긴 객체 (무채색/가비지 대기 상태) */
+        .heap-obj.dead {
+            border: 2px dashed var(--dead-color);
+            background-color: transparent;
+            color: var(--dead-color);
+            opacity: 0.6;
+            z-index: 5;
+        }
+
+        .heap-obj .age-badge {
+            position: absolute;
+            bottom: -6px;
+            right: -6px;
+            background-color: var(--bg-color);
+            border: 1px solid currentColor;
+            font-size: 0.6rem;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 스텝 인디케이터 */
+        .step-indicator {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 1rem;
+        }
+
+        .step-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--border-color);
+            transition: background-color 0.3s;
+        }
+
+        .step-dot.active {
+            background-color: var(--accent);
+        }
+
+        /* ==========================================
+           챗봇 UI 스타일 (추가됨)
+           ========================================== */
+        .chatbot-toggle-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background-color: var(--panel-bg);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            padding: 12px 24px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.95rem;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chatbot-toggle-btn:hover {
+            background-color: var(--accent);
+            color: var(--bg-color);
+            transform: translateY(-2px);
+        }
+
+        .chatbot-window {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 360px;
+            height: 550px;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            z-index: 1001;
+            overflow: hidden;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            transform-origin: bottom right;
+        }
+
+        .chatbot-window.hidden {
+            opacity: 0;
+            transform: scale(0.9) translateY(20px);
+            pointer-events: none;
+        }
+
+        .chat-header {
+            background-color: var(--bg-color);
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            font-size: 1rem;
+        }
+
+        .chat-header-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-header-title::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent);
+            border-radius: 50%;
+        }
+
+        .chat-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            cursor: pointer;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+
+        .chat-close-btn:hover {
+            color: var(--text-main);
+        }
+
+        .chat-body {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background-color: var(--panel-bg);
+        }
+
+        /* 스크롤바 스타일링 (챗봇) */
+        .chat-body::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-body::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-body::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .chat-message {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            word-break: break-word;
+            position: relative;
+        }
+
+        /* 봇(AI) 메시지 (좌측, 무채색) */
+        .chat-message.bot {
+            align-self: flex-start;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-top-left-radius: 2px;
+            color: var(--text-main);
+        }
+
+        /* 사용자 메시지 (우측, 초록색 포인트) */
+        .chat-message.user {
+            align-self: flex-end;
+            background-color: var(--accent-dim);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            border-top-right-radius: 2px;
+        }
+
+        .chat-input-area {
+            display: flex;
+            padding: 10px;
+            border-top: 1px solid var(--border-color);
+            background-color: var(--bg-color);
+            gap: 8px;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 10px 12px;
+            border-radius: 20px;
+            outline: none;
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+
+        .chat-input-area input:focus {
+            border-color: var(--accent);
+        }
+
+        .chat-send-btn {
+            background-color: var(--accent);
+            color: var(--bg-color);
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .chat-send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 10px var(--accent-dim);
+        }
+
+        .chat-send-btn:disabled {
+            background-color: var(--border-color);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .typing-indicator::after {
+            content: '...';
+            animation: typing 1.5s infinite;
+        }
+
+        @keyframes typing {
+            0% {
+                content: '.';
+            }
+
+            33% {
+                content: '..';
+            }
+
+            66% {
+                content: '...';
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>GC-Inside</h1>
+        <div style="color: var(--text-muted); font-size: 0.9rem;">JVM Garbage Collection 시뮬레이터</div>
+    </header>
+
+    <div class="container">
+        <!-- 왼쪽 패널 -->
+        <div class="left-panel">
+            <div class="scenario-selector" id="scenario-selector">
+                <!-- JS에서 동적 생성됨 -->
+            </div>
+
+            <div class="code-display" id="code-display">
+                <!-- JS에서 동적 생성됨 -->
+            </div>
+
+            <div class="description-box">
+                <div class="step-indicator" id="step-indicator"></div>
+                <div id="description-text">상단의 시나리오를 선택하여 학습을 시작하세요.</div>
+            </div>
+
+            <div class="controls">
+                <button class="action-btn" id="btn-prev" disabled>이전 단계</button>
+                <button class="action-btn" id="btn-next">다음 단계</button>
+            </div>
+        </div>
+
+        <!-- 오른쪽 패널 -->
+        <div class="right-panel" id="vis-board">
+            <svg id="svg-layer"></svg>
+            <div id="objects-layer"></div>
+
+            <div class="memory-column stack-column">
+                <div class="area-title">Stack</div>
+                <div class="memory-box" id="stack-area" data-label="Local Variables">
+                    <!-- 스택 변수 렌더링 영역 -->
+                </div>
+            </div>
+
+            <div class="memory-column heap-column">
+                <div class="area-title">Heap Memory</div>
+                <div class="young-gen">
+                    <div class="memory-box" id="region-eden" data-label="Eden Space (Young)"></div>
+                    <div class="survivor-spaces">
+                        <div class="memory-box" id="region-s0" data-label="Survivor 0"></div>
+                        <div class="memory-box" id="region-s1" data-label="Survivor 1"></div>
+                    </div>
+                </div>
+                <div class="memory-box" id="region-old" data-label="Old Generation"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 챗봇 토글 버튼 -->
+    <button id="chatbot-toggle-btn" class="chatbot-toggle-btn">
+        <span>모르는 용어나 개념이 있으신가요?</span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+    </button>
+
+    <!-- 챗봇 창 -->
+    <div id="chatbot-window" class="chatbot-window hidden">
+        <div class="chat-header">
+            <div class="chat-header-title">GC-Inside AI 도우미</div>
+            <button id="chat-close-btn" class="chat-close-btn">&times;</button>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <div class="chat-message bot">안녕하세요! JVM Garbage Collection이나 자바 메모리 관리에 대해 궁금한 점이 있으신가요? 편하게 물어보세요!</div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="메시지를 입력하세요..." autocomplete="off">
+            <button id="chat-send-btn" class="chat-send-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * 시나리오별 상태 (State Machine)
+         * 인포그래픽 전달을 위해 GC의 단계를 명시적 스텝으로 구성
+         */
+        const SCENARIOS = [
+            // ==========================================
+            // [Part 1] GC 상세 기초 완벽 마스터 (1 ~ 9)
+            // ==========================================
+            {
+                id: 'concept-garbage',
+                title: '1. 📖 [개념] 가비지(Garbage)란?',
+                code: [
+                    "Object cat = new Animal(\"Cat\"); // 1. 객체 생성",
+                    "",
+                    "cat = null; // 2. 연결 해제",
+                    "",
+                    "System.gc(); // 3. 가비지 컬렉터 실행"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[1단계: 메모리 공간]</b><br>자바 메모리는 힙(Heap)과 스택(Stack)으로 나뉩니다. 객체의 실제 데이터는 거대한 힙 공간에 저장됩니다." },
+                    { stack: ['cat'], heap: [{ id: 'o1', region: 'eden', age: 0, refBy: ['cat'] }], codeIdx: 0, msg: "<b>[2단계: 참조 생성]</b><br><code>new Animal(\"Cat\")</code> 코드가 실행되면 힙에 데이터(객체)가 만들어집니다. 스택의 <code>cat</code> 변수는 이 데이터를 찾아갈 수 있는 주소(화살표)를 가집니다." },
+                    { stack: ['cat'], heap: [{ id: 'o1', region: 'eden', age: 0, refBy: ['cat'] }], codeIdx: 0, msg: "<b>[3단계: Reachable 상태]</b><br>초록색 화살표(참조)가 연결되어 있으면 이 객체는 현재 유효하며 사용 중인 상태, 즉 <b>Reachable</b>함을 의미합니다." },
+                    { stack: ['cat'], heap: [{ id: 'o1', region: 'eden', age: 0, refBy: [] }], codeIdx: 2, msg: "<b>[4단계: 참조 해제]</b><br><code>cat = null;</code>이 실행되면 주소 연결이 끊어집니다. 힙에는 데이터가 남아있지만 누구도 이 데이터를 찾아갈 수 없게 됩니다. 이를 <b>'가비지(Garbage)'</b>라고 부릅니다." },
+                    { stack: ['cat'], heap: [], codeIdx: 4, msg: "<b>[5단계: GC 작동]</b><br>가비지 컬렉터(GC)는 주기적으로 힙을 순찰하며 화살표가 없는 회색 객체들을 찾아내어, 영구적으로 메모리에서 삭제(Sweep)합니다." }
+                ]
+            },
+            {
+                id: 'concept-reachability',
+                title: '2. 📖 [개념] GC Root와 도달성',
+                code: [
+                    "// 스택의 지역 변수 = GC Root",
+                    "Node root = new Node();",
+                    "",
+                    "// 객체간의 체인(참조) 연결",
+                    "root.child = new Node();",
+                    "",
+                    "// GC Root로부터의 연결이 끊어짐",
+                    "root = null;"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[1단계: 시작점 탐색]</b><br>GC는 수많은 객체 중 어떤 것이 쓰레기인지 알기 위해 '탐색의 출발점'을 설정하는데, 이를 <b>GC Root</b>라고 합니다. 스택의 지역 변수가 대표적인 GC Root입니다." },
+                    { stack: ['root'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['root'] }], codeIdx: 1, msg: "<b>[2단계: GC Root 연결]</b><br>스택에 <code>root</code> 지역 변수가 생성되었고, 힙의 객체를 참조합니다. 출발점과 직접 연결되어 있으므로 생존 대상입니다." },
+                    { stack: ['root'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['root'] }, { id: 'n2', region: 'eden', age: 0, refBy: ['n1'] }], codeIdx: 4, msg: "<b>[3단계: 참조 체인]</b><br>힙에 있는 객체들끼리 서로를 참조할 수도 있습니다. GC Root에서 출발해 화살표를 타고 갈 수 있는 모든 객체를 <b>Reachable(도달 가능)</b> 상태라고 하며, 이들은 청소되지 않습니다." },
+                    { stack: ['root'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: [] }, { id: 'n2', region: 'eden', age: 0, refBy: ['n1'] }], codeIdx: 7, msg: "<b>[4단계: Unreachable 상태]</b><br>만약 <code>root = null;</code>을 통해 GC Root와의 첫 연결고리가 끊어지면? 객체들(n1, n2)끼리 손을 잡고 있더라도, 출발점(GC Root)에서 갈 수 없기 때문에 모두 가비지가 됩니다." },
+                    { stack: ['root'], heap: [], codeIdx: -1, msg: "<b>[5단계: Mark and Sweep]</b><br>GC의 핵심 알고리즘이 동작합니다. GC Root에서 닿는 객체만 초록색으로 표시(Mark)하고, 표시가 없는 객체는 싹 쓸어버립니다(Sweep)." }
+                ]
+            },
+            {
+                id: 'concept-stack-scope',
+                title: '3. 📖 [개념] 변수와 Stack 생명주기',
+                code: [
+                    "public void main() {",
+                    "    Object mainVar = new Object();",
+                    "    doWork(); // 메서드 호출",
+                    "    // 이곳에 오면 temp 변수는 존재하지 않음",
+                    "}",
+                    "",
+                    "public void doWork() {",
+                    "    Object temp = new Object();",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[1단계: 자동화의 비밀]</b><br>개발자가 매번 <code>null</code>을 넣어 객체를 지우지 않아도 자동 관리가 되는 이유는 지역 변수의 <b>'생명주기(Scope)'</b> 덕분입니다." },
+                    { stack: ['mainVar'], heap: [{ id: 'm1', region: 'eden', age: 0, refBy: ['mainVar'] }], codeIdx: 1, msg: "<b>[2단계: main() 실행]</b><br><code>main()</code> 메서드가 실행되면 스택에 영역(Stack Frame)이 생기고 지역 변수 <code>mainVar</code>가 할당됩니다." },
+                    { stack: ['mainVar', 'temp'], heap: [{ id: 'm1', region: 'eden', age: 0, refBy: ['mainVar'] }, { id: 't1', region: 'eden', age: 0, refBy: ['temp'] }], codeIdx: 7, msg: "<b>[3단계: 메서드 호출]</b><br><code>doWork()</code> 메서드를 호출하면 스택 상단에 새로운 작업 영역이 쌓이고, 그 안에서 임시 변수 <code>temp</code>가 새로운 힙 객체를 가리킵니다." },
+                    { stack: ['mainVar'], heap: [{ id: 'm1', region: 'eden', age: 0, refBy: ['mainVar'] }, { id: 't1', region: 'eden', age: 0, refBy: [] }], codeIdx: 3, msg: "<b>[4단계: 메서드 종료와 Pop]</b><br><code>doWork()</code> 실행이 완료되면 해당 스택 영역이 통째로 팝(Pop)되어 증발합니다. 이때 <b><code>temp</code> 변수도 스택에서 완전히 사라집니다!</b>" },
+                    { stack: ['mainVar'], heap: [{ id: 'm1', region: 'eden', age: 0, refBy: ['mainVar'] }], codeIdx: -1, msg: "<b>[5단계: 고립과 청소]</b><br>변수가 사라졌으므로 <code>temp</code>가 가리키던 힙 객체(t1)는 자연스럽게 고립되어 가비지가 됩니다. 이렇게 실행 흐름에 따라 참조가 자동으로 정리되는 것이 자바 GC의 핵심입니다." }
+                ]
+            },
+            {
+                id: 'concept-heap-regions',
+                title: '4. 📖 [개념] Heap 메모리 3대 공간',
+                code: [
+                    "// 자바 힙 공간은 '세대(Generation)'별로 나뉩니다.",
+                    "// 우측 영역의 깜빡임을 확인하세요.",
+                    "",
+                    "// 1. Eden: 약한 세대 가설의 중심지",
+                    "// 2. Survivor: 살아남은 생존자 대기실",
+                    "// 3. Old: 장기 생존이 확정된 객체 양로원"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[1단계: 약한 세대 가설]</b><br>효율적인 청소를 위해 자바는 <b>약한 세대 가설(Weak Generational Hypothesis)</b>을 도입했습니다. '대부분의 객체는 금방 죽고, 늙은 객체가 젊은 객체를 참조하는 일은 드물다'는 법칙입니다." },
+                    { stack: [], heap: [], codeIdx: 3, highlight: 'eden', msg: "<b>[2단계: Eden 영역]</b><br>모든 객체는 이 '신생아실'에서 처음 태어납니다. 생성된 객체의 무려 98%는 짧은 로직 직후 이 곳에서 곧바로 생을 마감합니다." },
+                    { stack: [], heap: [], codeIdx: 4, highlight: 's0', msg: "<b>[3단계: Survivor 영역]</b><br>Eden에서 청소가 일어날 때 한 번이라도 살아남은 객체들이 대기하는 '대기실'입니다. S0과 S1 두 개가 있으며, 반드시 하나는 텅 비어있어야 합니다." },
+                    { stack: [], heap: [], codeIdx: 5, highlight: 'old', msg: "<b>[4단계: Old Generation]</b><br>대기실에서 여러 번 살아남아 '장기 생존'이 확정된 객체들이 최종적으로 머무는 거대한 '양로원'입니다." },
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[5단계: 이동(승격) 흐름]</b><br>객체들은 나이를 먹어감에 따라 <b>Eden -> Survivor -> Old</b> 순서로 이동하게 됩니다. 공간을 쪼개놓아 짧게 쓰일 객체만 자주 청소할 수 있어 성능이 크게 향상됩니다." }
+                ]
+            },
+            {
+                id: 'action-minor-gc',
+                title: '5. ⚙️ [동작] Minor GC (Young 영역 청소)',
+                code: [
+                    "// 객체가 계속 생성되어",
+                    "// Eden 영역의 용량이 가득 차게 되면,",
+                    "",
+                    "// Minor GC가 발생하여 살아있는 객체를",
+                    "// 비어있는 Survivor 공간으로 Copy 합니다."
+                ],
+                steps: [
+                    {
+                        stack: ['a', 'b', 'c', 'd'],
+                        heap: [
+                            { id: 'o1', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o2', region: 'eden', age: 0, refBy: ['b'] },
+                            { id: 'o3', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o4', region: 'eden', age: 0, refBy: ['d'] }
+                        ],
+                        codeIdx: 1,
+                        highlight: 'eden',
+                        msg: "<b>[1단계: Eden 공간 부족]</b><br>프로그램이 바쁘게 돌아가며 Eden 영역에 수많은 객체가 생성되었습니다. 공간이 꽉 차서 더 이상 객체를 넣을 수 없습니다."
+                    },
+                    {
+                        stack: ['a', 'b', 'c', 'd'],
+                        heap: [
+                            { id: 'o1', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o2', region: 'eden', age: 0, refBy: ['b'] },
+                            { id: 'o3', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o4', region: 'eden', age: 0, refBy: ['d'] }
+                        ],
+                        codeIdx: 3,
+                        stw: true,
+                        msg: "<b>[2단계: Minor GC 트리거 및 식별]</b><br>공간 확보를 위해 Young 영역만 청소하는 <b>Minor GC</b>가 트리거됩니다. 잠시 멈추고 살아있는 객체(초록색)를 찾아냅니다(Mark)."
+                    },
+                    {
+                        stack: ['a', 'b', 'c', 'd'],
+                        heap: [
+                            { id: 'o2', region: 's0', age: 1, refBy: ['b'] },
+                            { id: 'o4', region: 's0', age: 1, refBy: ['d'] }
+                        ],
+                        codeIdx: 4,
+                        highlight: 's0',
+                        msg: "<b>[3단계: Survivor 복사 및 나이 증가]</b><br>생존한 객체들은 비어있는 Survivor 0 영역으로 복사(Copy)됩니다. 무사히 살아남았으므로 나이(Age)가 1 증가합니다."
+                    },
+                    {
+                        stack: ['a', 'b', 'c', 'd'],
+                        heap: [
+                            { id: 'o2', region: 's0', age: 1, refBy: ['b'] },
+                            { id: 'o4', region: 's0', age: 1, refBy: ['d'] }
+                        ],
+                        codeIdx: -1,
+                        highlight: 'eden',
+                        msg: "<b>[4단계: Eden 일괄 비우기]</b><br>복사가 안전하게 끝났으므로, 이제 <b>Eden 영역 전체를 한 번에 비워버립니다(Sweep).</b> 남겨진 가비지들이 순식간에 청소되었습니다."
+                    },
+                    {
+                        stack: ['a', 'b', 'c', 'd'],
+                        heap: [
+                            { id: 'o2', region: 's1', age: 2, refBy: ['b'] },
+                            { id: 'o4', region: 's1', age: 2, refBy: ['d'] }
+                        ],
+                        codeIdx: -1,
+                        highlight: 's1',
+                        msg: "<b>[5단계: 핑퐁(Ping-pong) 메커니즘]</b><br>다음 번 Minor GC가 발생하면, 이번엔 Eden의 생존자와 S0의 기존 생존자 모두를 비어있는 <b>S1으로 복사</b>하고 S0을 비웁니다. 이를 <b>Copying Algorithm</b>이라고 합니다."
+                    }
+                ]
+            },
+            {
+                id: 'action-promotion',
+                title: '6. ⚙️ [동작] 나이(Age)와 승격(Promotion)',
+                code: [
+                    "// JVM 옵션: -XX:MaxTenuringThreshold=3 (예시)",
+                    "Object session = new Object(); // 계속 유지됨",
+                    "",
+                    "// 1st GC -> Age: 1 (S0 이동)",
+                    "// 2nd GC -> Age: 2 (S1 이동)",
+                    "// 3rd GC -> Age: 3 (S0 이동)",
+                    "// 4th GC -> 임계값 초과! Old로 Promotion!"
+                ],
+                steps: [
+                    { stack: ['session'], heap: [{ id: 's1', region: 's0', age: 1, refBy: ['session'] }], codeIdx: 3, msg: "<b>[1단계: Age의 의미]</b><br>객체 우측 하단의 뱃지는 <b>나이(Age)</b>입니다. 로그인 세션 정보처럼 오래 쓰이는 객체는 첫 번째 Minor GC에서 살아남아 나이가 1이 되었습니다." },
+                    { stack: ['session'], heap: [{ id: 's1', region: 's1', age: 2, refBy: ['session'] }], codeIdx: 4, msg: "<b>[2단계: 생존 누적]</b><br>두 번째 Minor GC가 발생했습니다. 이 객체는 여전히 끈질기게 생존하여 S1으로 이동했고, 나이가 2가 되었습니다." },
+                    { stack: ['session'], heap: [{ id: 's1', region: 's0', age: 3, refBy: ['session'] }], codeIdx: 5, msg: "<b>[3단계: 임계값 도달]</b><br>세 번째 Minor GC에서도 생존했습니다! JVM은 <b>MaxTenuringThreshold</b>라는 승격 임계값을 설정해두는데 (보통 15, 예시에선 3), 드디어 그 나이에 도달했습니다." },
+                    { stack: ['session'], heap: [{ id: 's1', region: 's0', age: 3, refBy: ['session'] }], codeIdx: 6, highlight: 's0', msg: "<b>[4단계: 장기 생존 판정]</b><br>임계값을 채운 객체는 <b>'앞으로도 죽지 않고 계속 쓰일 객체'</b>로 확실히 믿어지게 됩니다." },
+                    { stack: ['session'], heap: [{ id: 's1', region: 'old', age: 3, refBy: ['session'] }], codeIdx: 6, highlight: 'old', msg: "<b>[5단계: 승격 (Promotion)]</b><br>계속 생존하는 객체를 매번 Survivor 공간끼리 복사하는 것은 막대한 비용 낭비입니다. 따라서 아주 넓고 청소가 적게 일어나는 <b>Old Generation 영역으로 영구 이사(승격)</b>를 보냅니다." }
+                ]
+            },
+            {
+                id: 'action-major-gc',
+                title: '7. ⚙️ [동작] Old 영역과 Major GC',
+                code: [
+                    "// 수많은 객체가 승격되어 Old 영역 점유",
+                    "List&lt;Data&gt; cache = CacheManager.getAll();",
+                    "",
+                    "// 대규모 캐시 지우기 발생 (참조 해제)",
+                    "cache.clear();",
+                    "",
+                    "// 잠시 후 여유 공간이 없어 Major GC 트리거!"
+                ],
+                steps: [
+                    {
+                        stack: ['cache1', 'cache2'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 15, refBy: ['cache1'] },
+                            { id: 'o2', region: 'old', age: 15, refBy: ['cache2'] },
+                            { id: 'o3', region: 'old', age: 15, refBy: [] },
+                            { id: 'o4', region: 'old', age: 15, refBy: [] }
+                        ],
+                        codeIdx: 1,
+                        highlight: 'old',
+                        msg: "<b>[1단계: Old 영역 누적]</b><br>애플리케이션이 장기간 실행되어 수많은 객체들이 승격되었고, 결국 그 거대한 Old 영역마저 객체들로 꽉 차버렸습니다."
+                    },
+                    {
+                        stack: ['cache1', 'cache2'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 15, refBy: [] },
+                            { id: 'o2', region: 'old', age: 15, refBy: [] },
+                            { id: 'o3', region: 'old', age: 15, refBy: [] },
+                            { id: 'o4', region: 'old', age: 15, refBy: [] }
+                        ],
+                        codeIdx: 4,
+                        msg: "<b>[2단계: 참조 대량 해제]</b><br>로직이 종료되거나 대용량 캐시가 초기화되면서, Old 영역에 있던 장기 생존 객체들의 참조가 일제히 끊어져 무수한 가비지가 되었습니다."
+                    },
+                    {
+                        stack: ['cache1', 'cache2'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 15, refBy: [] },
+                            { id: 'o2', region: 'old', age: 15, refBy: [] },
+                            { id: 'o3', region: 'old', age: 15, refBy: [] },
+                            { id: 'o4', region: 'old', age: 15, refBy: [] }
+                        ],
+                        codeIdx: 6,
+                        msg: "<b>[3단계: 승격 실패 임박]</b><br>현재 Young 영역에서 승격되어 올라올 객체를 받아줄 여유 공간이 Old에 아예 없습니다. 매우 치명적인 시점입니다."
+                    },
+                    {
+                        stack: ['cache1', 'cache2'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 15, refBy: [] },
+                            { id: 'o2', region: 'old', age: 15, refBy: [] },
+                            { id: 'o3', region: 'old', age: 15, refBy: [] },
+                            { id: 'o4', region: 'old', age: 15, refBy: [] }
+                        ],
+                        codeIdx: 6,
+                        stw: true,
+                        msg: "<b>[4단계: Major GC & STW 발생]</b><br>Old 영역은 매우 크기 때문에 전체를 검사하려면 시간이 깁니다. 이때 일어날 오류를 막기 위해 애플리케이션 스레드를 모두 멈춥니다(<b>Stop-The-World</b>). 화면이 붉어지는 동안 서버는 응답 불가 상태가 됩니다."
+                    },
+                    {
+                        stack: ['cache1', 'cache2'],
+                        heap: [],
+                        codeIdx: -1,
+                        msg: "<b>[5단계: 청소 완료]</b><br>완전히 멈춘 상태에서 무거운 알고리즘을 돌려 Old 영역의 가비지들을 삭제하고 빈 공간을 압축(Compact)했습니다. 작업이 끝나고 드디어 애플리케이션이 다시 작동합니다."
+                    }
+                ]
+            },
+            {
+                id: 'advanced-island',
+                title: '8. 🧠 [심화] 순환 참조와 도달성 분석',
+                code: [
+                    "class Node { Node next; }",
+                    "",
+                    "Node a = new Node();",
+                    "Node b = new Node();",
+                    "",
+                    "a.next = b; // 서로를 참조",
+                    "b.next = a;",
+                    "",
+                    "a = null; b = null; // 스택에서 연결 끊음"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[1단계: 상황 설명]</b><br>객체들이 서로를 강하게 참조하고 있는 <b>순환 참조(Circular Reference)</b> 상황에서, 똑똑한 GC는 이들을 어떻게 처리할까요?" },
+                    { stack: ['a', 'b'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['a'] }, { id: 'n2', region: 'eden', age: 0, refBy: ['b'] }], codeIdx: 3, msg: "<b>[2단계: 객체 쌍 생성]</b><br>힙 메모리에 두 개의 연결 노드 객체(n1, n2)가 생성되었습니다." },
+                    { stack: ['a', 'b'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['a', 'n2'] }, { id: 'n2', region: 'eden', age: 0, refBy: ['b', 'n1'] }], codeIdx: 6, msg: "<b>[3단계: 순환 참조 발생]</b><br>내부 필드(next)를 통해 n1과 n2가 <b>서로를 가리키게 만들었습니다.</b> (객체 간에 연결된 참조선을 확인하세요)" },
+                    { stack: [], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['n2'], isDead: true }, { id: 'n2', region: 'eden', age: 0, refBy: ['n1'], isDead: true }], codeIdx: 8, msg: "<b>[4단계: 고립된 섬 상태]</b><br>메서드가 종료되어 스택 변수(a, b)가 사라졌습니다. n1, n2는 서로를 가리키므로 화살표는 남아있지만, GC Root에서는 닿을 수 없는 <b>고립된 상태(회색 점선)</b>가 되었습니다." },
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[5단계: 도달성 분석의 위력]</b><br>오래된 GC 방식(레퍼런스 카운팅)에서는 이게 영원한 메모리 누수입니다. 하지만 자바의 <b>GC Root 도달성 분석</b> 알고리즘은 외부에서 닿지 않는 이 고립된 섬을 완벽하게 파악하여 통째로 청소해 냅니다!" }
+                ]
+            },
+            {
+                id: 'advanced-stw',
+                title: '9. 🧠 [심화] Stop-The-World (STW)',
+                code: [
+                    "// Stop-The-World (STW) 현상",
+                    "// GC가 안전하게 참조를 변경하고 객체를 지우기 위해",
+                    "// JVM 내부의 모든 애플리케이션 스레드를 멈춥니다.",
+                    "",
+                    "// Minor GC의 STW: 매우 짧음",
+                    "// Major GC의 STW: 매우 김 (장애의 원인)",
+                    "",
+                    "// GC 튜닝의 목적 = 긴 STW 시간 단축"
+                ],
+                steps: [
+                    { stack: ['apiReq'], heap: [{ id: 'req1', region: 'eden', age: 0, refBy: ['apiReq'] }], codeIdx: -1, msg: "<b>[1단계: STW의 정의]</b><br><b>Stop-The-World(STW)</b>란 GC가 메모리를 청소하는 동안 객체 위치가 바뀌거나 참조가 꼬이지 않도록, JVM이 애플리케이션의 모든 동작을 강제로 멈추는 현상입니다." },
+                    { stack: ['apiReq'], heap: [{ id: 'req1', region: 'eden', age: 0, refBy: ['apiReq'] }], codeIdx: -1, msg: "<b>[2단계: 평상시의 서버]</b><br>평소에는 애플리케이션이 원활하게 동작하며 사용자들의 API 요청이나 클릭 이벤트를 실시간으로 처리합니다." },
+                    { stack: ['apiReq'], heap: [{ id: 'req1', region: 's0', age: 1, refBy: ['apiReq'] }], codeIdx: 4, stw: true, msg: "<b>[3단계: Minor GC의 STW]</b><br>Young 영역만 청소하는 Minor GC의 STW는 보통 0.01초 이내로 매우 짧습니다. 약간 움찔하지만 사용자는 멈춤을 거의 눈치채지 못합니다." },
+                    { stack: ['apiReq'], heap: [{ id: 'req1', region: 's0', age: 1, refBy: ['apiReq'] }], codeIdx: 5, stw: true, msg: "<b>[4단계: Major GC의 STW]</b><br>하지만 수 기가바이트(GB)에 달하는 거대한 Old 영역을 다루는 Major GC의 STW는 수 초 이상 걸릴 수 있습니다! (화면 붉게 점멸)" },
+                    { stack: ['apiReq'], heap: [{ id: 'req1', region: 's0', age: 1, refBy: ['apiReq'] }], codeIdx: 7, msg: "<b>[5단계: GC 튜닝의 궁극적 목표]</b><br>이 긴 STW 시간 동안 웹 서버는 응답을 멈춰 사용자들은 <b>Timeout(접속 지연) 에러</b>를 겪습니다. 따라서 GC 튜닝의 핵심은 <b>객체 생성을 줄이고 승격 빈도를 늦춰, 치명적인 Major GC(긴 STW)를 막는 것</b>입니다." }
+                ]
+            },
+
+            // ==========================================
+            // [Part 3] 응용 및 실무 함정 (10 ~ 13)
+            // ==========================================
+            {
+                id: 'memory-leak',
+                title: '10. 🚀 [응용] 흔한 실수 (메모리 누수)',
+                code: [
+                    "public class MemoryLeakExample {",
+                    "    // static 변수는 GC Root 역할을 합니다.",
+                    "    private static List&lt;Object&gt; CACHE = new ArrayList&lt;&gt;();",
+                    "",
+                    "    public void process() {",
+                    "        Object data = new Object();",
+                    "        CACHE.add(data);",
+                    "        ",
+                    "        // 로직 완료 후 data 참조를 끊음",
+                    "        data = null;",
+                    "    }",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "자바는 자동 메모리 관리를 지원하지만, 개발자의 논리적 오류로 인해 <b>메모리 누수(Memory Leak)</b>가 발생할 수 있습니다." },
+                    { stack: ['CACHE', 'data'], heap: [{ id: 'L1', region: 'eden', age: 0, refBy: ['CACHE'] }, { id: 'd1', region: 'eden', age: 0, refBy: ['data'] }], codeIdx: 5, msg: "메서드가 실행되어 임시 데이터(d1)를 생성했습니다. (전역 캐시 리스트를 L1으로 표현합니다)" },
+                    { stack: ['CACHE', 'data'], heap: [{ id: 'L1', region: 'eden', age: 0, refBy: ['CACHE'] }, { id: 'd1', region: 'eden', age: 0, refBy: ['data', 'L1'] }], codeIdx: 6, msg: "생성한 데이터를 <code>CACHE.add(data)</code>를 통해 리스트에 담았습니다.<br>이제 d1 객체는 로컬 변수 <code>data</code>뿐만 아니라 리스트 <code>L1</code>을 통해서도 참조됩니다." },
+                    { stack: ['CACHE', 'data'], heap: [{ id: 'L1', region: 'eden', age: 0, refBy: ['CACHE'] }, { id: 'd1', region: 'eden', age: 0, refBy: ['L1'] }], codeIdx: 9, msg: "개발자는 로직이 끝난 후 <code>data = null;</code>을 호출하여 객체를 지웠다고 생각합니다.<br>하지만 <b>전역 리스트(L1) 안에 들어있는 참조 화살표는 여전히 d1을 가리키고 있습니다!</b>" },
+                    { stack: ['CACHE', 'data'], heap: [{ id: 'L1', region: 's0', age: 1, refBy: ['CACHE'] }, { id: 'd1', region: 's0', age: 1, refBy: ['L1'] }], codeIdx: -1, msg: "<b>[메모리 누수 발생]</b><br>GC가 실행되어도 d1 객체는 리스트에 의해 참조되므로 살아있는(Live) 객체로 판정됩니다.<br>사용하지 않는 데이터를 명시적으로 지우지 않으면 결국 서버가 뻗게 됩니다(OutOfMemoryError)." }
+                ]
+            },
+            {
+                id: 'string-immutability',
+                title: '11. 📝 [응용] 불변 객체(String)의 함정',
+                code: [
+                    "public String buildQuery() {",
+                    "    String sql = \"SELECT * \";",
+                    "    sql += \"FROM users \";",
+                    "    sql += \"WHERE age > 20 \";",
+                    "    sql += \"ORDER BY id DESC\";",
+                    "    ",
+                    "    // StringBuilder 사용이 필수적인 이유",
+                    "    return sql;",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "실무에서 가장 흔히 발생하는 성능 저하 원인 중 하나인 <b>문자열(String) 연산</b>입니다.<br>자바의 String은 내부 값을 바꿀 수 없는 <b>불변(Immutable) 객체</b>입니다." },
+                    { stack: ['sql'], heap: [{ id: 's1', region: 'eden', age: 0, refBy: ['sql'] }], codeIdx: 1, msg: "<code>sql</code> 변수가 첫 번째 문자열 객체(s1)를 가리킵니다." },
+                    { stack: ['sql'], heap: [{ id: 's1', region: 'eden', age: 0, refBy: [] }, { id: 's2', region: 'eden', age: 0, refBy: ['sql'] }], codeIdx: 2, msg: "<code>+=</code> 연산을 수행하면 기존 문자열(s1)에 글자가 추가되는 것이 아닙니다!<br><b>기존 s1은 참조가 끊겨 가비지가 되고, 메모리에 합쳐진 완전히 새로운 문자열(s2)이 생성됩니다.</b>" },
+                    { stack: ['sql'], heap: [{ id: 's1', region: 'eden', age: 0, refBy: [] }, { id: 's2', region: 'eden', age: 0, refBy: [] }, { id: 's3', region: 'eden', age: 0, refBy: ['sql'] }], codeIdx: 3, msg: "또 다시 <code>+=</code>를 하면 s2도 가비지가 되고 s3가 생성됩니다.<br>반복문에서 이런 방식을 사용하면 수만 개의 가비지 객체가 생성되어 GC 성능을 심각하게 저하시킵니다." },
+                    { stack: ['sql'], heap: [{ id: 's3', region: 's0', age: 1, refBy: ['sql'] }], codeIdx: 6, msg: "이러한 현상을 막기 위해, 가변 버퍼를 사용하여 객체 생성 없이 문자열을 조작하는 <b>StringBuilder</b>를 반드시 사용해야 합니다." }
+                ]
+            },
+            {
+                id: 'static-leak',
+                title: '12. 🎧 [응용] Static 컬렉션/리스너 누수',
+                code: [
+                    "public class EventManager {",
+                    "    // static 변수는 앱 종료시까지 절대 해제되지 않음",
+                    "    public static List&lt;EventListener&gt; listeners = new ArrayList&lt;&gt;();",
+                    "}",
+                    "",
+                    "public void openWindow() {",
+                    "    WindowUI ui = new WindowUI();",
+                    "    EventManager.listeners.add(ui);",
+                    "    // 사용자가 창을 닫았지만, remove()를 호출하지 않음",
+                    "}"
+                ],
+                steps: [
+                    { stack: ['EventManager'], heap: [{ id: 'mgr', region: 'old', age: 10, refBy: ['EventManager'] }], codeIdx: 2, msg: "<code>static</code>으로 선언된 변수(클래스 변수)는 GC 루트(Root)로 간주되어 프로그램이 종료될 때까지 메모리에 남아있습니다.<br>오래 유지되므로 보통 Old 영역에 위치합니다." },
+                    { stack: ['EventManager', 'ui'], heap: [{ id: 'mgr', region: 'old', age: 10, refBy: ['EventManager'] }, { id: 'ui1', region: 'eden', age: 0, refBy: ['ui', 'mgr'] }], codeIdx: 6, msg: "<code>openWindow()</code>가 실행되어 무거운 화면 객체(ui1)가 생성되고, 이벤트를 받기 위해 매니저(mgr)에 등록(참조)되었습니다." },
+                    { stack: ['EventManager'], heap: [{ id: 'mgr', region: 'old', age: 10, refBy: ['EventManager'] }, { id: 'ui1', region: 'eden', age: 0, refBy: ['mgr'] }], codeIdx: 8, msg: "<b>[메서드 종료]</b><br>사용자가 화면을 닫아 로컬 <code>ui</code> 변수는 사라졌습니다.<br>하지만 static 객체인 mgr이 여전히 ui1을 잡고 놓아주지 않습니다!" },
+                    { stack: ['EventManager'], heap: [{ id: 'mgr', region: 'old', age: 10, refBy: ['EventManager'] }, { id: 'ui1', region: 'old', age: 5, refBy: ['mgr'] }], codeIdx: -1, msg: "<b>[메모리 누수]</b><br>쓸모없는 화면 객체(ui1)가 GC되지 못하고 결국 Old 영역까지 <b>승격(Promotion)</b>됩니다.<br>이러한 리스너 미해제는 실무 프로젝트에서 OutOfMemory를 일으키는 1순위 주범입니다." }
+                ]
+            },
+            {
+                id: 'humongous',
+                title: '13. 📦 [응용] Humongous Allocation (대형 객체)',
+                code: [
+                    "public void downloadFile() {",
+                    "    // 1. 일반적인 크기의 버퍼 데이터 (1KB)",
+                    "    byte[] normalBuffer = new byte[1024];",
+                    "    ",
+                    "    // 2. 엄청나게 큰 데이터 (100MB)",
+                    "    // G1GC 등에서는 이를 Humongous Object로 분류함",
+                    "    byte[] massiveFile = new byte[100 * 1024 * 1024];",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "데이터베이스에서 백만 건의 Row를 한 번에 조회하거나, 대용량 파일을 한 번에 메모리(byte[])로 읽어 들일 때 발생하는 현상입니다." },
+                    { stack: ['normalBuffer'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['normalBuffer'] }], codeIdx: 2, msg: "일반적인 크기의 객체는 설계된 대로 정상적으로 <b>Eden 영역</b>에 생성됩니다." },
+                    { stack: ['normalBuffer', 'massiveFile'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['normalBuffer'] }, { id: 'h1', region: 'old', age: 0, refBy: ['massiveFile'] }], codeIdx: 6, msg: "<b>[Humongous Allocation]</b><br>Eden이나 Survivor 영역에 담기 벅찰 정도로 <b>매우 큰 객체(h1)</b>가 생성되었습니다.<br>이러한 거대 객체는 영역 간 복사(Copy) 비용이 너무 크기 때문에, JVM은 이를 <b>Old Generation으로 직행</b>시킵니다." },
+                    { stack: ['normalBuffer'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['normalBuffer'] }, { id: 'h1', region: 'old', age: 0, refBy: [], isDead: true }], codeIdx: -1, msg: "메서드가 종료되어 massiveFile 변수의 참조가 끊겼습니다.<br>이제 거대한 쓰레기(h1)가 Old 영역의 막대한 공간을 점유하고 있습니다." },
+                    { stack: ['normalBuffer'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['normalBuffer'] }], codeIdx: -1, stw: true, msg: "<b>[Major GC 빈발]</b><br>Old 영역이 순식간에 차오르기 때문에, 애플리케이션을 강제로 멈추는 Major GC가 자주 발생하여 성능이 박살납니다.<br>실무에서는 대용량 데이터 처리 시 반드시 <b>스트림(Stream) 분할이나 페이징(Paging)</b> 처리를 해야 합니다." }
+                ]
+            },
+
+            // ==========================================
+            // [Part 4] 우아한테크코스 미션 코드 분석 (14 ~ 18)
+            // ==========================================
+            {
+                id: 'baseball-loop',
+                title: '14. ⚾ [우테코] 숫자야구: 반복문 임시 객체',
+                code: [
+                    "public void playBaseball() {",
+                    "    // 컴퓨터의 정답은 게임 내내 유지됨",
+                    "    List&lt;Integer&gt; computer = generateRandoms();",
+                    "    ",
+                    "    boolean isGameEnd = false;",
+                    "    while (!isGameEnd) {",
+                    "        // 루프를 돌 때마다 사용자의 새 입력 리스트 생성",
+                    "        List&lt;Integer&gt; user = readUserInput();",
+                    "        isGameEnd = match(computer, user);",
+                    "    }",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[우아한테크코스 - 숫자 야구]</b><br>사용자가 3스트라이크 정답을 맞출 때까지 반복해서 입력을 받는 로직의 메모리 흐름입니다." },
+                    { stack: ['computer'], heap: [{ id: 'c1', region: 'old', age: 3, refBy: ['computer'] }], codeIdx: 2, msg: "게임 시작 시 컴퓨터의 정답 리스트(c1)가 생성됩니다. (게임 수명과 같이 유지되므로 편의상 Old/Survivor로 가정합니다)" },
+                    { stack: ['computer', 'user'], heap: [{ id: 'c1', region: 'old', age: 3, refBy: ['computer'] }, { id: 'u1', region: 'eden', age: 0, refBy: ['user'] }], codeIdx: 7, msg: "첫 번째 루프: 사용자가 터미널에 입력한 값으로 새로운 리스트 객체(u1)를 생성했습니다." },
+                    { stack: ['computer', 'user'], heap: [{ id: 'c1', region: 'old', age: 3, refBy: ['computer'] }, { id: 'u1', region: 'eden', age: 0, refBy: [] }, { id: 'u2', region: 'eden', age: 0, refBy: ['user'] }], codeIdx: 7, msg: "두 번째 루프: 정답이 틀려 루프가 다시 돌면서, 새로운 입력 객체(u2)가 변수에 할당되었습니다.<br><b>이때, 변수와 연결이 끊긴 이전 입력(u1)은 즉시 가비지가 됩니다.</b>" },
+                    { stack: ['computer', 'user'], heap: [{ id: 'c1', region: 'old', age: 3, refBy: ['computer'] }, { id: 'u3', region: 'eden', age: 0, refBy: ['user'] }], codeIdx: -1, msg: "<b>[Minor GC 발생]</b><br>반복문이 길어질수록 무수한 임시 객체들이 Eden을 채웁니다.<br>하지만 생명주기가 아주 짧기 때문에 Minor GC가 발생할 때마다 즉시 청소되어 큰 성능 이슈는 없습니다." }
+                ]
+            },
+            {
+                id: 'racingcar-ref',
+                title: '15. 🏎️ [우테코] 자동차경주: 배열과 리스트',
+                code: [
+                    "public List&lt;Car&gt; createCars(String input) {",
+                    "    List&lt;Car&gt; cars = new ArrayList&lt;&gt;();",
+                    "    ",
+                    "    // split()은 새로운 String 배열 객체를 반환합니다.",
+                    "    String[] names = input.split(\",\");",
+                    "    ",
+                    "    for (String name : names) {",
+                    "        cars.add(new Car(name));",
+                    "    }",
+                    "    return cars;",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[우아한테크코스 - 자동차 경주]</b><br>사용자로부터 \"pobi,woni\" 입력을 받아 쉼표로 분리한 뒤, 자동차 객체 리스트를 생성하는 로직입니다." },
+                    { stack: ['cars', 'names'], heap: [{ id: 'L1', region: 'eden', age: 0, refBy: ['cars'] }, { id: 'arr', region: 'eden', age: 0, refBy: ['names'] }], codeIdx: 4, msg: "자동차들을 담을 리스트(L1)와, <code>split()</code> 메서드가 임시로 생성해준 문자열 배열(arr)이 생성되었습니다." },
+                    {
+                        stack: ['cars', 'names', 'name'], heap: [
+                            { id: 'L1', region: 'eden', age: 0, refBy: ['cars'] },
+                            { id: 'arr', region: 'eden', age: 0, refBy: ['names'] },
+                            { id: 'c1', region: 'eden', age: 0, refBy: ['L1'] }
+                        ], codeIdx: 7, msg: "반복문을 돌며 첫 번째 자동차(c1) 인스턴스를 생성하고 리스트에 넣습니다.<br>이때 c1은 로컬 변수가 아닌 리스트(L1) 객체 내부 배열로부터 강한 참조를 받게 됩니다."
+                    },
+                    {
+                        stack: ['cars', 'names', 'name'], heap: [
+                            { id: 'L1', region: 'eden', age: 0, refBy: ['cars'] },
+                            { id: 'arr', region: 'eden', age: 0, refBy: ['names'] },
+                            { id: 'c1', region: 'eden', age: 0, refBy: ['L1'] },
+                            { id: 'c2', region: 'eden', age: 0, refBy: ['L1'] }
+                        ], codeIdx: 7, msg: "두 번째 자동차(c2)도 생성되어 리스트에 담겼습니다."
+                    },
+                    {
+                        stack: ['cars'], heap: [
+                            { id: 'L1', region: 's0', age: 1, refBy: ['cars'] },
+                            { id: 'arr', region: 'eden', age: 0, refBy: [] },
+                            { id: 'c1', region: 's0', age: 1, refBy: ['L1'] },
+                            { id: 'c2', region: 's0', age: 1, refBy: ['L1'] }
+                        ], codeIdx: 9, msg: "<b>[메서드 반환 및 GC]</b><br>메서드가 끝나면 쪼개기를 위해 임시로 쓰였던 배열(arr)은 참조가 끊겨 가비지가 됩니다.<br>하지만 자동차들(c1, c2)은 반환된 리스트(L1)에 담겨있어 GC되지 않고 호출자 측으로 안전하게 생존하여 전달됩니다."
+                    }
+                ]
+            },
+            {
+                id: 'lotto-stream',
+                title: '16. 🎟️ [우테코] 로또: Stream API의 이면',
+                code: [
+                    "public Lotto generateLotto() {",
+                    "    List&lt;Integer&gt; nums = pickUniqueNumbersInRange(1, 45, 6);",
+                    "    ",
+                    "    // Stream 연산은 내부적으로 다량의 임시 파이프라인 객체를 만듦",
+                    "    List&lt;Integer&gt; sortedNums = nums.stream()",
+                    "            .sorted()",
+                    "            .collect(Collectors.toList());",
+                    "            ",
+                    "    return new Lotto(sortedNums);",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[우아한테크코스 - 로또]</b><br>랜덤 번호를 뽑아 정렬한 뒤 로또 객체로 포장하는 로직입니다.<br>함수형 프로그래밍(Stream API)은 코드는 간결하게 만들어주지만 메모리 관점에서는 어떨까요?" },
+                    { stack: ['nums'], heap: [{ id: 'n1', region: 'eden', age: 0, refBy: ['nums'] }], codeIdx: 1, msg: "API를 통해 무작위로 뽑힌 6개의 숫자가 담긴 원본 리스트(n1)가 생성되었습니다." },
+                    {
+                        stack: ['nums'], heap: [
+                            { id: 'n1', region: 'eden', age: 0, refBy: ['nums'] },
+                            { id: 'st1', region: 'eden', age: 0, refBy: ['nums'] },
+                            { id: 'st2', region: 'eden', age: 0, refBy: ['st1'] }
+                        ], codeIdx: 5, msg: "<code>stream()</code>과 <code>sorted()</code>를 호출하면, 스트림 연산을 수행하기 위한 <b>복잡한 중간 파이프라인 래퍼 객체(st1, st2)</b>들이 Eden 영역에 무수히 생성됩니다."
+                    },
+                    {
+                        stack: ['nums', 'sortedNums'], heap: [
+                            { id: 'n1', region: 'eden', age: 0, refBy: ['nums'] },
+                            { id: 'st1', region: 'eden', age: 0, refBy: [] },
+                            { id: 'st2', region: 'eden', age: 0, refBy: [] },
+                            { id: 'n2', region: 'eden', age: 0, refBy: ['sortedNums'] }
+                        ], codeIdx: 6, msg: "최종 연산인 <code>collect()</code>가 끝나면 정렬된 새 리스트(n2)가 반환되고, 연산이 끝난 스트림 파이프라인 객체들은 쓸모가 없어져 즉시 가비지가 됩니다."
+                    },
+                    {
+                        stack: ['lotto'], heap: [
+                            { id: 'n1', region: 'eden', age: 0, refBy: [] },
+                            { id: 'n2', region: 's0', age: 1, refBy: ['Lt'] },
+                            { id: 'Lt', region: 's0', age: 1, refBy: ['lotto'] }
+                        ], codeIdx: 8, msg: "<b>[GC 후]</b><br>최종 생성된 <code>Lotto</code> 일급 컬렉션 객체(Lt)와 내부 리스트(n2)만 살아남습니다.<br>Stream API는 가독성을 높이지만 단기 가비지 객체를 다량 생성하므로, 극단적인 성능 최적화 시 고려 대상이 됩니다."
+                    }
+                ]
+            },
+            {
+                id: 'lotto-enum',
+                title: '17. 🎟️ [우테코] 로또: Enum(상수)과 메모리',
+                code: [
+                    "public enum Rank {",
+                    "    FIRST(6, 2000000000), SECOND(5, 30000000);",
+                    "    // 필드 생략...",
+                    "}",
+                    "",
+                    "public void calculateResult(int matchCount) {",
+                    "    // 조건에 맞는 Enum 상수를 반환",
+                    "    Rank rank = Rank.valueOf(matchCount);",
+                    "    ",
+                    "    Map&lt;Rank, Integer&gt; result = new HashMap&lt;&gt;();",
+                    "    result.put(rank, 1);",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[우아한테크코스 - 로또]</b><br>1등, 2등과 같은 당첨 등수를 관리할 때 사용하는 <code>Enum</code> 클래스는 메모리에서 어떻게 다뤄질까요?" },
+                    {
+                        stack: ['Metaspace'], heap: [
+                            { id: 'R1', region: 'old', age: 10, refBy: ['Metaspace'] },
+                            { id: 'R2', region: 'old', age: 10, refBy: ['Metaspace'] }
+                        ], codeIdx: 1, msg: "<code>Enum</code> 상수 인스턴스들(R1: FIRST, R2: SECOND)은 JVM이 클래스를 로드할 때 최초 1회만 생성되며, <b>프로그램이 종료될 때까지 메모리(통상 Old/Metaspace)에 싱글톤으로 영구 유지</b>됩니다."
+                    },
+                    {
+                        stack: ['Metaspace', 'rank'], heap: [
+                            { id: 'R1', region: 'old', age: 10, refBy: ['Metaspace', 'rank'] },
+                            { id: 'R2', region: 'old', age: 10, refBy: ['Metaspace'] }
+                        ], codeIdx: 7, msg: "메서드를 통해 등수를 찾을 때 새로운 객체를 <code>new</code>로 힙에 생성하는 것이 아닙니다.<br>미리 생성되어 있던 Old 영역의 객체(R1)를 <b>변수가 가리키기만(참조)</b> 합니다."
+                    },
+                    {
+                        stack: ['Metaspace', 'rank', 'result'], heap: [
+                            { id: 'R1', region: 'old', age: 10, refBy: ['Metaspace', 'rank', 'res'] },
+                            { id: 'R2', region: 'old', age: 10, refBy: ['Metaspace'] },
+                            { id: 'res', region: 'eden', age: 0, refBy: ['result'] }
+                        ], codeIdx: 10, msg: "결과를 저장할 Map(res)에 1등(R1)을 키(Key)로 기록합니다. 이제 Map 인스턴스가 R1 상수를 참조하게 됩니다."
+                    },
+                    {
+                        stack: ['Metaspace', 'result'], heap: [
+                            { id: 'R1', region: 'old', age: 10, refBy: ['Metaspace', 'res'] },
+                            { id: 'R2', region: 'old', age: 10, refBy: ['Metaspace'] },
+                            { id: 'res', region: 's0', age: 1, refBy: ['result'] }
+                        ], codeIdx: -1, msg: "메서드가 종료되어 로컬 <code>rank</code> 변수가 스택에서 사라져도, Enum 객체 자체는 절대 GC되지 않습니다.<br>Enum을 적극 활용하면 불필요한 객체 생성을 원천 차단하여 메모리 효율을 극대화할 수 있습니다."
+                    }
+                ]
+            },
+            {
+                id: 'racingcar-string',
+                title: '18. 🏎️ [우테코] 자동차경주: 문자열 반복',
+                code: [
+                    "public void printPosition(int position) {",
+                    "    String dash = \"\";",
+                    "    ",
+                    "    // position이 3이라고 가정합니다.",
+                    "    for (int i = 0; i < position; i++) {",
+                    "        dash += \"-\"; // 위험한 연산",
+                    "    }",
+                    "    ",
+                    "    System.out.println(\"pobi : \" + dash);",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: -1, msg: "<b>[우아한테크코스 - 자동차 경주]</b><br>자동차의 전진 횟수(position)만큼 <code>-</code>를 화면에 출력해야 합니다. 초보자들이 가장 많이 하는 문자열 덧셈 실수입니다." },
+                    { stack: ['dash'], heap: [{ id: 'd0', region: 'eden', age: 0, refBy: ['dash'] }], codeIdx: 1, msg: "길이가 0인 빈 문자열 객체(d0)가 생성되었습니다." },
+                    {
+                        stack: ['dash', 'i'], heap: [
+                            { id: 'd0', region: 'eden', age: 0, refBy: [] },
+                            { id: 'd1', region: 'eden', age: 0, refBy: ['dash'] }
+                        ], codeIdx: 5, msg: "<code>i=0</code>: 기존 d0에 <code>-</code>를 합쳐 새로운 길이 1짜리 문자열(d1)이 생성되고, 이전 문자열(d0)은 참조가 끊겨 가비지가 됩니다."
+                    },
+                    {
+                        stack: ['dash', 'i'], heap: [
+                            { id: 'd0', region: 'eden', age: 0, refBy: [] },
+                            { id: 'd1', region: 'eden', age: 0, refBy: [] },
+                            { id: 'd2', region: 'eden', age: 0, refBy: ['dash'] }
+                        ], codeIdx: 5, msg: "<code>i=1</code>: 다시 d1에 <code>-</code>를 합쳐 <code>--</code> 형태의 새로운 객체(d2)가 만들어지고, d1은 버려집니다."
+                    },
+                    {
+                        stack: ['dash', 'i'], heap: [
+                            { id: 'd0', region: 'eden', age: 0, refBy: [] },
+                            { id: 'd1', region: 'eden', age: 0, refBy: [] },
+                            { id: 'd2', region: 'eden', age: 0, refBy: [] },
+                            { id: 'd3', region: 'eden', age: 0, refBy: ['dash'] }
+                        ], codeIdx: 5, msg: "<code>i=2</code>: <code>---</code> 세 개가 붙은 최종 문자열(d3)이 완성되었습니다.<br>고작 <code>---</code> 문자열 하나를 얻기 위해 메모리에 쓰레기가 3개나 생겨났습니다!"
+                    },
+                    {
+                        stack: ['dash'], heap: [
+                            { id: 'd3', region: 's0', age: 1, refBy: ['dash'] }
+                        ], codeIdx: 8, msg: "<b>[Minor GC 발생]</b><br>만약 position이 1,000이었다면 1,000개의 쓰레기 문자열이 발생하여 GC에 엄청난 부하를 줍니다.<br>이런 곳에서는 반복마다 객체를 생성하지 않는 <code>StringBuilder</code>나 자바 11의 <code>String.repeat()</code>를 사용해야 합니다."
+                    }
+                ]
+            },
+            // ==========================================
+            // [Part 5] GC 알고리즘의 발전과 핵심 동작 (21 ~ 25)
+            // ==========================================
+            {
+                id: 'algo-mark-sweep',
+                title: '21. 🧠 [알고리즘] 마크 앤 스윕 (Mark & Sweep)',
+                code: [
+                    "// 모든 GC의 근본 알고리즘: Mark & Sweep",
+                    "",
+                    "public void markAndSweep() {",
+                    "    Object root = new Object();",
+                    "    Object child = new Object();",
+                    "    ",
+                    "    // 가비지 발생",
+                    "    child = null;",
+                    "    root = null;",
+                    "}"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: 0, msg: "<b>[1단계: Mark & Sweep 개요]</b><br>모든 가비지 컬렉션 알고리즘의 뼈대가 되는 가장 기초적이고 중요한 <b>마크 앤 스윕(Mark & Sweep)</b> 방식에 대해 10단계로 자세히 알아보겠습니다." },
+                    {
+                        stack: ['rootA', 'rootB'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['rootA'] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o4', region: 'old', age: 10, refBy: [] }
+                        ],
+                        codeIdx: 3,
+                        msg: "<b>[2단계: 메모리 상태]</b><br>Old 영역에 여러 객체들이 존재합니다. 일부는 스택 변수(rootA, rootB)와 연결되어 있고, o3는 o1에 의존하며, o4는 이미 참조가 끊긴 가비지입니다."
+                    },
+                    {
+                        stack: ['rootB'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: [] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o4', region: 'old', age: 10, refBy: [] }
+                        ],
+                        codeIdx: 8,
+                        msg: "<b>[3단계: 가비지 대량 발생]</b><br><code>rootA = null;</code>이 실행되어 첫 번째 화살표가 끊어졌습니다. o1이 도달 불가능해짐에 따라, <b>o1에 연결되어 있던 o3 역시 애플리케이션 입장에선 접근할 수 없는 가비지</b>가 됩니다."
+                    },
+                    {
+                        stack: ['rootB'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: [] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o4', region: 'old', age: 10, refBy: [] }
+                        ],
+                        codeIdx: -1,
+                        stw: true,
+                        msg: "<b>[4단계: Stop-The-World]</b><br>GC가 발동되면 가장 먼저 애플리케이션의 <b>모든 스레드를 일시 정지(STW)</b>시킵니다. 메모리 참조가 실시간으로 변하는 상태에서는 정확한 청소를 할 수 없기 때문입니다."
+                    },
+                    {
+                        stack: ['rootB'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: [] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o4', region: 'old', age: 10, refBy: [] }
+                        ],
+                        codeIdx: -1,
+                        stw: true,
+                        msg: "<b>[5단계: Mark 페이즈 - GC Root 탐색]</b><br>스택 영역을 뒤져서 현재 유효한 지역 변수인 <b>GC Root(rootB)</b>를 찾아냅니다. 이것이 생존자 탐색의 유일한 출발점이 됩니다."
+                    },
+                    {
+                        stack: ['rootB'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: [] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o4', region: 'old', age: 10, refBy: [] }
+                        ],
+                        codeIdx: -1,
+                        highlight: 'old',
+                        stw: true,
+                        msg: "<b>[6단계: Mark 페이즈 - 도달성 분석]</b><br>rootB에서 시작해 연결된 화살표를 따라가며 o2를 만납니다. o2의 메모리 헤더에 <b>'이 객체는 살아있음(Alive)' 표시(Mark)</b>를 남깁니다."
+                    },
+                    {
+                        stack: ['rootB'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: [], isDead: true },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: ['o1'], isDead: true },
+                            { id: 'o4', region: 'old', age: 10, refBy: [], isDead: true }
+                        ],
+                        codeIdx: -1,
+                        stw: true,
+                        msg: "<b>[7단계: Sweep 페이즈 - 비도달 객체 식별]</b><br>이제 메모리 전체를 순회하며 아까 <b>Mark 되지 않은 객체들</b>을 찾아냅니다. 초록색 불이 켜지지 않은 o1, o3, o4가 최종 가비지(회색 점선)로 판정되었습니다."
+                    },
+                    {
+                        stack: ['rootB'],
+                        heap: [
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] }
+                        ],
+                        codeIdx: -1,
+                        stw: true,
+                        msg: "<b>[8단계: Sweep 페이즈 - 메모리 회수]</b><br>Mark 되지 않은 가비지 객체들을 메모리에서 완전히 쓸어버립니다(Sweep). 공간이 확보되었습니다!"
+                    },
+                    {
+                        stack: ['rootB'],
+                        heap: [
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] }
+                        ],
+                        codeIdx: -1,
+                        stw: true,
+                        msg: "<b>[9단계: Compaction 페이즈 (선택적)]</b><br>Sweep 직후에는 객체들이 듬성듬성 존재하는 단편화(Fragmentation)가 생깁니다. 이를 해결하기 위해 생존 객체(o2)를 메모리의 한쪽 끝으로 차곡차곡 밀어넣어 <b>압축(Compact)</b>합니다."
+                    },
+                    {
+                        stack: ['rootB'],
+                        heap: [
+                            { id: 'o2', region: 'old', age: 10, refBy: ['rootB'] }
+                        ],
+                        codeIdx: -1,
+                        msg: "<b>[10단계: 완료 및 STW 해제]</b><br>청소와 압축이 무사히 끝나면 멈춰있던 애플리케이션 스레드를 깨웁니다(STW 해제). 붉은 화면이 걷히고 유저는 다시 서비스를 이용할 수 있습니다."
+                    }
+                ]
+            },
+            {
+                id: 'algo-serial-parallel',
+                title: '22. 🧠 [알고리즘] Serial & Parallel GC',
+                code: [
+                    "// 1. Serial GC (-XX:+UseSerialGC)",
+                    "// 싱글 스레드 환경을 위해 설계됨",
+                    "",
+                    "// 2. Parallel GC (-XX:+UseParallelGC)",
+                    "// 자바 8 디폴트. 멀티 스레드로 Throughput 극대화"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: 0, msg: "<b>[1단계: 알고리즘의 진화]</b><br>가장 원시적인 GC인 Serial GC부터, 멀티 코어 시대를 맞이해 등장한 Parallel GC까지 발전 과정을 시각적으로 비교해봅시다." },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o2', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o3', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o4', region: 'eden', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 1,
+                        msg: "<b>[2단계: Serial GC - 싱글 코어 시대]</b><br>Eden 영역이 가득 찼습니다. 과거 CPU 코어가 1개이던 시절에 만들어진 <b>Serial GC</b>가 동작할 차례입니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o2', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o3', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o4', region: 'eden', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 1,
+                        stw: true,
+                        msg: "<b>[3단계: Serial GC - 긴 멈춤 시간]</b><br>STW가 발생합니다. 문제는 메모리를 닦고 옮기는 <b>GC 청소부(스레드)가 단 1명</b>이라는 점입니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o2', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o3', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o4', region: 'eden', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 1,
+                        stw: true,
+                        msg: "<b>[4단계: Serial GC - 느릿한 이동 (1/3)]</b><br>청소부 1명이 먼저 첫 번째 객체(o1)를 찾아 마킹하고 S0으로 옮깁니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o2', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o3', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o4', region: 'eden', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 1,
+                        stw: true,
+                        msg: "<b>[5단계: Serial GC - 느릿한 이동 (2/3)]</b><br>다음 객체(o2)를 옮깁니다. 이처럼 순차적으로 처리하므로 메모리가 기가바이트(GB) 단위라면 <b>서버가 수십 초간 뻗어버리게 됩니다.</b>"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o2', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o3', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o4', region: 'eden', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        msg: "<b>[6단계: 멀티 코어와 Parallel GC]</b><br>시간을 되돌려 다시 Eden이 가득 찬 상태입니다. 이번엔 하드웨어 발전에 맞춰 등장한 <b>Parallel GC</b>를 사용해봅니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o2', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 'o3', region: 'eden', age: 0, refBy: [] },
+                            { id: 'o4', region: 'eden', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        stw: true,
+                        msg: "<b>[7단계: Parallel GC - 병렬 스레드 투입]</b><br>STW가 발생합니다. 하지만 이번에는 <b>서버의 CPU 코어 수만큼(예: 8명, 16명) GC 청소부들이 일제히 메모리에 투입</b>됩니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 's1', age: 1, refBy: ['app'] },
+                            { id: 'o2', region: 's1', age: 1, refBy: ['app'] },
+                            { id: 'o4', region: 's1', age: 1, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        stw: true,
+                        msg: "<b>[8단계: Parallel GC - 동시 처리의 위력]</b><br>수십 명의 스레드가 구역을 나눠 마킹과 이동을 <b>동시에(Parallel) 처리</b>하므로, 눈 깜짝할 새(1스텝 만에) 모든 객체가 복사되고 가비지는 지워집니다!"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 's1', age: 1, refBy: ['app'] },
+                            { id: 'o2', region: 's1', age: 1, refBy: ['app'] },
+                            { id: 'o4', region: 's1', age: 1, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        msg: "<b>[9단계: STW의 극적인 단축]</b><br>STW가 해제되었습니다. 애플리케이션의 처리량(Throughput)이 극대화되어 자바 8 버전까지 수많은 기업의 표준 디폴트 GC로 맹활약했습니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 's1', age: 1, refBy: ['app'] },
+                            { id: 'o2', region: 's1', age: 1, refBy: ['app'] },
+                            { id: 'o4', region: 's1', age: 1, refBy: ['app'] }
+                        ],
+                        codeIdx: -1,
+                        msg: "<b>[10단계: 여전한 숙제]</b><br>하지만 Parallel GC 역시 <b>'멈추는 시간이 짧아졌을 뿐, 무조건 앱이 멈춰야(STW) 청소할 수 있다'</b>는 근본적 한계를 지니고 있었습니다. 지연 없는 앱을 위한 다음 발전이 필요했습니다."
+                    }
+                ]
+            },
+            {
+                id: 'algo-cms',
+                title: '23. 🧠 [알고리즘] CMS GC와 단편화의 비극',
+                code: [
+                    "// CMS GC (-XX:+UseConcMarkSweepGC)",
+                    "// 애플리케이션과 '동시에(Concurrent)' 청소하여",
+                    "// STW 멈춤을 극단적으로 줄이는 것이 목표",
+                    "",
+                    "// 하지만 압축(Compact)을 할 수 없어",
+                    "// 치명적인 단편화(Fragmentation)가 발생합니다."
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: 0, msg: "<b>[1단계: Low Latency의 열망]</b><br>웹 서비스가 발전하며 '단 0.1초의 멈춤도 용납할 수 없다'는 요구가 커졌습니다. 이에 애플리케이션 스레드와 GC 스레드가 <b>동시에(Concurrent) 달리는 CMS GC</b>가 탄생합니다." },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: ['o2'] }
+                        ],
+                        codeIdx: 3,
+                        stw: true,
+                        msg: "<b>[2단계: CMS - Initial Mark (아주 짧은 STW)]</b><br>먼저 찰나의 STW를 걸고, <b>GC Root(app)와 가장 가까운 1차 객체(o1)만 순식간에 마킹</b>하고 즉시 멈춤을 풉니다. 유저는 끊김을 느낄 수 없습니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: ['o2'] }
+                        ],
+                        codeIdx: 3,
+                        msg: "<b>[3단계: CMS - Concurrent Mark]</b><br><b>[STW 해제됨]</b> 사용자는 정상적으로 웹 서핑(앱 실행)을 합니다. 그동안 백그라운드 스레드가 아까 찾은 o1의 꼬리를 물고 깊은 탐색(o2, o3)을 백그라운드에서 진행합니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: [] }, // 앱 동작으로 참조 끊김
+                            { id: 'o4', region: 'old', age: 0, refBy: ['app'] } // 새로운 객체 할당됨
+                        ],
+                        codeIdx: 3,
+                        msg: "<b>[4단계: CMS - 동시 작업의 부작용]</b><br>문제는 앱이 계속 돌아가고 있다는 것입니다! 마킹 도중에 애플리케이션 로직에 의해 <b>o3의 참조가 끊어지고, o4라는 새 객체가 생성</b>되어 버렸습니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o3', region: 'old', age: 10, refBy: [], isDead: true },
+                            { id: 'o4', region: 'old', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 3,
+                        stw: true,
+                        msg: "<b>[5단계: CMS - Remark (짧은 STW)]</b><br>다시 짧은 STW를 걸고, 아까 검사하는 동안 <b>변경된 사항(죽은 o3 확인, 신규 o4 마킹)만 빠르게 재확인(Remark)</b>하여 대상을 최종 확정 짓습니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o4', region: 'old', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 3,
+                        msg: "<b>[6단계: CMS - Concurrent Sweep]</b><br><b>[STW 해제됨]</b> 이제 가비지(o3)를 알아냈으니 <b>앱 실행과 동시에 백그라운드에서 메모리를 스윕(삭제)</b>합니다. 엄청난 응답성 향상입니다!"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'x1', region: 'old', age: 10, refBy: [], isDead: true }, // 가짜 갭
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'x2', region: 'old', age: 10, refBy: [], isDead: true }, // 가짜 갭
+                            { id: 'o4', region: 'old', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        msg: "<b>[7단계: CMS의 치명적 딜레마]</b><br>하지만 치명적인 한계가 있었습니다. 앱이 켜져서 계속 객체를 사용 중인데, 백그라운드 GC가 객체의 물리적 위치를 한쪽으로 <b>압축(Compact) 이동시켜 버리면 앱에서 참조 오류(Crash)가 발생</b>하게 됩니다."
+                    },
+                    {
+                        stack: ['app', 'huge'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'x1', region: 'old', age: 10, refBy: [], isDead: true }, // 가짜 갭
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'x2', region: 'old', age: 10, refBy: [], isDead: true }, // 가짜 갭
+                            { id: 'o4', region: 'old', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 5,
+                        msg: "<b>[8단계: 메모리 단편화 (Fragmentation)]</b><br>압축을 못하니, 위 그림처럼 지워진 객체 자리(회색 점선 구멍)들이 <b>이빨 빠진 것처럼 메모리 여기저기에 구멍(단편화)으로 남게 됩니다.</b>"
+                    },
+                    {
+                        stack: ['app', 'huge'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'x1', region: 'old', age: 10, refBy: [], isDead: true },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'x2', region: 'old', age: 10, refBy: [], isDead: true },
+                            { id: 'o4', region: 'old', age: 0, refBy: ['app'] }
+                        ],
+                        codeIdx: 5,
+                        msg: "<b>[9단계: 거대 객체 할당 실패]</b><br>총 여유 용량은 충분하지만, 중간중간 뚫린 <b>구멍들의 크기가 작아서 크기가 큰 <code>huge</code> 배열 객체를 메모리에 끼워 넣을 수가 없습니다!</b>"
+                    },
+                    {
+                        stack: ['app', 'huge'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o4', region: 'old', age: 0, refBy: ['app'] },
+                            { id: 'hg', region: 'old', age: 0, refBy: ['huge'] }
+                        ],
+                        codeIdx: -1,
+                        stw: true,
+                        msg: "<b>[10단계: CMS의 최후 (Concurrent Mode Failure)]</b><br>단편화가 극에 달하면 CMS는 항복을 선언합니다. 앱을 완전히 멈추고(STW) 단일 스레드로 무식하게 객체를 긁어모으는 <b>끔찍하게 긴 Full GC</b>를 터트립니다. (화면 강제 압축됨)"
+                    },
+                    {
+                        stack: ['app', 'huge'],
+                        heap: [
+                            { id: 'o1', region: 'old', age: 10, refBy: ['app'] },
+                            { id: 'o2', region: 'old', age: 10, refBy: ['o1'] },
+                            { id: 'o4', region: 'old', age: 0, refBy: ['app'] },
+                            { id: 'hg', region: 'old', age: 0, refBy: ['huge'] }
+                        ],
+                        codeIdx: -1,
+                        msg: "<b>[11단계: 역사 속으로]</b><br>이러한 시한폭탄 같은 예측 불가능성(단편화 문제) 때문에, CMS는 혁신적인 아이디어였음에도 불구하고 자바 14에서 완전히 폐기(Deprecated) 되었습니다."
+                    }
+                ]
+            },
+            {
+                id: 'algo-g1',
+                title: '24. 🧠 [알고리즘] G1 GC (Garbage First)',
+                code: [
+                    "// G1 GC (-XX:+UseG1GC)",
+                    "// 자바 9부터의 새로운 디폴트 GC",
+                    "",
+                    "// 메모리를 수천 개의 체스판(Region)으로 분할",
+                    "// 쓰레기(Garbage)가 많은 지역을 먼저(First) 청소"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: 0, msg: "<b>[1단계: G1 GC의 등장]</b><br>CMS의 단편화 문제를 겪은 자바 진영은 이를 완벽히 해결하면서도 응답 속도가 빠른 새로운 패러다임, <b>G1(Garbage First) GC</b>를 자바 9부터 기본 탑재합니다." },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o1', region: 'old', age: 5, refBy: [] }, // 죽은 객체 많음
+                            { id: 'o2', region: 'old', age: 5, refBy: [] },
+                            { id: 'o3', region: 'old', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: 3,
+                        msg: "<b>[2단계: 물리적 경계 파괴와 Region]</b><br>G1 GC는 거대한 Eden, Old 라는 기존 물리적 공간을 부수고, 전체 힙을 수천 개의 <b>작은 체스판(Region)</b>으로 균등하게 쪼갭니다. (화면의 4개 구역을 각 Region으로 상상해 보세요)"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o1', region: 'old', age: 5, refBy: [] },
+                            { id: 'o2', region: 'old', age: 5, refBy: [] },
+                            { id: 'o3', region: 'old', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: 3,
+                        msg: "<b>[3단계: 동적 역할 부여]</b><br>각 Region은 비어있다가 상황에 따라 유동적으로 Eden 역할표찰을 달거나, Old 역할표찰을 답니다. 매우 유연한 구조입니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o1', region: 'old', age: 5, refBy: [] },
+                            { id: 'o2', region: 'old', age: 5, refBy: [] },
+                            { id: 'o3', region: 'old', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        stw: true,
+                        msg: "<b>[4단계: G1 Mark - Initial Mark]</b><br>앱을 살짝 멈추고(STW) GC Root(app)와 직접 닿은 e1, s1, o3를 1차 마킹합니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o1', region: 'old', age: 5, refBy: [], isDead: true },
+                            { id: 'o2', region: 'old', age: 5, refBy: [], isDead: true },
+                            { id: 'o3', region: 'old', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        msg: "<b>[5단계: G1 Mark - Concurrent Mark]</b><br>앱이 실행되는 동안 백그라운드 스레드가 모든 Region을 탐색하며 <b>각 Region 내부에 살아있는 객체와 죽은 객체(회색)의 통계를 계산</b>합니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o1', region: 'old', age: 5, refBy: [], isDead: true },
+                            { id: 'o2', region: 'old', age: 5, refBy: [], isDead: true },
+                            { id: 'o3', region: 'old', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        stw: true,
+                        msg: "<b>[6단계: G1 Mark - Remark]</b><br>마지막으로 한 번 더 짧게 STW를 걸어 변동된 메모리를 확정 짓습니다. 이제 G1 GC는 각 Region별 가비지 현황을 완벽히 인지했습니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o1', region: 'old', age: 5, refBy: [], isDead: true },
+                            { id: 'o2', region: 'old', age: 5, refBy: [], isDead: true },
+                            { id: 'o3', region: 'old', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        highlight: 'old',
+                        msg: "<b>[7단계: 철학 - Garbage First!]</b><br>G1 GC는 전체 메모리를 한 번에 다 닦으려 하지 않습니다. <b>쓰레기(o1, o2)가 가장 많이 쌓여 효율이 좋은 타겟 Region(여기선 Old 구역)을 '우선적으로(First)' 골라냅니다.</b>"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o3', region: 's1', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        stw: true,
+                        msg: "<b>[8단계: 대피(Evacuation)와 복사]</b><br>타겟 Region에서 극소수의 <b>살아있는 객체(o3)만 안전한 빈 Region(여기선 S1)으로 통째로 복사(이사)시킵니다.</b>"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o3', region: 's1', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: 4,
+                        msg: "<b>[9단계: Region 날려버리기]</b><br>생존자를 대피시켰으니, 쓰레기만 가득 남은 원래의 타겟 Region은 빗자루로 쓸 필요도 없이 <b>구역 자체를 포맷(초기화)</b>해버립니다. 압도적인 청소 효율입니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o3', region: 's1', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: -1,
+                        msg: "<b>[10단계: 완벽한 압축 효과]</b><br>살아있는 객체를 빈 구역으로 끼워 넣는 과정 자체가 자연스럽게 <b>압축(Compact)</b> 효과를 낳습니다. CMS가 남긴 최악의 숙제인 단편화가 해결되었습니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [
+                            { id: 'e1', region: 'eden', age: 0, refBy: ['app'] },
+                            { id: 's1', region: 's0', age: 1, refBy: ['app'] },
+                            { id: 'o3', region: 's1', age: 5, refBy: ['app'] }
+                        ],
+                        codeIdx: -1,
+                        msg: "<b>[11단계: 목표 시간 준수 시스템]</b><br>가장 놀라운 점은 개발자가 <code>-XX:MaxGCPauseMillis=200</code> 처럼 목표 멈춤 시간을 정해주면, <b>G1 GC가 그 200ms 안에 처리할 수 있을 만큼만의 Region 개수를 스스로 조절하여 청소</b>한다는 점입니다. 예측 가능한 최고의 범용 GC입니다."
+                    }
+                ]
+            },
+            {
+                id: 'algo-zgc',
+                title: '25. 🧠 [알고리즘] ZGC와 동시 이사(Relocation)',
+                code: [
+                    "// ZGC (-XX:+UseZGC) / Shenandoah",
+                    "// 수 TB의 메모리에서도 STW 1ms 미만 보장",
+                    "",
+                    "// Concurrent Compaction (동시 압축)",
+                    "// Colored Pointers & Load Barriers 기술"
+                ],
+                steps: [
+                    { stack: [], heap: [], codeIdx: 0, msg: "<b>[1단계: 빅데이터와 대용량 힙]</b><br>현대 클라우드 시대가 되며 서버 메모리가 테라바이트(TB) 단위까지 엄청나게 커졌습니다. 메모리가 커지면 G1 GC조차도 객체 복사에 긴 STW(멈춤)가 발생합니다." },
+                    { stack: [], heap: [], codeIdx: 1, msg: "<b>[2단계: ZGC의 거대한 목표]</b><br>오라클의 ZGC는 선언합니다. <b>\"힙이 10MB든 16TB든, 우리는 STW를 무조건 1ms(0.001초) 이하로 보장한다!\"</b>" },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 'old', age: 10, refBy: ['app'] }],
+                        codeIdx: 3,
+                        msg: "<b>[3단계: 핵심 기술 - 동시 압축(Concurrent Compaction)]</b><br>ZGC의 마법은 앱을 멈추지 않고 <b>백그라운드에서 객체를 옮기면서 압축을 진행하는 것</b>에 있습니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 'old', age: 10, refBy: ['app'] }],
+                        codeIdx: 4,
+                        msg: "<b>[4단계: 딜레마의 등장]</b><br>하지만 앱이 z1 객체를 쓰고 있는데, GC가 몰래 물리적 주소를 바꿔버리면(이사 가면) 앱은 빈 공간을 참조해 크래시(NPE)가 나지 않을까요?"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 'old', age: 10, refBy: ['app'] }],
+                        codeIdx: 4,
+                        msg: "<b>[5단계: 해결책 1 - Colored Pointers]</b><br>ZGC는 64비트 메모리 주소의 안 쓰는 비트(자리)들에 색깔(상태)을 칠합니다. <b>주소 자체에 '이 객체는 지금 이사 중이야'라는 알림표를 달아둡니다.</b>"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 'old', age: 10, refBy: ['app'] }],
+                        codeIdx: 4,
+                        msg: "<b>[6단계: 해결책 2 - Load Barrier]</b><br>또한 <b>로드 배리어(Load Barrier)</b>라는 감시자를 둡니다. 앱이 변수를 통해 객체에 접근(Load)할 때마다 무조건 이 감시자를 거치게 합니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 'old', age: 10, refBy: ['app'] }],
+                        codeIdx: 4,
+                        stw: true,
+                        msg: "<b>[7단계: ZGC 동작 - Initial Mark]</b><br>GC Root만 확인하는 1ms 미만의 극히 짧은 STW가 발생합니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 'old', age: 10, refBy: ['app'] }],
+                        codeIdx: 4,
+                        msg: "<b>[8단계: ZGC 동작 - Concurrent Relocate 시작]</b><br><b>[STW 해제]</b> 백그라운드 스레드가 o1 객체를 빈 공간인 S0 영역으로 이사(복사)시키기 시작합니다."
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 's0', age: 10, refBy: ['app'] }],
+                        codeIdx: 4,
+                        highlight: 's0',
+                        msg: "<b>[9단계: 놀라운 동시 이사]</b><br>이사하는 도중에 앱이 객체를 요청했습니다! 로드 배리어가 개입하여 주소의 '이사 중' 색깔을 확인하고, <b>애플리케이션 스레드가 S0에 있는 새로운 주소로 알아서 찾아가도록(Forwarding) 연결을 고쳐줍니다.</b>"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 's0', age: 10, refBy: ['app'] }],
+                        codeIdx: 4,
+                        msg: "<b>[10단계: STW 없는 압축 완료]</b><br>이처럼 수백만 개의 객체가 이동하는 무거운 작업이 로드 배리어의 보호 아래 <b>사용자 모르게 동시(Concurrent)에 완료됩니다.</b>"
+                    },
+                    {
+                        stack: ['app'],
+                        heap: [{ id: 'z1', region: 's0', age: 10, refBy: ['app'] }],
+                        codeIdx: -1,
+                        msg: "<b>[11단계: 극강의 혁신]</b><br>이것이 ZGC와 Shenandoah가 테라바이트급 메모리를 다루면서도 STW를 1ms로 유지하여 렉 없는 완벽한 서버를 만들어내는 현대 가비지 컬렉션의 정수입니다."
+                    }
+                ]
+            }
+        ];
+
+        // 상태 변수
+        let currentScenarioIndex = 0;
+        let currentStepIndex = 0;
+        let currentState = null;
+        let animationFrameId = null;
+
+        // DOM Elements
+        const scenarioSelector = document.getElementById('scenario-selector');
+        const codeDisplay = document.getElementById('code-display');
+        const descText = document.getElementById('description-text');
+        const stepIndicator = document.getElementById('step-indicator');
+        const btnPrev = document.getElementById('btn-prev');
+        const btnNext = document.getElementById('btn-next');
+
+        const stackArea = document.getElementById('stack-area');
+        const objectsLayer = document.getElementById('objects-layer');
+        const svgLayer = document.getElementById('svg-layer');
+        const visBoard = document.getElementById('vis-board');
+
+        // 초기화
+        function init() {
+            renderScenarios();
+            loadScenario(0);
+
+            btnNext.addEventListener('click', () => {
+                if (currentStepIndex < SCENARIOS[currentScenarioIndex].steps.length - 1) {
+                    currentStepIndex++;
+                    renderStep();
+                }
+            });
+
+            btnPrev.addEventListener('click', () => {
+                if (currentStepIndex > 0) {
+                    currentStepIndex--;
+                    renderStep();
+                }
+            });
+
+            // 윈도우 리사이즈 시 화살표와 객체 위치 재계산
+            window.addEventListener('resize', () => {
+                updateObjectPositions(currentState);
+            });
+
+            // 화살표 렌더링 루프 시작
+            startRenderLoop();
+        }
+
+        function renderScenarios() {
+            scenarioSelector.innerHTML = '';
+            SCENARIOS.forEach((sc, idx) => {
+                const btn = document.createElement('button');
+                btn.className = `scenario-btn ${idx === currentScenarioIndex ? 'active' : ''}`;
+                btn.textContent = sc.title;
+                btn.onclick = () => loadScenario(idx);
+                scenarioSelector.appendChild(btn);
+            });
+            // 활성화된 버튼이 보이도록 스크롤 조정
+            const activeBtn = scenarioSelector.querySelector('.active');
+            if (activeBtn) {
+                activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        function loadScenario(index) {
+            currentScenarioIndex = index;
+            currentStepIndex = 0;
+            renderScenarios();
+
+            const scenario = SCENARIOS[currentScenarioIndex];
+
+            codeDisplay.innerHTML = scenario.code.map((line, idx) =>
+                `<div class="code-line" id="code-line-${idx}">${line}</div>`
+            ).join('');
+
+            stepIndicator.innerHTML = scenario.steps.map((_, idx) =>
+                `<div class="step-dot" id="dot-${idx}"></div>`
+            ).join('');
+
+            renderStep();
+        }
+
+        function renderStep() {
+            const scenario = SCENARIOS[currentScenarioIndex];
+            currentState = scenario.steps[currentStepIndex];
+
+            btnPrev.disabled = currentStepIndex === 0;
+            btnNext.disabled = currentStepIndex === scenario.steps.length - 1;
+
+            descText.innerHTML = currentState.msg;
+            document.querySelectorAll('.step-dot').forEach((el, idx) => {
+                el.classList.toggle('active', idx === currentStepIndex);
+            });
+
+            document.querySelectorAll('.code-line').forEach((el, idx) => {
+                el.classList.toggle('active', idx === currentState.codeIdx);
+            });
+
+            // UI 하이라이트 효과 (박스 테두리 깜빡임)
+            document.querySelectorAll('.memory-box').forEach(box => {
+                if (currentState.highlight && box.id === `region-${currentState.highlight}`) {
+                    box.classList.add('highlight');
+                } else {
+                    box.classList.remove('highlight');
+                }
+            });
+
+            // Stop-The-World 시각적 효과
+            if (currentState.stw) {
+                visBoard.classList.add('stw-active');
+            } else {
+                visBoard.classList.remove('stw-active');
+            }
+
+            renderStack(currentState.stack);
+            renderHeapObjects(currentState.heap);
+
+            setTimeout(() => {
+                updateObjectPositions(currentState);
+            }, 10);
+        }
+
+        function renderStack(stackVars) {
+            stackArea.innerHTML = '';
+            stackVars.forEach(varName => {
+                const el = document.createElement('div');
+                el.className = 'stack-var active';
+                el.id = 'stack-' + varName;
+                el.textContent = varName;
+                stackArea.appendChild(el);
+            });
+        }
+
+        function renderHeapObjects(heapData) {
+            const existingIds = Array.from(objectsLayer.children).map(el => el.id.replace('obj-', ''));
+            const newIds = heapData.map(d => d.id);
+
+            existingIds.forEach(id => {
+                if (!newIds.includes(id)) {
+                    const el = document.getElementById('obj-' + id);
+                    if (el) el.remove();
+                }
+            });
+
+            heapData.forEach(data => {
+                let el = document.getElementById('obj-' + data.id);
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = 'obj-' + data.id;
+                    el.className = 'heap-obj';
+                    el.style.transform = `translate(200px, 300px)`;
+                    objectsLayer.appendChild(el);
+                }
+
+                // isDead 속성을 우선 평가하여, 참조가 있어도 죽은 객체로 렌더링 가능
+                const isAlive = data.isDead ? false : data.refBy.length > 0;
+
+                if (isAlive) {
+                    el.classList.add('live');
+                    el.classList.remove('dead');
+                } else {
+                    el.classList.add('dead');
+                    el.classList.remove('live');
+                }
+
+                // 나이가 0인 경우 뱃지를 숨겨서 깔끔하게 보이도록 (선택사항)
+                const ageHtml = data.age > 0 ? `<div class="age-badge">${data.age}</div>` : '';
+                el.innerHTML = `${data.id}${ageHtml}`;
+                el.setAttribute('data-region', data.region);
+            });
+        }
+
+        function updateObjectPositions(state) {
+            if (!state) return;
+
+            const boardRect = visBoard.getBoundingClientRect();
+            const regions = {
+                eden: document.getElementById('region-eden').getBoundingClientRect(),
+                s0: document.getElementById('region-s0').getBoundingClientRect(),
+                s1: document.getElementById('region-s1').getBoundingClientRect(),
+                old: document.getElementById('region-old').getBoundingClientRect()
+            };
+
+            const slots = { eden: 0, s0: 0, s1: 0, old: 0 };
+            const sortedHeap = [...state.heap].sort((a, b) => a.id.localeCompare(b.id));
+
+            sortedHeap.forEach(data => {
+                const el = document.getElementById('obj-' + data.id);
+                if (!el) return;
+
+                const rect = regions[data.region];
+                const slotIdx = slots[data.region]++;
+
+                const relativeX = rect.left - boardRect.left;
+                const relativeY = rect.top - boardRect.top;
+
+                const padding = 20;
+                const objSize = 44;
+                const gap = 15;
+
+                const cols = Math.max(1, Math.floor((rect.width - padding * 2) / (objSize + gap)));
+                const row = Math.floor(slotIdx / cols);
+                const col = slotIdx % cols;
+
+                const targetX = relativeX + padding + col * (objSize + gap);
+                const targetY = relativeY + 30 + row * (objSize + gap);
+
+                el.style.transform = `translate(${targetX}px, ${targetY}px)`;
+            });
+        }
+
+        // 실시간 화살표 렌더링 루프
+        function startRenderLoop() {
+            drawArrows();
+            animationFrameId = requestAnimationFrame(startRenderLoop);
+        }
+
+        function drawArrows() {
+            if (!currentState) return;
+
+            const boardRect = visBoard.getBoundingClientRect();
+
+            // 회색 점선 화살표를 위한 dead 타입 화살촉 추가
+            let svgContent = `
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" />
+                    </marker>
+                    <marker id="arrowhead-dead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="var(--dead-color)" />
+                    </marker>
+                </defs>
+            `;
+
+            currentState.heap.forEach(objData => {
+                if (objData.refBy.length === 0) return;
+
+                const objEl = document.getElementById('obj-' + objData.id);
+                if (!objEl) return;
+
+                const objRect = objEl.getBoundingClientRect();
+
+                // 참조 타겟의 상태에 따라 화살표 스타일 지정
+                const isTargetDead = objData.isDead === true;
+                const strokeColor = isTargetDead ? "var(--dead-color)" : "var(--accent)";
+                const markerId = isTargetDead ? "arrowhead-dead" : "arrowhead";
+                const dashArray = isTargetDead ? "4 4" : "0";
+
+                objData.refBy.forEach(refId => {
+                    let fromEl = document.getElementById('stack-' + refId);
+                    let isHeapRef = false;
+
+                    // 스택뿐만 아니라 힙(Heap) 내부 객체 간의 참조도 지원하도록 로직 확장
+                    if (!fromEl) {
+                        fromEl = document.getElementById('obj-' + refId);
+                        isHeapRef = true;
+                    }
+                    if (!fromEl) return;
+
+                    const fromRect = fromEl.getBoundingClientRect();
+
+                    if (isHeapRef) {
+                        // 힙 -> 힙 객체 간의 참조 (곡선 형태 지원)
+                        const fromX = fromRect.left - boardRect.left + 22; // 중심점 X
+                        const fromY = fromRect.top - boardRect.top + 22;   // 중심점 Y
+                        const toX = objRect.left - boardRect.left + 22;
+                        const toY = objRect.top - boardRect.top + 22;
+
+                        // 방향에 따라 위아래로 곡선을 그려 겹침 방지
+                        const curveY = Math.min(fromY, toY) - 50;
+
+                        // 객체(동그라미) 영역을 화살표가 침범하지 않도록 끝점을 계산하여 단축
+                        const dx = toX - fromX;
+                        const dy = toY - fromY;
+                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                        const endX = toX - (dx / dist) * 24;
+                        const endY = toY - (dy / dist) * 24;
+
+                        svgContent += `
+                            <path d="M ${fromX} ${fromY} Q ${(fromX + toX) / 2} ${curveY}, ${endX} ${endY}" 
+                                  stroke="${strokeColor}" stroke-width="2" fill="none" stroke-dasharray="${dashArray}"
+                                  marker-end="url(#${markerId})"/>
+                        `;
+                    } else {
+                        // 스택 -> 힙 참조 (기존과 동일한 수평선 기반 곡선)
+                        const fromX = fromRect.right - boardRect.left;
+                        const fromY = fromRect.top - boardRect.top + (fromRect.height / 2);
+                        const toX = objRect.left - boardRect.left;
+                        const toY = objRect.top - boardRect.top + (objRect.height / 2);
+
+                        const cp1X = fromX + 40;
+                        const cp1Y = fromY;
+                        const cp2X = toX - 40;
+                        const cp2Y = toY;
+
+                        svgContent += `
+                            <path d="M ${fromX} ${fromY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${toX - 2} ${toY}" 
+                                  stroke="${strokeColor}" stroke-width="2" fill="none" stroke-dasharray="${dashArray}"
+                                  marker-end="url(#${markerId})"/>
+                        `;
+                    }
+                });
+            });
+
+            svgLayer.innerHTML = svgContent;
+        }
+
+        // ==========================================
+        // Gemini AI 챗봇 로직 (추가됨)
+        // ==========================================
+        const chatbotToggleBtn = document.getElementById('chatbot-toggle-btn');
+        const chatbotWindow = document.getElementById('chatbot-window');
+        const chatCloseBtn = document.getElementById('chat-close-btn');
+        const chatBody = document.getElementById('chat-body');
+        const chatInput = document.getElementById('chat-input');
+        const chatSendBtn = document.getElementById('chat-send-btn');
+
+        // Gemini API 설정
+        const apiKey = "";
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        // 대화 히스토리 (컨텍스트 유지용)
+        let conversationHistory = [];
+
+        // 챗봇의 성격과 답변 규칙을 정의하는 프롬프트 (1문단 요약 규칙 추가)
+        const systemInstruction = "너는 JVM Garbage Collection과 자바 메모리 관리에 대해 친절하게 알려주는 일타강사 AI 챗봇 전문가야. 우아한테크코스 크루나 신입 자바 개발자들이 타겟이므로, 어려운 용어도 쉽게 비유를 들어 설명해줘. [가장 중요한 규칙]: 사용자의 질문에 대한 답변은 반드시 1문단 이내로, 핵심만 아주 짧고 명확하게 요약해서 작성해. 길고 장황한 설명이나 여러 문단으로 나누는 것은 절대 금지야. 현재 화면의 테마에 맞게 전문적이면서도 친근한 톤앤매너를 유지해.";
+
+        // 챗봇 창 열기/닫기
+        chatbotToggleBtn.addEventListener('click', () => {
+            chatbotWindow.classList.remove('hidden');
+            chatbotToggleBtn.style.display = 'none';
+            chatInput.focus();
+            scrollToBottom();
+        });
+
+        chatCloseBtn.addEventListener('click', () => {
+            chatbotWindow.classList.add('hidden');
+            setTimeout(() => { chatbotToggleBtn.style.display = 'flex'; }, 300);
+        });
+
+        // 메시지 전송 이벤트
+        chatSendBtn.addEventListener('click', handleSendMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleSendMessage();
+        });
+
+        async function handleSendMessage() {
+            const text = chatInput.value.trim();
+            if (!text) return;
+
+            // 1. 사용자 메시지 UI에 추가
+            appendMessage('user', text);
+            chatInput.value = '';
+            chatInput.disabled = true;
+            chatSendBtn.disabled = true;
+
+            // 2. 히스토리에 추가
+            conversationHistory.push({ role: "user", parts: [{ text: text }] });
+
+            // 3. 로딩 인디케이터 표시
+            const loadingId = appendMessage('bot', '<span class="typing-indicator">답변을 생각하는 중입니다</span>');
+
+            try {
+                // 4. API 호출 (지수 백오프 적용)
+                const responseText = await callGeminiWithRetry(text);
+
+                // 5. 로딩 메시지 교체 및 히스토리 저장
+                updateMessage(loadingId, formatTextToHTML(responseText));
+                conversationHistory.push({ role: "model", parts: [{ text: responseText }] });
+
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                updateMessage(loadingId, "죄송합니다. 네트워크 문제로 응답을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.");
+                conversationHistory.pop(); // 실패한 내역 롤백
+            } finally {
+                chatInput.disabled = false;
+                chatSendBtn.disabled = false;
+                chatInput.focus();
+                scrollToBottom();
+            }
+        }
+
+        // 지수 백오프(Exponential Backoff)를 적용한 API 호출 함수
+        async function callGeminiWithRetry(userText, maxRetries = 5) {
+            const payload = {
+                contents: conversationHistory,
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+
+            let retries = 0;
+            const delays = [1000, 2000, 4000, 8000, 16000];
+
+            while (retries <= maxRetries) {
+                try {
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP Error: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text || "응답을 생성할 수 없습니다.";
+
+                } catch (error) {
+                    if (retries === maxRetries) throw error;
+                    await new Promise(res => setTimeout(res, delays[retries]));
+                    retries++;
+                }
+            }
+        }
+
+        // UI 헬퍼 함수들
+        function appendMessage(sender, htmlContent) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `chat-message ${sender}`;
+            const id = 'msg-' + Date.now();
+            msgDiv.id = id;
+            msgDiv.innerHTML = htmlContent;
+            chatBody.appendChild(msgDiv);
+            scrollToBottom();
+            return id;
+        }
+
+        function updateMessage(id, htmlContent) {
+            const msgDiv = document.getElementById(id);
+            if (msgDiv) {
+                msgDiv.innerHTML = htmlContent;
+            }
+        }
+
+        function scrollToBottom() {
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
+        // 마크다운 형태의 응답을 간단한 HTML(Bold, 줄바꿈)로 변환
+        function formatTextToHTML(text) {
+            return text
+                .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+                .replace(/\*(.*?)\*/g, '<i>$1</i>')
+                .replace(/`(.*?)`/g, '<code style="background:var(--bg-color); color:var(--accent); padding:2px 4px; border-radius:4px;">$1</code>')
+                .replace(/\n/g, '<br>');
+        }
+
+        // 앱 실행
+        init();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>미니언즈 런 게임</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
+        body {
+            font-family: 'Jua', sans-serif;
+            touch-action: none; /* 모바일에서 스크롤 방지 */
+        }
+        canvas {
+            display: block;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-gray-800 h-screen w-screen flex items-center justify-center m-0 overflow-hidden">
+
+<div id="game-wrapper" class="relative w-full max-w-[800px] px-4">
+    <!-- 캔버스 영역 -->
+    <canvas id="gameCanvas" class="w-full bg-[#87CEEB]"></canvas>
+
+    <!-- 점수 표시 -->
+    <div id="scoreBoard" class="absolute top-6 right-8 text-right hidden text-gray-800">
+        <p class="text-xl font-bold">HI <span id="highScoreText">00000</span></p>
+        <p class="text-3xl font-bold" id="scoreText">00000</p>
+    </div>
+
+    <!-- 시작 및 캐릭터 선택 화면 -->
+    <div id="startScreen" class="absolute inset-0 flex flex-col items-center justify-center bg-black/50 rounded-xl backdrop-blur-sm z-10 m-4">
+        <h1 class="text-5xl text-[#f1c40f] mb-8 font-bold drop-shadow-md">미니언즈 런</h1>
+        <p class="text-white text-lg mb-6">플레이할 캐릭터를 선택하세요!</p>
+
+        <div class="flex gap-6 mb-8">
+            <!-- 외눈 미니언 선택 -->
+            <button onclick="selectCharacter('one-eye')" class="flex flex-col items-center bg-white/90 p-4 rounded-lg hover:bg-[#f1c40f] transition border-4 border-transparent hover:border-white group">
+                <div class="w-16 h-24 bg-[#f1c40f] rounded-full relative overflow-hidden mb-2 border-2 border-gray-800">
+                    <div class="absolute bottom-0 w-full h-8 bg-[#2980b9]"></div>
+                    <div class="absolute top-6 w-full h-3 bg-gray-800"></div>
+                    <div class="absolute top-4 left-1/2 -translate-x-1/2 w-7 h-7 bg-white rounded-full border-4 border-gray-400 flex items-center justify-center">
+                        <div class="w-2 h-2 bg-black rounded-full"></div>
+                    </div>
+                </div>
+                <span class="font-bold text-gray-800 group-hover:text-white">외눈 미니언</span>
+            </button>
+
+            <!-- 쌍눈 미니언 선택 -->
+            <button onclick="selectCharacter('two-eye')" class="flex flex-col items-center bg-white/90 p-4 rounded-lg hover:bg-[#f1c40f] transition border-4 border-transparent hover:border-white group">
+                <div class="w-16 h-24 bg-[#f1c40f] rounded-full relative overflow-hidden mb-2 border-2 border-gray-800">
+                    <div class="absolute bottom-0 w-full h-8 bg-[#2980b9]"></div>
+                    <div class="absolute top-6 w-full h-3 bg-gray-800"></div>
+                    <div class="absolute top-4 left-1/2 -translate-x-1/2 flex gap-0">
+                        <div class="w-5 h-5 bg-white rounded-full border-[3px] border-gray-400 flex items-center justify-center"><div class="w-1.5 h-1.5 bg-black rounded-full"></div></div>
+                        <div class="w-5 h-5 bg-white rounded-full border-[3px] border-gray-400 flex items-center justify-center"><div class="w-1.5 h-1.5 bg-black rounded-full"></div></div>
+                    </div>
+                </div>
+                <span class="font-bold text-gray-800 group-hover:text-white">쌍눈 미니언</span>
+            </button>
+        </div>
+        <p class="text-white text-sm animate-pulse">(스페이스바를 누르거나 화면을 터치하여 점프)</p>
+    </div>
+
+    <!-- 게임 오버 화면 -->
+    <div id="gameOverScreen" class="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-xl backdrop-blur-sm z-10 m-4 hidden">
+        <h2 class="text-6xl text-red-500 mb-4 font-bold drop-shadow-lg">게임 오버!</h2>
+        <p class="text-white text-2xl mb-8">최종 점수: <span id="finalScore" class="text-[#f1c40f]">0</span></p>
+        <div class="flex flex-col sm:flex-row gap-4">
+            <button onclick="resetGame()" class="px-6 py-3 bg-[#f1c40f] text-gray-900 text-xl font-bold rounded-full hover:bg-yellow-300 transition shadow-lg transform hover:scale-105">
+                다시 하기 (스페이스바)
+            </button>
+            <button onclick="goToStartScreen()" class="px-6 py-3 bg-white text-gray-900 text-xl font-bold rounded-full hover:bg-gray-200 transition shadow-lg transform hover:scale-105">
+                캐릭터 다시 선택
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 캔버스 기본 크기 설정
+    const CANVAS_WIDTH = 800;
+    const CANVAS_HEIGHT = 300;
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
+
+    // UI 요소
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const scoreBoard = document.getElementById('scoreBoard');
+    const scoreText = document.getElementById('scoreText');
+    const highScoreText = document.getElementById('highScoreText');
+    const finalScore = document.getElementById('finalScore');
+
+    // 게임 상태 변수
+    let isPlaying = false;
+    let isGameOver = false;
+    let animationId;
+    let frame = 0;
+    let score = 0;
+    let highScore = 0;
+    let gameSpeed = 5;
+    let selectedCharacter = 'one-eye';
+
+    // 배열들
+    let obstacles = [];
+    let clouds = [];
+
+    // 색상 상수
+    const COLORS = {
+        sky: '#87CEEB',
+        ground: '#8B4513',
+        cloud: '#FFFFFF',
+        cactus: '#27ae60', // 선인장 초록색
+        bird: '#ff9f43',   // 주황색 새
+        minionYellow: '#f1c40f',
+        minionBlue: '#2980b9'
+    };
+
+    // 환경 설정
+    const GROUND_Y = 250;
+
+    // === 클래스 정의 ===
+
+    class Minion {
+        constructor(type) {
+            this.type = type; // 'one-eye' or 'two-eye'
+            this.w = 34;
+            this.h = 50;
+            this.x = 50;
+            this.y = GROUND_Y - this.h;
+            this.dy = 0;
+            this.jumpForce = 12;
+            this.originalJumpForce = 12;
+            this.gravity = 0.6;
+            this.grounded = true;
+            this.jumpTimer = 0;
+        }
+
+        jump() {
+            if (this.grounded) {
+                this.dy = -this.jumpForce;
+                this.grounded = false;
+            }
+        }
+
+        update() {
+            // 중력 적용
+            this.y += this.dy;
+            if (!this.grounded) {
+                this.dy += this.gravity;
+            }
+
+            // 바닥 충돌
+            if (this.y + this.h >= GROUND_Y) {
+                this.y = GROUND_Y - this.h;
+                this.dy = 0;
+                this.grounded = true;
+            }
+        }
+
+        draw() {
+            // 몸통 (노란색 알약 모양)
+            ctx.fillStyle = COLORS.minionYellow;
+            ctx.beginPath();
+            ctx.roundRect(this.x, this.y, this.w, this.h, 17);
+            ctx.fill();
+
+            // 멜빵바지 (파란색)
+            ctx.fillStyle = COLORS.minionBlue;
+            ctx.beginPath();
+            ctx.roundRect(this.x, this.y + this.h - 18, this.w, 18, {bl: 17, br: 17});
+            ctx.fill();
+            // 멜빵 끈
+            ctx.fillRect(this.x - 1, this.y + this.h - 25, 6, 8);
+            ctx.fillRect(this.x + this.w - 5, this.y + this.h - 25, 6, 8);
+
+            // 고글 띠
+            ctx.fillStyle = '#333';
+            ctx.fillRect(this.x - 2, this.y + 12, this.w + 4, 6);
+
+            // 눈과 고글 테두리
+            if (this.type === 'one-eye') {
+                // 외눈
+                ctx.fillStyle = '#ccc'; // 고글 테두리
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2, this.y + 15, 10, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = 'white'; // 흰자
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2, this.y + 15, 7, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = 'black'; // 눈동자
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2 + 2, this.y + 15, 2.5, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // 쌍눈
+                // 왼쪽 눈
+                ctx.fillStyle = '#ccc';
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2 - 7, this.y + 15, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2 - 7, this.y + 15, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2 - 5, this.y + 15, 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 오른쪽 눈
+                ctx.fillStyle = '#ccc';
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2 + 7, this.y + 15, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2 + 7, this.y + 15, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(this.x + this.w/2 + 9, this.y + 15, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // 웃는 입
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(this.x + this.w/2, this.y + 26, 4, 0.1, Math.PI - 0.1);
+            ctx.stroke();
+        }
+    }
+
+    class Cactus {
+        constructor() {
+            this.w = 20 + Math.random() * 15; // 랜덤 너비
+            this.h = 40 + Math.random() * 30; // 랜덤 높이
+            this.x = CANVAS_WIDTH;
+            this.y = GROUND_Y - this.h;
+            this.type = 'cactus';
+        }
+
+        update() {
+            this.x -= gameSpeed;
+        }
+
+        draw() {
+            ctx.fillStyle = COLORS.cactus;
+            // 메인 줄기
+            ctx.beginPath();
+            ctx.roundRect(this.x, this.y, this.w, this.h, 10);
+            ctx.fill();
+
+            // 가시 디테일
+            ctx.fillStyle = '#1e8449';
+            ctx.fillRect(this.x + 5, this.y + 10, 2, 10);
+            ctx.fillRect(this.x + this.w - 7, this.y + 20, 2, 10);
+
+            // 팔 (가끔 생성)
+            if (this.h > 50) {
+                ctx.beginPath();
+                ctx.roundRect(this.x - 10, this.y + 15, 15, 10, 5); // 왼쪽 팔
+                ctx.roundRect(this.x - 10, this.y + 5, 10, 15, 5);
+                ctx.fill();
+            }
+        }
+    }
+
+    class Bird {
+        constructor() {
+            this.w = 34;
+            this.h = 20;
+            this.x = CANVAS_WIDTH;
+            // 새의 높이는 3가지 (하단, 중단, 상단)
+            const heights = [GROUND_Y - 30, GROUND_Y - 60, GROUND_Y - 90];
+            this.y = heights[Math.floor(Math.random() * heights.length)];
+            this.flapCount = 0;
+            this.type = 'bird';
+            this.speedOffset = Math.random() * 1 + 1; // 새는 조금 더 빠름
+        }
+
+        update() {
+            this.x -= (gameSpeed + this.speedOffset);
+            this.flapCount++;
+        }
+
+        draw() {
+            ctx.fillStyle = COLORS.bird;
+
+            // 몸통
+            ctx.beginPath();
+            ctx.ellipse(this.x + this.w/2, this.y + this.h/2, this.w/2, this.h/2.5, 0, 0, Math.PI*2);
+            ctx.fill();
+
+            // 부리 (빨간색 톤)
+            ctx.fillStyle = '#e74c3c';
+            ctx.beginPath();
+            ctx.moveTo(this.x - 8, this.y + this.h/2);
+            ctx.lineTo(this.x + 5, this.y + 4);
+            ctx.lineTo(this.x + 5, this.y + this.h - 4);
+            ctx.fill();
+
+            // 눈
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(this.x + 8, this.y + 6, 4, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(this.x + 6, this.y + 6, 1.5, 0, Math.PI*2);
+            ctx.fill();
+
+            // 날개 펄럭임 애니메이션
+            ctx.fillStyle = '#d35400';
+            ctx.beginPath();
+            if (Math.floor(this.flapCount / 10) % 2 === 0) {
+                // 날개 위로
+                ctx.moveTo(this.x + 10, this.y + this.h/2);
+                ctx.lineTo(this.x + 25, this.y - 10);
+                ctx.lineTo(this.x + 28, this.y + this.h/2);
+            } else {
+                // 날개 아래로
+                ctx.moveTo(this.x + 10, this.y + this.h/2);
+                ctx.lineTo(this.x + 25, this.y + this.h + 10);
+                ctx.lineTo(this.x + 28, this.y + this.h/2);
+            }
+            ctx.fill();
+        }
+    }
+
+    class Cloud {
+        constructor() {
+            this.x = CANVAS_WIDTH + Math.random() * 200;
+            this.y = Math.random() * 120 + 20; // 하늘 위쪽에 배치
+            this.w = 50 + Math.random() * 30;
+            this.speed = Math.random() * 0.5 + 0.2;
+            this.scale = Math.random() * 0.5 + 0.5;
+        }
+
+        update() {
+            this.x -= this.speed * (gameSpeed * 0.2); // 구름은 천천히 이동
+        }
+
+        draw() {
+            ctx.fillStyle = COLORS.cloud;
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 20 * this.scale, Math.PI * 0.5, Math.PI * 1.5);
+            ctx.arc(this.x + 25 * this.scale, this.y - 10 * this.scale, 25 * this.scale, Math.PI * 1, Math.PI * 2);
+            ctx.arc(this.x + 50 * this.scale, this.y, 20 * this.scale, Math.PI * 1.5, Math.PI * 0.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
+    }
+
+    let player;
+
+    // === 게임 로직 ===
+
+    // 초기 캐릭터 선택
+    function selectCharacter(type) {
+        selectedCharacter = type;
+        startGame();
+    }
+
+    // 캐릭터 다시 선택 화면으로 가기
+    function goToStartScreen() {
+        isGameOver = false; // 스페이스바로 게임이 강제 시작되는 것을 방지
+        gameOverScreen.classList.add('hidden');
+        startScreen.classList.remove('hidden');
+        scoreBoard.classList.add('hidden');
+
+        // 배경 초기화
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        frame = 0;
+        drawEnvironment();
+    }
+
+    function startGame() {
+        startScreen.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+        scoreBoard.classList.remove('hidden');
+
+        player = new Minion(selectedCharacter);
+        obstacles = [];
+        clouds = [];
+        score = 0;
+        frame = 0;
+        gameSpeed = 5;
+        isPlaying = true;
+        isGameOver = false;
+
+        // 초기 구름 생성
+        for(let i=0; i<3; i++) {
+            let cloud = new Cloud();
+            cloud.x = Math.random() * CANVAS_WIDTH;
+            clouds.push(cloud);
+        }
+
+        animate();
+    }
+
+    function resetGame() {
+        if (isGameOver) {
+            startGame();
+        }
+    }
+
+    function drawEnvironment() {
+        // 하늘 배경
+        ctx.fillStyle = COLORS.sky;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // 바닥
+        ctx.fillStyle = COLORS.ground;
+        ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+
+        // 바닥 디테일 (모래알 느낌)
+        ctx.fillStyle = '#6b3410';
+        for(let i=0; i<20; i++) {
+            let px = ((frame * gameSpeed) + i * 40) % CANVAS_WIDTH;
+            ctx.fillRect(CANVAS_WIDTH - px, GROUND_Y + 10 + (i%3)*10, 4, 2);
+        }
+    }
+
+    function handleObstacles() {
+        // 장애물 생성 로직
+        let spawnTimer = 100 - Math.floor(gameSpeed * 2); // 속도가 빠를수록 자주 생성
+        if (spawnTimer < 40) spawnTimer = 40; // 최소 간격 제한
+
+        if (frame % spawnTimer === 0) {
+            // 점수가 300 이상일 때부터 주황색 새(Bird) 등장 확률 추가
+            if (score > 300 && Math.random() < 0.3) {
+                obstacles.push(new Bird());
+            } else {
+                obstacles.push(new Cactus());
+            }
+        }
+
+        for (let i = 0; i < obstacles.length; i++) {
+            let obs = obstacles[i];
+            obs.update();
+            obs.draw();
+
+            // 화면 밖으로 나간 장애물 제거
+            if (obs.x + obs.w < 0) {
+                obstacles.splice(i, 1);
+                i--;
+                continue;
+            }
+
+            // 충돌 감지 (Hitbox를 시각적 크기보다 살짝 작게 설정하여 억울한 죽음 방지)
+            const padding = 6;
+            if (
+                player.x < obs.x + obs.w - padding &&
+                player.x + player.w > obs.x + padding &&
+                player.y < obs.y + obs.h - padding &&
+                player.y + player.h > obs.y + padding
+            ) {
+                gameOver();
+            }
+        }
+    }
+
+    function handleClouds() {
+        // 구름 생성
+        if (frame % 150 === 0) {
+            clouds.push(new Cloud());
+        }
+
+        for (let i = 0; i < clouds.length; i++) {
+            clouds[i].update();
+            clouds[i].draw();
+
+            if (clouds[i].x + clouds[i].w * 2 < 0) {
+                clouds.splice(i, 1);
+                i--;
+            }
+        }
+    }
+
+    function drawScore() {
+        scoreText.innerText = Math.floor(score).toString().padStart(5, '0');
+        highScoreText.innerText = Math.floor(highScore).toString().padStart(5, '0');
+    }
+
+    function gameOver() {
+        isPlaying = false;
+        isGameOver = true;
+        cancelAnimationFrame(animationId);
+
+        if (score > highScore) {
+            highScore = score;
+        }
+
+        finalScore.innerText = Math.floor(score);
+        gameOverScreen.classList.remove('hidden');
+        scoreBoard.classList.add('hidden');
+    }
+
+    function animate() {
+        if (!isPlaying) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        drawEnvironment();
+        handleClouds();
+
+        player.update();
+        player.draw();
+
+        handleObstacles();
+        drawScore();
+
+        // 게임 진행도에 따른 점수 및 속도 증가
+        score += 0.1;
+        gameSpeed += 0.002;
+        frame++;
+
+        animationId = requestAnimationFrame(animate);
+    }
+
+    // === 입력 이벤트 처리 ===
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.code === 'ArrowUp') {
+            e.preventDefault();
+            if (isPlaying) {
+                player.jump();
+            } else if (isGameOver) {
+                resetGame();
+            }
+        }
+    });
+
+    // 모바일/터치 지원
+    window.addEventListener('touchstart', (e) => {
+        if (e.target !== startScreen && !startScreen.contains(e.target) && e.target.tagName !== 'BUTTON') {
+            if (isPlaying) {
+                player.jump();
+            } else if (isGameOver) {
+                // 모바일에서는 버튼을 직접 터치하도록 유도하기 위해 터치 시 자동 리셋 비활성화하거나 유지
+                // 여기서는 버튼 터치 이벤트와 겹치지 않도록 설정
+            }
+        }
+    }, {passive: false});
+
+    // 최초 환경 한번 그리기
+    drawEnvironment();
+
+</script>
+</body>
+</html>

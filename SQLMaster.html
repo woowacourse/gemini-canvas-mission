@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL 마스터: 쿼리 서바이벌</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- sql.js for in-browser SQL execution -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0f172a; /* slate-900 */
+            color: #f8fafc; /* slate-50 */
+        }
+        .code-font {
+            font-family: 'Courier New', Courier, monospace;
+        }
+        /* Custom scrollbar for tables and textareas */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        /* Table styles */
+        .sql-table th {
+            background-color: #334155;
+            color: #cbd5e1;
+            padding: 8px 16px;
+            text-align: left;
+            border-bottom: 2px solid #475569;
+        }
+        .sql-table td {
+            padding: 8px 16px;
+            border-bottom: 1px solid #1e293b;
+            color: #f1f5f9;
+        }
+        .sql-table tr:nth-child(even) {
+            background-color: #0f172a;
+        }
+        .sql-table tr:nth-child(odd) {
+            background-color: #1e293b;
+        }
+
+        .textarea-editor {
+            background-color: #1e293b;
+            color: #38bdf8;
+            caret-color: #f8fafc;
+            resize: none;
+        }
+        .textarea-editor:focus {
+            outline: none;
+            box-shadow: inset 0 0 0 2px #3b82f6;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col font-sans overflow-hidden">
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="fixed inset-0 bg-slate-900 z-50 flex flex-col items-center justify-center transition-opacity duration-500">
+    <i class="fas fa-database text-6xl text-blue-500 animate-bounce mb-4"></i>
+    <h2 class="text-2xl font-bold text-white mb-2">데이터베이스 엔진 로딩 중...</h2>
+    <p class="text-slate-400">잠시만 기다려주세요.</p>
+</div>
+
+<!-- Header -->
+<header class="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-md z-10">
+    <div class="flex items-center gap-3">
+        <i class="fas fa-terminal text-blue-400 text-2xl"></i>
+        <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+            SQL 마스터: 쿼리 서바이벌
+        </h1>
+    </div>
+    <div class="flex items-center gap-6">
+        <div class="text-slate-300 font-semibold bg-slate-700 px-4 py-1 rounded-full border border-slate-600">
+            Level <span id="levelIndicator" class="text-blue-400 font-bold">1</span> / <span id="totalLevelsIndicator">3</span>
+        </div>
+    </div>
+</header>
+
+<!-- Main Content -->
+<main class="flex-1 flex flex-col md:flex-row overflow-hidden">
+
+    <!-- Left Panel: Problem Description -->
+    <section class="w-full md:w-1/3 bg-slate-900 border-r border-slate-700 flex flex-col overflow-y-auto">
+        <div class="p-6 flex-1">
+            <div class="mb-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded">Problem</span>
+            </div>
+            <h2 id="problemTitle" class="text-2xl font-bold text-white mb-4">문제 제목 로딩중...</h2>
+            <p id="problemDesc" class="text-slate-300 leading-relaxed mb-8">
+                문제 설명이 이곳에 표시됩니다.
+            </p>
+
+            <div class="mb-6">
+                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <i class="fas fa-table"></i> 스키마 및 초기 데이터
+                </h3>
+                <div id="schemaDisplay" class="bg-slate-800 rounded-lg p-4 border border-slate-700 text-sm text-blue-300 code-font whitespace-pre-wrap">
+                    스키마 로딩중...
+                </div>
+            </div>
+
+            <div class="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 mb-4 text-sm text-blue-200">
+                <i class="fas fa-info-circle mr-2"></i> <strong>힌트:</strong> 정답은 테이블 컬럼 순서 및 데이터가 정확히 일치해야 합니다.
+            </div>
+        </div>
+    </section>
+
+    <!-- Right Panel: Editor and Results -->
+    <section class="w-full md:w-2/3 flex flex-col bg-slate-950">
+
+        <!-- Editor Area -->
+        <div class="flex-1 border-b border-slate-700 flex flex-col min-h-[50%] relative">
+            <div class="bg-slate-800 px-4 py-2 border-b border-slate-700 flex justify-between items-center">
+                <div class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                    <i class="fas fa-code"></i> SQL 쿼리 편집기
+                </div>
+            </div>
+            <textarea id="sqlInput" class="flex-1 textarea-editor p-4 code-font text-lg w-full h-full" placeholder="여기에 SQL 쿼리를 작성하세요... (예: SELECT * FROM table;)"></textarea>
+
+            <!-- Action Buttons -->
+            <div class="absolute bottom-4 right-4 flex gap-3">
+                <button onclick="executeUserQuery()" class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-4 rounded-lg shadow-lg transition-colors flex items-center gap-2 border border-slate-600">
+                    <i class="fas fa-play text-emerald-400"></i> 실행 (Run)
+                </button>
+                <button onclick="submitAnswer()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition-colors flex items-center gap-2 border border-blue-400">
+                    <i class="fas fa-check-circle"></i> 정답 제출
+                </button>
+            </div>
+        </div>
+
+        <!-- Results Area -->
+        <div class="flex-1 flex flex-col min-h-[40%] bg-slate-900 relative">
+            <div class="bg-slate-800 px-4 py-2 border-b border-slate-700 flex justify-between items-center">
+                <div class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                    <i class="fas fa-poll"></i> 실행 결과
+                </div>
+                <span id="resultStatus" class="text-sm font-bold"></span>
+            </div>
+            <div id="resultContainer" class="p-4 overflow-auto flex-1">
+                <div class="text-slate-500 flex items-center justify-center h-full text-center">
+                    <div>
+                        <i class="fas fa-mouse-pointer text-3xl mb-3 opacity-50"></i>
+                        <p>쿼리를 작성하고 실행 버튼을 누르면<br>결과가 여기에 표시됩니다.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<!-- Success Modal -->
+<div id="successModal" class="fixed inset-0 bg-black/70 z-50 hidden items-center justify-center backdrop-blur-sm transition-opacity">
+    <div class="bg-slate-800 border border-emerald-500/30 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl transform scale-95 transition-transform duration-300" id="successModalContent">
+        <div class="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i class="fas fa-check text-4xl text-emerald-400"></i>
+        </div>
+        <h3 class="text-2xl font-bold text-white mb-2">정답입니다!</h3>
+        <p class="text-slate-300 mb-6">훌륭합니다. 쿼리를 완벽하게 작성하셨네요.</p>
+        <button onclick="nextLevel()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold py-3 px-4 rounded-xl transition-colors">
+            다음 레벨로 이동 <i class="fas fa-arrow-right ml-2"></i>
+        </button>
+    </div>
+</div>
+
+<!-- Completion Modal -->
+<div id="completionModal" class="fixed inset-0 bg-black/80 z-50 hidden items-center justify-center backdrop-blur-md">
+    <div class="bg-slate-800 border border-blue-500/50 rounded-2xl p-10 max-w-md w-full text-center shadow-2xl">
+        <i class="fas fa-trophy text-6xl text-yellow-400 mb-6"></i>
+        <h3 class="text-3xl font-bold text-white mb-3">축하합니다!</h3>
+        <p class="text-slate-300 mb-8 text-lg">모든 SQL 마스터 레벨을 완료했습니다.<br>당신은 진정한 데이터베이스 전문가입니다!</p>
+        <button onclick="location.reload()" class="bg-gradient-to-r from-blue-500 to-emerald-500 hover:from-blue-400 hover:to-emerald-400 text-white font-bold py-3 px-8 rounded-full transition-all transform hover:scale-105 shadow-lg shadow-blue-500/30">
+            처음부터 다시하기
+        </button>
+    </div>
+</div>
+
+<script>
+    // Game Data (Levels)
+    const gameLevels = [
+        {
+            id: 1,
+            title: "모든 직원 조회하기",
+            description: "회사 데이터베이스에 접근했습니다. <code>employees</code> 테이블에 있는 모든 직원의 정보를 빠짐없이 조회해 보세요.",
+            schema: "테이블: employees\n- id (INT): 사번\n- name (TEXT): 이름\n- department (TEXT): 부서\n- salary (INT): 급여",
+            setupSQL: `
+                    CREATE TABLE employees (id INTEGER, name TEXT, department TEXT, salary INTEGER);
+                    INSERT INTO employees VALUES (1, '김철수', '영업', 3000);
+                    INSERT INTO employees VALUES (2, '이영희', '마케팅', 3200);
+                    INSERT INTO employees VALUES (3, '박지민', '개발', 4500);
+                    INSERT INTO employees VALUES (4, '최동훈', '개발', 4200);
+                `,
+            expectedSQL: "SELECT * FROM employees;"
+        },
+        {
+            id: 2,
+            title: "개발팀 직원 찾기",
+            description: "조금 더 세밀한 검색이 필요합니다. <code>employees</code> 테이블에서 <code>department</code>가 '개발'인 직원들의 정보만 조회하세요.",
+            schema: "테이블: employees\n- id (INT): 사번\n- name (TEXT): 이름\n- department (TEXT): 부서\n- salary (INT): 급여",
+            setupSQL: `
+                    CREATE TABLE employees (id INTEGER, name TEXT, department TEXT, salary INTEGER);
+                    INSERT INTO employees VALUES (1, '김철수', '영업', 3000);
+                    INSERT INTO employees VALUES (2, '이영희', '마케팅', 3200);
+                    INSERT INTO employees VALUES (3, '박지민', '개발', 4500);
+                    INSERT INTO employees VALUES (4, '최동훈', '개발', 4200);
+                    INSERT INTO employees VALUES (5, '정수진', '인사', 3100);
+                `,
+            expectedSQL: "SELECT * FROM employees WHERE department = '개발';"
+        },
+        {
+            id: 3,
+            title: "연봉 협상 대상자 (정렬과 조건)",
+            description: "급여가 3500 이상인 직원들의 명단이 필요합니다. <code>name</code>과 <code>salary</code> 컬럼만 조회하고, 급여(salary)를 기준으로 내림차순(DESC) 정렬하세요.",
+            schema: "테이블: employees\n- id (INT): 사번\n- name (TEXT): 이름\n- department (TEXT): 부서\n- salary (INT): 급여",
+            setupSQL: `
+                    CREATE TABLE employees (id INTEGER, name TEXT, department TEXT, salary INTEGER);
+                    INSERT INTO employees VALUES (1, '김철수', '영업', 3600);
+                    INSERT INTO employees VALUES (2, '이영희', '마케팅', 3200);
+                    INSERT INTO employees VALUES (3, '박지민', '개발', 4500);
+                    INSERT INTO employees VALUES (4, '최동훈', '개발', 4200);
+                    INSERT INTO employees VALUES (5, '정수진', '인사', 3400);
+                `,
+            expectedSQL: "SELECT name, salary FROM employees WHERE salary >= 3500 ORDER BY salary DESC;"
+        }
+    ];
+
+    let currentLevelIndex = 0;
+    let db = null;
+    let SQL = null;
+
+    // Initialize SQL.js
+    async function initDB() {
+        try {
+            // Fetch the sql.js config
+            const config = {
+                locateFile: filename => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${filename}`
+            };
+            SQL = await initSqlJs(config);
+
+            // Hide loading overlay
+            const loader = document.getElementById('loadingOverlay');
+            loader.style.opacity = '0';
+            setTimeout(() => loader.style.display = 'none', 500);
+
+            document.getElementById('totalLevelsIndicator').innerText = gameLevels.length;
+            loadLevel(currentLevelIndex);
+
+        } catch (err) {
+            console.error("Failed to initialize sql.js", err);
+            document.getElementById('loadingOverlay').innerHTML = `
+                    <i class="fas fa-exclamation-triangle text-6xl text-red-500 mb-4"></i>
+                    <h2 class="text-2xl font-bold text-white">엔진 로드 실패</h2>
+                    <p class="text-slate-400 mt-2">인터넷 연결을 확인하거나 새로고침 해주세요.</p>
+                `;
+        }
+    }
+
+    // Load specific level
+    function loadLevel(index) {
+        const level = gameLevels[index];
+
+        // Create a fresh database instance for each level to avoid state leakage
+        if (db) {
+            db.close();
+        }
+        db = new SQL.Database();
+
+        // Setup DB tables and data
+        try {
+            db.run(level.setupSQL);
+        } catch (err) {
+            console.error("Error setting up level DB:", err);
+        }
+
+        // Update UI
+        document.getElementById('levelIndicator').innerText = index + 1;
+        document.getElementById('problemTitle').innerText = level.title;
+        document.getElementById('problemDesc').innerHTML = level.description;
+        document.getElementById('schemaDisplay').innerText = level.schema;
+        document.getElementById('sqlInput').value = ""; // Clear input
+
+        // Clear result area
+        document.getElementById('resultContainer').innerHTML = `
+                <div class="text-slate-500 flex flex-col items-center justify-center h-full text-center">
+                    <i class="fas fa-database text-3xl mb-3 opacity-50"></i>
+                    <p>데이터베이스 초기화 완료.<br>쿼리를 작성해주세요.</p>
+                </div>
+            `;
+        updateStatus("", "");
+    }
+
+    // Execute user's query and show results
+    function executeUserQuery() {
+        const query = document.getElementById('sqlInput').value.trim();
+        const resultContainer = document.getElementById('resultContainer');
+
+        if (!query) {
+            updateStatus("쿼리를 입력해주세요.", "text-yellow-400");
+            return null;
+        }
+
+        try {
+            const results = db.exec(query);
+
+            if (results.length === 0) {
+                // Query successful but no result set returned (e.g., INSERT, UPDATE or empty SELECT)
+                resultContainer.innerHTML = `
+                        <div class="text-emerald-400 flex flex-col items-center justify-center h-full bg-emerald-400/10 rounded-lg border border-emerald-500/20 p-6">
+                            <i class="fas fa-check-circle text-4xl mb-2"></i>
+                            <p class="font-semibold">쿼리가 성공적으로 실행되었습니다.</p>
+                            <p class="text-sm opacity-80 mt-1">(반환된 데이터 없음)</p>
+                        </div>`;
+                updateStatus("실행 성공", "text-emerald-400");
+                return [];
+            }
+
+            // Render Table
+            renderTable(results[0], resultContainer);
+            updateStatus(`${results[0].values.length}개의 행 반환됨`, "text-emerald-400");
+            return results;
+
+        } catch (error) {
+            // Handle SQL Error
+            resultContainer.innerHTML = `
+                    <div class="text-red-400 bg-red-400/10 rounded-lg border border-red-500/20 p-4">
+                        <div class="font-bold flex items-center gap-2 mb-2"><i class="fas fa-times-circle"></i> SQL 오류 발생:</div>
+                        <div class="code-font text-sm whitespace-pre-wrap">${error.message}</div>
+                    </div>`;
+            updateStatus("실행 실패", "text-red-400");
+            return null;
+        }
+    }
+
+    // Submit and compare answer
+    function submitAnswer() {
+        const userQuery = document.getElementById('sqlInput').value.trim();
+
+        if (!userQuery) {
+            updateStatus("답안을 제출하려면 쿼리를 입력하세요.", "text-yellow-400");
+            return;
+        }
+
+        // First, run user query and show it
+        const userResult = executeUserQuery();
+
+        if (!userResult) return; // Error in query execution
+
+        // Then, run expected query on a FRESH instance to prevent user's destructive queries from breaking validation
+        let validationDB = new SQL.Database();
+        validationDB.run(gameLevels[currentLevelIndex].setupSQL);
+
+        let expectedResult;
+        try {
+            expectedResult = validationDB.exec(gameLevels[currentLevelIndex].expectedSQL);
+        } catch(e) {
+            console.error("Error in expected SQL!", e);
+            return;
+        } finally {
+            validationDB.close();
+        }
+
+        // Compare Results (Strict JSON comparison for simplicity in this MVP)
+        const isCorrect = JSON.stringify(userResult) === JSON.stringify(expectedResult);
+
+        if (isCorrect) {
+            showSuccessModal();
+        } else {
+            updateStatus("오답입니다. 결과 또는 컬럼을 다시 확인하세요.", "text-red-400");
+
+            // Show hint by appending expected columns info briefly
+            const expectedCols = expectedResult.length > 0 ? expectedResult[0].columns.join(', ') : '없음';
+            const hintDiv = document.createElement('div');
+            hintDiv.className = "mt-4 text-xs text-yellow-300 bg-yellow-900/30 p-2 rounded border border-yellow-700/50";
+            hintDiv.innerHTML = `<i class="fas fa-lightbulb"></i> <strong>예상 결과 컬럼 구성:</strong> ${expectedCols}`;
+            document.getElementById('resultContainer').appendChild(hintDiv);
+        }
+    }
+
+    function showSuccessModal() {
+        const modal = document.getElementById('successModal');
+        const content = document.getElementById('successModalContent');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+
+        // Simple animation
+        setTimeout(() => {
+            content.classList.remove('scale-95');
+            content.classList.add('scale-100');
+        }, 10);
+    }
+
+    function nextLevel() {
+        // Hide modal
+        const modal = document.getElementById('successModal');
+        const content = document.getElementById('successModalContent');
+        content.classList.remove('scale-100');
+        content.classList.add('scale-95');
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }, 300);
+
+        currentLevelIndex++;
+        if (currentLevelIndex < gameLevels.length) {
+            loadLevel(currentLevelIndex);
+        } else {
+            // Game Completed
+            document.getElementById('completionModal').classList.remove('hidden');
+            document.getElementById('completionModal').classList.add('flex');
+        }
+    }
+
+    // Helper: Render table from sql.js result format
+    function renderTable(resultObj, container) {
+        const columns = resultObj.columns;
+        const values = resultObj.values;
+
+        let tableHTML = `<div class="overflow-x-auto overflow-y-auto max-h-full rounded-lg border border-slate-700 shadow-sm"><table class="sql-table w-full text-sm whitespace-nowrap">`;
+
+        // Headers
+        tableHTML += `<thead><tr>`;
+        columns.forEach(col => {
+            tableHTML += `<th>${escapeHtml(col)}</th>`;
+        });
+        tableHTML += `</tr></thead>`;
+
+        // Body
+        tableHTML += `<tbody>`;
+        values.forEach(row => {
+            tableHTML += `<tr>`;
+            row.forEach(cell => {
+                const cellValue = cell === null ? '<span class="text-slate-500 italic">NULL</span>' : escapeHtml(String(cell));
+                tableHTML += `<td>${cellValue}</td>`;
+            });
+            tableHTML += `</tr>`;
+        });
+        tableHTML += `</tbody></table></div>`;
+
+        container.innerHTML = tableHTML;
+    }
+
+    // Helper: Update status text in results header
+    function updateStatus(message, colorClass) {
+        const statusEl = document.getElementById('resultStatus');
+        statusEl.className = `text-sm font-bold ${colorClass}`;
+        statusEl.innerText = message;
+    }
+
+    // Helper: Escape HTML to prevent XSS if data contains HTML characters
+    function escapeHtml(unsafe) {
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    // Handle Tab key in textarea
+    document.getElementById('sqlInput').addEventListener('keydown', function(e) {
+        if (e.key == 'Tab') {
+            e.preventDefault();
+            var start = this.selectionStart;
+            var end = this.selectionEnd;
+            // Set textarea value to: text before caret + tab + text after caret
+            this.value = this.value.substring(0, start) + "    " + this.value.substring(end);
+            // Put caret at right position again
+            this.selectionStart = this.selectionEnd = start + 4;
+        }
+    });
+
+    // Start initialization on window load
+    window.onload = initDB;
+
+</script>
+</body>
+</html>

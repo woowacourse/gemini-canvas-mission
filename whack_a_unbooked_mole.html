@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>회의실에서 나가! - 두더지군 검거하기</title>
+    <style>
+        :root {
+            --woowa-mint: #2ac1bc;
+            --woowa-mint-dark: #229b96;
+            --bg-color: #f4f7f6;
+            --room-bg: #ffffff;
+            --border-color: #e0e0e0;
+            --gold: #f1c40f;
+            --silver: #bdc3c7;
+            --bronze: #cd7f32;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 10px 15px; /* 전체 여백 축소 */
+            overflow-x: hidden;
+        }
+
+        header { text-align: center; margin-bottom: 5px; }
+        h1 { color: var(--woowa-mint-dark); font-size: 1.8rem; margin-bottom: 2px; }
+
+        /* 공지사항 스타일 - 너비를 콘텐츠에 맞게 조절 */
+        .game-notice {
+            background-color: #fff3f3;
+            color: #d63031;
+            padding: 8px 25px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+            border: 1px solid #fab1a0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            text-align: center;
+            width: fit-content; /* 내부 텍스트 길이에 맞춤 */
+            max-width: 90%; /* 화면 밖으로 나가지 않도록 방지 */
+        }
+
+        .game-info {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            background: white;
+            padding: 8px 25px;
+            border-radius: 40px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .stat-item { font-size: 1rem; font-weight: 800; display: flex; flex-direction: column; align-items: center; min-width: 80px; }
+        .stat-label { font-size: 0.7rem; color: #888; margin-bottom: 1px; }
+        .score-val { color: #ff6b6b; font-size: 1.3rem; }
+        .time-val { color: #4a90e2; font-size: 1.3rem; }
+        .high-score-val { color: var(--gold); font-size: 1.3rem; }
+
+        /* 컨트롤 버튼 축소 */
+        .top-controls {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 100;
+        }
+        .btn-ctrl {
+            padding: 8px 14px;
+            font-size: 0.85rem;
+            border-radius: 8px;
+            cursor: pointer;
+            border: none;
+            background: white;
+            font-weight: bold;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+            transition: all 0.2s;
+            min-width: 120px;
+        }
+        .btn-pause-resume { border: 2px solid #ffcc00; color: #d4a017; }
+        .btn-replay { border: 2px solid #666; color: #555; }
+
+        /* 게임 보드 레이아웃 콤팩트화 */
+        .game-main { width: 100%; max-width: 750px; }
+        .floor-section {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+        }
+        .floor-title {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: var(--woowa-mint-dark);
+            border-left: 5px solid var(--woowa-mint);
+            padding-left: 12px;
+        }
+        .rooms-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 700px) {
+            .rooms-grid { grid-template-columns: repeat(2, 1fr); }
+            .top-controls { position: static; flex-direction: row; margin-bottom: 10px; }
+        }
+
+        .room {
+            border: 1.5px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            background: white;
+            display: flex;
+            flex-direction: column;
+        }
+        .room-inner {
+            aspect-ratio: 1/1;
+            background: #ebf0f2;
+            position: relative;
+            overflow: hidden;
+            border-bottom: 3px solid #d0d7da;
+        }
+        .room-name {
+            text-align: center;
+            padding: 8px 3px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: #555;
+        }
+
+        /* 캐릭터 크기 비례 축소 */
+        .character {
+            width: 3rem;
+            height: 3rem;
+            position: absolute;
+            bottom: -100%;
+            left: 50%;
+            transform: translateX(-50%);
+            transition: bottom 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            z-index: 10;
+        }
+        .character.up { bottom: 10%; }
+        .character.hit { transform: translateX(-50%) scale(0.85); opacity: 0.6; }
+
+        .character svg { width: 100%; height: 100%; display: block; }
+        .planet-emoji { font-size: 3rem; line-height: 1; display: block; }
+
+        /* 모달 스타일 */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 2000; backdrop-filter: blur(8px);
+        }
+        .modal-overlay.hidden { display: none; }
+        .modal-content {
+            background: white; padding: 30px; border-radius: 25px;
+            max-width: 500px; width: 92%; text-align: center; position: relative;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+        .modal-content h2 { color: var(--woowa-mint); font-size: 1.8rem; margin-bottom: 15px; }
+
+        .guide-mole-container {
+            display: flex; justify-content: center; margin: 10px 0;
+        }
+        .guide-mole-img { width: 70px; height: 70px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1)); }
+
+        .emoji-guide-box {
+            background: #f8f9fa; border-radius: 12px; padding: 15px; margin: 15px 0;
+            display: flex; justify-content: space-around;
+        }
+        .guide-item { display: flex; flex-direction: column; align-items: center; font-size: 0.85rem; font-weight: bold; }
+        .guide-item span { font-size: 2.2rem; margin-bottom: 5px; }
+
+        .btn-start {
+            background: var(--woowa-mint); color: white; border: none;
+            padding: 12px 40px; font-size: 1.3rem; font-weight: 800;
+            border-radius: 50px; cursor: pointer; transition: transform 0.2s;
+            box-shadow: 0 4px 0 var(--woowa-mint-dark);
+        }
+        .btn-start:hover { transform: scale(1.05); }
+
+        #rankMessage {
+            margin: 8px 0; font-weight: bold; font-size: 1.2rem; color: var(--woowa-mint-dark);
+        }
+
+        .personal-best-box {
+            margin-top: 15px; text-align: left; background: #fff; padding: 12px; border-radius: 12px;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .pb-title { font-weight: 800; margin-bottom: 10px; padding-bottom: 6px; color: #555; border-bottom: 2px solid #f0f0f0; display: flex; align-items: center; gap: 8px; font-size: 0.95rem; }
+        .pb-list { list-style: none; font-size: 0.9rem; }
+        .pb-item { display: flex; justify-content: space-between; padding: 8px 10px; border-radius: 8px; margin-bottom: 4px; background: #fdfdfd; border: 1px solid #f0f0f0; align-items: center; }
+
+        .rank-badge {
+            display: inline-flex; justify-content: center; align-items: center; width: 22px; height: 22px;
+            border-radius: 50%; font-size: 0.75rem; font-weight: bold; margin-right: 8px; color: white; background: #ddd;
+        }
+        .rank-1 .rank-badge { background: var(--gold); }
+        .rank-2 .rank-badge { background: var(--silver); }
+        .rank-3 .rank-badge { background: var(--bronze); }
+
+        @keyframes highlightPulse {
+            0%, 100% { box-shadow: 0 0 0 rgba(42, 193, 188, 0); transform: scale(1); }
+            50% { box-shadow: 0 0 15px rgba(42, 193, 188, 0.4); transform: scale(1.02); background: #f0fdfc; }
+        }
+        .highlight-rank {
+            animation: highlightPulse 1.2s ease-in-out infinite;
+            border: 2px solid var(--woowa-mint) !important;
+            z-index: 1;
+        }
+
+        .floating-text {
+            position: absolute; font-weight: 900; pointer-events: none;
+            animation: floatUp 0.8s ease-out forwards; z-index: 50; font-size: 1.8rem;
+            text-shadow: 2px 2px 0 white;
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-70px); opacity: 0; }
+        }
+
+        .pause-mask {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.4); z-index: 80;
+            display: none; justify-content: center; align-items: center;
+            font-size: 3rem; font-weight: 900; color: var(--woowa-mint-dark);
+            backdrop-filter: grayscale(1);
+        }
+        body.is-paused .pause-mask { display: flex; }
+
+        #fireworksCanvas {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 3000;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="fireworksCanvas"></canvas>
+<div class="pause-mask">PAUSED</div>
+
+<div class="top-controls">
+    <button class="btn-ctrl btn-pause-resume" id="togglePauseBtn">게임 중단</button>
+    <button class="btn-ctrl btn-replay" id="replayGlobalBtn">게임 리플레이</button>
+</div>
+
+<header>
+    <h1>회의실에서 나가! 🔨</h1>
+</header>
+
+<div class="game-notice">
+    📢 찜꽁으로 회의실을 예약해주세요. 회의실 최대 예약 시간은 1시간입니다.
+</div>
+
+<div class="game-info">
+    <div class="stat-item">
+        <span class="stat-label">HIGH SCORE</span>
+        <span class="high-score-val" id="highScore">0</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-label">SCORE</span>
+        <span class="score-val" id="score">0</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-label">TIME</span>
+        <span class="time-val" id="time">30</span>
+    </div>
+</div>
+
+<main class="game-main" id="gameBoard">
+    <section class="floor-section">
+        <div class="floor-title">11층 회의실</div>
+        <div class="rooms-grid" id="floor11"></div>
+    </section>
+    <section class="floor-section">
+        <div class="floor-title">12층 회의실</div>
+        <div class="rooms-grid" id="floor12"></div>
+    </section>
+</main>
+
+<!-- 안내 모달 -->
+<div class="modal-overlay" id="guideModal">
+    <div class="modal-content">
+        <h2>지침: 올바른 회의실 문화</h2>
+        <p>우테코 회의실은 예약자 전용입니다!</p>
+        <p>무단 사용하는 <strong>두더지</strong>를 잡으면 <strong>+10점!</strong></p>
+        <div class="guide-mole-container">
+            <div id="moleImageContainer" class="guide-mole-img"></div>
+        </div>
+        <p style="margin-top:10px; font-size: 0.95rem; font-weight: bold;">
+            하지만 아래의 <strong>정당한 예약자들</strong>을 방해하면 <strong>-10점!</strong>
+        </p>
+        <div class="emoji-guide-box">
+            <div class="guide-item"><span>🪐</span>토성</div>
+            <div class="guide-item"><span>🌍</span>지구</div>
+            <div class="guide-item"><span>🚀</span>로켓</div>
+            <div class="guide-item"><span>🛰️</span>인공위성</div>
+        </div>
+        <button class="btn-start" id="startBtn">검거 시작하기</button>
+    </div>
+</div>
+
+<!-- 결과 모달 -->
+<div class="modal-overlay hidden" id="resultModal">
+    <div class="modal-content">
+        <h2>검거 완료!</h2>
+        <p id="finalScoreDisplay" style="font-size: 3rem; font-weight: 900; color: #ff6b6b; margin: 5px 0;">0점</p>
+
+        <div id="rankMessage"></div>
+
+        <div class="personal-best-box">
+            <div class="pb-title">🏆 나의 최고 기록 (Top 5)</div>
+            <ul class="pb-list" id="personalBestList"></ul>
+        </div>
+
+        <button class="btn-start" id="replayBtn" style="margin-top: 20px;">다시 하기</button>
+    </div>
+</div>
+
+<script>
+    // --- Constants ---
+    const MOLE_SVG = `<svg viewBox="0 0 100 100" width="100%" height="100%"><ellipse cx="50" cy="90" rx="40" ry="8" fill="#4e342e" opacity="0.6"/><path d="M 25 100 Q 25 15 50 15 Q 75 15 75 100 Z" fill="#5d4037"/><ellipse cx="50" cy="65" rx="18" ry="12" fill="#ffccbc"/><circle cx="50" cy="62" r="6" fill="#d32f2f"/><circle cx="38" cy="45" r="4" fill="#000"/><circle cx="62" cy="45" r="4" fill="#000"/></svg>`;
+    const PLANETS = ['🪐', '🌍', '🚀', '🛰️'];
+    const ROOMS = { 'floor11': ["금성", "지구", "수성", "화성"], 'floor12': ["보이저", "디스커버리", "아폴로", "허블"] };
+
+    // --- State ---
+    let score = 0, timeLeft = 30, isPaused = false, isGameOver = true, gameTimer = null;
+    let spawnTimeouts = [], activeHoles = new Set();
+    let confettiParticles = [];
+    let animationFrameId = null;
+
+    // --- Initialization ---
+    window.onload = () => {
+        initRooms();
+        initHighScore();
+        document.querySelector('#moleImageContainer').innerHTML = MOLE_SVG;
+        document.querySelector('#startBtn').addEventListener('click', startNewGame);
+        document.querySelector('#replayBtn').addEventListener('click', () => { resetAndShowGuide(); });
+        document.querySelector('#replayGlobalBtn').addEventListener('click', () => { resetAndShowGuide(); });
+        document.querySelector('#togglePauseBtn').addEventListener('click', togglePause);
+
+        const canvas = document.getElementById('fireworksCanvas');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+    };
+
+    function initRooms() {
+        Object.entries(ROOMS).forEach(([floorId, names]) => {
+            const container = document.getElementById(floorId);
+            names.forEach(name => {
+                const room = document.createElement('div');
+                room.className = 'room';
+                room.innerHTML = `<div class="room-inner"><div class="character"></div></div><div class="room-name">${name}</div>`;
+                container.appendChild(room);
+            });
+        });
+        document.querySelectorAll('.character').forEach(c => c.addEventListener('pointerdown', whack));
+    }
+
+    function initHighScore() {
+        const records = JSON.parse(localStorage.getItem('woowa_mole_records') || '[]');
+        const top = records.length > 0 ? records[0].score : 0;
+        document.querySelector('#highScore').textContent = top;
+    }
+
+    // --- Game Flow ---
+    function startNewGame() {
+        score = 0; timeLeft = 30; isGameOver = false; isPaused = false;
+        updateStats();
+        activeHoles.clear();
+        spawnTimeouts.forEach(clearTimeout); spawnTimeouts = [];
+        document.body.classList.remove('is-paused');
+        document.querySelector('#togglePauseBtn').textContent = "게임 중단";
+        showModal(null);
+        runCountdown();
+        scheduleNextSpawn();
+        initHighScore();
+        stopConfetti();
+    }
+
+    function runCountdown() {
+        clearInterval(gameTimer);
+        gameTimer = setInterval(() => {
+            if (isPaused || isGameOver) return;
+            timeLeft--;
+            document.querySelector('#time').textContent = timeLeft;
+            if (timeLeft <= 0) endGame();
+        }, 1000);
+    }
+
+    function scheduleNextSpawn() {
+        if (isGameOver || isPaused) return;
+        const delay = Math.random() * 500 + 300;
+        const t = setTimeout(() => { spawn(); scheduleNextSpawn(); }, delay);
+        spawnTimeouts.push(t);
+    }
+
+    function spawn() {
+        if (isGameOver || isPaused) return;
+        const chars = Array.from(document.querySelectorAll('.character')).filter(c => !activeHoles.has(c));
+        if (chars.length === 0) return;
+
+        const target = chars[Math.floor(Math.random() * chars.length)];
+        activeHoles.add(target);
+
+        const isMole = Math.random() < 0.65;
+        target.dataset.type = isMole ? 'mole' : 'planet';
+        target.dataset.whacked = 'false';
+        target.innerHTML = isMole ? MOLE_SVG : `<span class="planet-emoji">${PLANETS[Math.floor(Math.random()*PLANETS.length)]}</span>`;
+        target.classList.remove('hit'); target.classList.add('up');
+
+        const stayDuration = Math.random() * 2500 + 500;
+        const t = setTimeout(() => {
+            if (!isPaused) {
+                target.classList.remove('up');
+                setTimeout(() => activeHoles.delete(target), 300);
+            }
+        }, stayDuration);
+        spawnTimeouts.push(t);
+    }
+
+    function whack(e) {
+        if (isPaused || isGameOver || this.dataset.whacked === 'true') return;
+        this.dataset.whacked = 'true'; this.classList.add('hit');
+        const points = this.dataset.type === 'mole' ? 10 : -10;
+        score += points; updateStats();
+        showFloatingScore(points, e.clientX, e.clientY);
+        setTimeout(() => { this.classList.remove('up'); setTimeout(() => activeHoles.delete(this), 300); }, 150);
+    }
+
+    function showFloatingScore(p, x, y) {
+        const div = document.createElement('div');
+        div.className = 'floating-text'; div.style.left = `${x}px`; div.style.top = `${y}px`;
+        div.style.color = p > 0 ? '#2ecc71' : '#e74c3c';
+        div.textContent = p > 0 ? `+${p}` : p;
+        document.body.appendChild(div); setTimeout(() => div.remove(), 800);
+    }
+
+    function togglePause() {
+        if (isGameOver) return;
+        isPaused = !isPaused;
+        document.body.classList.toggle('is-paused', isPaused);
+        document.querySelector('#togglePauseBtn').textContent = isPaused ? "게임 재시작" : "게임 중단";
+        if (!isPaused) scheduleNextSpawn();
+    }
+
+    function resetAndShowGuide() {
+        isGameOver = true;
+        clearInterval(gameTimer);
+        spawnTimeouts.forEach(clearTimeout);
+        document.body.classList.remove('is-paused');
+        stopConfetti();
+        showModal('guide');
+    }
+
+    function endGame() {
+        isGameOver = true;
+        clearInterval(gameTimer);
+        spawnTimeouts.forEach(clearTimeout);
+
+        const rankResult = saveLocalScore(score);
+        document.querySelector('#finalScoreDisplay').textContent = `${score}점`;
+
+        const rankMsgEl = document.querySelector('#rankMessage');
+        if (rankResult > -1) {
+            rankMsgEl.textContent = `✨ 축하합니다! ${rankResult + 1}위에 올랐습니다! ✨`;
+            startConfetti();
+        } else {
+            rankMsgEl.textContent = score > 0 ? "수고하셨습니다! 다음엔 순위에 도전해 보세요." : "두더지를 한 마리도 못 잡으셨나요? 😂";
+            stopConfetti();
+        }
+
+        renderPersonalBest(rankResult);
+        showModal('result');
+        initHighScore();
+    }
+
+    function saveLocalScore(newScore) {
+        if (newScore <= 0) return -1;
+        let records = JSON.parse(localStorage.getItem('woowa_mole_records') || '[]');
+        const recordEntry = { score: newScore, date: new Date().toLocaleTimeString(), id: Date.now() };
+        records.push(recordEntry);
+        records.sort((a, b) => b.score - a.score);
+        records = records.slice(0, 5);
+        localStorage.setItem('woowa_mole_records', JSON.stringify(records));
+        return records.findIndex(r => r.id === recordEntry.id);
+    }
+
+    function renderPersonalBest(highlightIndex) {
+        const list = document.querySelector('#personalBestList');
+        const records = JSON.parse(localStorage.getItem('woowa_mole_records') || '[]');
+        list.innerHTML = records.length ? '' : '<li>아직 기록이 없습니다.</li>';
+        records.forEach((r, i) => {
+            const isHighlight = i === highlightIndex;
+            list.innerHTML += `
+                    <li class="pb-item rank-${i+1} ${isHighlight ? 'highlight-rank' : ''}">
+                        <div><span class="rank-badge">${i+1}</span><span>${r.score}점</span></div>
+                        <span style="font-size:0.75rem; color:${isHighlight ? 'inherit' : '#999'}; font-weight: 500;">${r.date}</span>
+                    </li>`;
+        });
+    }
+
+    // --- Confetti Engine ---
+    function createConfettiPiece(x, y, isLeft) {
+        const colors = ['#2ac1bc', '#ff6b6b', '#f1c40f', '#4a90e2', '#ffffff', '#e67e22', '#2ecc71'];
+        return {
+            x: x,
+            y: y,
+            w: Math.random() * 8 + 6,
+            h: Math.random() * 12 + 8,
+            vx: isLeft ? Math.random() * 8 + 4 : -(Math.random() * 8 + 4),
+            vy: -(Math.random() * 18 + 12),
+            rotation: Math.random() * 360,
+            rSpeed: (Math.random() - 0.5) * 12,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            opacity: 1,
+            gravity: 0.35,
+            sway: Math.random() * 0.15,
+            swayDir: Math.random() > 0.5 ? 1 : -1
+        };
+    }
+
+    function startConfetti() {
+        const canvas = document.getElementById('fireworksCanvas');
+        const ctx = canvas.getContext('2d');
+        confettiParticles = [];
+
+        for (let i = 0; i < 180; i++) {
+            setTimeout(() => {
+                if (isGameOver) {
+                    confettiParticles.push(createConfettiPiece(0, canvas.height, true));
+                    confettiParticles.push(createConfettiPiece(canvas.width, canvas.height, false));
+                }
+            }, i * 15);
+        }
+
+        function animateConfetti() {
+            if (isGameOver && confettiParticles.length > 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (let i = confettiParticles.length - 1; i >= 0; i--) {
+                    const p = confettiParticles[i];
+                    p.vx += Math.sin(Date.now() / 200) * p.sway * p.swayDir;
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += p.gravity;
+                    p.rotation += p.rSpeed;
+                    p.opacity -= 0.003;
+
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.rotation * Math.PI / 180);
+                    ctx.globalAlpha = Math.max(0, p.opacity);
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+                    ctx.restore();
+
+                    if (p.opacity <= 0 || p.y > canvas.height + 50) {
+                        confettiParticles.splice(i, 1);
+                    }
+                }
+                animationFrameId = requestAnimationFrame(animateConfetti);
+            } else {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+        cancelAnimationFrame(animationFrameId);
+        animateConfetti();
+    }
+
+    function stopConfetti() {
+        cancelAnimationFrame(animationFrameId);
+        confettiParticles = [];
+        const canvas = document.getElementById('fireworksCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // --- Helpers ---
+    function updateStats() {
+        document.querySelector('#score').textContent = score;
+        document.querySelector('#time').textContent = timeLeft;
+    }
+
+    function showModal(type) {
+        document.querySelector('#guideModal').classList.add('hidden');
+        document.querySelector('#resultModal').classList.add('hidden');
+        if (type === 'guide') document.querySelector('#guideModal').classList.remove('hidden');
+        if (type === 'result') document.querySelector('#resultModal').classList.remove('hidden');
+    }
+</script>
+</body>
+</html>

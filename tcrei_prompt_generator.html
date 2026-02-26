@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TCREI 동적 프롬프트 생성기</title>
+    <style>
+        /* ==========================================================================
+           1. CSS Variables (테마 및 확장성 고려)
+           ========================================================================== */
+        :root {
+            /* Colors */
+            --primary-color: #1a73e8;
+            --primary-hover: #1557b0;
+            --bg-color: #f8f9fa;
+            --surface-color: #ffffff;
+            --text-main: #202124;
+            --text-muted: #5f6368;
+            --border-color: #dadce0;
+            --focus-ring: rgba(26, 115, 232, 0.3);
+            --danger-color: #d93025;
+            --danger-hover: #fce8e6;
+            
+            /* Typography */
+            --font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+            --font-size-base: 14px;
+            --font-size-title: 1.5rem;
+            
+            /* Spacing & Borders */
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 16px;
+            --spacing-lg: 24px;
+            --border-radius-sm: 6px;
+            --border-radius-md: 12px;
+            --shadow-sm: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        /* ==========================================================================
+           2. Reset & Base Styles
+           ========================================================================== */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: var(--spacing-lg);
+            min-height: 100vh;
+        }
+
+        /* ==========================================================================
+           3. Layout Components
+           ========================================================================== */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-lg);
+        }
+
+        .header { text-align: center; margin-bottom: var(--spacing-md); }
+        .header h1 { font-size: var(--font-size-title); color: var(--primary-color); margin-bottom: var(--spacing-sm); }
+        .header p { color: var(--text-muted); font-size: 0.95rem; }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--spacing-lg);
+            align-items: start;
+        }
+
+        @media (max-width: 768px) { .main-content { grid-template-columns: 1fr; } }
+
+        .panel {
+            background-color: var(--surface-color);
+            border-radius: var(--border-radius-md);
+            padding: var(--spacing-lg);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .panel-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: var(--spacing-md);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: var(--spacing-sm);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        /* ==========================================================================
+           4. Form Controls & Dynamic Groups
+           ========================================================================== */
+        .input-group {
+            margin-bottom: var(--spacing-md);
+            border: 1px solid transparent;
+            border-radius: var(--border-radius-sm);
+            transition: background-color 0.2s;
+        }
+
+        /* Task용 독립 라벨 스타일 추가 */
+        .input-group > label {
+            font-weight: 600;
+            color: var(--text-main);
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            margin-bottom: var(--spacing-xs);
+        }
+
+        /* 모든 T, C, R, E, I 태그 공통 스타일로 변경 */
+        span.tag {
+            background-color: var(--bg-color);
+            color: var(--primary-color);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin-right: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .collapsible-group {
+            border: 1px solid var(--border-color);
+            background-color: #fafbfc;
+            overflow: hidden;
+        }
+
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm) var(--spacing-md);
+            cursor: pointer;
+            user-select: none;
+            background-color: white;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .group-header:hover { background-color: #f1f3f4; }
+        
+        .group-header label {
+            font-weight: 600;
+            color: var(--text-main);
+            font-size: 0.95rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            margin: 0;
+        }
+
+        .toggle-icon {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            transition: transform 0.3s;
+        }
+        
+        /* Collapsed State */
+        .collapsible-group.collapsed .toggle-icon { transform: rotate(-90deg); }
+        .collapsible-group.collapsed .group-body { display: none; }
+        .collapsible-group.collapsed .group-header { border-bottom: none; }
+
+        .group-body { padding: var(--spacing-md); }
+
+        .group-description {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: var(--spacing-md);
+            line-height: 1.4;
+        }
+
+        /* Buttons for adding fields */
+        .add-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .btn-add {
+            background-color: white;
+            border: 1px dashed var(--primary-color);
+            color: var(--primary-color);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-add:hover { background-color: #e8f0fe; }
+
+        /* Custom Input additions */
+        .btn-custom {
+            border-color: var(--text-muted);
+            color: var(--text-muted);
+        }
+        .btn-custom:hover { background-color: #f1f3f4; }
+
+        .field-name-input {
+            border: 1px dashed var(--border-color);
+            background: transparent;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-main);
+            padding: 2px 6px;
+            border-radius: 4px;
+            width: 150px;
+            transition: all 0.2s;
+        }
+        .field-name-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            background: white;
+            box-shadow: 0 0 0 2px var(--focus-ring);
+        }
+
+        /* Dynamic Field Items */
+        .dynamic-fields-container {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-sm);
+        }
+
+        .dynamic-field {
+            background-color: white;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-sm);
+            padding: var(--spacing-sm);
+            position: relative;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .field-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-xs);
+        }
+
+        .field-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .btn-remove {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1rem;
+            line-height: 1;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .btn-remove:hover { color: var(--danger-color); background-color: var(--danger-hover); }
+
+        /* Textareas */
+        textarea {
+            width: 100%;
+            padding: var(--spacing-sm);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-sm);
+            font-family: inherit;
+            font-size: 0.9rem;
+            resize: vertical;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        
+        #input-task { min-height: 80px; }
+        .dynamic-field textarea { min-height: 60px; font-size: 0.85rem; border: none; padding: 4px; background: #fafbfc; }
+        .dynamic-field textarea:focus { background: white; outline: none; box-shadow: 0 0 0 2px var(--focus-ring); border-radius: 4px; }
+        
+        textarea::placeholder { color: #9aa0a6; }
+        textarea:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px var(--focus-ring); }
+
+        /* ==========================================================================
+           5. Output Area & Actions
+           ========================================================================== */
+        .output-container {
+            position: relative;
+            background-color: #f1f3f4;
+            border-radius: var(--border-radius-sm);
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 500px;
+        }
+
+        pre {
+            margin: 0;
+            padding: var(--spacing-md);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            color: #333;
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+
+        .actions { display: flex; gap: var(--spacing-sm); }
+        button.btn-primary, button.btn-secondary {
+            padding: 8px 16px; border: none; border-radius: var(--border-radius-sm);
+            font-size: 0.9rem; font-weight: 600; cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        button:active { transform: scale(0.98); }
+        .btn-primary { background-color: var(--primary-color); color: white; }
+        .btn-primary:hover { background-color: var(--primary-hover); }
+        .btn-secondary { background-color: white; color: var(--text-main); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background-color: var(--bg-color); }
+
+        /* Toast Message */
+        .toast {
+            position: fixed; bottom: 24px; left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background-color: var(--text-main); color: white;
+            padding: 12px 24px; border-radius: 30px; font-size: 0.9rem;
+            box-shadow: var(--shadow-md); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 1000; opacity: 0;
+        }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .empty-state { color: var(--text-muted); font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header class="header">
+            <h1>TCREI 프롬프트 생성기</h1>
+            <p>Task, Context, Reference, Evaluate, Iterate 프레임워크를 활용해 체계적인 프롬프트를 설계하세요.</p>
+        </header>
+
+        <main class="main-content">
+            <!-- Left Panel: Input Form -->
+            <section class="panel">
+                <div class="panel-title">
+                    <span>프롬프트 요소 조립</span>
+                    <button id="btn-clear" class="btn-secondary" style="padding: 4px 10px; font-size: 0.8rem;">전체 초기화</button>
+                </div>
+                
+                <form id="tcrei-form">
+                    
+                    <!-- Task: 정적 텍스트 영역 유지 -->
+                    <div class="input-group" style="padding: 0 var(--spacing-md);">
+                        <label for="input-task"><span class="tag">T</span> Task (작업)</label>
+                        <p class="group-description" style="margin-bottom: 8px;">AI가 수행해야 할 명확한 역할이나 핵심 지시사항을 입력하세요.</p>
+                        <textarea id="input-task" class="tcrei-input" data-tag="task" placeholder="예: '주어진 텍스트를 요약하고, 핵심 키워드 3가지를 추출해 줘.'"></textarea>
+                    </div>
+                    
+                    <!-- Context: 동적 그룹 -->
+                    <div class="input-group collapsible-group" id="group-context">
+                        <div class="group-header">
+                            <label><span class="tag">C</span> Context (배경)</label>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        <div class="group-body">
+                            <p class="group-description">작업의 배경, 목적, 대상 독자 등 필요한 상황 정보를 제공합니다.</p>
+                            <div class="add-buttons">
+                                <button type="button" class="btn-add" data-tag="context" data-subtag="role" data-label="Role" data-kr="역할" data-placeholder="[예시: 논리적인 시니어 백엔드 개발자 또는 전문 에디터]">+ 역할</button>
+                                <button type="button" class="btn-add" data-tag="context" data-subtag="target" data-label="Target" data-kr="대상" data-placeholder="[예시: 비전공자 경영진 또는 파이썬 초급자]">+ 대상</button>
+                                <button type="button" class="btn-add" data-tag="context" data-subtag="goal" data-label="Goal" data-kr="목표" data-placeholder="[예시: 보고서 설득력 강화 또는 코드 가독성 개선]">+ 목표</button>
+                                <button type="button" class="btn-add btn-custom" data-tag="context">+ 직접 입력</button>
+                            </div>
+                            <div class="dynamic-fields-container" id="container-context"></div>
+                        </div>
+                    </div>
+
+                    <!-- Reference: 동적 그룹 -->
+                    <div class="input-group collapsible-group" id="group-reference">
+                        <div class="group-header">
+                            <label><span class="tag">R</span> Reference (참고/예시)</label>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        <div class="group-body">
+                            <p class="group-description">분석할 데이터나, 원하는 출력 형식의 좋은 예시(Few-shot)를 제공합니다.</p>
+                            <div class="add-buttons">
+                                <button type="button" class="btn-add" data-tag="reference" data-subtag="input_data" data-label="Input_Data" data-kr="참고 자료" data-placeholder="[분석하거나 참고해야 할 텍스트 코드 데이터를 입력하세요]">+ 참고 자료</button>
+                                <button type="button" class="btn-add" data-tag="reference" data-subtag="style_example" data-label="Style_Example" data-kr="예시" data-placeholder="[원하는 말투나 출력 형식의 좋은 예시(Few-shot)를 입력하세요]">+ 예시</button>
+                                <button type="button" class="btn-add btn-custom" data-tag="reference">+ 직접 입력</button>
+                            </div>
+                            <div class="dynamic-fields-container" id="container-reference"></div>
+                        </div>
+                    </div>
+
+                    <!-- Evaluate: 동적 그룹 -->
+                    <div class="input-group collapsible-group" id="group-evaluate">
+                        <div class="group-header">
+                            <label><span class="tag">E</span> Evaluate (평가 기준/제약)</label>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        <div class="group-body">
+                            <p class="group-description">결과물이 반드시 지켜야 하는 조건, 제약 사항 및 평가 기준을 명시합니다.</p>
+                            <div class="add-buttons">
+                                <button type="button" class="btn-add" data-tag="evaluate" data-subtag="format" data-label="Format" data-kr="형식" data-placeholder="[예시: 마크다운 코드블록 JSON 구조 또는 이메일 형식]">+ 형식</button>
+                                <button type="button" class="btn-add" data-tag="evaluate" data-subtag="constraints" data-label="Constraints" data-kr="제한" data-placeholder="[예시: 추상적인 표현 금지 외부 라이브러리 사용 제한]">+ 제한</button>
+                                <button type="button" class="btn-add" data-tag="evaluate" data-subtag="criteria" data-label="Criteria" data-kr="기준" data-placeholder="[예시: 논리적 일관성 유지 또는 최신 공식 문서 기준]">+ 기준</button>
+                                <button type="button" class="btn-add btn-custom" data-tag="evaluate">+ 직접 입력</button>
+                            </div>
+                            <div class="dynamic-fields-container" id="container-evaluate"></div>
+                        </div>
+                    </div>
+
+                    <!-- Iterate: 동적 그룹 -->
+                    <div class="input-group collapsible-group" id="group-iterate">
+                        <div class="group-header">
+                            <label><span class="tag">I</span> Iterate (반복/개선)</label>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        <div class="group-body">
+                            <p class="group-description">초안 생성 후 AI에게 요구할 후속 조치나 스스로 점검할 절차를 지시합니다.</p>
+                            <div class="add-buttons">
+                                <button type="button" class="btn-add" data-tag="iterate" data-subtag="process" data-label="Process" data-kr="단계" data-placeholder="[예시: 단계별로 생각하여 논리적 비약 방지(Chain_of_Thought)]">+ 단계</button>
+                                <button type="button" class="btn-add" data-tag="iterate" data-subtag="self_check" data-label="Self_Check" data-kr="점검" data-placeholder="[예시: 답변 출력 전 위의 evaluate 조건을 만족하는지 스스로 검증]">+ 점검</button>
+                                <button type="button" class="btn-add btn-custom" data-tag="iterate">+ 직접 입력</button>
+                            </div>
+                            <div class="dynamic-fields-container" id="container-iterate"></div>
+                        </div>
+                    </div>
+
+                </form>
+            </section>
+
+            <!-- Right Panel: Output Preview -->
+            <section class="panel" style="display: flex; flex-direction: column;">
+                <div class="panel-title">
+                    <span>생성된 프롬프트 (XML)</span>
+                    <div class="actions">
+                        <button id="btn-copy" class="btn-primary">통합 프롬프트 복사</button>
+                    </div>
+                </div>
+                
+                <div class="output-container">
+                    <pre id="output-preview"><span class="empty-state">좌측 버튼을 눌러 요소를 추가하고 내용을 입력하면, 이곳에 실시간으로 프롬프트가 조립됩니다.</span></pre>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">클립보드에 복사되었습니다!</div>
+
+    <script>
+        /**
+         * ==========================================================================
+         * JS 모듈화: 역할별 객체 분리 (State, PromptBuilder, UI)
+         * ==========================================================================
+         */
+
+        // 1. Data Store (상태 관리 - 동적 배열 구조)
+        const State = {
+            data: {
+                task: '',
+                context: [],   // { id, subtag, labelKey, krLabel, value }
+                reference: [],
+                evaluate: [],
+                iterate: []
+            },
+            
+            // Task 등 단일 값 업데이트
+            updateTask(value) {
+                this.data.task = value;
+            },
+            
+            // 배열에 새 필드 데이터 추가
+            addField(tag, subtag, labelKey, krLabel, placeholder) {
+                const newId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+                const fieldObj = { id: newId, tag, subtag, labelKey, krLabel, placeholder, value: '' };
+                this.data[tag].push(fieldObj);
+                return fieldObj;
+            },
+            
+            // 직접 입력용 커스텀 필드 추가
+            addCustomField(tag) {
+                const newId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+                const defaultLabel = '사용자 지정';
+                const fieldObj = { id: newId, tag, subtag: 'custom', labelKey: defaultLabel, krLabel: defaultLabel, placeholder: '내용을 입력하세요...', value: '', isCustom: true };
+                this.data[tag].push(fieldObj);
+                return fieldObj;
+            },
+            
+            // 값 업데이트
+            updateField(tag, id, value) {
+                const field = this.data[tag].find(f => f.id === id);
+                if (field) field.value = value;
+            },
+
+            // 커스텀 라벨(이름) 업데이트
+            updateFieldLabel(tag, id, newLabel) {
+                const field = this.data[tag].find(f => f.id === id);
+                if (field) {
+                    field.labelKey = newLabel || '사용자 지정';
+                    field.krLabel = newLabel || '사용자 지정';
+                }
+            },
+            
+            // 필드 삭제
+            removeField(tag, id) {
+                this.data[tag] = this.data[tag].filter(f => f.id !== id);
+            },
+            
+            // 전체 초기화
+            reset() {
+                this.data.task = '';
+                this.data.context = [];
+                this.data.reference = [];
+                this.data.evaluate = [];
+                this.data.iterate = [];
+            },
+            
+            // 작성된 내용이 없는지 확인
+            isEmpty() {
+                if (this.data.task.trim() !== '') return false;
+                for (let tag of ['context', 'reference', 'evaluate', 'iterate']) {
+                    for (let item of this.data[tag]) {
+                        if (item.value.trim() !== '') return false;
+                    }
+                }
+                return true;
+            }
+        };
+
+        // 2. Logic: 프롬프트 생성 모듈
+        const PromptBuilder = {
+            createTagString(tag, contentData) {
+                // Task 처리
+                if (tag === 'task') {
+                    const trimmed = contentData.trim();
+                    if (!trimmed) return '';
+                    return `<${tag}>\n${trimmed}\n</${tag}>\n\n`;
+                }
+                
+                // C, R, E, I 처리 (동적 배열)
+                if (!contentData || contentData.length === 0) return '';
+
+                // LabelKey 기준으로 그룹화 (예: 여러 개의 Role을 묶기 위함)
+                const groups = {};
+                contentData.forEach(item => {
+                    const trimmedVal = item.value.trim();
+                    if (trimmedVal) {
+                        if (!groups[item.labelKey]) groups[item.labelKey] = [];
+                        groups[item.labelKey].push(trimmedVal);
+                    }
+                });
+
+                if (Object.keys(groups).length === 0) return '';
+
+                let innerText = '';
+                for (const [key, values] of Object.entries(groups)) {
+                    // 각 입력값을 돌면서, 줄 단위로 마크다운 리스트 화
+                    const formattedVals = values.map(val => {
+                        return val.split('\n')
+                            .filter(line => line.trim().length > 0)
+                            .map(line => /^[\-\*]\s/.test(line.trim()) ? line : `- ${line}`)
+                            .join('\n');
+                    }).join('\n');
+                    
+                    innerText += `${key}:\n${formattedVals}\n`;
+                }
+                
+                return `<${tag}>\n${innerText}</${tag}>\n\n`;
+            },
+            
+            build() {
+                let result = '';
+                const order = ['task', 'context', 'reference', 'evaluate', 'iterate'];
+                order.forEach(tag => {
+                    result += this.createTagString(tag, State.data[tag]);
+                });
+                return result.trim();
+            }
+        };
+
+        // 3. UI Controller: 화면 렌더링 및 DOM 이벤트 처리
+        const UI = {
+            elements: {
+                inputTask: document.getElementById('input-task'),
+                preview: document.getElementById('output-preview'),
+                btnCopy: document.getElementById('btn-copy'),
+                btnClear: document.getElementById('btn-clear'),
+                toast: document.getElementById('toast'),
+                btnAddList: document.querySelectorAll('.btn-add'),
+                groupHeaders: document.querySelectorAll('.group-header')
+            },
+
+            init() {
+                this.bindEvents();
+                this.renderPreview();
+            },
+
+            bindEvents() {
+                // Task(T) 단일 텍스트에리어 감지
+                this.elements.inputTask.addEventListener('input', (e) => {
+                    State.updateTask(e.target.value);
+                    this.renderPreview();
+                });
+
+                // 접기/펼치기 동작
+                this.elements.groupHeaders.forEach(header => {
+                    header.addEventListener('click', (e) => {
+                        // 헤더 클릭 시 부모(collapsible-group)의 collapsed 클래스 토글
+                        const parentGroup = header.closest('.collapsible-group');
+                        parentGroup.classList.toggle('collapsed');
+                    });
+                });
+
+                // [+] 요소 추가 버튼 클릭
+                this.elements.btnAddList.forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const tag = e.target.dataset.tag;
+                        
+                        if (e.target.classList.contains('btn-custom')) {
+                            // 직접 입력 버튼 처리
+                            const newField = State.addCustomField(tag);
+                            this.createFieldDOM(newField);
+                        } else {
+                            // 사전 정의된 하위 항목 버튼 처리
+                            const subtag = e.target.dataset.subtag;
+                            const labelKey = e.target.dataset.label;
+                            const krLabel = e.target.dataset.kr;
+                            const placeholder = e.target.dataset.placeholder;
+
+                            const newField = State.addField(tag, subtag, labelKey, krLabel, placeholder);
+                            this.createFieldDOM(newField);
+                        }
+                    });
+                });
+
+                // 복사 버튼
+                this.elements.btnCopy.addEventListener('click', () => this.copyToClipboard());
+
+                // 전체 초기화 버튼
+                this.elements.btnClear.addEventListener('click', () => {
+                    State.reset();
+                    this.elements.inputTask.value = '';
+                    // 동적 생성된 DOM 모두 제거
+                    document.querySelectorAll('.dynamic-fields-container').forEach(container => {
+                        container.innerHTML = '';
+                    });
+                    this.renderPreview();
+                    this.showToast('모든 입력이 초기화되었습니다.');
+                });
+            },
+
+            /**
+             * 새로운 동적 입력 필드 DOM을 생성하여 컨테이너에 붙입니다.
+             */
+            createFieldDOM(field) {
+                const container = document.getElementById(`container-${field.tag}`);
+                if (!container) return;
+
+                const fieldDiv = document.createElement('div');
+                fieldDiv.className = 'dynamic-field';
+                fieldDiv.id = `field-${field.id}`;
+                
+                let headerHTML = '';
+                if (field.isCustom) {
+                    headerHTML = `<input type="text" class="field-name-input" value="${field.labelKey}" placeholder="항목 이름 입력">`;
+                } else {
+                    headerHTML = `<span class="field-label">${field.labelKey} (${field.krLabel})</span>`;
+                }
+
+                fieldDiv.innerHTML = `
+                    <div class="field-header">
+                        ${headerHTML}
+                        <button type="button" class="btn-remove" title="삭제">✕</button>
+                    </div>
+                    <textarea data-id="${field.id}" placeholder="${field.placeholder}"></textarea>
+                `;
+
+                container.appendChild(fieldDiv);
+
+                // 생성 직후 이벤트 리스너 부착
+                const textarea = fieldDiv.querySelector('textarea');
+                textarea.addEventListener('input', (e) => {
+                    State.updateField(field.tag, field.id, e.target.value);
+                    this.renderPreview();
+                });
+
+                // 커스텀 필드인 경우 이름 입력창 변경 이벤트 감지
+                if (field.isCustom) {
+                    const nameInput = fieldDiv.querySelector('.field-name-input');
+                    nameInput.addEventListener('input', (e) => {
+                        State.updateFieldLabel(field.tag, field.id, e.target.value);
+                        this.renderPreview();
+                    });
+                }
+
+                const btnRemove = fieldDiv.querySelector('.btn-remove');
+                btnRemove.addEventListener('click', () => {
+                    State.removeField(field.tag, field.id);
+                    fieldDiv.remove();
+                    this.renderPreview();
+                });
+
+                // 사용자 편의성을 위해 생성 직후 포커스 부여
+                if (field.isCustom) {
+                    const nameInput = fieldDiv.querySelector('.field-name-input');
+                    nameInput.focus();
+                    nameInput.select(); // 바로 덮어쓸 수 있도록 전체 선택 처리
+                } else {
+                    textarea.focus();
+                }
+                
+                // 만약 현재 그룹이 접혀있다면 펼침
+                const parentGroup = container.closest('.collapsible-group');
+                if (parentGroup.classList.contains('collapsed')) {
+                    parentGroup.classList.remove('collapsed');
+                }
+                
+                this.renderPreview();
+            },
+
+            // 프리뷰 영역만 업데이트
+            renderPreview() {
+                if (State.isEmpty()) {
+                    this.elements.preview.innerHTML = '<span class="empty-state">좌측 버튼을 눌러 요소를 추가하고 내용을 입력하면, 이곳에 실시간으로 프롬프트가 조립됩니다.</span>';
+                } else {
+                    const rawPrompt = PromptBuilder.build();
+                    this.elements.preview.textContent = rawPrompt;
+                }
+            },
+
+            // 클립보드 복사
+            copyToClipboard() {
+                if (State.isEmpty()) {
+                    this.showToast('복사할 내용이 없습니다.');
+                    return;
+                }
+
+                const textToCopy = PromptBuilder.build();
+                const textArea = document.createElement("textarea");
+                textArea.value = textToCopy;
+                textArea.style.position = "fixed";
+                textArea.style.top = "-9999px";
+                textArea.style.left = "-9999px";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        this.showToast('클립보드에 복사되었습니다!');
+                    } else {
+                        this.showToast('복사에 실패했습니다. 직접 드래그하여 복사해주세요.');
+                    }
+                } catch (err) {
+                    console.error('Fallback: Oops, unable to copy', err);
+                    this.showToast('복사 기능을 지원하지 않는 환경입니다.');
+                }
+
+                document.body.removeChild(textArea);
+            },
+
+            // 토스트 알림
+            showToast(message) {
+                const toast = this.elements.toast;
+                toast.textContent = message;
+                toast.classList.add('show');
+                
+                if (this.toastTimeout) clearTimeout(this.toastTimeout);
+                this.toastTimeout = setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 2500);
+            }
+        };
+
+        // 애플리케이션 시작
+        document.addEventListener('DOMContentLoaded', () => {
+            UI.init();
+        });
+
+    </script>
+</body>
+</html>

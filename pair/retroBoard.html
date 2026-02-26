@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>프로젝트 회고 보드</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        main { overflow-y: scroll; scroll-behavior: smooth; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+        .tab-active {
+            border-bottom: 3px solid #3b82f6;
+            color: #3b82f6 !important;
+            font-weight: 800 !important;
+        }
+
+        /* AI 분석 탭 고유 컬러 유지 */
+        #tab-ai-summary.tab-active {
+            border-bottom-color: #9333ea !important; /* purple-600 */
+            color: #9333ea !important;
+        }
+
+        /* 아코디언 애니메이션 */
+        .card-details {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+            opacity: 0;
+        }
+        .card-expanded .card-details {
+            max-height: 4000px;
+            opacity: 1;
+        }
+
+        /* 태그 컬러셋 */
+        .tag-pill { transition: all 0.2s; cursor: pointer; }
+        .tag-pill:hover { transform: translateY(-1px); filter: brightness(0.95); }
+        .tag-color-0 { background-color: #eff6ff; color: #1e40af; border-color: #dbeafe; }
+        .tag-color-1 { background-color: #ecfdf5; color: #065f46; border-color: #d1fae5; }
+        .tag-color-2 { background-color: #fffbeb; color: #92400e; border-color: #fef3c7; }
+        .tag-color-3 { background-color: #fef2f2; color: #991b1b; border-color: #fee2e2; }
+        .tag-color-4 { background-color: #f5f3ff; color: #6b21a8; border-color: #ede9fe; }
+        .tag-color-5 { background-color: #fff7ed; color: #9a3412; border-color: #ffedd5; }
+
+        /* KPT 콜아웃 공통 스타일 */
+        .kpt-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 85px;
+            padding: 0.4rem 0;
+            border-radius: 0.8rem;
+            font-size: 0.75rem;
+            font-weight: 900;
+            flex-shrink: 0;
+            letter-spacing: 0.05em;
+        }
+
+        .interaction-badge {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            padding: 0.3rem 0.7rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .animate-fadeIn {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .view-header {
+            background-color: #ffffff;
+            border-left: 6px solid #3b82f6;
+            padding: 1.5rem 2rem;
+            border-radius: 0 1.5rem 1.5rem 0;
+            box-shadow: 0 4px 15px -1px rgba(0, 0, 0, 0.05);
+            margin-bottom: 2rem;
+            min-height: 140px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        /* AI 리포트 컨텐츠 스타일링 */
+        #ai-summary-content h3 { font-size: 1.25rem; font-weight: 900; color: #1e3a8a; margin-top: 1.5rem; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+        #ai-summary-content h3::before { content: "✨"; font-size: 1rem; }
+        #ai-summary-content ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1.5rem; color: #334155; }
+        #ai-summary-content li { margin-bottom: 0.5rem; line-height: 1.6; }
+        #ai-summary-content p { line-height: 1.6; color: #334155; margin-bottom: 1rem; }
+        #ai-summary-content strong { color: #0f172a; font-weight: 800; }
+    </style>
+</head>
+<body class="text-gray-800 antialiased h-screen flex flex-col">
+
+<!-- Header -->
+<header class="bg-white shadow-sm z-10 border-b border-gray-100">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div class="flex items-center gap-2 cursor-pointer" onclick="clearFilter(); switchTab('board');">
+            <i class="fa-solid fa-leaf text-green-500 text-2xl"></i>
+            <h1 class="text-xl font-black text-gray-900 tracking-tighter">프로젝트 회고 보드</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <span id="currentUserDisplay" class="text-sm font-bold text-gray-600">로그인 필요</span>
+            <button id="auth-btn" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 py-1.5 px-4 rounded-full transition hidden font-black">로그아웃</button>
+        </div>
+    </div>
+</header>
+
+<!-- Navigation Tabs -->
+<div id="nav-tabs" class="bg-white border-b border-gray-200 hidden">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex gap-6 overflow-x-auto no-scrollbar">
+        <button id="tab-board" class="py-4 px-1 text-sm font-bold text-gray-500 hover:text-gray-900 transition whitespace-nowrap tab-active">
+            <i class="fa-solid fa-layer-group mr-1.5 opacity-60"></i>전체 회고
+        </button>
+        <button id="tab-write" class="py-4 px-1 text-sm font-bold text-gray-500 hover:text-gray-900 transition whitespace-nowrap">
+            <i class="fa-solid fa-pen-nib mr-1.5 opacity-60"></i>내 회고 작성
+        </button>
+        <div id="filter-tab-container" class="hidden flex items-center gap-2">
+            <button id="tab-filter" class="py-4 px-1 text-sm font-bold text-gray-500 hover:text-blue-600 whitespace-nowrap cursor-pointer transition">
+                <i class="fa-solid fa-filter mr-1.5 opacity-60"></i>필터링 결과 (<span id="filter-count">0</span>)
+            </button>
+            <i class="fa-solid fa-circle-xmark text-gray-300 hover:text-blue-600 cursor-pointer text-sm mb-0.5" onclick="clearFilter();"></i>
+        </div>
+        <button id="tab-compare" class="hidden py-4 px-1 text-sm font-bold text-gray-500 hover:text-gray-900 transition whitespace-nowrap">
+            <i class="fa-solid fa-code-compare mr-1.5 opacity-60"></i>비교 분석 (<span id="compareCount">0</span>)
+        </button>
+        <div id="ai-summary-tab-container" class="hidden flex items-center gap-2">
+            <button id="tab-ai-summary" class="py-4 px-1 text-sm font-bold text-gray-500 hover:text-purple-600 transition whitespace-nowrap cursor-pointer">
+                <i class="fa-solid fa-wand-magic-sparkles mr-1.5 opacity-60"></i>AI 통합 분석
+            </button>
+            <i class="fa-solid fa-circle-xmark text-gray-300 hover:text-purple-600 cursor-pointer text-sm mb-0.5" onclick="closeAISummary();"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Main Area -->
+<main class="flex-1 p-4 sm:p-6 lg:p-8">
+    <div class="max-w-5xl mx-auto h-full relative">
+
+        <!-- VIEW: Auth -->
+        <div id="view-auth" class="flex items-center justify-center min-h-[60vh] hidden">
+            <div class="bg-white p-10 rounded-3xl shadow-xl border border-gray-100 w-full max-w-md">
+                <div class="text-center mb-10">
+                    <div class="w-16 h-16 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4"><i class="fa-solid fa-shield-halved text-3xl"></i></div>
+                    <h2 id="auth-title" class="text-3xl font-black text-gray-900 tracking-tight">로그인</h2>
+                    <p id="auth-desc" class="text-sm text-gray-500 mt-2 font-medium">계정 정보를 입력하세요.</p>
+                </div>
+                <div class="space-y-4">
+                    <input type="text" id="auth-id" class="w-full bg-gray-50 border-2 border-transparent rounded-xl px-5 py-3 text-sm font-bold focus:border-blue-500 focus:bg-white outline-none transition" placeholder="아이디">
+                    <input type="password" id="auth-pw" class="w-full bg-gray-50 border-2 border-transparent rounded-xl px-5 py-3 text-sm font-bold focus:border-blue-500 focus:bg-white outline-none transition" placeholder="비밀번호">
+                    <div id="signup-extra-fields" class="hidden space-y-4 pt-2 border-t border-gray-100 mt-4">
+                        <input type="password" id="auth-pw-confirm" class="w-full bg-red-50/30 border-2 border-transparent rounded-xl px-5 py-3 text-sm font-bold focus:border-red-400 focus:bg-white outline-none transition" placeholder="비밀번호 확인">
+                        <input type="text" id="auth-nickname" class="w-full bg-gray-50 border-2 border-transparent rounded-xl px-5 py-3 text-sm font-bold focus:border-blue-500 focus:bg-white outline-none transition" placeholder="닉네임">
+                    </div>
+                    <div id="login-actions" class="space-y-4 pt-6">
+                        <button id="btn-login" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl text-base font-black transition shadow-lg shadow-blue-100">로그인하기</button>
+                        <div class="flex items-center gap-3">
+                            <button id="btn-show-signup" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-3 rounded-xl text-xs font-black transition">회원가입</button>
+                            <button id="btn-guest" class="flex-1 bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 py-3 rounded-xl text-xs font-black transition">게스트 입장</button>
+                        </div>
+                    </div>
+                    <div id="signup-actions" class="hidden space-y-4 pt-6">
+                        <button id="btn-complete-signup" class="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl text-base font-black transition shadow-lg shadow-green-100">가입 완료</button>
+                        <button id="btn-cancel-signup" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 py-3 rounded-xl text-sm font-black transition">가입 취소</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Header Callout for Views -->
+        <div id="view-header-container" class="hidden animate-fadeIn">
+            <div class="view-header relative">
+                <div class="flex justify-between items-end w-full">
+                    <div class="w-full pr-[340px]">
+                        <div class="flex items-center gap-3 mb-1">
+                            <div id="header-icon-box" class="bg-blue-500 text-white p-2.5 rounded-xl shadow-sm"><i id="header-icon" class="fa-solid fa-layer-group"></i></div>
+                            <h2 id="view-title" class="text-2xl font-black text-gray-900 tracking-tighter">전체 회고</h2>
+                        </div>
+                        <p id="view-desc" class="text-sm text-gray-500 font-medium">다양한 프로젝트의 소중한 인사이트가 모이는 공간입니다.</p>
+                        <!-- 필터링 뷰에서만 노출되는 태그 컨테이너 (공간은 항상 확보) -->
+                        <div id="active-filter-chips" class="flex flex-wrap gap-2 mt-4 min-h-[28px] opacity-0 pointer-events-none transition-opacity"></div>
+                    </div>
+                    <div id="header-action-area" class="flex flex-col items-end justify-end gap-2 flex-shrink-0 absolute right-8 bottom-6">
+                        <div class="flex items-center gap-2">
+                            <button id="btn-compare-all" class="hidden w-44 flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3.5 rounded-2xl text-sm font-black transition shadow-sm border border-indigo-200" onclick="selectAllFiltered()">필터 결과 모두 선택</button>
+                            <button id="btn-clear-selection" class="hidden w-36 flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3.5 rounded-2xl text-sm font-black transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm" onclick="clearSelection()" disabled>
+                                <span>선택 해제</span>
+                                <span id="selected-count-display" class="bg-gray-300 text-gray-700 px-1.5 py-0.5 rounded-lg text-xs font-bold min-w-[1.5rem] text-center">0</span>
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button id="btn-ai-analyze" class="hidden w-44 flex items-center justify-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white py-3.5 rounded-2xl text-sm font-black transition disabled:opacity-30 disabled:cursor-not-allowed shadow-xl shadow-purple-200" disabled onclick="runAIAnalysis()"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 통합 분석</button>
+                            <button id="btn-do-compare" class="hidden w-36 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-2xl text-sm font-black transition disabled:opacity-30 disabled:cursor-not-allowed shadow-xl shadow-blue-100" disabled onclick="goToCompare()">비교 분석 시작</button>
+                            <button id="btn-back-to-board" class="hidden bg-blue-600 hover:bg-blue-700 text-white px-6 py-3.5 rounded-2xl text-sm font-black transition shadow-xl shadow-blue-100">목록으로 돌아가기</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Contexts -->
+        <div id="view-board" class="hidden space-y-6 animate-fadeIn pb-20">
+            <div id="retroGrid" class="flex flex-col gap-6 w-full"></div>
+        </div>
+
+        <div id="view-write" class="hidden space-y-8 animate-fadeIn pb-20">
+            <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-10">
+                <div class="space-y-4">
+                    <label class="flex items-center gap-2 text-sm font-black text-gray-800"><i class="fa-solid fa-quote-left text-blue-500"></i> 회고 제목</label>
+                    <input type="text" id="write-title" class="w-full bg-gray-50 border-2 border-transparent rounded-2xl px-6 py-4 text-base font-bold focus:border-blue-500 focus:bg-white outline-none transition shadow-inner" placeholder="진행한 프로젝트나 활동의 주제를 적어주세요.">
+                </div>
+                <div class="space-y-4">
+                    <label class="flex items-center gap-2 text-sm font-black text-gray-800"><i class="fa-solid fa-hashtag text-blue-500"></i> 태그</label>
+                    <div id="selected-tags-chips" class="flex flex-wrap gap-2"></div>
+                    <input type="text" id="write-tags" class="w-full bg-gray-50 border-2 border-transparent rounded-2xl px-6 py-4 text-sm font-bold focus:border-blue-500 focus:bg-white outline-none transition shadow-inner" placeholder="태그 입력 (쉼표 구분)">
+                    <div class="pt-2"><p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">인기 태그 추천</p><div id="tag-buttons-container" class="flex flex-wrap gap-2"></div></div>
+                </div>
+                <div class="grid grid-cols-1 gap-8">
+                    <div class="bg-blue-50/30 p-8 rounded-[2rem] border border-blue-100/50 space-y-6">
+                        <div class="flex justify-between items-center"><div class="flex items-center gap-2 text-blue-600 font-black text-lg"><i class="fa-solid fa-circle-check"></i> KEEP</div><button class="action-add-item bg-blue-500 text-white w-9 h-9 rounded-2xl hover:bg-blue-600 transition shadow-lg shadow-blue-200" data-section="keep"><i class="fa-solid fa-plus"></i></button></div>
+                        <div id="write-keep-container" class="space-y-3"></div>
+                    </div>
+                    <div class="bg-red-50/30 p-8 rounded-[2rem] border border-red-100/50 space-y-6">
+                        <div class="flex justify-between items-center"><div class="flex items-center gap-2 text-red-600 font-black text-lg"><i class="fa-solid fa-circle-exclamation"></i> PROBLEM</div><button class="action-add-item bg-red-500 text-white w-9 h-9 rounded-2xl hover:bg-red-600 transition shadow-lg shadow-red-200" data-section="problem"><i class="fa-solid fa-plus"></i></button></div>
+                        <div id="write-problem-container" class="space-y-3"></div>
+                    </div>
+                    <div class="bg-green-50/30 p-8 rounded-[2rem] border border-green-100/50 space-y-6">
+                        <div class="flex justify-between items-center"><div class="flex items-center gap-2 text-green-600 font-black text-lg"><i class="fa-solid fa-lightbulb"></i> TRY</div><button class="action-add-item bg-green-500 text-white w-9 h-9 rounded-2xl hover:bg-green-600 transition shadow-lg shadow-green-200" data-section="try"><i class="fa-solid fa-plus"></i></button></div>
+                        <div id="write-try-container" class="space-y-3"></div>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 pt-8 border-t border-gray-100">
+                    <button id="btn-write-cancel" class="px-8 py-4 bg-gray-50 text-gray-500 rounded-2xl text-sm font-black hover:bg-gray-100 transition">취소</button>
+                    <button id="btn-write-submit" class="px-12 py-4 bg-blue-600 text-white rounded-2xl text-base font-black hover:bg-blue-700 transition shadow-xl shadow-blue-100">회고 등록하기</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compare Contents -->
+        <div id="view-compare" class="hidden space-y-8 animate-fadeIn pb-20">
+            <div class="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse min-w-[800px]">
+                        <thead id="compare-thead" class="bg-gray-50/50 border-b border-gray-100"></thead>
+                        <tbody id="compare-tbody" class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Summary Contents -->
+        <div id="view-ai-summary" class="hidden space-y-8 animate-fadeIn pb-20">
+            <div class="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden p-10">
+                <div id="ai-summary-content">
+                    <!-- AI content injected here -->
+                </div>
+            </div>
+        </div>
+
+    </div>
+</main>
+
+<div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none"></div>
+
+<script>
+    // --- State ---
+    const apiKey = ""; // Runtime automatically injects the Gemini API key here
+    let users = {};
+    let currentUser = '';
+    let retrospectives = [];
+    let selectedForCompare = new Set();
+    let selectedSuggestionTags = new Set();
+    let filterTags = new Set();
+    let expandedCards = new Set();
+    let currentAuthMode = 'login';
+    let editingRetroId = null;
+
+    function load() {
+        users = JSON.parse(localStorage.getItem('retro_users_v4') || '{}');
+
+        if (Object.keys(users).length === 0) {
+            users = {
+                'test': { pw: '123', nickname: '테스터' }
+            };
+            localStorage.setItem('retro_users_v4', JSON.stringify(users));
+        }
+
+        currentUser = localStorage.getItem('retro_currentUser_v4') || '';
+        let rawData = JSON.parse(localStorage.getItem('retro_data_v4') || '[]');
+
+        if (rawData.length === 0) {
+            rawData = [
+                {
+                    id: 1, author: '테스터', date: '2023. 11. 01', title: '신규 입사자 온보딩 주간',
+                    tags: ['온보딩', 'React', '프론트엔드'], keep: ['온보딩 멘토링 세션이 실무 적응에 큰 도움이 됨', '팀 내 코드 컨벤션 규칙을 명확히 이해함'],
+                    problem: ['개발 환경 세팅 문서 일부가 최신화되지 않아 오류 발생'], try: ['사내 위키 가이드 문서 최신화', '신규 입사자용 체크리스트 보강'],
+                    likes: 4, likedBy: ['김개발', '최프론트'], comments: [{author: '김개발', text: '환영합니다! 문서 업데이트 부탁드려요.', date: '2023. 11. 02'}]
+                },
+                {
+                    id: 2, author: '테스터', date: '2023. 11. 05', title: '공통 컴포넌트 마이그레이션',
+                    tags: ['UI/UX', '디자인시스템', '프론트엔드'], keep: ['스토리북을 활용한 컴포넌트 시각화 및 문서화', '디자인 토큰 도입으로 일관성 확보'],
+                    problem: ['기존 레거시 컴포넌트와의 의존성 문제로 예기치 못한 스타일 깨짐 발생'], try: ['의존성 그래프 사전 분석 도입', '점진적 마이그레이션 전략 수립'],
+                    likes: 2, likedBy: ['이디자인'], comments: []
+                },
+                {
+                    id: 3, author: '테스터', date: '2023. 11. 10', title: '렌더링 성능 개선 스프린트',
+                    tags: ['성능최적화', 'React'], keep: ['React.memo와 useMemo를 적절히 활용하여 불필요한 렌더링 최소화'],
+                    problem: ['특정 무거운 리스트 컴포넌트에서 여전히 프레임 드랍 발생'], try: ['가상화(Virtualization) 기법 도입 테스트', 'Lighthouse CI 파이프라인 연동'],
+                    likes: 5, likedBy: ['정백엔드'], comments: []
+                },
+                {
+                    id: 4, author: '테스터', date: '2023. 11. 15', title: '정기 배포 프로세스 개선',
+                    tags: ['커뮤니케이션', '배포', '데브옵스'], keep: ['슬랙 봇 알림을 통한 배포 과정 투명화 및 공유'],
+                    problem: ['수동 배포 단계가 남아있어 휴먼 에러 발생 가능성 존재'], try: ['GitHub Actions 기반 CI/CD 자동화 스크립트 작성'],
+                    likes: 3, likedBy: [], comments: [{author: '박기획', text: '알림 봇 덕분에 배포 확인이 편해졌습니다.', date: '2023. 11. 16'}]
+                },
+                {
+                    id: 5, author: '테스터', date: '2023. 11. 20', title: '출시 전 버그 수정 기간',
+                    tags: ['버그수정', 'QA', '프론트엔드'], keep: ['QA 팀과의 데일리 싱크를 통한 신속한 이슈 트래킹'],
+                    problem: ['재현 경로가 불명확한 간헐적 버그 리포트가 많아 디버깅에 리소스 낭비'], try: ['버그 제보 양식 템플릿화', 'Sentry 로그와 세션 리플레이 연동 강화'],
+                    likes: 1, likedBy: [], comments: []
+                },
+                {
+                    id: 6, author: '김개발', date: '2023. 11. 02', title: 'DB 쿼리 최적화 작업',
+                    tags: ['백엔드', '성능최적화'], keep: ['Slow Query 로그 분석을 통한 병목 지점 정확히 식별', '적절한 인덱스 추가로 응답 속도 60% 향상'],
+                    problem: ['일부 복잡한 다중 조인 쿼리는 인덱스만으로 최적화 한계에 부딪힘'], try: ['데이터 역정규화 검토', '조회 빈도가 높은 데이터는 Redis 캐싱 레이어 도입'],
+                    likes: 6, likedBy: ['테스터', '정백엔드'], comments: []
+                },
+                {
+                    id: 7, author: '김개발', date: '2023. 11. 08', title: '레거시 API 리팩토링',
+                    tags: ['리팩토링', '백엔드'], keep: ['TDD 방식을 적용해 테스트 코드를 먼저 작성하여 리팩토링 안정성 확보'],
+                    problem: ['해당 도메인 지식 부족으로 일부 히든 비즈니스 로직을 파악하는데 지연 발생'], try: ['기획팀 및 PO와의 정기적인 도메인 싱크 미팅 개최'],
+                    likes: 4, likedBy: [], comments: []
+                },
+                {
+                    id: 8, author: '김개발', date: '2023. 11. 18', title: '결제 모듈 긴급 핫픽스 배포',
+                    tags: ['배포', '백엔드', '버그수정'], keep: ['장애 발생 인지 후 30분 이내에 롤백 프로세스 성공적으로 가동'],
+                    problem: ['초기 장애 전파 및 모니터링 알람이 다소 늦게 울렸음'], try: ['크리티컬 API에 대한 Datadog Alert 임계치 하향 조정', '장애 전파 프로세스 문서화'],
+                    likes: 7, likedBy: ['박기획', '이디자인'], comments: [{author: '박기획', text: '빠른 대응 감사합니다. 철렁했네요.', date: '2023. 11. 18'}]
+                },
+                {
+                    id: 9, author: '이디자인', date: '2023. 11. 03', title: '다크모드 디자인 시스템 구축',
+                    tags: ['UI/UX', '디자인시스템', '기획'], keep: ['초기에 색상 변수(Token)를 체계적으로 정의하여 다크모드 대응이 수월했음'],
+                    problem: ['일부 복잡한 일러스트 아이콘에서 다크모드 시인성 저하 문제 발생'], try: ['SVG 아이콘 색상을 시스템 변수(currentColor)로 일괄 적용하도록 가이드 개편'],
+                    likes: 8, likedBy: ['테스터', '최프론트'], comments: []
+                },
+                {
+                    id: 10, author: '이디자인', date: '2023. 11. 09', title: '사용자 리서치 및 인터뷰',
+                    tags: ['UI/UX', '커뮤니케이션'], keep: ['실제 헤비 유저 10명을 대상으로 생생한 페인포인트 수집 성공'],
+                    problem: ['인터뷰 대상자 선정 및 일정 조율에 리소스가 과다 소모됨'], try: ['인터뷰 스케줄링 자동화 툴(Calendly 등) 시범 도입 검토'],
+                    likes: 3, likedBy: [], comments: []
+                },
+                {
+                    id: 11, author: '이디자인', date: '2023. 11. 19', title: '출시 전 디자인 QA 및 피드백',
+                    tags: ['QA', '디자인시스템'], keep: ['Figma 코멘트 기능을 활용해 프론트엔드 팀에 구체적인 픽셀 조정 요청'],
+                    problem: ['개발 일정 막바지에 단순 변심에 의한 텍스트 수정 요청이 혼재됨'], try: ['디자인 수정 요청 프로세스 정립', 'Must-have와 Nice-to-have 기준 명확히 구분'],
+                    likes: 5, likedBy: ['테스터'], comments: []
+                },
+                {
+                    id: 12, author: '박기획', date: '2023. 11. 04', title: 'A/B 테스트 결과 데이터 분석',
+                    tags: ['기획', '데이터분석', '그로스'], keep: ['신규 구매 퍼널에서 유의미한 전환율 15% 상승 데이터 확인'],
+                    problem: ['일부 실험 대조군의 모수가 부족하여 통계적 유의성에 도달하지 못함'], try: ['실험 기간을 최소 2주로 연장', '모수 산정 방식 재검토 및 가이드라인 마련'],
+                    likes: 4, likedBy: [], comments: []
+                },
+                {
+                    id: 13, author: '박기획', date: '2023. 11. 11', title: '신규 서비스 기획 및 킥오프',
+                    tags: ['기획', '커뮤니케이션', '온보딩'], keep: ['PRD 문서를 사전에 배포하여 팀원 모두가 프로젝트 목표를 명확히 얼라인먼트함'],
+                    problem: ['디자인/개발 공수 산정이 다소 공격적으로 이루어져 데드라인 리스크 존재'], try: ['Planning Poker 기법 도입하여 팀 전체의 공수 산정 정확도 향상'],
+                    likes: 6, likedBy: ['이디자인'], comments: []
+                },
+                {
+                    id: 14, author: '박기획', date: '2023. 11. 21', title: '회원가입 이탈률 데이터 분석',
+                    tags: ['데이터분석', '버그수정', '그로스'], keep: ['Amplitude 퍼널 분석을 통해 본인인증 단계에서의 이탈 현상 명확히 특정'],
+                    problem: ['정확히 어떤 오류나 감정적 이유로 이탈했는지 정성적 이유 파악이 불가함'], try: ['해당 이탈 구간에 마이크로 서베이(스낵 팝업) 임시 배포하여 이유 수집'],
+                    likes: 5, likedBy: ['김개발'], comments: []
+                },
+                {
+                    id: 15, author: '최프론트', date: '2023. 11. 06', title: '상태 관리 라이브러 교체(리팩토링)',
+                    tags: ['프론트엔드', 'React', '리팩토링'], keep: ['Zustand 도입 후 보일러플레이트 코드가 대폭 감소하여 개발 피로도 하락'],
+                    problem: ['이전 Redux 로직과 혼재되는 과도기적 상황에서 상태 동기화 이슈 발생'], try: ['마이그레이션 가이드라인 사내 세미나 진행', '복잡한 상태 로직 페어 프로그래밍'],
+                    likes: 9, likedBy: ['테스터', '김개발'], comments: [{author: '테스터', text: 'Zustand 진짜 편하네요!', date: '2023. 11. 07'}]
+                },
+                {
+                    id: 16, author: '최프론트', date: '2023. 11. 13', title: '메인 페이지 초기 로딩 속도 최적화',
+                    tags: ['프론트엔드', '성능최적화'], keep: ['Next.js 동적 임포트와 이미지 WebP 변환으로 초기 번들 사이즈 40% 절감'],
+                    problem: ['써드파티 마케팅 스크립트 로딩으로 인한 Main Thread 블로킹 병목이 여전함'], try: ['Partytown 라이브러리 도입하여 웹워커 기반 스크립트 비동기 로드 테스트'],
+                    likes: 7, likedBy: ['박기획'], comments: []
+                },
+                {
+                    id: 17, author: '최프론트', date: '2023. 11. 22', title: '신규 메인 UI/UX 개편 및 배포',
+                    tags: ['UI/UX', 'React', '배포'], keep: ['웹 접근성(a11y) 기준을 준수하며 시멘틱 마크업으로 전면 개선 성공'],
+                    problem: ['기존 대비 디자인 뎁스가 크게 바뀌어 기존 유저들의 문의(혼란) 증가 우려'], try: ['첫 방문 시 신규 UI를 안내하는 온보딩 툴팁(투어) 기능 추가 기획 요청'],
+                    likes: 5, likedBy: ['이디자인'], comments: []
+                },
+                {
+                    id: 18, author: '정백엔드', date: '2023. 11. 07', title: 'MSA 전환을 위한 백엔드 리팩토링',
+                    tags: ['백엔드', '리팩토링', '인프라'], keep: ['모놀리식 서버에서 인증/인가 도메인을 독립적인 마이크로서비스로 분리 성공'],
+                    problem: ['새로운 gRPC 통신 및 인프라 세팅에 예상보다 많은 러닝 커브 발생'], try: ['데브옵스 팀과의 주 1회 정기 기술 세션 개최', '관련 사내 스터디 주최'],
+                    likes: 8, likedBy: ['김개발'], comments: []
+                },
+                {
+                    id: 19, author: '정백엔드', date: '2023. 11. 14', title: '대용량 데이터 처리 성능 개선',
+                    tags: ['성능최적화', '데이터분석', '백엔드'], keep: ['Apache Kafka를 활용한 비동기 메시징 처리로 트래픽 스파이크 병목 해소'],
+                    problem: ['드물게 발생하는 컨슈머 장애 시 메시지 유실에 대한 재처리 로직 누락'], try: ['DLQ(Dead Letter Queue) 인프라 구축', '실패 메시지 재처리(Retry) 배치 스크립트 작성'],
+                    likes: 6, likedBy: [], comments: []
+                },
+                {
+                    id: 20, author: '정백엔드', date: '2023. 11. 23', title: '주말 대규모 마이그레이션 배포',
+                    tags: ['QA', '배포', '커뮤니케이션'], keep: ['새벽 시간대 사전 리허설(Dry Run)을 2회 진행한 덕분에 실제 마이그레이션은 무사히 완료'],
+                    problem: ['주말 새벽 작업으로 인한 관련 팀원들의 피로도 누적 및 월요일 업무 지장'], try: ['데이터베이스 이중화를 통한 평일 무중단 배포(Blue/Green) 아키텍처 설계 착수'],
+                    likes: 12, likedBy: ['테스터', '김개발', '이디자인', '박기획'], comments: [{author: '박기획', text: '주말 내내 정말 고생 많으셨습니다 ㅠㅠ', date: '2023. 11. 23'}]
+                },
+                {
+                    id: 21, author: '윤운영', date: '2023. 11. 25', title: '백오피스 어드민 사용성 개선',
+                    tags: ['운영', 'UI/UX', '프론트엔드'], keep: ['운영팀 피드백을 즉각 수용해 데이터 엑셀 다운로드 속도 개선'],
+                    problem: ['어드민 권한 체계가 복잡해지며 예기치 않은 접근 권한 오류 발생'], try: ['Role-based Access Control(RBAC) 문서화 및 전면 재검토'],
+                    likes: 3, likedBy: ['정백엔드'], comments: []
+                },
+                {
+                    id: 22, author: '송인프라', date: '2023. 11. 26', title: 'AWS 비용 최적화 프로젝트',
+                    tags: ['인프라', '데브옵스', '성능최적화'], keep: ['미사용 EC2 및 EBS 볼륨 정리로 월 클라우드 비용 15% 절감'],
+                    problem: ['오토스케일링 그룹의 축소(Scale-in) 정책이 너무 보수적이라 비용 낭비 구간 존재'], try: ['트래픽 패턴 기반의 예측형 스케일링(Predictive Scaling) 시범 도입'],
+                    likes: 15, likedBy: ['박기획', '테스터', '김개발'], comments: [{author: '박기획', text: '비용 절감 효과 대박이네요!', date: '2023. 11. 26'}]
+                },
+                {
+                    id: 23, author: '최프론트', date: '2023. 11. 27', title: '글로벌 다국어(i18n) 지원 적용',
+                    tags: ['프론트엔드', '기획', '리팩토링'], keep: ['i18next 라이브러리 도입으로 텍스트 하드코딩 제거 및 관리 일원화'],
+                    problem: ['언어별 텍스트 길이 차이로 인해 모바일 뷰에서 UI 레이아웃이 자주 깨짐'], try: ['다국어 UI 테스트 자동화 도구 도입 검토', '디자인 단계에서 다국어 여백 여유분 고려'],
+                    likes: 6, likedBy: ['이디자인'], comments: []
+                },
+                {
+                    id: 24, author: '정백엔드', date: '2023. 11. 28', title: '검색 엔진 Elasticsearch 도입',
+                    tags: ['백엔드', '성능최적화', 'AI'], keep: ['기존 RDBMS Like 검색 대비 검색 속도 300% 이상 향상'],
+                    problem: ['형태소 분석기(Nori) 설정이 미흡하여 일부 복합명사 검색 결과가 부정확함'], try: ['사용자 검색어 로그 분석을 통한 동의어 및 사용자 사전(User Dictionary) 주기적 업데이트'],
+                    likes: 9, likedBy: ['김개발', '송인프라'], comments: []
+                },
+                {
+                    id: 25, author: '강마케팅', date: '2023. 11. 29', title: '연말 프로모션 이벤트 페이지 배포',
+                    tags: ['마케팅', '그로스', '배포'], keep: ['개발팀과의 긴밀한 협업으로 데드라인 내 이벤트 페이지 무사 오픈'],
+                    problem: ['이벤트 오픈 직후 트래픽 폭주로 일시적인 이미지 로딩 지연 발생'], try: ['차기 대형 프로모션 시 CDN 캐시 프리워밍(Pre-warming) 절차 필수 추가'],
+                    likes: 8, likedBy: ['테스터', '최프론트'], comments: []
+                },
+                {
+                    id: 26, author: '테스터', date: '2023. 11. 30', title: '앱 푸시 알림 시스템 재구축',
+                    tags: ['모바일', '백엔드', '인프라'], keep: ['FCM(Firebase Cloud Messaging) 연동 구조를 개선하여 발송 성공률 99.9% 달성'],
+                    problem: ['iOS 기기에서 일부 리치 푸시(이미지 포함) 알림이 간헐적으로 표시되지 않음'], try: ['iOS Notification Service Extension 디버깅 및 메모리 제한 이슈 분석'],
+                    likes: 4, likedBy: [], comments: []
+                },
+                {
+                    id: 27, author: '윤운영', date: '2023. 12. 01', title: '고객센터 AI 챗봇 연동',
+                    tags: ['CS', '운영', 'AI'], keep: ['단순 반복 문의(배송/환불)의 40%를 AI 챗봇이 자동 처리하여 상담원 업무 로드 감소'],
+                    problem: ['복잡한 정책 문의 시 챗봇이 오안내를 하는 케이스가 발생하여 고객 클레임 접수됨'], try: ['챗봇 시나리오 탈출(상담원 연결) 버튼 시인성 강화', 'AI 지식 베이스(Knowledge Base) 주 2회 업데이트'],
+                    likes: 7, likedBy: ['박기획'], comments: []
+                },
+                {
+                    id: 28, author: '박기획', date: '2023. 12. 02', title: '상품 추천 알고리즘 A/B 테스트',
+                    tags: ['AI', '데이터분석', '그로스'], keep: ['협업 필터링 알고리즘 적용 군에서 장바구니 전환율이 기존 대비 8% 증가'],
+                    problem: ['신규 가입자(Cold Start) 대상으로는 추천 정확도가 현저히 떨어짐'], try: ['온보딩 단계에서 관심사 선택 UI를 추가하여 초기 취향 데이터 수집 기획'],
+                    likes: 11, likedBy: ['윤운영', '강마케팅'], comments: []
+                },
+                {
+                    id: 29, author: '김보안', date: '2023. 12. 03', title: 'OAuth 2.0 소셜 로그인 통합',
+                    tags: ['보안', '백엔드', '기획'], keep: ['카카오, 네이버, 애플 로그인을 통합 인터페이스로 구현하여 유지보수성 향상'],
+                    problem: ['소셜 계정 연결 해제(Revoke) API 연동이 일부 플랫폼에서 누락되어 회원탈퇴 로직 에러 발생'], try: ['각 소셜 플랫폼별 개발자 문서(탈퇴 규정) 재확인 및 Revoke 로직 전면 보강'],
+                    likes: 5, likedBy: ['김개발'], comments: []
+                },
+                {
+                    id: 30, author: '이디자인', date: '2023. 12. 04', title: '디자인 시스템 접근성(a11y) 검수',
+                    tags: ['UI/UX', 'QA', '디자인시스템'], keep: ['명도 대비(Contrast Ratio) 기준을 WCAG AA 등급으로 전면 상향 조정 성공'],
+                    problem: ['스크린 리더(VoiceOver 등) 사용 시 폼 에러 메시지가 제대로 읽히지 않는 컴포넌트 발견'], try: ['aria-live, aria-invalid 속성 가이드라인을 프론트엔드 팀에 전달 및 페어 체크'],
+                    likes: 6, likedBy: ['최프론트'], comments: []
+                },
+                {
+                    id: 31, author: '송인프라', date: '2023. 12. 05', title: '사내 업무 자동화 툴 개발',
+                    tags: ['운영', '리팩토링', '데브옵스'], keep: ['개발팀에 의존하던 배지 지급 처리를 슬랙 슬래시 커맨드(/badge)로 자동화하여 운영 효율 극대화'],
+                    problem: ['해당 슬랙 앱의 서버 인스턴스가 1개라 장애 시 알림 없이 먹통이 되는 취약점 존재'], try: ['AWS Lambda 기반의 서버리스 아키텍처로 슬랙 앱 마이그레이션 진행'],
+                    likes: 14, likedBy: ['윤운영', '강마케팅', '테스터'], comments: [{author: '윤운영', text: '진짜 너무 편해졌어요. 압도적 감사!', date: '2023. 12. 05'}]
+                },
+                {
+                    id: 32, author: '박기획', date: '2023. 12. 06', title: '모바일 앱 딥링크 라우팅 개선',
+                    tags: ['모바일', '기획', '마케팅'], keep: ['Firebase Dynamic Links를 활용해 마케팅 캠페인 유입 추적률 대폭 향상'],
+                    problem: ['앱 미설치 유저가 딥링크 클릭 시 스토어로 이동하지 않고 웹페이지에 갇히는 엣지 케이스 발견'], try: ['디바이스 OS 및 브라우저 버전별 딥링크 Fallback 로직 QA 시나리오 세분화'],
+                    likes: 4, likedBy: [], comments: []
+                },
+                {
+                    id: 33, author: '정백엔드', date: '2023. 12. 07', title: 'MSA 분산 트랜잭션 도입(Saga Pattern)',
+                    tags: ['백엔드', '인프라', '리팩토링'], keep: ['주문-결제-재고 서비스 간의 데이터 정합성을 보장하기 위해 코레오그래피 사가 패턴 성공적 구현'],
+                    problem: ['보상 트랜잭션(Rollback) 실패 시 수동으로 복구해야 하는 데이터가 발생함'], try: ['배치 스크립트를 통한 데이터 불일치 검증 알림(Reconciliation) 모니터링 구축'],
+                    likes: 10, likedBy: ['김개발', '송인프라'], comments: []
+                },
+                {
+                    id: 34, author: '최프론트', date: '2023. 12. 08', title: '모바일 웹뷰 성능 개선 및 캐싱',
+                    tags: ['모바일', '프론트엔드', '성능최적화'], keep: ['React Query(TanStack Query)를 활용한 API 데이터 캐싱으로 웹뷰 체감 속도 2배 향상'],
+                    problem: ['캐시 무효화(Invalidation) 주기가 길게 설정되어 유저가 구버전 데이터를 보는 버그 발생'], try: ['StaleTime 및 CacheTime 정책을 도메인 성격에 맞게 재정의 및 문서화'],
+                    likes: 7, likedBy: ['테스터'], comments: []
+                },
+                {
+                    id: 35, author: '김개발', date: '2023. 12. 09', title: '신규 간편 결제 수단 추가 연동',
+                    tags: ['백엔드', '기획', '커뮤니케이션'], keep: ['외부 PG사 개발팀과의 원활한 소통 창구(슬랙 커넥트) 개설로 빠른 API 스펙 조율'],
+                    problem: ['샌드박스(테스트) 환경과 상용 환경의 결제 콜백(Webhook) 페이로드 스펙이 달라 배포 직후 장애 발생'], try: ['상용 환경 배포 전 라이브 결제 테스트(100원 결제 후 취소) 프로세스 의무화'],
+                    likes: 8, likedBy: ['정백엔드'], comments: []
+                },
+                {
+                    id: 36, author: '강마케팅', date: '2023. 12. 10', title: '랜딩 페이지 SEO 최적화 스프린트',
+                    tags: ['마케팅', '프론트엔드', '그로스'], keep: ['Next.js SSR 적용 및 메타 태그 재정비로 오가닉 트래픽(구글 유입) 전월 대비 25% 상승'],
+                    problem: ['일부 동적으로 생성되는 상품 상세 페이지의 Canonical URL 설정이 누락되어 중복 문서 패널티 받음'], try: ['SEO 검수 자동화 도구(Lighthouse CI 등)를 PR 단계에 필수로 연동'],
+                    likes: 12, likedBy: ['박기획', '최프론트'], comments: []
+                },
+                {
+                    id: 37, author: '윤데이터', date: '2023. 12. 11', title: '데이터 파이프라인(Airflow) 인프라 이관',
+                    tags: ['데이터분석', '인프라', '리팩토링'], keep: ['기존 Cron 기반 파이프라인을 Apache Airflow로 이관하여 배치 작업 가시성 및 재시도 로직 확보'],
+                    problem: ['이관 초기 Airflow 스케줄러 부하로 인해 일부 데일리 리포트 추출이 1~2시간 지연됨'], try: ['Airflow Worker 노드 스케일업 및 DAG 병렬 처리(Concurrency) 튜닝 진행'],
+                    likes: 5, likedBy: ['송인프라'], comments: []
+                },
+                {
+                    id: 38, author: '이QA', date: '2023. 12. 12', title: '프론트엔드 E2E QA 자동화 테스트 스위트 구축',
+                    tags: ['QA', '데브옵스', '프론트엔드'], keep: ['Cypress를 도입하여 핵심 결제 시나리오의 회귀 테스트(Regression Test) 완전 자동화 성공'],
+                    problem: ['테스트 환경의 네트워크 지연으로 인해 테스트가 간헐적으로 실패(Flaky Test)하는 현상 발생'], try: ['네트워크 타임아웃 대기 시간 증가 및 실패 시 자동 재시도(Retry) 옵션 설정'],
+                    likes: 9, likedBy: ['최프론트', '테스터'], comments: [{author: '최프론트', text: 'QA 자동화 덕분에 마음 놓고 배포합니다!', date: '2023. 12. 12'}]
+                },
+                {
+                    id: 39, author: '송인프라', date: '2023. 12. 13', title: '서버리스(AWS Lambda) 썸네일 생성 마이그레이션',
+                    tags: ['인프라', '리팩토링', '성능최적화'], keep: ['기존 API 서버에서 처리하던 무거운 이미지 리사이징 작업을 Lambda로 분리하여 메인 서버 부하 감소'],
+                    problem: ['Cold Start 현상으로 인해 최초 이미지 업로드 시 간헐적인 타임아웃 발생'], try: ['Provisioned Concurrency 설정 적용 검토 및 이미지 처리 최적화 라이브러리(sharp) 로 변경'],
+                    likes: 6, likedBy: ['정백엔드'], comments: []
+                },
+                {
+                    id: 40, author: '김보안', date: '2023. 12. 14', title: '장애 복구 모의 훈련(카오스 엔지니어링)',
+                    tags: ['보안', '데브옵스', 'QA'], keep: ['메인 DB 페일오버(Failover) 모의 훈련을 통해 시스템의 복원력(Resilience) 검증 완료'],
+                    problem: ['일부 백엔드 서비스가 DB 커넥션 단절 후 재연결(Connection Pool 회복)을 스스로 하지 못하고 다운됨'], try: ['모든 마이크로서비스의 DB 커넥션 풀 설정 전수 검사 및 Health Check 로직 강화'],
+                    likes: 18, likedBy: ['김개발', '송인프라', '정백엔드', '박기획'], comments: [{author: '송인프라', text: '훈련 결과 리포트 공유 부탁드립니다.', date: '2023. 12. 14'}]
+                }
+            ];
+            localStorage.setItem('retro_data_v4', JSON.stringify(rawData));
+        }
+
+        retrospectives = rawData.map(r => ({
+            ...r,
+            tags: r.tags || [],
+            likedBy: r.likedBy || [],
+            comments: r.comments || [],
+            likes: r.likes || 0,
+            keep: Array.isArray(r.keep) ? r.keep : [r.keep],
+            problem: Array.isArray(r.problem) ? r.problem : [r.problem],
+            try: Array.isArray(r.try) ? r.try : [r.try]
+        }));
+    }
+
+    function save() { localStorage.setItem('retro_data_v4', JSON.stringify(retrospectives)); }
+
+    // --- Utils ---
+    function scrollToTop() {
+        const mainEl = document.querySelector('main');
+        if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function showToast(msg, type = 'info') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        const bg = type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-blue-600' : 'bg-gray-800';
+        toast.className = `${bg} text-white px-6 py-4 rounded-2xl shadow-2xl text-xs font-black animate-fadeIn flex items-center gap-3 pointer-events-auto mb-2`;
+        toast.innerHTML = `<span>${msg}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 400); }, 3000);
+    }
+
+    function getTagColorClass(tag) {
+        let h = 0; for(let i=0; i<tag.length; i++) h = tag.charCodeAt(i) + ((h << 5) - h);
+        return `tag-color-${Math.abs(h) % 6}`;
+    }
+
+    // --- Gemini API Logic ---
+    async function callGeminiAPI(prompt, systemInstructionText, retries = 5) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const payload = {
+            contents: [{ parts: [{ text: prompt }] }],
+            systemInstruction: { parts: [{ text: systemInstructionText }] }
+        };
+
+        let delay = 1000;
+        for (let i = 0; i < retries; i++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "분석 결과를 생성하지 못했습니다.";
+            } catch (e) {
+                if (i === retries - 1) throw e;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2;
+            }
+        }
+    }
+
+    async function runAIAnalysis() {
+        if (selectedForCompare.size < 2) return showToast("2개 이상의 회고를 선택해야 AI 분석이 가능합니다.", "error");
+        if (filterTags.size === 0) return showToast("하나 이상의 태그를 선택(필터링)해야 AI 분석이 가능합니다.", "error");
+
+        document.getElementById('ai-summary-tab-container').classList.remove('hidden');
+        switchTab('ai-summary');
+
+        const contentBox = document.getElementById('ai-summary-content');
+        contentBox.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-24 text-purple-600">
+                    <i class="fa-solid fa-spinner fa-spin text-5xl mb-6"></i>
+                    <p class="font-black text-xl animate-pulse tracking-tight">AI가 선택된 회고들을 통합적으로 분석하고 있습니다...</p>
+                    <p class="text-sm text-gray-400 mt-3 font-bold">잠시만 기다려주세요 (최대 10~15초 소요)</p>
+                </div>
+            `;
+
+        const selectedData = retrospectives.filter(r => selectedForCompare.has(r.id));
+
+        // 공통 태그 추출 로직
+        let commonTags = [];
+        if (selectedData.length > 0) {
+            commonTags = selectedData[0].tags.filter(tag => selectedData.every(r => r.tags.includes(tag)));
+        }
+
+        const systemInstruction = `당신은 프로젝트 관리 전문가이자 회고 분석가입니다. 주어진 여러 프로젝트의 회고 데이터를 KPT(Keep, Problem, Try) 기준으로 엄격히 분류하여 요약하고 통찰력 있는 분석을 제공하세요.
+규칙:
+1. 반드시 'Keep', 'Problem', 'Try' 3가지 섹션으로 나누어 답변하세요.
+2. 각 분류별 분석 및 요약 내용은 반드시 4줄 이내로 핵심만 간결하게 작성하세요.
+3. 응답은 마크다운(Markdown) 기호를 전혀 사용하지 말고, 오직 깔끔한 HTML 태그(<h3>, <ul>, <li>, <strong>, <p>, <div>, <span> 등) 구조로만 작성해서 반환하세요.`;
+
+        let promptText = "";
+        if (commonTags.length > 0) {
+            promptText += `선택된 회고들은 공통적으로 [${commonTags.join(', ')}] 주제(태그)를 다루고 있습니다. 이 주제를 중심으로 여러 프로젝트에서 나타난 K, P, T 요소를 통합 분석하고 요약해주세요.\n\n`;
+        } else {
+            promptText += `주어진 다양한 프로젝트의 회고 데이터를 바탕으로 K, P, T 기준에 맞춰 종합적인 분석과 요약을 진행해주세요.\n\n`;
+        }
+
+        if (selectedData.length >= 5) {
+            promptText += `[중요 요청] 제공된 회고 데이터가 5개 이상입니다. 상세 분석 결과 최상단에, 전체 회고에서 공통적으로 빈번하게 등장하는 핵심 단어나 키워드들을 K, P, T 분류별로 추출하여 시각적인 '키워드 인포그래픽' 영역을 먼저 생성해주세요. (HTML <div>와 다채로운 색상의 <span> 뱃지, 이모지를 활용하여 가시성 좋게 꾸며주세요.)\n\n`;
+        }
+
+        promptText += `다음은 특정 주제를 공유하는 여러 프로젝트의 회고 데이터 모음입니다. 이들을 종합적으로 분석하여 공통적인 '주요 성공 요인과 강점', '자주 발생하는 병목이나 문제점', '향후 유사 프로젝트에서 참고할 만한 개선 방향(액션 아이템)'을 중심으로 심도있는 요약 리포트를 작성해주세요.\n\n[선택된 회고 목록]\n`;
+        selectedData.forEach((r, idx) => {
+            promptText += `\n${idx + 1}. 제목: ${r.title} (작성자: ${r.author})\n`;
+            promptText += `  - Keep: ${r.keep.length ? r.keep.join(' / ') : '없음'}\n`;
+            promptText += `  - Problem: ${r.problem.length ? r.problem.join(' / ') : '없음'}\n`;
+            promptText += `  - Try: ${r.try.length ? r.try.join(' / ') : '없음'}\n`;
+        });
+
+        try {
+            const responseText = await callGeminiAPI(promptText, systemInstruction);
+            const cleanHTML = responseText.replace(/```html/g, '').replace(/```/g, '').trim();
+            contentBox.innerHTML = cleanHTML;
+        } catch (err) {
+            contentBox.innerHTML = `
+                    <div class="py-20 text-center text-red-500 font-bold">
+                        <i class="fa-solid fa-triangle-exclamation text-4xl mb-4"></i>
+                        <p class="text-lg">분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>
+                    </div>
+                `;
+        }
+    }
+
+    function closeAISummary() {
+        document.getElementById('ai-summary-tab-container').classList.add('hidden');
+        if (document.getElementById('view-ai-summary').classList.contains('hidden') === false) {
+            switchTab(filterTags.size > 0 ? 'filter' : 'board');
+        }
+    }
+
+    // --- UI Reset ---
+    function resetAuthInputs() {
+        ['auth-id', 'auth-pw', 'auth-pw-confirm', 'auth-nickname'].forEach(id => {
+            const el = document.getElementById(id); if(el) el.value = '';
+        });
+    }
+
+    function resetWriteInputs() {
+        const title = document.getElementById('write-title'); if(title) title.value = '';
+        const tags = document.getElementById('write-tags'); if(tags) tags.value = '';
+        selectedSuggestionTags.clear();
+        ['keep', 'problem', 'try'].forEach(s => {
+            const cont = document.getElementById(`write-${s}-container`);
+            if(cont) {
+                cont.innerHTML = '';
+                addKptInput(s);
+            }
+        });
+        renderSelectedChips();
+        updateTagSuggestions();
+    }
+
+    function renderAITagsChips() {
+        const container = document.getElementById('active-filter-chips');
+        container.innerHTML = '';
+        const selectedData = retrospectives.filter(r => selectedForCompare.has(r.id));
+        let aiTags = new Set();
+        selectedData.forEach(r => r.tags.forEach(t => aiTags.add(t)));
+
+        // 필터링에 사용된 핵심 태그와 나머지 연관 태그를 분리하여 정렬
+        const coreTags = Array.from(aiTags).filter(t => filterTags.has(t)).sort((a, b) => a.localeCompare(b));
+        const otherTags = Array.from(aiTags).filter(t => !filterTags.has(t)).sort((a, b) => a.localeCompare(b));
+
+        // 핵심 태그 우선 렌더링 (강조 스타일 적용)
+        coreTags.forEach(tag => {
+            const chip = document.createElement('span');
+            chip.className = `px-3 py-1.5 rounded-full text-[11px] font-black shadow-md flex items-center gap-1.5 border-2 ring-2 ring-offset-1 ring-purple-300 animate-fadeIn ${getTagColorClass(tag)}`;
+            chip.innerHTML = `<i class="fa-solid fa-star text-yellow-500 drop-shadow-sm"></i> #${tag} <span class="bg-white/60 px-1.5 py-0.5 rounded text-[9px] ml-0.5 border border-current opacity-80">핵심</span>`;
+            container.appendChild(chip);
+        });
+
+        // 나머지 연관 태그 렌더링 (약간 투명하게 처리)
+        otherTags.forEach(tag => {
+            const chip = document.createElement('span');
+            chip.className = `px-3 py-1 rounded-full text-[10px] font-bold shadow-sm flex items-center gap-2 border animate-fadeIn opacity-60 ${getTagColorClass(tag)}`;
+            chip.innerHTML = `#${tag}`;
+            container.appendChild(chip);
+        });
+    }
+
+    // --- Auth Functions ---
+    function toggleAuthMode(mode) {
+        currentAuthMode = mode;
+        resetAuthInputs();
+        document.getElementById('signup-extra-fields').classList.toggle('hidden', mode === 'login');
+        document.getElementById('login-actions').classList.toggle('hidden', mode === 'signup');
+        document.getElementById('signup-actions').classList.toggle('hidden', mode === 'login');
+        document.getElementById('auth-title').textContent = mode === 'login' ? "로그인" : "회원가입";
+    }
+
+    function handleLogin() {
+        const id = document.getElementById('auth-id').value.trim();
+        const pw = document.getElementById('auth-pw').value.trim();
+        if(!users[id] || users[id].pw !== pw) return showToast("계정 정보를 확인하세요.", "error");
+        loginUser(users[id].nickname || id);
+    }
+
+    function handleSignup() {
+        const id = document.getElementById('auth-id').value.trim();
+        const pw = document.getElementById('auth-pw').value.trim();
+        const pwConfirm = document.getElementById('auth-pw-confirm').value.trim();
+        const nick = document.getElementById('auth-nickname').value.trim();
+        if(!id || !pw || !nick) return showToast("필수 정보를 입력하세요.", "error");
+        if(pw !== pwConfirm) return showToast("비밀번호 확인이 일치하지 않습니다.", "error");
+        if(users[id]) return showToast("이미 사용 중인 아이디입니다.", "error");
+        users[id] = { pw, nickname: nick };
+        localStorage.setItem('retro_users_v4', JSON.stringify(users));
+        loginUser(nick);
+    }
+
+    function handleGuestLogin() {
+        showToast("게스트로 입장합니다.");
+        loginUser("게스트");
+    }
+
+    function loginUser(name) {
+        currentUser = name;
+        localStorage.setItem('retro_currentUser_v4', currentUser);
+        resetAuthInputs();
+        updateUserUI();
+        switchTab('board');
+    }
+
+    function logout() {
+        currentUser = '';
+        localStorage.removeItem('retro_currentUser_v4');
+        resetAuthInputs();
+        updateUserUI();
+        switchTab('auth');
+        toggleAuthMode('login');
+    }
+
+    function updateUserUI() {
+        document.getElementById('currentUserDisplay').textContent = currentUser ? `${currentUser} 님` : "로그인 필요";
+        document.getElementById('auth-btn').classList.toggle('hidden', !currentUser);
+        document.getElementById('nav-tabs').classList.toggle('hidden', !currentUser);
+        document.getElementById('tab-write').classList.toggle('hidden', currentUser === '게스트');
+    }
+
+    // --- Navigation ---
+    function switchTab(tab) {
+        ['board', 'write', 'compare', 'auth', 'filter', 'ai-summary'].forEach(t => {
+            const btn = document.getElementById(`tab-${t}`); if(btn) btn.classList.toggle('tab-active', t === tab);
+            const view = document.getElementById(`view-${t}`);
+            if(view) {
+                if (tab === 'filter' && t === 'board') view.classList.remove('hidden');
+                else view.classList.toggle('hidden', t !== tab);
+            }
+        });
+
+        if (tab === 'filter') document.getElementById('view-board').classList.remove('hidden');
+
+        const headerCont = document.getElementById('view-header-container');
+        const hIcon = document.getElementById('header-icon');
+        const hIconBox = document.getElementById('header-icon-box');
+        const hTitle = document.getElementById('view-title');
+        const hDesc = document.getElementById('view-desc');
+        const compareAllBtn = document.getElementById('btn-compare-all');
+        const compareBtn = document.getElementById('btn-do-compare');
+        const aiBtn = document.getElementById('btn-ai-analyze');
+        const clearSelBtn = document.getElementById('btn-clear-selection');
+        const backBtn = document.getElementById('btn-back-to-board');
+        const activeFilterChipsContainer = document.getElementById('active-filter-chips');
+
+        if (activeFilterChipsContainer) {
+            if (tab === 'filter') {
+                activeFilterChipsContainer.classList.remove('opacity-0', 'pointer-events-none');
+                renderFilterChips();
+            } else if (tab === 'ai-summary') {
+                activeFilterChipsContainer.classList.remove('opacity-0', 'pointer-events-none');
+                renderAITagsChips();
+            } else {
+                activeFilterChipsContainer.classList.add('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        if (tab === 'auth') headerCont.classList.add('hidden');
+        else {
+            headerCont.classList.remove('hidden');
+            backBtn.classList.add('hidden');
+            compareBtn.classList.add('hidden');
+            compareAllBtn.classList.add('hidden');
+            aiBtn.classList.add('hidden');
+            if(clearSelBtn) clearSelBtn.classList.add('hidden');
+            hIconBox.className = "bg-blue-500 text-white p-2.5 rounded-xl shadow-sm";
+
+            if(tab === 'board' || tab === 'filter') {
+                hIcon.className = "fa-solid fa-layer-group";
+                hTitle.textContent = tab === 'filter' ? "필터링 결과" : "전체 회고";
+                hDesc.textContent = "다양한 프로젝트 경험이 담긴 생생한 회고들을 만나보세요.";
+                compareBtn.classList.remove('hidden');
+                aiBtn.classList.remove('hidden');
+                if(clearSelBtn) clearSelBtn.classList.remove('hidden');
+
+                updateCompareBtn();
+
+                if (tab === 'filter') {
+                    let data = retrospectives.filter(r => Array.from(filterTags).every(t => r.tags.includes(t)));
+                    if (data.length >= 2) compareAllBtn.classList.remove('hidden');
+                }
+
+            } else if(tab === 'write') {
+                hIcon.className = "fa-solid fa-pen-nib";
+                hTitle.textContent = editingRetroId ? "회고 수정" : "내 회고 작성";
+                hDesc.textContent = editingRetroId ? "기존에 작성한 내용을 수정합니다." : "오늘의 배움과 성장을 기록하세요.";
+                document.getElementById('btn-write-submit').textContent = editingRetroId ? "수정 완료" : "회고 등록하기";
+                if (!editingRetroId) resetWriteInputs();
+            } else if(tab === 'compare') {
+                hIcon.className = "fa-solid fa-code-compare";
+                hTitle.textContent = "비교 분석";
+                hDesc.textContent = "선택한 회고들을 병렬로 비교 분석합니다.";
+                backBtn.classList.remove('hidden');
+                backBtn.textContent = "목록으로 돌아가기";
+                backBtn.className = "bg-blue-600 hover:bg-blue-700 text-white px-6 py-3.5 rounded-2xl text-sm font-black transition shadow-xl shadow-blue-100";
+            } else if(tab === 'ai-summary') {
+                hIcon.className = "fa-solid fa-wand-magic-sparkles";
+                hIconBox.className = "bg-purple-600 text-white p-2.5 rounded-xl shadow-sm shadow-purple-200";
+                hTitle.textContent = "AI 통합 분석 리포트";
+                hDesc.textContent = "선택된 회고들을 바탕으로 도출된 통합 인사이트입니다.";
+                backBtn.classList.remove('hidden');
+                backBtn.textContent = "목록으로 돌아가기";
+                backBtn.className = "bg-gray-800 hover:bg-gray-900 text-white px-6 py-3.5 rounded-2xl text-sm font-black transition shadow-xl shadow-gray-200";
+            }
+        }
+
+        const filterCont = document.getElementById('filter-tab-container');
+        filterCont.classList.toggle('hidden', filterTags.size === 0);
+
+        if (tab !== 'ai-summary') {
+            document.getElementById('tab-ai-summary').classList.remove('tab-active');
+        }
+
+        if (tab === 'board' || tab === 'filter') renderBoard();
+        if (tab === 'compare') renderCompareView();
+
+        scrollToTop();
+    }
+
+    function setFilter(tag) {
+        if (filterTags.has(tag)) filterTags.delete(tag); else filterTags.add(tag);
+        renderFilterChips();
+        switchTab(filterTags.size > 0 ? 'filter' : 'board');
+    }
+
+    function renderFilterChips() {
+        const container = document.getElementById('active-filter-chips');
+        container.innerHTML = '';
+        filterTags.forEach(tag => {
+            const chip = document.createElement('span');
+            chip.className = `px-3 py-1 rounded-full text-[10px] font-black shadow-sm flex items-center gap-2 border cursor-pointer animate-fadeIn ${getTagColorClass(tag)}`;
+            chip.innerHTML = `#${tag} <i class="fa-solid fa-xmark opacity-50"></i>`;
+            chip.onclick = () => setFilter(tag);
+            container.appendChild(chip);
+        });
+    }
+
+    function clearFilter() {
+        filterTags.clear();
+        renderFilterChips();
+        switchTab('board');
+    }
+
+    // --- Board & Interaction ---
+    function renderBoard() {
+        const grid = document.getElementById('retroGrid');
+        grid.innerHTML = '';
+        let data = filterTags.size > 0 ? retrospectives.filter(r => Array.from(filterTags).every(t => r.tags.includes(t))) : retrospectives;
+
+        if (filterTags.size > 0) {
+            const countSpan = document.getElementById('filter-count');
+            if (countSpan) countSpan.textContent = data.length;
+        }
+
+        if (!data.length) { grid.innerHTML = `<div class="py-20 text-center text-gray-400 font-bold">내용이 없습니다.</div>`; return; }
+
+        [...data].sort((a,b)=>b.id-a.id).forEach(retro => {
+            const isLiked = retro.likedBy.includes(currentUser);
+            const isExp = expandedCards.has(retro.id);
+            const card = document.createElement('div');
+            card.id = `card-${retro.id}`;
+            card.className = `group bg-white rounded-[2.5rem] border-2 border-gray-100 shadow-sm transition-all duration-300 hover:border-blue-200 overflow-hidden ${isExp ? 'card-expanded' : ''}`;
+
+            const getSum = (list) => list.length ? list[0] : '내용 없음';
+            const sortedTags = [...retro.tags].sort((a, b) => a.localeCompare(b));
+
+            card.innerHTML = `
+                    <div class="p-8 cursor-pointer relative" onclick="toggleCard(${retro.id}, event)">
+                        <div class="absolute top-8 right-8 no-toggle" onclick="event.stopPropagation();">
+                            <input type="checkbox" class="w-7 h-7 rounded-xl cursor-pointer accent-blue-500" ${selectedForCompare.has(retro.id)?'checked':''} onchange="toggleCompare(${retro.id}, this.checked)">
+                        </div>
+                        <div class="flex flex-wrap items-center gap-4 mb-4 pr-12">
+                            <h3 class="font-black text-2xl text-gray-900 tracking-tight line-clamp-1">${retro.title}</h3>
+                            <div class="flex gap-2 items-center header-stats ${isExp ? 'hidden' : ''}">
+                                <div class="interaction-badge ${isLiked?'text-pink-500 border-pink-100':''}"><i class="${isLiked?'fa-solid':'fa-regular'} fa-heart"></i> ${retro.likes}</div>
+                                <div class="interaction-badge"><i class="fa-regular fa-comment"></i> ${retro.comments.length}</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-lg">${retro.author.charAt(0)}</div>
+                            <div><strong class="text-gray-900 text-sm font-black">${retro.author}</strong><p class="text-gray-400 text-[10px] font-black uppercase tracking-widest">${retro.date}</p></div>
+                        </div>
+                        <div class="flex flex-wrap gap-2 mb-6 no-toggle">
+                            ${sortedTags.map(t => `<span class="tag-pill px-4 py-1.5 border-2 rounded-xl text-[10px] font-black shadow-sm ${filterTags.has(t)?'ring-2 ring-blue-400 border-blue-400':''} ${getTagColorClass(t)}" onclick="event.stopPropagation(); setFilter('${t}')">#${t}</span>`).join('')}
+                        </div>
+                        <div class="card-summary space-y-3 ${isExp ? 'hidden' : ''}">
+                            <div class="flex items-center gap-4"><div class="flex items-center gap-2 text-blue-600 font-black text-xs w-24 flex-shrink-0"><i class="fa-solid fa-circle-check"></i> KEEP</div><span class="text-xs font-bold text-gray-600 truncate">${getSum(retro.keep)}</span></div>
+                            <div class="flex items-center gap-4"><div class="flex items-center gap-2 text-red-600 font-black text-xs w-24 flex-shrink-0"><i class="fa-solid fa-circle-exclamation"></i> PROBLEM</div><span class="text-xs font-bold text-gray-600 truncate">${getSum(retro.problem)}</span></div>
+                            <div class="flex items-center gap-4"><div class="flex items-center gap-2 text-green-600 font-black text-xs w-24 flex-shrink-0"><i class="fa-solid fa-lightbulb"></i> TRY</div><span class="text-xs font-bold text-gray-600 truncate">${getSum(retro.try)}</span></div>
+                        </div>
+                        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 text-gray-300 chevron-icon transition-transform" style="${isExp ? 'transform: rotate(180deg)' : ''}"><i class="fa-solid fa-chevron-down text-xs"></i></div>
+                    </div>
+                    <div class="card-details border-t-2 border-gray-100 bg-gray-50/30">
+                        <div class="p-8 space-y-8">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div class="bg-blue-50/40 p-6 rounded-[2rem] border border-blue-100">
+                                    <div class="flex items-center gap-2 text-blue-600 font-black text-sm mb-4"><i class="fa-solid fa-circle-check"></i> KEEP</div>
+                                    ${retro.keep.length ? `<div class="space-y-3">${retro.keep.map(k => `<div class="bg-white p-4 rounded-2xl text-sm font-bold text-gray-700 leading-relaxed shadow-sm">${k}</div>`).join('')}</div>` : `<div class="flex items-center gap-2 text-gray-400 italic font-medium p-4 bg-white rounded-2xl border border-dashed border-gray-200"><i class="fa-solid fa-ghost opacity-50"></i> 내용 없음</div>`}
+                                </div>
+                                <div class="bg-red-50/40 p-6 rounded-[2rem] border border-red-100">
+                                    <div class="flex items-center gap-2 text-red-600 font-black text-sm mb-4"><i class="fa-solid fa-circle-exclamation"></i> PROBLEM</div>
+                                    ${retro.problem.length ? `<div class="space-y-3">${retro.problem.map(p => `<div class="bg-white p-4 rounded-2xl text-sm font-bold text-gray-700 leading-relaxed shadow-sm">${p}</div>`).join('')}</div>` : `<div class="flex items-center gap-2 text-gray-400 italic font-medium p-4 bg-white rounded-2xl border border-dashed border-gray-200"><i class="fa-solid fa-ghost opacity-50"></i> 내용 없음</div>`}
+                                </div>
+                                <div class="bg-green-50/40 p-6 rounded-[2rem] border border-green-100">
+                                    <div class="flex items-center gap-2 text-green-600 font-black text-sm mb-4"><i class="fa-solid fa-lightbulb"></i> TRY</div>
+                                    ${retro.try.length ? `<div class="space-y-3">${retro.try.map(t => `<div class="bg-white p-4 rounded-2xl text-sm font-bold text-gray-700 leading-relaxed shadow-sm">${t}</div>`).join('')}</div>` : `<div class="flex items-center gap-2 text-gray-400 italic font-medium p-4 bg-white rounded-2xl border border-dashed border-gray-200"><i class="fa-solid fa-ghost opacity-50"></i> 내용 없음</div>`}
+                                </div>
+                            </div>
+                            <div class="pt-8 border-t border-gray-200 bg-white rounded-3xl p-6 shadow-sm no-toggle" onclick="event.stopPropagation();">
+                                <div class="flex items-center mb-6">
+                                    <div class="flex gap-4">
+                                        <button class="flex items-center gap-2 text-sm font-black transition ${isLiked?'text-pink-500':'text-gray-400'}" onclick="toggleLike(${retro.id})"><i class="${isLiked?'fa-solid':'fa-regular'} fa-heart text-xl"></i> ${retro.likes}</button>
+                                        <div class="flex items-center gap-2 text-sm font-black text-gray-400"><i class="fa-regular fa-comment text-xl"></i> ${retro.comments.length}</div>
+                                    </div>
+                                    ${retro.author === currentUser ? `
+                                    <div class="ml-auto flex gap-2">
+                                        <button class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-xs font-black transition shadow-sm" onclick="editRetro(${retro.id})"><i class="fa-solid fa-pen mr-1"></i>수정</button>
+                                        <div class="relative inline-block">
+                                            <button class="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl text-xs font-black transition shadow-sm" onclick="showDeleteConfirm(${retro.id})"><i class="fa-solid fa-trash mr-1"></i>삭제</button>
+                                            <div id="delete-confirm-${retro.id}" class="hidden absolute bottom-full right-0 mb-3 w-40 bg-white p-3 rounded-2xl shadow-2xl border border-gray-100 z-50 animate-fadeIn text-center">
+                                                <p class="text-xs font-black text-gray-800 mb-3">정말 삭제하시겠습니까?</p>
+                                                <div class="flex gap-2 justify-center">
+                                                    <button class="px-3 py-1.5 bg-red-500 text-white rounded-lg text-[10px] font-black hover:bg-red-600 shadow-sm" onclick="deleteRetro(${retro.id})">삭제</button>
+                                                    <button class="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-[10px] font-black hover:bg-gray-200" onclick="hideDeleteConfirm(${retro.id})">취소</button>
+                                                </div>
+                                                <div class="absolute top-full right-4 transform -mt-1.5 w-3 h-3 bg-white border-b border-r border-gray-100 rotate-45"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    ` : ''}
+                                </div>
+                                <div class="space-y-3 mb-6">${retro.comments.map(c => `<div class="bg-gray-50 p-4 rounded-2xl flex gap-3"><div class="w-8 h-8 bg-gray-200 rounded-xl flex-shrink-0 flex items-center justify-center text-xs font-black text-gray-500 uppercase">${c.author.charAt(0)}</div><div><strong class="text-xs font-black">${c.author}</strong><p class="text-sm font-bold text-gray-600 mt-1 leading-relaxed">${c.text}</p></div></div>`).join('')}</div>
+                                <div class="flex gap-2 relative no-toggle"><input type="text" id="comment-input-${retro.id}" class="w-full bg-gray-50 border-2 border-transparent rounded-2xl pl-5 pr-20 py-4 text-xs font-bold outline-none focus:border-blue-300 focus:bg-white transition" placeholder="작성자에게 피드백을 남겨주세요..."><button class="absolute right-2 top-2 bottom-2 bg-gray-900 text-white px-5 rounded-xl text-xs font-black" onclick="addComment(${retro.id})">등록</button></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            grid.appendChild(card);
+        });
+        updateCompareBtn();
+    }
+
+    function toggleCard(id, event) {
+        if (event.target.closest('.no-toggle')) return;
+        if (expandedCards.has(id)) expandedCards.delete(id); else expandedCards.add(id);
+        renderBoard();
+    }
+
+    function toggleLike(id) {
+        const r = retrospectives.find(it => it.id === id);
+        const idx = r.likedBy.indexOf(currentUser);
+        if (idx > -1) { r.likedBy.splice(idx,1); r.likes--; }
+        else { r.likedBy.push(currentUser); r.likes++; }
+        save(); renderBoard();
+    }
+
+    function addComment(id) {
+        const inp = document.getElementById(`comment-input-${id}`);
+        const text = inp.value.trim(); if(!text) return;
+        const r = retrospectives.find(it => it.id === id);
+        r.comments.push({ author: currentUser, text, date: new Date().toLocaleDateString() });
+        save(); renderBoard();
+    }
+
+    // --- Edit & Delete Logic ---
+    function showDeleteConfirm(id) {
+        const popup = document.getElementById(`delete-confirm-${id}`);
+        if (popup) popup.classList.remove('hidden');
+    }
+
+    function hideDeleteConfirm(id) {
+        const popup = document.getElementById(`delete-confirm-${id}`);
+        if (popup) popup.classList.add('hidden');
+    }
+
+    function deleteRetro(id) {
+        retrospectives = retrospectives.filter(it => it.id !== id);
+        selectedForCompare.delete(id);
+        expandedCards.delete(id);
+        save();
+        showToast("게시글이 삭제되었습니다.", "success");
+        renderBoard();
+        updateCompareBtn();
+        scrollToTop();
+    }
+
+    function editRetro(id) {
+        const r = retrospectives.find(it => it.id === id);
+        if (!r) return;
+        editingRetroId = id;
+
+        switchTab('write');
+
+        document.getElementById('write-title').value = r.title;
+        selectedSuggestionTags.clear();
+        r.tags.forEach(t => selectedSuggestionTags.add(t));
+        renderSelectedChips();
+        updateTagSuggestions();
+
+        ['keep', 'problem', 'try'].forEach(key => {
+            const cont = document.getElementById(`write-${key}-container`);
+            cont.innerHTML = '';
+            if (r[key].length === 0) {
+                addKptInput(key);
+            } else {
+                r[key].forEach(val => {
+                    addKptInput(key);
+                    const inputs = cont.querySelectorAll(`.write-${key}-input`);
+                    inputs[inputs.length - 1].value = val;
+                });
+            }
+        });
+    }
+
+    function toggleCompare(id, check) {
+        if(check) selectedForCompare.add(id); else selectedForCompare.delete(id);
+        updateCompareBtn();
+    }
+
+    function selectAllFiltered() {
+        let data = filterTags.size > 0 ? retrospectives.filter(r => Array.from(filterTags).every(t => r.tags.includes(t))) : [];
+        if (data.length < 2) return;
+
+        selectedForCompare.clear();
+        data.forEach(r => selectedForCompare.add(r.id));
+
+        updateCompareBtn();
+        renderBoard();
+        showToast("필터링된 모든 결과가 선택되었습니다.", "success");
+    }
+
+    function updateCompareBtn() {
+        const count = selectedForCompare.size;
+        document.getElementById('compareCount').textContent = count;
+
+        const btn = document.getElementById('btn-do-compare');
+        const aiBtn = document.getElementById('btn-ai-analyze');
+        if(btn) btn.disabled = count < 2;
+        if(aiBtn) aiBtn.disabled = count < 2 || filterTags.size === 0;
+
+        const tab = document.getElementById('tab-compare');
+        if(tab) tab.classList.toggle('hidden', count < 2);
+
+        const clearBtn = document.getElementById('btn-clear-selection');
+        if(clearBtn) {
+            clearBtn.disabled = count === 0;
+            document.getElementById('selected-count-display').textContent = count;
+
+            const badge = document.getElementById('selected-count-display');
+            if (count > 0) {
+                badge.classList.remove('bg-gray-300', 'text-gray-700');
+                badge.classList.add('bg-blue-500', 'text-white');
+            } else {
+                badge.classList.add('bg-gray-300', 'text-gray-700');
+                badge.classList.remove('bg-blue-500', 'text-white');
+            }
+        }
+    }
+
+    function clearSelection() {
+        selectedForCompare.clear();
+        updateCompareBtn();
+        renderBoard();
+    }
+
+    function goToCompare() { switchTab('compare'); }
+
+    // --- Write View Logic ---
+    function addKptInput(section) {
+        const container = document.getElementById(`write-${section}-container`);
+        const div = document.createElement('div');
+        div.className = "flex items-center gap-2 animate-fadeIn";
+        div.innerHTML = `<input type="text" class="write-${section}-input w-full bg-white border-2 border-${section==='keep'?'blue':section==='problem'?'red':'green'}-100 rounded-2xl px-5 py-3.5 text-sm font-bold outline-none focus:ring-2 focus:ring-${section==='keep'?'blue':section==='problem'?'red':'green'}-400 shadow-sm" placeholder="내용 입력"><button class="text-gray-300 hover:text-red-500 transition-colors no-toggle" onclick="this.parentElement.remove()"><i class="fa-solid fa-circle-minus text-xl"></i></button>`;
+        container.appendChild(div);
+    }
+
+    function updateTagSuggestions() {
+        const counts = {}; retrospectives.forEach(r => r.tags.forEach(t => counts[t] = (counts[t]||0)+1));
+        const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+        const container = document.getElementById('tag-buttons-container');
+        container.innerHTML = '';
+        sorted.forEach(([tag, count]) => {
+            const btn = document.createElement('button');
+            const isActive = selectedSuggestionTags.has(tag);
+            btn.className = `tag-pill px-4 py-2 border-2 rounded-xl text-xs font-black shadow-sm transition ${getTagColorClass(tag)} ${isActive?'ring-4 ring-blue-500/30':''}`;
+            btn.innerHTML = `#${tag} <span class="opacity-50 ml-1">${count}</span>`;
+            btn.onclick = () => { if(selectedSuggestionTags.has(tag)) selectedSuggestionTags.delete(tag); else selectedSuggestionTags.add(tag); updateTagSuggestions(); renderSelectedChips(); };
+            container.appendChild(btn);
+        });
+    }
+
+    function renderSelectedChips() {
+        const container = document.getElementById('selected-tags-chips');
+        container.innerHTML = '';
+        selectedSuggestionTags.forEach(t => {
+            const chip = document.createElement('span');
+            chip.className = `px-4 py-1.5 rounded-full text-[10px] font-black shadow-sm flex items-center gap-2 ${getTagColorClass(t)}`;
+            chip.innerHTML = `#${t} <i class="fa-solid fa-lock text-[8px] opacity-30"></i>`;
+            container.appendChild(chip);
+        });
+    }
+
+    function submitRetrospective() {
+        const title = document.getElementById('write-title').value.trim();
+        const manual = document.getElementById('write-tags').value.split(',').map(t=>t.trim()).filter(t=>t);
+        const allTags = [...new Set([...selectedSuggestionTags, ...manual])];
+        const keep = Array.from(document.querySelectorAll('.write-keep-input')).map(i=>i.value.trim()).filter(i=>i);
+        const problem = Array.from(document.querySelectorAll('.write-problem-input')).map(i=>i.value.trim()).filter(i=>i);
+        const tries = Array.from(document.querySelectorAll('.write-try-input')).map(i=>i.value.trim()).filter(i=>i);
+
+        if(!title || (!keep.length && !problem.length && !tries.length)) return showToast("제목과 최소 1개 이상의 내용을 적어주세요.", "error");
+
+        if (editingRetroId) {
+            const index = retrospectives.findIndex(r => r.id === editingRetroId);
+            if (index > -1) {
+                retrospectives[index].title = title;
+                retrospectives[index].tags = allTags;
+                retrospectives[index].keep = keep;
+                retrospectives[index].problem = problem;
+                retrospectives[index].try = tries;
+            }
+            editingRetroId = null;
+            showToast("성공적으로 수정되었습니다!", "success");
+        } else {
+            retrospectives.push({ id: Date.now(), author: currentUser, date: new Date().toLocaleDateString(), title, tags: allTags, keep, problem, try: tries, likes: 0, likedBy: [], comments: [] });
+            showToast("성공적으로 등록되었습니다!", "success");
+        }
+
+        save(); switchTab('board');
+    }
+
+    // --- Compare View ---
+    function renderCompareView() {
+        const items = retrospectives.filter(r => selectedForCompare.has(r.id));
+        const thead = document.getElementById('compare-thead');
+        const tbody = document.getElementById('compare-tbody');
+        thead.innerHTML = `<tr><th class="p-6 border-r text-[10px] font-black uppercase text-gray-400 bg-gray-50/50 w-32 text-center tracking-widest align-top pt-10">CATEGORY</th>${items.map(it => {
+            const sortedTags = [...it.tags].sort((a, b) => a.localeCompare(b));
+            return `
+                <th class="p-8 border-r min-w-[320px] bg-white relative align-top">
+                    <button class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition disabled:opacity-20 disabled:cursor-not-allowed no-toggle" ${items.length <= 2 ? 'disabled' : ''} onclick="toggleCompare(${it.id}, false); renderCompareView();"><i class="fa-solid fa-xmark"></i></button>
+                    <div class="space-y-4">
+                        <div class="text-base font-black text-blue-600 flex items-center gap-2.5 mb-1">
+                            <div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-xs border border-blue-100 shadow-sm font-bold text-blue-600">${it.author.charAt(0)}</div>
+                            ${it.author}
+                        </div>
+                        <div class="text-xl font-black text-gray-900 leading-tight">${it.title}</div>
+                        <div class="flex flex-wrap gap-1">${sortedTags.map(t => `<span class="px-2 py-0.5 border-2 rounded-lg text-[10px] font-black ${getTagColorClass(t)}">#${t}</span>`).join('')}</div>
+                    </div>
+                </th>`;
+        }).join('')}</tr>`;
+        tbody.innerHTML = '';
+
+        const iconMap = {
+            keep: { icon: 'fa-solid fa-circle-check', color: 'text-blue-500' },
+            problem: { icon: 'fa-solid fa-circle-exclamation', color: 'text-red-500' },
+            try: { icon: 'fa-solid fa-lightbulb', color: 'text-green-500' }
+        };
+
+        ['keep', 'problem', 'try'].forEach(key => {
+            const { icon, color } = iconMap[key];
+            let row = `<tr><td class="p-8 font-black text-center border-r uppercase text-xs ${key==='keep'?'text-blue-600 bg-blue-50/30':key==='problem'?'text-red-600 bg-red-50/30':'text-green-600 bg-green-50/30'} align-middle"><div class="flex flex-col items-center gap-1"><i class="${icon} text-lg mb-1"></i>${key}</div></td>`;
+            items.forEach(it => {
+                const content = it[key].length
+                    ? `<div class="space-y-3">${it[key].map(c => `
+                            <div class="bg-white p-4 rounded-2xl text-sm font-bold text-gray-700 leading-relaxed shadow-sm flex gap-3 items-start border border-gray-50">
+                                <i class="${icon} ${color} mt-0.5 opacity-80"></i>
+                                <span>${c}</span>
+                            </div>`).join('')}</div>`
+                    : `<div class="flex items-center gap-2 text-gray-400 italic font-medium p-4 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200"><i class="fa-solid fa-ghost opacity-50"></i> 내용 없음</div>`;
+                row += `<td class="p-8 border-r bg-white align-top">${content}</td>`;
+            });
+            tbody.innerHTML += row + `</tr>`;
+        });
+    }
+
+    // --- Init ---
+    function setupEvents() {
+        // 로그인/회원가입 엔터 키 바인딩
+        document.getElementById('auth-id').addEventListener('keydown', (e) => { if(e.key === 'Enter') handleLogin(); });
+        document.getElementById('auth-pw').addEventListener('keydown', (e) => { if(e.key === 'Enter') handleLogin(); });
+        document.getElementById('auth-pw-confirm').addEventListener('keydown', (e) => { if(e.key === 'Enter') handleSignup(); });
+        document.getElementById('auth-nickname').addEventListener('keydown', (e) => { if(e.key === 'Enter') handleSignup(); });
+
+        document.getElementById('btn-login').onclick = handleLogin;
+        document.getElementById('btn-show-signup').onclick = () => toggleAuthMode('signup');
+        document.getElementById('btn-cancel-signup').onclick = () => toggleAuthMode('login');
+        document.getElementById('btn-complete-signup').onclick = handleSignup;
+        document.getElementById('btn-guest').onclick = handleGuestLogin;
+        document.getElementById('auth-btn').onclick = logout;
+        document.getElementById('tab-board').onclick = () => { clearFilter(); switchTab('board'); };
+        document.getElementById('tab-write').onclick = () => switchTab('write');
+        document.getElementById('tab-compare').onclick = () => switchTab('compare');
+        document.getElementById('tab-ai-summary').onclick = () => switchTab('ai-summary');
+        document.getElementById('tab-filter').onclick = (e) => {
+            if(!e.target.classList.contains('fa-circle-xmark')) switchTab('filter');
+        };
+        document.getElementById('btn-compare-all').onclick = selectAllFiltered;
+        document.getElementById('btn-do-compare').onclick = goToCompare;
+        document.getElementById('btn-back-to-board').onclick = () => switchTab(filterTags.size > 0 ? 'filter' : 'board');
+        document.getElementById('btn-write-cancel').onclick = () => { editingRetroId = null; switchTab(filterTags.size > 0 ? 'filter' : 'board'); };
+        document.getElementById('btn-write-submit').onclick = submitRetrospective;
+        document.querySelectorAll('.action-add-item').forEach(b => b.onclick = (e) => addKptInput(e.currentTarget.dataset.section));
+    }
+
+    window.onload = function() { load(); setupEvents(); updateUserUI(); if(!currentUser) switchTab('auth'); else switchTab('board'); };
+</script>
+</body>
+</html>

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixel Jump King</title>
+    <style>
+        :root {
+            --pixel-size: 4px;
+            --bg-color: #1a1a2e;
+            --font-main: 'Courier New', Courier, monospace;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: var(--font-main);
+            color: white;
+            user-select: none;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 450px;
+            height: 100%;
+            max-height: 800px;
+            background-color: var(--bg-color);
+            border: 4px solid #444;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            pointer-events: none;
+            display: flex;
+            justify-content: space-between;
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        .stat-box {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 10px;
+            border: 2px solid #fff;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+
+        #overlay.hidden {
+            display: none;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: #f1c40f;
+            text-align: center;
+        }
+
+        .btn {
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            background: #e74c3c;
+            color: white;
+            border: 4px solid #c0392b;
+            cursor: pointer;
+            font-family: var(--font-main);
+            margin-top: 20px;
+            pointer-events: auto;
+        }
+
+        .btn:hover {
+            background: #ff5e4d;
+        }
+
+        #instructions {
+            font-size: 0.9rem;
+            text-align: center;
+            margin-top: 20px;
+            line-height: 1.5;
+            color: #ccc;
+        }
+
+        #charge-bar-container {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 20px;
+            background: #333;
+            border: 2px solid #fff;
+            display: none;
+        }
+
+        #charge-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(to right, #2ecc71, #f1c40f, #e74c3c);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui-layer">
+            <div class="stat-box">높이: <span id="current-height">0</span>m</div>
+            <div class="stat-box">최고: <span id="best-height">0</span>m</div>
+        </div>
+
+        <div id="charge-bar-container">
+            <div id="charge-bar"></div>
+        </div>
+
+        <div id="overlay">
+            <h1 id="overlay-title">PIXEL JUMP KING</h1>
+            <div id="final-score" class="hidden">최종 높이: 0m</div>
+            <button id="start-btn" class="btn">게임 시작</button>
+            <div id="instructions">
+                [PC] 좌우 방향키: 이동 / Space: 점프 충전<br>
+                [Mobile] 좌우 터치: 이동 / 중앙 터치 유지: 점프 충전
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * Pixel Jump King - Core Logic
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const currentHeightEl = document.getElementById('current-height');
+const bestHeightEl = document.getElementById('best-height');
+const chargeBarContainer = document.getElementById('charge-bar-container');
+const chargeBar = document.getElementById('charge-bar');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('start-btn');
+const finalScoreEl = document.getElementById('final-score');
+const overlayTitle = document.getElementById('overlay-title');
+
+// Asset Loading
+const hazardImg = new Image();
+hazardImg.src = 'https://lh3.googleusercontent.com/d/1pnLtQ6BO3OAdVX0kbejj6N5jiTx51qLC';
+let hazardImgLoaded = false;
+hazardImg.onload = () => { hazardImgLoaded = true; };
+
+const charImg = new Image();
+charImg.src = 'https://lh3.googleusercontent.com/u/0/d/1CqIDrxcCLKwdXT8Y_BhVbk7ROdBYcjuf=w1000-h1000';
+let charImgLoaded = false;
+charImg.onload = () => { charImgLoaded = true; };
+
+// Constants
+const GRAVITY = 0.25;
+const FRICTION = 0.85;
+const MAX_CHARGE = 100;
+const CHARGE_SPEED = 2;
+const JUMP_FORCE_MULTIPLIER = 0.15;
+const SIDE_JUMP_MULTIPLIER = 0.08;
+
+// State
+let gameState = 'MENU'; 
+let score = 0;
+let bestScore = localStorage.getItem('pixelJumpBest') || 0;
+bestHeightEl.innerText = bestScore;
+
+let player = {
+    x: 0,
+    y: 0,
+    width: 96,
+    height: 96, 
+    vx: 0,
+    vy: 0,
+    isGrounded: false,
+    charging: false,
+    chargeLevel: 0,
+    hasJumpedOnce: false, 
+    color: '#3498db',
+    facing: 'left' 
+};
+
+let platforms = [];
+let hazards = [];
+let cameraY = 0;
+const VIEWPORT_W = 400;
+const VIEWPORT_H = 600;
+
+// Input
+const keys = {};
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+let isTouching = false;
+let touchX = 0;
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    isTouching = true;
+    touchX = e.touches[0].clientX;
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    touchX = e.touches[0].clientX;
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    isTouching = false;
+}, { passive: false });
+
+function init() {
+    canvas.width = VIEWPORT_W;
+    canvas.height = VIEWPORT_H;
+    
+    const startGroundY = VIEWPORT_H - 140;
+
+    player.x = VIEWPORT_W / 2 - player.width / 2;
+    player.y = startGroundY; 
+    player.vx = 0;
+    player.vy = 0;
+    player.chargeLevel = 0;
+    player.charging = false;
+    player.hasJumpedOnce = false; 
+    player.facing = 'left';
+    player.isGrounded = true; 
+    
+    cameraY = 0;
+    score = 0;
+    currentHeightEl.innerText = 0;
+    
+    platforms = [];
+    hazards = [];
+    
+    // Initial Platform
+    platforms.push({
+        x: player.x - 10, 
+        y: startGroundY + player.height, 
+        width: player.width + 20, 
+        height: 15, 
+        type: 'fixed', 
+        color: '#7f8c8d',
+        active: true
+    });
+    
+    generateLevel(0, 50000); 
+}
+
+function generateLevel(startY, endY) {
+    let currentY = VIEWPORT_H - 250; 
+    while (currentY > -endY) {
+        const width = 80 + Math.random() * 50; 
+        const x = Math.random() * (VIEWPORT_W - width);
+        let currentMeters = Math.floor((VIEWPORT_H - 140 - currentY) / 10);
+        
+        let type = 'fixed';
+        let color = '#7f8c8d';
+        const rand = Math.random();
+        
+        if (currentMeters >= 300) {
+            if (rand > 0.8) {
+                type = 'moving';
+                color = '#3498db';
+            } else if (rand > 0.65) {
+                type = 'vanishing';
+                color = '#9b59b6';
+            }
+        }
+
+        platforms.push({
+            x: x,
+            y: currentY,
+            originalX: x,
+            originalY: currentY,
+            width: width,
+            height: 15,
+            type: type,
+            color: color,
+            vMoveRange: (type === 'moving' ? 80 + Math.random() * 70 : 0),
+            hMoveRange: (type === 'moving' ? 40 + Math.random() * 40 : 0),
+            moveSpeed: 0.002 + Math.random() * 0.003,
+            timer: Math.random() * 10,
+            active: true,
+            vanishingTimer: 0
+        });
+
+        // Generate Hazards
+        if (currentMeters >= 300 && Math.random() > 0.82) {
+            const hSize = 75 + Math.random() * 25; 
+            const moveType = Math.random() > 0.5 ? 'vertical' : 'horizontal';
+            
+            hazards.push({
+                x: Math.random() * (VIEWPORT_W - hSize),
+                y: currentY - 100,
+                originalX: 0,
+                originalY: currentY - 100,
+                width: hSize,
+                height: hSize,
+                moveType: moveType,
+                moveRange: moveType === 'vertical' ? 60 + Math.random() * 40 : 80 + Math.random() * 40,
+                moveSpeed: 0.002 + Math.random() * 0.002,
+                timeOffset: Math.random() * 1000,
+                prevX: 0 // To detect movement direction
+            });
+            let lastH = hazards[hazards.length - 1];
+            lastH.originalX = lastH.x;
+            lastH.prevX = lastH.x;
+        }
+
+        currentY -= (140 + Math.random() * 130); 
+    }
+}
+
+function update() {
+    if (gameState !== 'PLAYING') return;
+
+    let moveDir = 0;
+    if (keys['ArrowLeft']) moveDir = -1;
+    if (keys['ArrowRight']) moveDir = 1;
+
+    if (isTouching) {
+        const rect = canvas.getBoundingClientRect();
+        const relativeX = (touchX - rect.left) / rect.width * VIEWPORT_W;
+        if (relativeX < VIEWPORT_W * 0.3) moveDir = -1;
+        else if (relativeX > VIEWPORT_W * 0.7) moveDir = 1;
+    }
+
+    const jumpPressed = keys['Space'] || (isTouching && touchX > VIEWPORT_W * 0.3 && touchX < VIEWPORT_W * 0.7);
+    
+    if (player.isGrounded) {
+        if (jumpPressed) {
+            player.charging = true;
+            player.chargeLevel = Math.min(player.chargeLevel + CHARGE_SPEED, MAX_CHARGE);
+            chargeBarContainer.style.display = 'block';
+            chargeBar.style.width = player.chargeLevel + '%';
+            player.vx *= 0.5;
+        } else if (player.charging) {
+            player.vy = -player.chargeLevel * JUMP_FORCE_MULTIPLIER - 3; 
+            player.vx = moveDir * (player.chargeLevel * SIDE_JUMP_MULTIPLIER);
+            player.charging = false;
+            player.chargeLevel = 0;
+            player.isGrounded = false;
+            player.hasJumpedOnce = true; 
+            chargeBarContainer.style.display = 'none';
+        } else {
+            player.vx += moveDir * 0.4;
+        }
+    } else {
+        player.vx += moveDir * 0.05;
+    }
+
+    if (player.vx > 0.2) player.facing = 'right';
+    if (player.vx < -0.2) player.facing = 'left';
+
+    player.vy += GRAVITY;
+    player.vx *= FRICTION;
+    player.x += player.vx;
+    player.y += player.vy;
+
+    if (player.x < 0) {
+        player.x = 0;
+        player.vx *= -0.5;
+    }
+    if (player.x + player.width > VIEWPORT_W) {
+        player.x = VIEWPORT_W - player.width;
+        player.vx *= -0.5;
+    }
+
+    // Camera follow
+    if (player.y < cameraY + VIEWPORT_H * 0.3) {
+        cameraY += (player.y - (cameraY + VIEWPORT_H * 0.3)) * 0.1;
+    } else if (player.y > cameraY + VIEWPORT_H * 0.7) {
+        cameraY += (player.y - (cameraY + VIEWPORT_H * 0.7)) * 0.1;
+    }
+
+    let wasGrounded = player.isGrounded;
+    player.isGrounded = false;
+
+    platforms.forEach(p => {
+        if (p.type === 'moving') {
+            p.x = p.originalX + Math.sin(Date.now() * p.moveSpeed) * p.hMoveRange;
+            p.y = p.originalY + Math.cos(Date.now() * p.moveSpeed) * p.vMoveRange;
+        }
+
+        if (p.type === 'vanishing' && p.vanishingTimer > 0) {
+            p.vanishingTimer--;
+            if (p.vanishingTimer <= 0) p.active = false;
+        } else if (p.type === 'vanishing' && !p.active) {
+            p.timer += 1;
+            if (p.timer > 120) {
+                p.active = true;
+                p.timer = 0;
+            }
+        }
+
+        if (player.vy >= 0 && p.active) {
+            const playerFeetX = player.x + player.width * 0.2;
+            const playerFeetW = player.width * 0.6;
+            
+            if (playerFeetX + playerFeetW > p.x && 
+                playerFeetX < p.x + p.width && 
+                player.y + player.height >= p.y && 
+                player.y + player.height <= p.y + p.height + player.vy + 2) {
+                
+                player.isGrounded = true;
+                player.vy = 0;
+                player.y = p.y - player.height;
+                
+                if (p.type === 'vanishing' && p.vanishingTimer === 0) {
+                    p.vanishingTimer = 60; 
+                }
+
+                if (!wasGrounded) {
+                    let currentPos = Math.floor((VIEWPORT_H - 140 - player.y) / 10);
+                    if (currentPos > score) {
+                        score = currentPos;
+                        currentHeightEl.innerText = score;
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestHeightEl.innerText = bestScore;
+                            localStorage.setItem('pixelJumpBest', bestScore);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Collision Detection with Hazards
+    hazards.forEach(h => {
+        h.prevX = h.x; // Store previous x to determine direction
+        if (h.moveType === 'vertical') {
+            h.y = h.originalY + Math.sin(Date.now() * h.moveSpeed + h.timeOffset) * h.moveRange;
+        } else {
+            h.x = h.originalX + Math.cos(Date.now() * h.moveSpeed + h.timeOffset) * h.moveRange;
+        }
+
+        const shrinkFactor = 0.3;
+        const hHitboxW = h.width * (1 - shrinkFactor);
+        const hHitboxH = h.height * (1 - shrinkFactor);
+        const hOffsetX = (h.width - hHitboxW) / 2;
+        const hOffsetY = (h.height - hHitboxH) / 2;
+
+        const pPadding = player.width * 0.25;
+        const pLeft = player.x + pPadding;
+        const pRight = player.x + player.width - pPadding;
+        const pTop = player.y + pPadding;
+        const pBottom = player.y + player.height - pPadding;
+
+        if (pRight > h.x + hOffsetX && 
+            pLeft < h.x + hOffsetX + hHitboxW && 
+            pBottom > h.y + hOffsetY && 
+            pTop < h.y + hOffsetY + hHitboxH) {
+            gameOver();
+        }
+    });
+
+    if (player.y > cameraY + VIEWPORT_H + 50) {
+        gameOver();
+    }
+}
+
+function gameOver() {
+    gameState = 'GAMEOVER';
+    overlay.classList.remove('hidden');
+    overlayTitle.innerText = "GAME OVER";
+    finalScoreEl.innerText = `최종 높이: ${score}m`;
+    finalScoreEl.classList.remove('hidden');
+    startBtn.innerText = "다시 시도";
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(0, -cameraY);
+
+    // BG Particles
+    ctx.fillStyle = "rgba(255,255,255,0.1)";
+    for(let i=0; i<20; i++) {
+        ctx.fillRect((i*137)%VIEWPORT_W, Math.floor(cameraY/100)*100 + (i*251)%VIEWPORT_H, 4, 4);
+    }
+
+    // Draw Platforms
+    platforms.forEach(p => {
+        if (!p.active) return;
+        if (p.type === 'vanishing' && p.vanishingTimer > 0 && p.vanishingTimer < 20) {
+            if (Math.floor(Date.now() / 50) % 2 === 0) return;
+        }
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.width, p.height);
+        ctx.fillStyle = "rgba(255,255,255,0.3)";
+        ctx.fillRect(p.x, p.y, p.width, 4);
+        ctx.fillStyle = "rgba(0,0,0,0.2)";
+        ctx.fillRect(p.x, p.y + p.height - 4, p.width, 4);
+    });
+
+    // Draw Hazards
+    hazards.forEach(h => {
+        ctx.save();
+        
+        // Determine if image should be flipped
+        let isMovingLeft = h.x < h.prevX;
+        
+        if (hazardImgLoaded) {
+            if (h.moveType === 'horizontal' && isMovingLeft) {
+                // Flip image horizontally
+                ctx.translate(h.x + h.width, h.y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(hazardImg, 0, 0, h.width, h.height);
+            } else {
+                ctx.drawImage(hazardImg, h.x, h.y, h.width, h.height);
+            }
+        } else {
+            ctx.fillStyle = "#e74c3c";
+            ctx.beginPath();
+            ctx.moveTo(h.x, h.y + h.height);
+            ctx.lineTo(h.x + h.width/2, h.y);
+            ctx.lineTo(h.x + h.width, h.y + h.height);
+            ctx.fill();
+        }
+        ctx.restore();
+    });
+
+    // Draw Player
+    ctx.save();
+    let squashAmount = player.charging ? (player.chargeLevel / MAX_CHARGE) * 25 : 0;
+    let centerX = player.x + player.width / 2;
+    let bottomY = player.y + player.height + 5; 
+    
+    ctx.translate(centerX, bottomY);
+    if (player.facing === 'right') ctx.scale(-1, 1);
+
+    if (charImgLoaded) {
+        ctx.drawImage(
+            charImg, 
+            -player.width / 2, 
+            -player.height + squashAmount, 
+            player.width, 
+            player.height - squashAmount
+        );
+    } else {
+        ctx.fillStyle = player.charging ? '#e67e22' : player.color;
+        ctx.fillRect(
+            -player.width / 2, 
+            -player.height + squashAmount, 
+            player.width, 
+            player.height - squashAmount
+        );
+    }
+    ctx.restore();
+
+    ctx.restore();
+}
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+startBtn.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    gameState = 'PLAYING';
+    init();
+});
+
+gameLoop();
+
+</script>
+</body>
+</html>

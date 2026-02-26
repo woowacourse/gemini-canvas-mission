@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 전략 생존 게임 - 맵 연결성 및 밸런스 패치</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: 'Pretendard', 'Inter', sans-serif; user-select: none; }
+        canvas { display: block; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .interactive { pointer-events: auto; }
+        
+        .info-panel { background-color: rgba(255, 255, 255, 0.9); color: #1e293b; border: 1px solid #e2e8f0; backdrop-filter: blur(10px); }
+        
+        /* rarity styles */
+        .rarity-common { border-color: #94a3b8; color: #475569; }
+        .rarity-rare { border-color: #3b82f6; color: #1d4ed8; box-shadow: 0 0 10px rgba(59, 130, 246, 0.1); }
+        .rarity-epic { border-color: #a855f7; color: #7e22ce; box-shadow: 0 0 15px rgba(168, 85, 247, 0.2); }
+        .rarity-unique { border-color: #eab308; color: #a16207; box-shadow: 0 0 20px rgba(234, 179, 8, 0.3); }
+        .rarity-legend { border-color: #ef4444; color: #b91c1c; animation: pulse-legend 2s infinite; }
+
+        @keyframes pulse-legend {
+            0% { box-shadow: 0 0 5px rgba(239, 68, 68, 0.3); transform: scale(1); }
+            50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.6); transform: scale(1.02); }
+            100% { box-shadow: 0 0 5px rgba(239, 68, 68, 0.3); transform: scale(1); }
+        }
+
+        .reward-card { cursor: pointer; transition: all 0.2s; border-width: 4px; background: white; }
+        .reward-card:hover { transform: translateY(-8px); filter: brightness(1.05); }
+        .reward-card.selected { background-color: #f1f5f9; transform: scale(1.05); z-index: 10; border-style: double; }
+        
+        .damage-text {
+            position: absolute;
+            color: white;
+            font-weight: 900;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            transform: translate(-50%, -50%);
+            animation: floatUp 0.8s ease-out forwards;
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translate(-50%, 0); }
+            100% { opacity: 0; transform: translate(-50%, -60px); }
+        }
+
+        #timeout-msg {
+            position: absolute;
+            top: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ef4444;
+            font-size: 3rem;
+            font-weight: 900;
+            text-shadow: 0 0 20px rgba(0,0,0,0.5);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="damage-container" class="absolute inset-0 overflow-hidden pointer-events-none"></div>
+        <div id="timeout-msg">TIME UP! 난이도 상승</div>
+
+        <!-- Timer and Score -->
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 w-1/3 flex flex-col items-center">
+            <div id="score-display" class="text-yellow-400 font-black text-xl mb-1 drop-shadow-md">SCORE: 000000</div>
+            <div class="w-full h-3 bg-slate-800/60 rounded-full overflow-hidden border border-slate-700">
+                <div id="timer-bar" class="h-full bg-blue-500 transition-all duration-100" style="width: 100%;"></div>
+            </div>
+            <div id="timer-text" class="text-[10px] font-bold text-white uppercase mt-1">남은 시간: 60s</div>
+        </div>
+
+        <!-- Round Info -->
+        <div class="absolute top-4 left-4 info-panel p-4 rounded-xl shadow-lg border-l-4 border-l-blue-500 min-w-[120px]">
+            <div class="text-blue-600 font-bold text-[11px] tracking-tight uppercase">ROUND</div>
+            <div id="round-val" class="text-4xl font-black">1</div>
+            <div class="text-[10px] text-slate-500 mt-1 uppercase font-bold">Enemies: <span id="enemy-count" class="text-red-500">0</span></div>
+        </div>
+
+        <!-- Stats -->
+        <div id="stats-panel" class="absolute top-4 right-4 text-xs info-panel p-4 rounded-xl space-y-2 shadow-lg w-48">
+            <div class="flex justify-between items-center border-b pb-1 mb-1">
+                <span class="font-bold">플레이어 상태</span>
+                <span id="hp-percent" class="text-[10px] text-red-500 font-bold">100%</span>
+            </div>
+            <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                <div id="hp-bar" class="bg-red-500 h-full transition-all" style="width: 100%;"></div>
+            </div>
+            <div class="grid grid-cols-1 gap-1 text-[10px] pt-1 font-medium text-slate-600">
+                <div class="flex justify-between"><span>공격력</span><span id="atk-val" class="font-bold text-slate-900">10</span></div>
+                <div class="flex justify-between"><span>방어력</span><span id="def-val" class="font-bold text-slate-900">0</span></div>
+                <div class="flex justify-between"><span>이동속도</span><span id="spd-val" class="font-bold text-slate-900">6.4</span></div>
+                <div class="flex justify-between"><span>치명확률</span><span id="crit-val" class="font-bold text-slate-900">5%</span></div>
+                <div class="flex justify-between"><span>치명피해</span><span id="crit-dmg-val" class="font-bold text-slate-900">200%</span></div>
+                <div class="flex justify-between text-blue-500"><span>사거리</span><span id="rng-val" class="font-bold">14.0</span></div>
+            </div>
+        </div>
+
+        <!-- Tactical Rewards -->
+        <div id="reward-overlay" class="absolute inset-0 flex items-center justify-center bg-slate-900/98 hidden interactive">
+            <div class="max-w-5xl w-full p-8 flex flex-col items-center">
+                <div class="mb-10 text-center">
+                    <div id="reward-timer-display" class="text-6xl font-black text-white italic mb-2">20</div>
+                    <div class="w-48 h-1.5 bg-slate-800 rounded-full overflow-hidden mx-auto">
+                        <div id="reward-timer-bar" class="h-full bg-yellow-500" style="width: 100%;"></div>
+                    </div>
+                    <div id="time-bonus-text" class="text-yellow-400 font-bold mt-4 animate-bounce h-6"></div>
+                </div>
+
+                <h2 class="text-4xl text-white font-black text-center mb-8 italic tracking-tighter uppercase">전술 강화 선택 (클리어 보너스)</h2>
+                <div id="reward-list" class="grid grid-cols-3 gap-8 w-full mb-10"></div>
+                
+                <button id="confirm-reward-btn" disabled class="px-16 py-5 bg-slate-700 text-slate-400 font-black text-2xl rounded-2xl cursor-not-allowed transition-all">
+                    보상 획득
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Over / Message -->
+        <div id="message-overlay" class="absolute inset-0 flex items-center justify-center bg-slate-950/90 hidden interactive">
+            <div class="text-center">
+                <h1 class="text-7xl font-black text-white mb-2 italic">작전 실패</h1>
+                <p id="final-score" class="text-2xl text-yellow-400 font-bold mb-8">최종 점수: 0</p>
+                <button id="restart-btn" class="px-12 py-4 bg-red-600 text-white font-bold rounded-full hover:bg-red-700 shadow-xl shadow-red-500/30">다시 시도</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Settings ---
+        const GRID_WIDTH = 36; 
+        const GRID_HEIGHT = 18; 
+        const CELL_SIZE = 2.5;
+        const WALL_PROBABILITY = 0.28; // 벽 밀도 약간 상향
+        const ROUND_TIME = 60; 
+        const REWARD_LIMIT_TIME = 20;
+
+        // 보상 밸런스 조정: 전설이 일반의 3배가 되도록 설계 (기존 대비 80% 하향 반영)
+        const RARITIES = [
+            { id: 'common', name: '일반', weight: 45, color: '#94a3b8', mult: 1.0 },
+            { id: 'rare', name: '희귀', weight: 34, color: '#3b82f6', mult: 1.4 },
+            { id: 'epic', name: '영웅', weight: 15, color: '#a855f7', mult: 1.9 },
+            { id: 'unique', name: '고유', weight: 5, color: '#eab308', mult: 2.4 },
+            { id: 'legend', name: '전설', weight: 1, color: '#ef4444', mult: 3.0 }
+        ];
+
+        let gameState = {
+            round: 1, score: 0, timer: ROUND_TIME, maxTimer: ROUND_TIME,
+            rewardTimer: REWARD_LIMIT_TIME, rewardInterval: null,
+            isPaused: false, gameOver: false,
+            mousePos: new THREE.Vector2(), groundPoint: new THREE.Vector3(),
+            selectedReward: null, currentRewardOptions: []
+        };
+
+        let player = {
+            mesh: null, crosshair: null, rangeRing: null, 
+            hp: 100, maxHp: 100, atk: 10, def: 0, spd: 0.32, rng: 14.0,
+            critChance: 0.05, critDmg: 2.0, atkSpd: 350, lastShot: 0
+        };
+
+        const enemies = [], bullets = [], walls = [], wallObjects = [], keys = {};
+        let gridMap = [];
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f172a);
+        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        sunLight.position.set(30, 60, 30);
+        sunLight.castShadow = true;
+        scene.add(sunLight);
+
+        const mouseRaycaster = new THREE.Raycaster();
+        const obstacleRaycaster = new THREE.Raycaster();
+
+        // --- Utils ---
+
+        function getRandomRarity() {
+            const rand = Math.random() * 100;
+            let cum = 0;
+            for (const r of RARITIES) {
+                cum += r.weight;
+                if (rand <= cum) return r;
+            }
+            return RARITIES[0];
+        }
+
+        function createDamageText(worldPos, damage, isCrit = false) {
+            const container = document.getElementById('damage-container');
+            const el = document.createElement('div');
+            el.className = `damage-text ${isCrit ? 'text-yellow-400 text-xl font-black' : 'text-white text-sm'}`;
+            el.innerText = Math.round(damage) + (isCrit ? '!' : '');
+            container.appendChild(el);
+
+            const updatePos = () => {
+                if (!el.parentElement) return;
+                const vector = worldPos.clone().setY(worldPos.y + 2.0);
+                vector.project(camera);
+                el.style.left = `${(vector.x * 0.5 + 0.5) * window.innerWidth}px`;
+                el.style.top = `${(vector.y * -0.5 + 0.5) * window.innerHeight}px`;
+                requestAnimationFrame(updatePos);
+            };
+            updatePos();
+            setTimeout(() => el.remove(), 800);
+        }
+
+        // --- 맵 생성 알고리즘 (Flood Fill로 연결성 보장) ---
+        function createGrid() {
+            wallObjects.forEach(w => scene.remove(w));
+            wallObjects.length = 0; walls.length = 0;
+            
+            // 1. 기초 벽 생성
+            gridMap = Array(GRID_HEIGHT).fill().map(() => Array(GRID_WIDTH).fill(0));
+            for(let z=0; z<GRID_HEIGHT; z++) {
+                for(let x=0; x<GRID_WIDTH; x++) {
+                    if (Math.random() < WALL_PROBABILITY) gridMap[z][x] = 1;
+                }
+            }
+            
+            const startX = Math.floor(GRID_WIDTH / 2);
+            const startZ = Math.floor(GRID_HEIGHT / 2);
+            gridMap[startZ][startX] = 0; // 시작점은 항상 비움
+
+            // 2. Flood Fill로 접근 가능한 타일 확인
+            const reachable = Array(GRID_HEIGHT).fill().map(() => Array(GRID_WIDTH).fill(false));
+            const queue = [[startX, startZ]];
+            reachable[startZ][startX] = true;
+
+            while(queue.length > 0) {
+                const [cx, cz] = queue.shift();
+                [[1,0], [-1,0], [0,1], [0,-1]].forEach(([dx, dz]) => {
+                    const nx = cx + dx, nz = cz + dz;
+                    if(nx >= 0 && nx < GRID_WIDTH && nz >= 0 && nz < GRID_HEIGHT) {
+                        if(!reachable[nz][nx] && gridMap[nz][nx] === 0) {
+                            reachable[nz][nx] = true;
+                            queue.push([nx, nz]);
+                        }
+                    }
+                });
+            }
+
+            // 3. 도달 불가능한 모든 '빈 공간'을 벽으로 메꾸거나, 연결된 공간 외의 벽 제거
+            // 여기서는 '모든 길은 연결되어야 한다'는 원칙에 따라, 연결되지 않은 공간의 벽을 허물어 통로를 확보함
+            for(let z=0; z<GRID_HEIGHT; z++) {
+                for(let x=0; x<GRID_WIDTH; x++) {
+                    if (gridMap[z][x] === 0 && !reachable[z][x]) {
+                        // 플레이어가 갈 수 없는 구역인데 비어있다면 벽을 뚫어줌 (단순화: 해당 구역 벽을 제거)
+                        // 실제로는 벽이었던 곳을 길로 바꿔서 연결성을 확보함
+                    }
+                    // 최종 보정: 벽이지만 고립된 빈 공간을 만들면 안됨. 
+                    // 그냥 reachable하지 않은 모든 공간을 벽으로 만들면 고립된 빈방이 사라짐
+                    if(!reachable[z][x]) gridMap[z][x] = 1;
+                }
+            }
+
+            // 바닥 및 실제 벽 오브젝트 생성
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(GRID_WIDTH * CELL_SIZE, GRID_HEIGHT * CELL_SIZE), new THREE.MeshPhongMaterial({ color: 0x1e293b }));
+            floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; floor.name = 'mainFloor';
+            scene.add(floor);
+
+            const wallGeo = new THREE.BoxGeometry(CELL_SIZE * 0.98, 3, CELL_SIZE * 0.98);
+            const wallMat = new THREE.MeshPhongMaterial({ color: 0x475569 });
+
+            for(let z=-1; z<=GRID_HEIGHT; z++) {
+                for(let x=-1; x<=GRID_WIDTH; x++) {
+                    let isBorder = (x === -1 || x === GRID_WIDTH || z === -1 || z === GRID_HEIGHT);
+                    if (isBorder || (gridMap[z] && gridMap[z][x] === 1)) {
+                        const wall = new THREE.Mesh(wallGeo, wallMat);
+                        wall.position.set((x - GRID_WIDTH/2) * CELL_SIZE, isBorder ? 2.5 : 1.5, (z - GRID_HEIGHT/2) * CELL_SIZE);
+                        scene.add(wall); wallObjects.push(wall);
+                        walls.push({ x: wall.position.x, z: wall.position.z, halfSize: CELL_SIZE / 2 });
+                    }
+                }
+            }
+        }
+
+        function checkWallAt(x, z) {
+            for(let wall of walls) {
+                if (Math.abs(x - wall.x) < wall.halfSize + 0.1 && Math.abs(z - wall.z) < wall.halfSize + 0.1) return true;
+            }
+            return false;
+        }
+
+        function resolveCollision(entityPos, radius = 0.6) {
+            walls.forEach(wall => {
+                const dx = entityPos.x - wall.x, dz = entityPos.z - wall.z;
+                const combined = wall.halfSize + radius;
+                if (Math.abs(dx) < combined && Math.abs(dz) < combined) {
+                    const ox = combined - Math.abs(dx), oz = combined - Math.abs(dz);
+                    if (ox < oz) entityPos.x += (dx > 0 ? ox : -ox);
+                    else entityPos.z += (dz > 0 ? oz : -oz);
+                }
+            });
+        }
+
+        function spawnPlayer() {
+            if(player.mesh) scene.remove(player.mesh);
+            const group = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 1.6, 16), new THREE.MeshPhongMaterial({ color: 0x3b82f6 }));
+            body.position.y = 0.8; body.castShadow = true; group.add(body);
+            player.mesh = group; player.mesh.position.set(0, 0, 0);
+            scene.add(player.mesh);
+
+            if(player.crosshair) scene.remove(player.crosshair);
+            const chGeo = new THREE.RingGeometry(0.3, 0.4, 32);
+            const chMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+            player.crosshair = new THREE.Mesh(chGeo, chMat);
+            player.crosshair.rotation.x = -Math.PI / 2;
+            scene.add(player.crosshair);
+
+            if(player.rangeRing) scene.remove(player.rangeRing);
+            const ringGeo = new THREE.RingGeometry(player.rng - 0.15, player.rng, 64);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+            player.rangeRing = new THREE.Mesh(ringGeo, ringMat);
+            player.rangeRing.rotation.x = -Math.PI / 2;
+            scene.add(player.rangeRing);
+        }
+
+        function spawnEnemy() {
+            let gx, gz;
+            do {
+                gx = Math.floor(Math.random() * GRID_WIDTH);
+                gz = Math.floor(Math.random() * GRID_HEIGHT);
+            } while(gridMap[gz][gx] === 1 || player.mesh.position.distanceTo(new THREE.Vector3((gx-GRID_WIDTH/2)*CELL_SIZE, 0, (gz-GRID_HEIGHT/2)*CELL_SIZE)) < 15);
+
+            const group = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.8, 1.2), new THREE.MeshPhongMaterial({ color: 0xef4444 }));
+            body.position.y = 0.9; body.castShadow = true; group.add(body);
+
+            const enemyHp = 15 + (gameState.round - 1) * 3;
+            const enemy = {
+                mesh: group, hp: enemyHp, maxHp: enemyHp, atk: 8 + (gameState.round * 1.5),
+                spd: 0.12 + (gameState.round * 0.005), lastShot: 0, atkSpd: 1500, rng: 16,
+                pathTimer: 0, moveDir: new THREE.Vector3(), lastFailDir: new THREE.Vector3()
+            };
+            group.position.set((gx - GRID_WIDTH/2) * CELL_SIZE, 0, (gz - GRID_HEIGHT/2) * CELL_SIZE);
+            scene.add(group); enemies.push(enemy);
+        }
+
+        function shoot(from, targetPos, isPlayer, damage, range) {
+            const now = Date.now();
+            if (isPlayer && now - player.lastShot < player.atkSpd) return;
+            if (isPlayer) player.lastShot = now;
+
+            const dir = new THREE.Vector3().subVectors(targetPos, from).normalize();
+            from.y = 1.2;
+            const bullet = new THREE.Mesh(new THREE.SphereGeometry(isPlayer ? 0.2 : 0.25, 8, 8), new THREE.MeshBasicMaterial({ color: isPlayer ? 0x60a5fa : 0xf87171 }));
+            bullet.position.copy(from); scene.add(bullet);
+
+            let crit = isPlayer && Math.random() < player.critChance;
+            let finalDmg = crit ? damage * player.critDmg : damage;
+
+            bullets.push({
+                mesh: bullet, dir: dir, speed: isPlayer ? 1.4 : 0.8,
+                dist: 0, maxDist: range, damage: finalDmg, isPlayer: isPlayer, isCrit: crit
+            });
+        }
+
+        function updateEnemyAI(e) {
+            const toPlayer = new THREE.Vector3().subVectors(player.mesh.position, e.mesh.position);
+            const dist = toPlayer.length();
+            const dirToPlayer = toPlayer.clone().normalize();
+
+            obstacleRaycaster.set(e.mesh.position.clone().setY(1), dirToPlayer);
+            const intersects = obstacleRaycaster.intersectObjects(wallObjects);
+            const hasLOS = intersects.length === 0 || intersects[0].distance > dist;
+
+            if (e.pathTimer > 0) {
+                e.pathTimer--;
+                e.mesh.position.add(e.moveDir.clone().multiplyScalar(e.spd));
+                if (checkWallAt(e.mesh.position.x + e.moveDir.x * 2, e.mesh.position.z + e.moveDir.z * 2)) {
+                    e.lastFailDir.copy(e.moveDir);
+                    e.pathTimer = 0;
+                }
+            } else {
+                if (!hasLOS || dist > e.rng * 0.8) {
+                    let moveDir = dirToPlayer.clone();
+                    if (checkWallAt(e.mesh.position.x + moveDir.x * 2, e.mesh.position.z + moveDir.z * 2)) {
+                        let newDir;
+                        let attempts = 0;
+                        do {
+                            const angle = (Math.random() * Math.PI * 2);
+                            newDir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+                            attempts++;
+                        } while (attempts < 10 && newDir.dot(e.lastFailDir) > 0.8);
+                        
+                        e.moveDir.copy(newDir);
+                        e.pathTimer = 30 + Math.random() * 30;
+                    } else {
+                        e.mesh.position.add(moveDir.multiplyScalar(e.spd));
+                    }
+                } else if (dist < 6) {
+                    const back = dirToPlayer.clone().negate();
+                    if (!checkWallAt(e.mesh.position.x + back.x * 2, e.mesh.position.z + back.z * 2)) {
+                        e.mesh.position.add(back.multiplyScalar(e.spd * 0.5));
+                    }
+                }
+            }
+
+            resolveCollision(e.mesh.position, 0.9);
+            e.mesh.rotation.y = Math.atan2(dirToPlayer.x, dirToPlayer.z);
+
+            if (hasLOS && dist < e.rng && Date.now() - e.lastShot > e.atkSpd) {
+                shoot(e.mesh.position.clone(), player.mesh.position.clone(), false, e.atk, e.rng);
+                e.lastShot = Date.now();
+            }
+        }
+
+        function handleTimeout() {
+            const msgEl = document.getElementById('timeout-msg');
+            msgEl.style.opacity = '1';
+            setTimeout(() => msgEl.style.opacity = '0', 2000);
+
+            gameState.round++;
+            gameState.timer = gameState.maxTimer;
+            for(let i=0; i < 3 + gameState.round; i++) spawnEnemy();
+        }
+
+        function showRewardPhase(bonus) {
+            gameState.isPaused = true;
+            gameState.rewardTimer = REWARD_LIMIT_TIME;
+            gameState.selectedReward = null;
+
+            const overlay = document.getElementById('reward-overlay');
+            const list = document.getElementById('reward-list');
+            const confirmBtn = document.getElementById('confirm-reward-btn');
+            const bonusText = document.getElementById('time-bonus-text');
+            
+            overlay.classList.remove('hidden');
+            list.innerHTML = '';
+            confirmBtn.disabled = true;
+            confirmBtn.className = "px-16 py-5 bg-slate-700 text-slate-400 font-black text-2xl rounded-2xl cursor-not-allowed";
+            bonusText.innerText = bonus > 0 ? `클리어 보너스 점수 +${bonus}!` : "";
+
+            // 보상 옵션 수치 80% 하향 패치 (base값 대폭 조정)
+            const pool = [
+                { id: 'atk', name: '공격력 강화', base: 0.8 },
+                { id: 'def', name: '방어력 강화', base: 0.3 },
+                { id: 'maxHp', name: '최대 체력', base: 5.0 },
+                { id: 'spd', name: '기동성 향상', base: 0.006 },
+                { id: 'critChance', name: '치명 확률', base: 0.01 },
+                { id: 'critDmg', name: '치명 피해량', base: 0.08 },
+                { id: 'rng', name: '사거리 증가', base: 0.6 }
+            ];
+
+            gameState.currentRewardOptions = pool.sort(() => Math.random() - 0.5).slice(0, 3).map(p => {
+                const rarity = getRandomRarity();
+                return { ...p, rarity, finalVal: p.base * rarity.mult };
+            });
+
+            gameState.currentRewardOptions.forEach((rew) => {
+                const card = document.createElement('div');
+                card.className = `reward-card p-8 rounded-3xl text-center border-4 rarity-${rew.rarity.id}`;
+                
+                let valStr = rew.finalVal > 0 ? `+${rew.finalVal.toFixed(2)}` : rew.finalVal.toFixed(2);
+                if(rew.id === 'spd') valStr = `+${(rew.finalVal * 20).toFixed(2)}`;
+                if(rew.id === 'critChance' || rew.id === 'critDmg') valStr = `+${(rew.finalVal * 100).toFixed(1)}%`;
+                if(rew.id === 'maxHp' || rew.id === 'atk') valStr = `+${rew.finalVal.toFixed(1)}`;
+
+                card.innerHTML = `
+                    <div class="text-[10px] font-black tracking-widest mb-1 opacity-70">${rew.rarity.name}</div>
+                    <h3 class="text-xl font-black mb-4" style="color:${rew.rarity.color}">${rew.name}</h3>
+                    <div class="text-4xl font-black mb-2">${valStr}</div>
+                `;
+
+                card.onclick = () => {
+                    document.querySelectorAll('.reward-card').forEach(c => c.classList.remove('selected'));
+                    card.classList.add('selected');
+                    gameState.selectedReward = rew;
+                    confirmBtn.disabled = false;
+                    confirmBtn.className = "px-16 py-5 bg-blue-600 text-white font-black text-2xl rounded-2xl cursor-pointer hover:bg-blue-700 shadow-xl shadow-blue-500/20";
+                };
+                list.appendChild(card);
+            });
+
+            if(gameState.rewardInterval) clearInterval(gameState.rewardInterval);
+            gameState.rewardInterval = setInterval(() => {
+                gameState.rewardTimer -= 1;
+                document.getElementById('reward-timer-display').innerText = gameState.rewardTimer;
+                document.getElementById('reward-timer-bar').style.width = (gameState.rewardTimer / REWARD_LIMIT_TIME * 100) + '%';
+                if(gameState.rewardTimer <= 0) {
+                    clearInterval(gameState.rewardInterval);
+                    const finalChoice = gameState.selectedReward || gameState.currentRewardOptions[Math.floor(Math.random() * 3)];
+                    applyReward(finalChoice);
+                }
+            }, 1000);
+
+            confirmBtn.onclick = () => applyReward(gameState.selectedReward);
+        }
+
+        function applyReward(rew) {
+            clearInterval(gameState.rewardInterval);
+            if(rew.id === 'maxHp') { player.maxHp += rew.finalVal; player.hp = Math.min(player.maxHp, player.hp + rew.finalVal); }
+            else player[rew.id] += rew.finalVal;
+            
+            document.getElementById('reward-overlay').classList.add('hidden');
+            gameState.round++; 
+            gameState.timer = gameState.maxTimer; 
+            gameState.isPaused = false;
+            
+            if (rew.id === 'rng') {
+                scene.remove(player.rangeRing);
+                const ringGeo = new THREE.RingGeometry(player.rng - 0.15, player.rng, 64);
+                const ringMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+                player.rangeRing = new THREE.Mesh(ringGeo, ringMat);
+                player.rangeRing.rotation.x = -Math.PI / 2;
+                scene.add(player.rangeRing);
+            }
+
+            for(let i=0; i < 3 + gameState.round; i++) spawnEnemy();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if(gameState.isPaused || gameState.gameOver) { renderer.render(scene, camera); return; }
+
+            gameState.timer -= 1/60;
+            if(gameState.timer <= 0) handleTimeout();
+
+            updateMouseRay();
+
+            if (player.crosshair) player.crosshair.position.copy(gameState.groundPoint).setY(0.12);
+            if (player.rangeRing) player.rangeRing.position.copy(player.mesh.position).setY(0.08);
+
+            const move = new THREE.Vector3(0,0,0);
+            if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1;
+            if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
+            if(move.lengthSq() > 0) {
+                move.normalize().multiplyScalar(player.spd);
+                player.mesh.position.add(move); resolveCollision(player.mesh.position);
+            }
+            player.mesh.rotation.y = THREE.MathUtils.lerp(player.mesh.rotation.y, Math.atan2(gameState.groundPoint.x - player.mesh.position.x, gameState.groundPoint.z - player.mesh.position.z), 0.15);
+
+            for(let i=bullets.length-1; i>=0; i--) {
+                const b = bullets[i];
+                b.mesh.position.add(b.dir.clone().multiplyScalar(b.speed)); b.dist += b.speed;
+                let hit = false;
+                if(b.dist >= b.maxDist) hit = true;
+                if(!hit && checkWallAt(b.mesh.position.x, b.mesh.position.z)) hit = true;
+                if(!hit) {
+                    if(b.isPlayer) {
+                        enemies.forEach((e, idx) => {
+                            if(!hit && b.mesh.position.distanceTo(e.mesh.position.clone().setY(1)) < 1.4) {
+                                e.hp -= b.damage; createDamageText(e.mesh.position, b.damage, b.isCrit);
+                                if(e.hp <= 0) { scene.remove(e.mesh); enemies.splice(idx, 1); gameState.score += 100; }
+                                hit = true;
+                            }
+                        });
+                    } else {
+                        if(b.mesh.position.distanceTo(player.mesh.position.clone().setY(1)) < 1.0) {
+                            player.hp -= Math.max(1, b.damage - player.def); createDamageText(player.mesh.position, Math.max(1, b.damage - player.def));
+                            if(player.hp <= 0) endGame();
+                            hit = true;
+                        }
+                    }
+                }
+                if(hit) { scene.remove(b.mesh); bullets.splice(i, 1); }
+            }
+
+            enemies.forEach(e => updateEnemyAI(e));
+            if(enemies.length === 0 && !gameState.gameOver && !gameState.isPaused) {
+                const bonus = Math.floor(gameState.timer * 50);
+                gameState.score += bonus;
+                showRewardPhase(bonus);
+            }
+
+            camera.position.set(player.mesh.position.x, 35, player.mesh.position.z + 15);
+            camera.lookAt(player.mesh.position);
+            updateUI();
+            renderer.render(scene, camera);
+        }
+
+        function updateMouseRay() {
+            mouseRaycaster.setFromCamera(gameState.mousePos, camera);
+            const floor = scene.getObjectByName('mainFloor');
+            if(floor) {
+                const intersect = mouseRaycaster.intersectObject(floor);
+                if(intersect.length > 0) gameState.groundPoint.copy(intersect[0].point);
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('round-val').innerText = gameState.round;
+            document.getElementById('score-display').innerText = `SCORE: ${String(Math.floor(gameState.score)).padStart(6, '0')}`;
+            document.getElementById('hp-bar').style.width = (player.hp / player.maxHp * 100) + '%';
+            document.getElementById('hp-percent').innerText = Math.max(0, Math.ceil(player.hp / player.maxHp * 100)) + '%';
+            document.getElementById('timer-bar').style.width = (Math.max(0, gameState.timer) / gameState.maxTimer * 100) + '%';
+            document.getElementById('timer-text').innerText = `남은 시간: ${Math.max(0, Math.ceil(gameState.timer))}s`;
+            document.getElementById('enemy-count').innerText = enemies.length;
+            
+            document.getElementById('atk-val').innerText = player.atk.toFixed(1);
+            document.getElementById('def-val').innerText = player.def.toFixed(1);
+            document.getElementById('spd-val').innerText = (player.spd * 20).toFixed(1);
+            document.getElementById('crit-val').innerText = (player.critChance * 100).toFixed(0) + '%';
+            document.getElementById('crit-dmg-val').innerText = (player.critDmg * 100).toFixed(0) + '%';
+            document.getElementById('rng-val').innerText = player.rng.toFixed(1);
+        }
+
+        function endGame() {
+            gameState.gameOver = true;
+            document.getElementById('final-score').innerText = `최종 점수: ${Math.floor(gameState.score)}`;
+            document.getElementById('message-overlay').classList.remove('hidden');
+        }
+
+        window.addEventListener('mousemove', e => {
+            gameState.mousePos.set((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
+        });
+        window.addEventListener('mousedown', () => {
+            if(!gameState.isPaused && !gameState.gameOver) shoot(player.mesh.position.clone(), gameState.groundPoint, true, player.atk, player.rng);
+        });
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+        document.getElementById('restart-btn').onclick = () => location.reload();
+
+        window.onload = () => {
+            createGrid(); spawnPlayer();
+            for(let i=0; i<4; i++) spawnEnemy();
+            animate();
+        };
+    </script>
+</body>
+</html>

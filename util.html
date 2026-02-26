@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Studio - Professional Multi-Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body { background-color: #f8fafc; font-family: 'Pretendard', sans-serif; height: 100vh; overflow: hidden; }
+        
+        .app-wrapper { height: 100vh; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; }
+        
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            background-image: 
+                linear-gradient(45deg, #f0f0f0 25%, transparent 25%), 
+                linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #f0f0f0 75%), 
+                linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            overflow: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .canvas-container.has-image { border: none; }
+        
+        .wand-cursor {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m15 4 5 2"/><path d="m18.4 8.7 4.6 4.7"/><path d="M11 8l5 2"/><path d="M12.1 14.6l-5.4 5.4a2.52 2.52 0 0 1-3.5-3.5l5.4-5.4"/><path d="m14 2 2 2"/><path d="M22 11l-2 2"/></svg>') 0 0, auto !important;
+        }
+        
+        .crop-cursor, .eye-dropper-cursor { cursor: crosshair !important; }
+
+        canvas { 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
+            border-radius: 4px; 
+            display: block;
+            transform-origin: center center;
+            image-rendering: -webkit-optimize-contrast; /* 캔버스 선명도 강화 */
+        }
+        
+        .active-tab { background-color: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); color: #2563eb; font-weight: 700; }
+        .tool-box { border-radius: 12px; background: #f1f5f9; padding: 2px; }
+        
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        input[type=range] { -webkit-appearance: none; background: transparent; }
+        input[type=range]:focus { outline: none; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; cursor: pointer; background: #e2e8f0; border-radius: 3px; }
+        input[type=range]::-webkit-slider-thumb { height: 16px; width: 16px; border-radius: 50%; background: #2563eb; cursor: pointer; -webkit-appearance: none; margin-top: -5px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+
+        .btn-tool-compact {
+            height: 36px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        #pickerColor {
+            -webkit-appearance: none;
+            border: none;
+            width: 36px;
+            height: 36px;
+            cursor: pointer;
+            background: none;
+            padding: 0;
+        }
+        #pickerColor::-webkit-color-swatch-wrapper { padding: 0; }
+        #pickerColor::-webkit-color-swatch { border-radius: 8px; border: 1px solid #e2e8f0; }
+    </style>
+</head>
+<body>
+    <div class="app-wrapper">
+        <div id="appContainer" class="bg-white rounded-2xl shadow-xl overflow-hidden flex-1 flex flex-col md:flex-row">
+            
+            <div class="flex-1 p-6 flex flex-col border-r border-gray-100 relative overflow-hidden">
+                <div id="dropZone" class="canvas-container flex-1" onclick="triggerUpload()">
+                    <div id="uploadPrompt" class="text-center bg-white/80 p-6 rounded-lg pointer-events-none">
+                        <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        <p class="text-gray-400 font-medium text-sm">클릭하여 이미지를 업로드하세요</p>
+                    </div>
+                    <div class="relative inline-block" id="canvasWrapper">
+                        <canvas id="mainCanvas" class="hidden"></canvas>
+                        <canvas id="selectionOverlay" class="absolute top-0 left-0 pointer-events-none hidden"></canvas>
+                    </div>
+                </div>
+
+                <div id="imageMeta" class="mt-4 flex justify-between items-center text-sm text-gray-500 hidden">
+                    <div class="flex items-center gap-6">
+                        <span id="resText" class="font-mono text-xs">0 x 0 px</span>
+                        
+                        <div id="zoomUI" class="flex items-center gap-3 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100">
+                            <button onclick="changeZoom(-0.1)" class="p-1 hover:bg-white rounded transition text-gray-400 hover:text-blue-600">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
+                            </button>
+                            <input type="range" id="zoomRange" min="0.1" max="5" step="0.1" value="1" class="w-24 h-1.5 cursor-pointer accent-blue-600">
+                            <button onclick="changeZoom(0.1)" class="p-1 hover:bg-white rounded transition text-gray-400 hover:text-blue-600">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            </button>
+                            <span class="text-[10px] font-bold text-gray-500 w-8 text-center" id="zoomVal">100%</span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-4">
+                        <div id="editHistoryControls" class="flex items-center gap-3">
+                            <div class="flex items-center bg-gray-50 border border-gray-100 rounded-lg p-0.5">
+                                <button id="btnUndo" onclick="undo()" class="p-1.5 bg-white hover:bg-gray-50 border border-transparent hover:border-gray-200 rounded-md transition shadow-sm" title="되돌리기" disabled>
+                                    <svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                                </button>
+                                <button id="btnRedo" onclick="redo()" class="p-1.5 bg-white hover:bg-gray-50 border border-transparent hover:border-gray-200 rounded-md transition shadow-sm ml-0.5" title="다시 실행" disabled>
+                                    <svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10h-10a8 8 0 00-8 8v2m18-12l-6 6m6-6l-6-6"></path></svg>
+                                </button>
+                            </div>
+                            <button onclick="resetToOriginal()" class="text-blue-600 hover:text-blue-800 hover:underline font-bold text-xs transition">원본 초기화</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sidePanel" class="w-full md:w-80 p-6 bg-gray-50 hidden flex flex-col overflow-y-auto">
+                <div class="tool-box flex mb-4">
+                    <button id="tabEdit" onclick="setMode('edit')" class="flex-1 py-2 rounded-lg text-sm active-tab transition font-bold">편집</button>
+                    <button id="tabAnalyze" onclick="setMode('analyze')" class="flex-1 py-2 rounded-lg text-sm transition font-bold">색상</button>
+                </div>
+
+                <div id="panelEdit" class="space-y-6 flex-1">
+                    <section>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">크기 조절</h3>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] text-gray-500 ml-1">너비 (px)</label>
+                                <input type="number" id="inpW" class="w-full p-2 border rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-400">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-gray-500 ml-1">높이 (px)</label>
+                                <input type="number" id="inpH" class="w-full p-2 border rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-400">
+                            </div>
+                        </div>
+                        <div class="mt-2 flex items-center gap-2">
+                            <input type="checkbox" id="aspectLock" checked class="rounded text-blue-600">
+                            <label for="aspectLock" class="text-xs text-gray-600">비율 유지</label>
+                        </div>
+                        <button onclick="applyResize()" class="w-full mt-3 bg-gray-800 text-white py-2 rounded-md text-xs hover:bg-black transition font-bold">크기 적용</button>
+                    </section>
+
+                    <section class="border-t pt-4">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">자르기 도구</h3>
+                        <button id="btnCrop" onclick="toggleMode('crop')" class="w-full btn-tool-compact bg-white border-2 border-gray-200 hover:border-blue-400 mb-2">
+                            <span id="cropBtnEmoji" class="text-sm">✂️</span> <span id="cropBtnLabel">영역 자르기</span>
+                        </button>
+                        
+                        <div id="cropActionContainer" class="hidden animate-in fade-in slide-in-from-top-1 space-y-2">
+                             <button onclick="confirmCrop()" class="w-full bg-green-600 text-white btn-tool-compact hover:bg-green-700">선택 영역 자르기</button>
+                        </div>
+                    </section>
+
+                    <section class="border-t pt-4">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">영역 선택 및 수정</h3>
+                        <button id="btnWand" onclick="toggleMode('wand')" class="w-full btn-tool-compact bg-white border-2 border-gray-200 hover:border-blue-400 mb-3">
+                            <span class="text-sm">🪄</span> <span>자동 영역 선택</span>
+                        </button>
+
+                        <div class="bg-gray-100 p-2 rounded-xl flex items-center gap-2">
+                            <input type="color" id="pickerColor" value="#3b82f6" title="수정 색상 선택">
+                            <button onclick="fillSelectedArea(false)" class="flex-1 bg-blue-600 text-white btn-tool-compact hover:bg-blue-700 shadow-sm">채우기</button>
+                            <button onclick="fillSelectedArea(true)" class="flex-1 bg-white border border-gray-200 text-gray-600 btn-tool-compact hover:bg-gray-50 shadow-sm">투명화</button>
+                        </div>
+                    </section>
+
+                    <section class="border-t pt-4 mt-auto">
+                        <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 shadow-sm">
+                            <label class="text-[10px] text-blue-500 font-bold uppercase mb-2 block">변환 포맷 선택</label>
+                            <select id="targetExt" class="w-full mb-3 text-xs font-bold px-3 py-2 bg-white rounded-lg border outline-none focus:ring-2 focus:ring-blue-300">
+                                <optgroup label="표준 웹">
+                                    <option value="png">PNG</option>
+                                    <option value="jpeg">JPG</option>
+                                    <option value="webp">WEBP</option>
+                                    <option value="bmp">BMP</option>
+                                </optgroup>
+                                <optgroup label="특수 포맷">
+                                    <option value="svg">SVG (벡터 이미지)</option>
+                                    <option value="ico">ICO (아이콘)</option>
+                                </optgroup>
+                                <optgroup label="기타 지원">
+                                    <option value="tiff">TIFF</option>
+                                    <option value="gif">GIF</option>
+                                </optgroup>
+                            </select>
+                            <button onclick="processAndSave()" class="w-full bg-blue-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition">저장 및 다운로드</button>
+                        </div>
+                    </section>
+                </div>
+
+                <div id="panelAnalyze" class="hidden space-y-6 flex-1">
+                    <section>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">추출된 색상 (Pick)</h3>
+                        <div id="pickedColorDisplay" class="mb-4">
+                            <div class="flex items-center gap-3 bg-white p-3 rounded-lg border border-blue-200 shadow-sm">
+                                <div id="pickedSwatch" class="w-10 h-10 rounded-md border bg-gray-100"></div>
+                                <div>
+                                    <p class="text-[10px] text-blue-500 font-bold">SELECTED</p>
+                                    <span id="pickedHex" class="text-sm font-mono font-bold text-gray-700">#------</span>
+                                </div>
+                            </div>
+                        </div>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">주요 색상 (Palette)</h3>
+                        <div id="primaryColorList" class="space-y-2"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="fileInput" class="hidden" accept="image/*">
+    <div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full text-sm shadow-2xl opacity-0 transition-all pointer-events-none z-50"></div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: true });
+        const overlay = document.getElementById('selectionOverlay');
+        const oCtx = overlay.getContext('2d');
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        
+        let originalImg = null;
+        let selectionMask = null;
+        let selectionPath = null; 
+        let activeTool = null;
+        let currentMode = 'edit';
+        let animationId = null;
+        let marchingOffset = 0; 
+        let zoomScale = 1;
+
+        let isDragging = false;
+        let dragAction = 'new';
+        let resizeHandle = null;
+        let startPoint = { x: 0, y: 0 };
+        let cropRect = null;
+        const HANDLE_SIZE = 10; 
+
+        let history = [];
+        let historyStep = -1;
+        const maxHistory = 20;
+
+        // --- History & Zoom Functions ---
+        function saveHistory() {
+            history = history.slice(0, historyStep + 1);
+            const snapshot = {
+                width: canvas.width,
+                height: canvas.height,
+                data: ctx.getImageData(0, 0, canvas.width, canvas.height)
+            };
+            history.push(snapshot);
+            if (history.length > maxHistory) history.shift();
+            else historyStep++;
+            updateHistoryButtons();
+        }
+
+        function updateHistoryButtons() {
+            const btnUndo = document.getElementById('btnUndo');
+            const btnRedo = document.getElementById('btnRedo');
+            if(btnUndo) btnUndo.disabled = historyStep <= 0;
+            if(btnRedo) btnRedo.disabled = historyStep >= history.length - 1;
+        }
+
+        function undo() { if (historyStep > 0) { historyStep--; applyHistoryState(history[historyStep]); } }
+        function redo() { if (historyStep < history.length - 1) { historyStep++; applyHistoryState(history[historyStep]); } }
+
+        function applyHistoryState(state) {
+            canvas.width = state.width; canvas.height = state.height;
+            overlay.width = state.width; overlay.height = state.height;
+            ctx.putImageData(state.data, 0, 0);
+            updateUIInfo(); analyzeColors(); clearSelection(); updateHistoryButtons(); updateZoom(); 
+        }
+
+        const zoomRange = document.getElementById('zoomRange');
+        const zoomVal = document.getElementById('zoomVal');
+        const canvasWrapper = document.getElementById('canvasWrapper');
+
+        zoomRange.oninput = (e) => { zoomScale = parseFloat(e.target.value); updateZoom(); };
+        function updateZoom() {
+            zoomVal.innerText = `${Math.round(zoomScale * 100)}%`;
+            canvasWrapper.style.transform = `scale(${zoomScale})`;
+        }
+        function changeZoom(delta) {
+            let newVal = parseFloat(zoomRange.value) + delta;
+            newVal = Math.max(0.1, Math.min(5, newVal));
+            zoomRange.value = newVal.toFixed(1);
+            zoomScale = newVal;
+            updateZoom();
+        }
+
+        // --- File Handling ---
+        function triggerUpload() { if (!originalImg) fileInput.click(); }
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => { originalImg = img; initApp(); };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        function initApp() {
+            document.getElementById('uploadPrompt').classList.add('hidden');
+            dropZone.classList.add('has-image');
+            canvas.classList.remove('hidden');
+            overlay.classList.remove('hidden');
+            document.getElementById('sidePanel').classList.remove('hidden');
+            document.getElementById('imageMeta').classList.remove('hidden');
+            history = []; historyStep = -1;
+            resetToOriginal();
+            zoomScale = 1; zoomRange.value = 1; updateZoom();
+            animateSelection(); 
+        }
+
+        function resetToOriginal() {
+            if (!originalImg) return;
+            canvas.width = originalImg.width; canvas.height = originalImg.height;
+            overlay.width = originalImg.width; overlay.height = originalImg.height;
+            ctx.drawImage(originalImg, 0, 0);
+            updateUIInfo(); analyzeColors(); clearSelection();
+            activeTool = null; updateToolUI(); saveHistory();
+        }
+
+        function updateUIInfo() {
+            document.getElementById('resText').innerText = `${canvas.width} x ${canvas.height} px`;
+            document.getElementById('inpW').value = canvas.width;
+            document.getElementById('inpH').value = canvas.height;
+        }
+
+        // --- Mode & Tool UI ---
+        function toggleMode(mode) {
+            activeTool = (activeTool === mode) ? null : mode;
+            clearSelection();
+            updateToolUI();
+
+            if(activeTool === 'wand') showToast("자동 선택: 클릭하여 영역을 지정하세요.");
+            else if(activeTool === 'crop') showToast("자르기: 마우스로 영역을 드래그하세요.");
+        }
+
+        function updateToolUI() {
+            const btnWand = document.getElementById('btnWand');
+            const btnCrop = document.getElementById('btnCrop');
+            const cropBtnLabel = document.getElementById('cropBtnLabel');
+            const cropBtnEmoji = document.getElementById('cropBtnEmoji');
+            
+            if (btnWand) btnWand.classList.remove('border-blue-500', 'bg-blue-50', 'text-blue-600');
+            if (btnCrop) btnCrop.classList.remove('border-blue-500', 'bg-blue-50', 'text-blue-600', 'border-red-500', 'text-red-600');
+            
+            dropZone.classList.remove('wand-cursor', 'crop-cursor', 'eye-dropper-cursor');
+            document.getElementById('cropActionContainer').classList.add('hidden');
+
+            if (currentMode === 'analyze') {
+                dropZone.classList.add('eye-dropper-cursor');
+            } else if (activeTool === 'wand') {
+                btnWand.classList.add('border-blue-500', 'bg-blue-50', 'text-blue-600');
+                dropZone.classList.add('wand-cursor');
+            } else if (activeTool === 'crop') {
+                btnCrop.classList.add('border-red-500', 'text-red-600');
+                cropBtnLabel.innerText = "자르기 종료";
+                cropBtnEmoji.innerText = "✖️";
+                dropZone.classList.add('crop-cursor');
+                if (cropRect) document.getElementById('cropActionContainer').classList.remove('hidden');
+            } else if (cropBtnLabel) {
+                cropBtnLabel.innerText = "영역 자르기";
+                cropBtnEmoji.innerText = "✂️";
+            }
+        }
+
+        // --- Core Selection Logic ---
+
+        function animateSelection() {
+            if (animationId) cancelAnimationFrame(animationId);
+            
+            let lastTime = 0;
+            const step = (time) => {
+                if (!lastTime) lastTime = time;
+                const deltaTime = time - lastTime;
+                lastTime = time;
+
+                // 시간 기반의 부드러운 오프셋 계산 (초당 24픽셀 이동 속도)
+                marchingOffset = (marchingOffset + (deltaTime * 0.024)) % 12; 
+                drawSelectionOverlay();
+                animationId = requestAnimationFrame(step);
+            };
+            animationId = requestAnimationFrame(step);
+        }
+
+        function drawSelectionOverlay() {
+            if (!selectionPath && !cropRect) {
+                oCtx.clearRect(0, 0, overlay.width, overlay.height);
+                return;
+            }
+
+            oCtx.clearRect(0, 0, overlay.width, overlay.height);
+            oCtx.save();
+            
+            // 줌 스케일에 맞춘 보정 값
+            const dashLen = 6 / zoomScale;
+            const lineWidth = 2 / zoomScale;
+
+            if (activeTool === 'crop' && cropRect) {
+                oCtx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+                oCtx.fillRect(0, 0, overlay.width, overlay.height);
+                oCtx.clearRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+            }
+
+            // [최적화] 렌더링 품질 극대화
+            oCtx.lineJoin = 'round';
+            oCtx.lineCap = 'round';
+            oCtx.miterLimit = 2; // 급격한 각도에서 선이 튀는 것 방지
+            oCtx.lineWidth = lineWidth;
+
+            const drawTarget = () => {
+                if (activeTool === 'crop' && cropRect) {
+                    oCtx.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+                } else if (selectionPath) {
+                    oCtx.stroke(selectionPath);
+                }
+            };
+
+            // 1단계: 검은색 배경 실선 (점선 사이의 빈틈을 메워 깜빡임 억제)
+            oCtx.strokeStyle = 'black';
+            oCtx.setLineDash([]); // 실선
+            drawTarget();
+
+            // 2단계: 흰색 점선 레이어
+            oCtx.strokeStyle = 'white';
+            oCtx.setLineDash([dashLen, dashLen]);
+            oCtx.lineDashOffset = -marchingOffset;
+            drawTarget();
+
+            oCtx.restore();
+        }
+
+        function magicWand(startX, startY) {
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            const width = canvas.width;
+            const height = canvas.height;
+            const startIdx = (startY * width + startX) * 4;
+            
+            const startR = data[startIdx], startG = data[startIdx+1], startB = data[startIdx+2], startA = data[startIdx+3];
+            
+            if (startA === 0) { showToast("투명한 영역은 선택할 수 없습니다."); return; }
+
+            const mask = new Uint8Array(width * height);
+            const stack = [[startX, startY]];
+            const threshold = 28; // 범용성을 위해 약간 조정
+            mask[startY * width + startX] = 1;
+
+            while (stack.length > 0) {
+                const [x, y] = stack.pop();
+                const neighbors = [[x+1, y], [x-1, y], [x, y+1], [x, y-1]];
+                for (const [nx, ny] of neighbors) {
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height && !mask[ny * width + nx]) {
+                        const nIdx = (ny * width + nx) * 4;
+                        const dist = Math.sqrt(
+                            Math.pow(data[nIdx]-startR, 2) + 
+                            Math.pow(data[nIdx+1]-startG, 2) + 
+                            Math.pow(data[nIdx+2]-startB, 2)
+                        );
+                        if (data[nIdx+3] > 0 && dist < threshold) {
+                            mask[ny * width + nx] = 1;
+                            stack.push([nx, ny]);
+                        }
+                    }
+                }
+            }
+            selectionMask = mask;
+            selectionPath = createSelectionPath(mask, width, height);
+            showToast("영역이 선택되었습니다.");
+        }
+
+        function createSelectionPath(mask, width, height) {
+            const path = new Path2D();
+            // 외곽선 추출 최적화 (이중 루프 최소화 및 수직/수평 정밀도 강화)
+            for (let y = 0; y <= height; y++) {
+                let startX = -1;
+                for (let x = 0; x < width; x++) {
+                    const top = (y > 0) ? mask[(y - 1) * width + x] : 0;
+                    const bottom = (y < height) ? mask[y * width + x] : 0;
+                    if (top !== bottom) { if (startX === -1) startX = x; } 
+                    else if (startX !== -1) { path.moveTo(startX, y); path.lineTo(x, y); startX = -1; }
+                }
+                if (startX !== -1) { path.moveTo(startX, y); path.lineTo(width, y); }
+            }
+            for (let x = 0; x <= width; x++) {
+                let startY = -1;
+                for (let y = 0; y < height; y++) {
+                    const left = (x > 0) ? mask[y * width + (x - 1)] : 0;
+                    const right = (x < width) ? mask[y * width + x] : 0;
+                    if (left !== right) { if (startY === -1) startY = y; } 
+                    else if (startY !== -1) { path.moveTo(x, startY); path.lineTo(x, y); startY = -1; }
+                }
+                if (startY !== -1) { path.moveTo(x, startY); path.lineTo(x, height); }
+            }
+            return path;
+        }
+
+        function clearSelection() {
+            selectionMask = null; selectionPath = null; cropRect = null;
+            oCtx.clearRect(0, 0, overlay.width, overlay.height);
+            document.getElementById('cropActionContainer').classList.add('hidden');
+        }
+
+        // --- Interactions ---
+        const getCanvasCoords = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / (rect.width)) * canvas.width;
+            const y = ((e.clientY - rect.top) / (rect.height)) * canvas.height;
+            return { x: Math.floor(x), y: Math.floor(y) };
+        };
+
+        dropZone.addEventListener('mousedown', (e) => {
+            if (currentMode === 'analyze' || activeTool !== 'crop') return;
+            const p = getCanvasCoords(e);
+            const handle = getResizeHandle(p);
+            if (handle) { dragAction = 'resize'; resizeHandle = handle; } 
+            else if (cropRect && isPointInRect(p, cropRect)) { dragAction = 'move'; } 
+            else { dragAction = 'new'; cropRect = null; }
+            isDragging = true; startPoint = p;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            const p = getCanvasCoords(e);
+            if (isDragging && activeTool === 'crop') {
+                const dx = p.x - startPoint.x; const dy = p.y - startPoint.y;
+                if (dragAction === 'new') {
+                    cropRect = { x: Math.min(startPoint.x, p.x), y: Math.min(startPoint.y, p.y), w: Math.abs(p.x - startPoint.x), h: Math.abs(p.y - startPoint.y) };
+                } else if (dragAction === 'move') {
+                    cropRect.x += dx; cropRect.y += dy; startPoint = p;
+                } else if (dragAction === 'resize') {
+                    if (resizeHandle.includes('e')) cropRect.w += dx;
+                    if (resizeHandle.includes('s')) cropRect.h += dy;
+                    if (resizeHandle.includes('w')) { cropRect.x += dx; cropRect.w -= dx; }
+                    if (resizeHandle.includes('n')) { cropRect.y += dy; cropRect.h -= dy; }
+                    startPoint = p;
+                }
+                if (cropRect.w < 0) { cropRect.x += cropRect.w; cropRect.w = Math.abs(cropRect.w); }
+                if (cropRect.h < 0) { cropRect.y += cropRect.h; cropRect.h = Math.abs(cropRect.h); }
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDragging && activeTool === 'crop') {
+                isDragging = false;
+                if (cropRect && cropRect.w > 5 && cropRect.h > 5) document.getElementById('cropActionContainer').classList.remove('hidden');
+            }
+        });
+
+        canvas.onclick = (e) => {
+            const coords = getCanvasCoords(e);
+            if (currentMode === 'analyze') pickColorAt(coords.x, coords.y);
+            else if (activeTool === 'wand') magicWand(coords.x, coords.y);
+        };
+
+        function getResizeHandle(p) {
+            if (!cropRect) return null;
+            const s = (HANDLE_SIZE + 4) / zoomScale; const r = cropRect;
+            if (Math.abs(p.x - r.x) < s && Math.abs(p.y - r.y) < s) return 'nw';
+            if (Math.abs(p.x - (r.x+r.w)) < s && Math.abs(p.y - r.y) < s) return 'ne';
+            if (Math.abs(p.x - r.x) < s && Math.abs(p.y - (r.y+r.h)) < s) return 'sw';
+            if (Math.abs(p.x - (r.x+r.w)) < s && Math.abs(p.y - (r.y+r.h)) < s) return 'se';
+            return null;
+        }
+        function isPointInRect(p, r) { return p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h; }
+
+        function confirmCrop() {
+            if (!cropRect) return;
+            const temp = document.createElement('canvas');
+            temp.width = cropRect.w; temp.height = cropRect.h;
+            temp.getContext('2d').drawImage(canvas, cropRect.x, cropRect.y, cropRect.w, cropRect.h, 0, 0, cropRect.w, cropRect.h);
+            canvas.width = cropRect.w; canvas.height = cropRect.h;
+            overlay.width = cropRect.w; overlay.height = cropRect.h;
+            ctx.drawImage(temp, 0, 0);
+            updateUIInfo(); clearSelection(); saveHistory(); activeTool = null; updateToolUI();
+        }
+
+        function fillSelectedArea(isTransparent) {
+            if (!selectionMask) return showToast("영역을 먼저 선택하세요.");
+            const color = document.getElementById('pickerColor').value;
+            const r = parseInt(color.slice(1,3), 16), g = parseInt(color.slice(3,5), 16), b = parseInt(color.slice(5,7), 16);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < selectionMask.length; i++) {
+                if (selectionMask[i]) {
+                    const idx = i * 4;
+                    if (isTransparent) imgData.data[idx+3] = 0;
+                    else { imgData.data[idx] = r; imgData.data[idx+1] = g; imgData.data[idx+2] = b; imgData.data[idx+3] = 255; }
+                }
+            }
+            ctx.putImageData(imgData, 0, 0); clearSelection(); saveHistory(); analyzeColors();
+        }
+
+        function applyResize() {
+            const newW = parseInt(document.getElementById('inpW').value);
+            const newH = parseInt(document.getElementById('inpH').value);
+            const temp = document.createElement('canvas');
+            temp.width = newW; temp.height = newH;
+            temp.getContext('2d').drawImage(canvas, 0, 0, newW, newH);
+            canvas.width = newW; canvas.height = newH;
+            overlay.width = newW; overlay.height = newH;
+            ctx.drawImage(temp, 0, 0);
+            updateUIInfo(); clearSelection(); saveHistory();
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('panelEdit').classList.toggle('hidden', mode !== 'edit');
+            document.getElementById('panelAnalyze').classList.toggle('hidden', mode !== 'analyze');
+            document.getElementById('tabEdit').classList.toggle('active-tab', mode === 'edit');
+            document.getElementById('tabAnalyze').classList.toggle('active-tab', mode === 'analyze');
+            if (mode === 'analyze') { activeTool = null; clearSelection(); }
+            updateToolUI();
+        }
+
+        function analyzeColors() {
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const counts = {};
+            for(let i=0; i<data.length; i+=2000) { 
+                if(data[i+3] < 128) continue;
+                const hex = "#" + ((1 << 24) + (data[i] << 16) + (data[i+1] << 8) + data[i+2]).toString(16).slice(1).toUpperCase();
+                counts[hex] = (counts[hex] || 0) + 1;
+            }
+            const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 5);
+            document.getElementById('primaryColorList').innerHTML = sorted.map(([hex]) => `
+                <div class="flex items-center gap-3 bg-white p-2 rounded-lg border border-gray-100 shadow-sm cursor-pointer hover:bg-gray-50" onclick="document.getElementById('pickedHex').innerText='${hex}'; document.getElementById('pickedSwatch').style.backgroundColor='${hex}'; document.getElementById('pickerColor').value='${hex}';">
+                    <div class="w-8 h-8 rounded-md border" style="background:${hex}"></div>
+                    <span class="text-xs font-mono font-bold text-gray-700">${hex}</span>
+                </div>`).join('');
+        }
+
+        function pickColorAt(x, y) {
+            const data = ctx.getImageData(x, y, 1, 1).data;
+            const hex = "#" + ((1 << 24) + (data[0] << 16) + (data[1] << 8) + data[2]).toString(16).slice(1).toUpperCase();
+            document.getElementById('pickedSwatch').style.backgroundColor = hex;
+            document.getElementById('pickedHex').innerText = hex;
+            document.getElementById('pickerColor').value = hex;
+        }
+
+        async function processAndSave() {
+            const format = document.getElementById('targetExt').value;
+            const link = document.createElement('a');
+            link.download = `export_${Date.now()}.${format}`;
+            link.href = canvas.toDataURL(`image/${format === 'jpeg' ? 'jpeg' : format}`);
+            link.click();
+            showToast("저장 완료");
+        }
+
+        function showToast(msg) { 
+            const t = document.getElementById('toast'); t.innerText = msg; 
+            t.classList.add('opacity-100'); 
+            setTimeout(() => t.classList.remove('opacity-100'), 2500); 
+        }
+        
+        document.getElementById('inpW').oninput = function() {
+            if (document.getElementById('aspectLock').checked) 
+                document.getElementById('inpH').value = Math.round(this.value * (canvas.height / canvas.width));
+        };
+        document.getElementById('inpH').oninput = function() {
+            if (document.getElementById('aspectLock').checked) 
+                document.getElementById('inpW').value = Math.round(this.value / (canvas.width / canvas.height));
+        };
+    </script>
+</body>
+</html>

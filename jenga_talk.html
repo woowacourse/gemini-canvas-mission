@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jenga Talk 4.5 - Vanilla JS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+        body { font-family: 'Pretendard', sans-serif; overflow: hidden; }
+        .success-zone {
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+        }
+        .hidden-view { display: none !important; }
+        canvas { outline: none; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 select-none">
+
+    <!-- [1] 랜딩 화면 -->
+    <div id="view-landing" class="flex flex-col h-screen items-center justify-center p-6 text-center animate-in fade-in duration-700">
+        <div class="mb-10">
+            <div class="w-24 h-24 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center shadow-2xl mx-auto mb-6 animate-bounce">
+                <i class="fa-solid fa-scale-balanced text-4xl text-white"></i>
+            </div>
+            <h1 class="text-5xl font-black text-indigo-950 tracking-tighter italic uppercase">Jenga Talk 4.5</h1>
+            <p class="text-slate-400 font-bold mt-3 tracking-wide">어색함을 깨는 가장 짜릿한 방법</p>
+        </div>
+
+        <div id="theme-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3 w-full max-w-2xl mb-10">
+            <!-- 주제 버튼들이 JS에서 생성됨 -->
+        </div>
+
+        <div class="w-full max-w-sm bg-white p-5 rounded-3xl shadow-xl border border-slate-200">
+            <div class="flex gap-2">
+                <input type="text" id="custom-theme-input" placeholder="직접 주제 입력 (예: 첫인상)" 
+                       class="flex-1 bg-slate-50 border-none rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:ring-4 ring-indigo-50 transition-all">
+                <button onclick="handleStartGame('custom')" 
+                        class="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-sm active:scale-90 transition-transform shadow-lg shadow-indigo-200">START</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- [2] 게임 화면 -->
+    <div id="view-game" class="hidden-view flex flex-col h-screen relative bg-slate-200 overflow-hidden">
+        <!-- 상단 바 -->
+        <div class="absolute top-0 left-0 right-0 z-30 p-4 flex justify-between items-center bg-white/40 backdrop-blur-xl border-b border-white/20">
+            <div class="flex items-center gap-3">
+                <div id="current-theme-icon" class="p-2 rounded-xl text-white shadow-lg"></div>
+                <div class="text-left">
+                    <p class="text-[10px] font-black text-slate-400 leading-none mb-1 uppercase text-left">Theme</p>
+                    <span id="current-theme-name" class="font-black text-slate-800 uppercase tracking-tighter"></span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div id="turn-count-badge" class="text-[10px] font-black bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm tracking-widest text-indigo-600 uppercase">TURN 1</div>
+                <button onclick="resetGame()" class="p-3 bg-white rounded-full shadow-md hover:bg-slate-50 transition-all active:rotate-180 duration-500">
+                    <i class="fa-solid fa-rotate-right text-slate-600"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- 3D 캔버스 컨테이너 -->
+        <div id="canvas-container" class="flex-1 relative touch-none bg-slate-200"></div>
+
+        <!-- 로딩 오버레이 -->
+        <div id="loading-overlay" class="hidden-view absolute inset-0 z-40 flex flex-col items-center justify-center bg-white/90 backdrop-blur-md">
+            <div class="relative mb-6">
+                <div class="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+            </div>
+            <p class="font-black text-indigo-900 animate-pulse uppercase tracking-[0.2em] text-xs">Preloading Questions...</p>
+        </div>
+
+        <!-- 게이지 UI -->
+        <div id="gauge-ui" class="hidden-view absolute top-32 left-1/2 -translate-x-1/2 w-80 z-40 animate-in slide-in-from-top-6 duration-300">
+            <div class="bg-slate-900/90 p-5 rounded-[2rem] border border-white/10 shadow-2xl backdrop-blur-2xl text-left">
+                <div class="flex justify-between items-center mb-3 px-1">
+                    <span class="text-[11px] text-white font-black flex items-center gap-2 uppercase text-left">
+                        <i class="fa-solid fa-bolt text-yellow-400"></i> Timing Power
+                    </span>
+                    <span id="power-text" class="text-[11px] text-slate-300 font-mono bg-white/10 px-2 py-0.5 rounded-md">0%</span>
+                </div>
+                <div class="h-8 bg-slate-800 rounded-2xl overflow-hidden relative border border-white/5 p-1">
+                    <div id="success-marker" class="absolute top-0 bottom-0 bg-green-500/40 border-x-2 border-green-400 success-zone transition-all duration-300"></div>
+                    <div id="power-bar" class="h-full bg-gradient-to-r from-indigo-600 via-indigo-300 to-white rounded-xl shadow-xl transition-none" style="width: 0%"></div>
+                </div>
+                <p class="text-center text-[10px] text-green-400 font-black mt-3 animate-pulse uppercase tracking-widest text-center">Release in Green Zone!</p>
+            </div>
+        </div>
+
+        <!-- 하단 패널 -->
+        <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-[94%] max-w-md z-30">
+            <!-- 질문 패널 -->
+            <div id="question-panel" class="bg-white/90 backdrop-blur-3xl p-7 rounded-[2.5rem] shadow-2xl border border-white/60 relative overflow-hidden ring-1 ring-black/5">
+                <div id="panel-idle" class="text-center py-6">
+                    <div class="w-14 h-14 bg-indigo-50 rounded-3xl flex items-center justify-center mx-auto mb-5 shadow-sm">
+                        <i class="fa-solid fa-bullseye text-2xl text-indigo-600 animate-pulse"></i>
+                    </div>
+                    <p class="font-black text-slate-800 text-xl tracking-tight mb-2">원하는 블록을 꾹 누르세요</p>
+                    <p class="text-xs text-slate-400 font-bold uppercase tracking-widest text-center">초록색 영역에서 타이밍을 맞추세요</p>
+                </div>
+                <div id="panel-active" class="hidden-view">
+                    <div class="flex justify-between items-center mb-3 text-left">
+                        <p id="question-index" class="text-[11px] font-black text-indigo-600 uppercase tracking-[0.1em] bg-indigo-50 px-3 py-1 rounded-xl italic">QUESTION #1</p>
+                        <span class="text-[10px] font-mono text-slate-400 italic">Gemini AI</span>
+                    </div>
+                    <h2 id="question-text" class="text-2xl font-black text-slate-800 leading-tight min-h-[5rem] flex items-center break-keep"></h2>
+                </div>
+                <div id="panel-collapsing" class="hidden-view text-center py-8 animate-pulse">
+                    <p class="text-3xl font-black text-rose-600 tracking-tighter italic uppercase text-center">Physics Collapsing...</p>
+                </div>
+            </div>
+
+            <!-- 결과 패널 (붕괴 시) -->
+            <div id="result-panel" class="hidden-view bg-rose-600 p-8 rounded-[3rem] shadow-2xl text-white text-center border-4 border-rose-400">
+                <h2 class="text-4xl font-black mb-4 italic tracking-tighter uppercase">Tower Crash!</h2>
+                <div class="bg-black/20 p-6 rounded-[2rem] mb-8 backdrop-blur-md border border-white/10 text-left">
+                    <p class="text-[10px] opacity-60 mb-3 font-black uppercase tracking-[0.2em] text-rose-100 font-mono">AI Penalty Mission</p>
+                    <p id="penalty-text" class="text-xl font-bold leading-relaxed break-keep"></p>
+                </div>
+                <button onclick="resetGame()" class="w-full py-5 bg-white text-rose-600 font-black rounded-3xl hover:bg-rose-50 shadow-2xl active:scale-95 text-lg uppercase">Restart Game</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 토스트 메시지 -->
+    <div id="toast-message" class="hidden-view fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-in zoom-in duration-300">
+        <div class="bg-amber-500 text-white px-8 py-4 rounded-[2rem] shadow-2xl font-black flex items-center gap-3 border-2 border-amber-300 ring-8 ring-amber-500/20 max-w-[80vw] text-center">
+            <i class="fa-solid fa-circle-info text-2xl"></i>
+            <span id="toast-text"></span>
+        </div>
+    </div>
+
+    <script>
+        // --- 상수 및 설정 ---
+        const apiKey = "";
+        const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
+        const GAUGE_SPEED = 5.5;
+        const MIN_SUCCESS_WIDTH = 12;
+        const INITIAL_SUCCESS_WIDTH = 35;
+        const COLLAPSE_DELAY = 3000;
+
+        const THEMES = [
+            { id: 'daily', name: '일상', icon: 'fa-coffee', color: 'bg-blue-500' },
+            { id: 'taste', name: '취향', icon: 'fa-heart', color: 'bg-pink-500' },
+            { id: 'travel', name: '여행', icon: 'fa-map-pin', color: 'bg-green-500' },
+            { id: 'value', name: '가치관', icon: 'fa-comment', color: 'bg-purple-500' },
+            { id: 'dev', name: '개발', icon: 'fa-code', color: 'bg-slate-700' },
+            { id: 'superstition', name: '미신', icon: 'fa-ghost', color: 'bg-indigo-600' },
+            { id: 'food', name: '음식', icon: 'fa-utensils', color: 'bg-orange-500' },
+            { id: 'balance', name: '밸런스게임', icon: 'fa-scale-balanced', color: 'bg-rose-500' },
+        ];
+
+        // --- 전역 상태 ---
+        let gameState = 'ready'; // ready, loading, playing, collapsing, result
+        let questions = [];
+        let preloadedPenalty = "";
+        let currentIndex = -1;
+        let turnCount = 0;
+        let power = 0;
+        let gaugeDir = 1;
+        let isCharging = false;
+        let successRange = [0, 0];
+
+        // --- Three.js 변수 ---
+        let scene, camera, renderer, towerGroup, blocks = [];
+        let activeBlock = null, animationState = 'idle';
+        let maxLayer = 9, blocksInLayer = {};
+        let isDragging = false, lastMouse = { x: 0, y: 0 }, rotation = { y: Math.PI / 4, x: -Math.PI / 10 };
+
+        // --- 초기화 ---
+        function init() {
+            const grid = document.getElementById('theme-grid');
+            THEMES.forEach(t => {
+                const btn = document.createElement('button');
+                btn.className = 'flex flex-col items-center p-5 bg-white rounded-3xl shadow-sm border border-slate-200 hover:border-indigo-400 active:scale-95 transition-all group';
+                btn.onclick = () => handleStartGame(t);
+                btn.innerHTML = `
+                    <div class="w-12 h-12 ${t.color} text-white rounded-2xl flex items-center justify-center mb-3 group-hover:rotate-12 transition-transform shadow-md">
+                        <i class="fa-solid ${t.icon} text-xl"></i>
+                    </div>
+                    <span class="font-extrabold text-sm">${t.name}</span>
+                `;
+                grid.appendChild(btn);
+            });
+        }
+
+        // --- AI 데이터 로딩 (Exponential Backoff 적용) ---
+        async function fetchWithRetry(url, options, retries = 5, backoff = 1000) {
+            try {
+                const res = await fetch(url, options);
+                if (!res.ok) throw new Error('API Error');
+                return await res.json();
+            } catch (err) {
+                if (retries <= 0) throw err;
+                await new Promise(r => setTimeout(r, backoff));
+                return fetchWithRetry(url, options, retries - 1, backoff * 2);
+            }
+        }
+
+        async function preloadGameData(themeName) {
+            const systemPrompt = `당신은 아이스브레이킹 전문가입니다. 1. '${themeName}' 주제에 대한 매우 짧고 흥미로운 스몰토크 질문 30개. 2. 게임 패배자를 위한 귀엽고 무해한 벌칙 1개. 반드시 JSON 형식으로 답변하세요: { "questions": ["질문1", ...], "penalty": "벌칙내용" }`;
+            const userQuery = `${themeName} 주제에 대한 질문 30개와 벌칙 1개를 만들어줘.`;
+            
+            try {
+                const data = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: userQuery }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: { responseMimeType: "application/json" }
+                    })
+                });
+                return JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text);
+            } catch (e) {
+                return {
+                    questions: Array(30).fill("오늘 하루 중 가장 기분 좋았던 일은?"),
+                    penalty: "옆 사람과 손가락 씨름 하기"
+                };
+            }
+        }
+
+        // --- 게임 흐름 제어 ---
+        async function handleStartGame(theme) {
+            const themeName = theme === 'custom' ? document.getElementById('custom-theme-input').value : theme.name;
+            if (theme === 'custom' && !themeName.trim()) return;
+
+            const selected = theme === 'custom' ? { name: themeName, color: 'bg-amber-500', icon: 'fa-plus' } : theme;
+            
+            document.getElementById('view-landing').classList.add('hidden-view');
+            document.getElementById('view-game').classList.remove('hidden-view');
+            document.getElementById('loading-overlay').classList.remove('hidden-view');
+
+            // UI 셋업
+            document.getElementById('current-theme-name').innerText = selected.name;
+            const iconDiv = document.getElementById('current-theme-icon');
+            iconDiv.className = `p-2 rounded-xl ${selected.color} text-white shadow-lg`;
+            iconDiv.innerHTML = `<i class="fa-solid ${selected.icon}"></i>`;
+
+            const data = await preloadGameData(selected.name);
+            questions = data.questions;
+            preloadedPenalty = data.penalty;
+            
+            document.getElementById('loading-overlay').classList.add('hidden-view');
+            gameState = 'playing';
+            initThreeScene();
+        }
+
+        function resetGame() {
+            location.reload(); // 단순화를 위해 리로드
+        }
+
+        function showToast(text) {
+            const toast = document.getElementById('toast-message');
+            document.getElementById('toast-text').innerText = text;
+            toast.classList.remove('hidden-view');
+            setTimeout(() => toast.classList.add('hidden-view'), 2500);
+        }
+
+        // --- Three.js 엔진 ---
+        function initThreeScene() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(40, container.clientWidth / container.clientHeight, 0.1, 1000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+            const dLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dLight.position.set(10, 20, 10);
+            dLight.castShadow = true;
+            dLight.shadow.mapSize.width = 1024;
+            dLight.shadow.mapSize.height = 1024;
+            scene.add(dLight);
+
+            const floor = new THREE.Mesh(new THREE.CircleGeometry(15, 64), new THREE.MeshStandardMaterial({ color: 0xbdc3c7, roughness: 1 }));
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            towerGroup = new THREE.Group();
+            scene.add(towerGroup);
+
+            const bW = 2.4, bH = 0.6, bD = 0.8;
+            const colors = [0xd35400, 0xe67e22, 0xf39c12, 0xd97706, 0xb45309];
+            
+            for (let y = 0; y < 10; y++) {
+                const isEven = y % 2 === 0;
+                blocksInLayer[y] = 3;
+                for (let i = 0; i < 3; i++) {
+                    const mat = new THREE.MeshStandardMaterial({ color: colors[(y + i) % colors.length], roughness: 0.5 });
+                    const block = new THREE.Mesh(new THREE.BoxGeometry(bW, bH, bD), mat);
+                    block.castShadow = true;
+                    block.receiveShadow = true;
+                    
+                    if (isEven) block.position.set(0, y * (bH + 0.02) + bH/2, (i - 1) * (bD + 0.02));
+                    else { block.rotation.y = Math.PI / 2; block.position.set((i - 1) * (bD + 0.02), y * (bH + 0.02) + bH/2, 0); }
+                    
+                    block.userData = { 
+                        layer: y, pos: i, exists: true, isStacked: false,
+                        velocity: new THREE.Vector3(), rotVel: new THREE.Vector3() 
+                    };
+                    towerGroup.add(block);
+                    blocks.push(block);
+                }
+            }
+
+            container.addEventListener('mousedown', onPointerStart);
+            container.addEventListener('mousemove', onPointerMove);
+            window.addEventListener('mouseup', onPointerEnd);
+            container.addEventListener('touchstart', (e) => onPointerStart(e.touches[0]));
+            container.addEventListener('touchmove', (e) => onPointerMove(e.touches[0]));
+            window.addEventListener('touchend', onPointerEnd);
+
+            animate();
+        }
+
+        function animate() {
+            if (gameState === 'ready') return;
+            requestAnimationFrame(animate);
+
+            // 카메라 궤도 제어
+            const dist = 18;
+            camera.position.x = dist * Math.cos(rotation.y) * Math.cos(rotation.x);
+            camera.position.z = dist * Math.sin(rotation.y) * Math.cos(rotation.x);
+            camera.position.y = dist * Math.sin(rotation.x);
+            camera.lookAt(0, 3, 0);
+
+            // 게이지 업데이트
+            if (isCharging && gameState === 'playing') {
+                power += gaugeDir * GAUGE_SPEED;
+                if (power >= 100) { power = 100; gaugeDir = -1; }
+                else if (power <= 0) { power = 0; gaugeDir = 1; }
+                updateGaugeUI();
+            }
+
+            // 붕괴 물리
+            if (gameState === 'collapsing' || gameState === 'result') {
+                blocks.forEach(b => {
+                    if (b.userData.exists) {
+                        b.userData.velocity.y -= 0.015;
+                        b.userData.velocity.multiplyScalar(0.98);
+                        b.position.add(b.userData.velocity);
+                        b.rotation.x += b.userData.rotVel.x;
+                        b.rotation.y += b.userData.rotVel.y;
+                        b.rotation.z += b.userData.rotVel.z;
+                        if (b.position.y < 0.3) { 
+                            b.position.y = 0.3; 
+                            b.userData.velocity.set(0,0,0); 
+                            b.userData.rotVel.multiplyScalar(0.6); 
+                        }
+                    }
+                });
+            }
+
+            // 애니메이션 시퀀스
+            if (animationState !== 'idle' && activeBlock) {
+                const b = activeBlock;
+                if (animationState === 'pulling') {
+                    const isEven = b.userData.layer % 2 === 0;
+                    if (isEven) b.position.z += 0.45; else b.position.x += 0.45;
+                    if (Math.abs(b.position.x) > 5 || Math.abs(b.position.z) > 5) animationState = 'rising';
+                } else if (animationState === 'rising') {
+                    const targetY = (maxLayer + 1) * 0.62 + 2.5;
+                    b.position.y += 0.45; b.rotation.y += 0.2;
+                    if (b.position.y >= targetY) animationState = 'stacking';
+                } else if (animationState === 'stacking') {
+                    let nextLayer = maxLayer;
+                    if ((blocksInLayer[nextLayer] || 0) >= 3) nextLayer += 1;
+                    
+                    const isNextEven = nextLayer % 2 === 0;
+                    const posIdx = blocksInLayer[nextLayer] || 0;
+                    const targetY = nextLayer * 0.62 + 0.3;
+                    const targetRot = isNextEven ? 0 : Math.PI / 2;
+                    const targetX = isNextEven ? 0 : (posIdx - 1) * 0.82;
+                    const targetZ = isNextEven ? (posIdx - 1) * 0.82 : 0;
+
+                    b.position.x = THREE.MathUtils.lerp(b.position.x, targetX, 0.2);
+                    b.position.z = THREE.MathUtils.lerp(b.position.z, targetZ, 0.2);
+                    b.position.y = THREE.MathUtils.lerp(b.position.y, targetY, 0.2);
+                    b.rotation.y = THREE.MathUtils.lerp(b.rotation.y, targetRot, 0.2);
+
+                    if (Math.abs(b.position.y - targetY) < 0.02) {
+                        b.position.set(targetX, targetY, targetZ);
+                        b.rotation.y = targetRot;
+                        b.userData.layer = nextLayer;
+                        b.userData.pos = posIdx;
+                        b.userData.isStacked = true;
+                        blocksInLayer[nextLayer] = (blocksInLayer[nextLayer] || 0) + 1;
+                        maxLayer = Math.max(maxLayer, nextLayer);
+                        
+                        scene.remove(b);
+                        towerGroup.add(b);
+                        animationState = 'idle';
+                        activeBlock = null;
+                        handleTurnEnd(true);
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // --- 인터랙션 로직 ---
+        function onPointerStart(e) {
+            if (gameState !== 'playing' || animationState !== 'idle') return;
+            isDragging = true;
+            lastMouse = { x: e.clientX, y: e.clientY };
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(towerGroup.children);
+
+            if (intersects.length > 0) {
+                const b = intersects[0].object;
+                if (turnCount === 0 && b.userData.layer === maxLayer) { showToast("첫 턴에는 최상단 블럭을 뺄 수 없습니다."); return; }
+                if (b.userData.isStacked) { showToast("이미 이동된 블록입니다."); return; }
+                if (b.userData.layer === maxLayer) { showToast("최상단 층의 블록은 뽑을 수 없습니다."); return; }
+                
+                power = 0; gaugeDir = 1; activeBlock = b; isCharging = true;
+                document.getElementById('gauge-ui').classList.remove('hidden-view');
+                updateGaugeUI();
+            }
+        }
+
+        function onPointerMove(e) {
+            if (!isDragging) return;
+            if (isCharging) return;
+            const dx = e.clientX - lastMouse.x;
+            const dy = e.clientY - lastMouse.y;
+            rotation.y += dx * 0.007;
+            rotation.x = Math.max(-Math.PI/3, Math.min(Math.PI/20, rotation.x + dy * 0.007));
+            lastMouse = { x: e.clientX, y: e.clientY };
+        }
+
+        function onPointerEnd() {
+            if (isCharging) {
+                isCharging = false;
+                document.getElementById('gauge-ui').classList.add('hidden-view');
+                if (power < 5) { activeBlock = null; return; }
+
+                if (power >= successRange[0] - 0.1 && power <= successRange[1] + 0.1) {
+                    blocksInLayer[activeBlock.userData.layer] -= 1;
+                    if (blocksInLayer[activeBlock.userData.layer] === 0) { triggerCollapse(); return; }
+
+                    const worldPos = new THREE.Vector3(), worldQuat = new THREE.Quaternion();
+                    activeBlock.getWorldPosition(worldPos);
+                    activeBlock.getWorldQuaternion(worldQuat);
+                    towerGroup.remove(activeBlock);
+                    scene.add(activeBlock);
+                    activeBlock.position.copy(worldPos);
+                    activeBlock.quaternion.copy(worldQuat);
+                    animationState = 'pulling';
+                } else {
+                    triggerCollapse();
+                }
+            }
+            isDragging = false;
+        }
+
+        function updateGaugeUI() {
+            const successWidth = Math.max(MIN_SUCCESS_WIDTH, INITIAL_SUCCESS_WIDTH - (turnCount * 1.0));
+            successRange = [85 - successWidth / 2, 85 + successWidth / 2];
+
+            document.getElementById('success-marker').style.left = `${successRange[0]}%`;
+            document.getElementById('success-marker').style.width = `${successWidth}%`;
+            document.getElementById('power-bar').style.width = `${power}%`;
+            document.getElementById('power-text').innerText = `${Math.round(power)}%`;
+        }
+
+        function handleTurnEnd(success) {
+            if (success) {
+                currentIndex++;
+                turnCount++;
+                document.getElementById('turn-count-badge').innerText = `TURN ${turnCount + 1}`;
+                
+                // 패널 업데이트
+                document.getElementById('panel-idle').classList.add('hidden-view');
+                document.getElementById('panel-active').classList.remove('hidden-view');
+                document.getElementById('question-index').innerText = `QUESTION #${currentIndex + 1}`;
+                document.getElementById('question-text').innerText = questions[currentIndex % questions.length];
+            }
+        }
+
+        function triggerCollapse() {
+            gameState = 'collapsing';
+            document.getElementById('panel-active').classList.add('hidden-view');
+            document.getElementById('panel-idle').classList.add('hidden-view');
+            document.getElementById('panel-collapsing').classList.remove('hidden-view');
+
+            blocks.forEach(b => {
+                if (b.parent === towerGroup) {
+                    const p = new THREE.Vector3(), q = new THREE.Quaternion();
+                    b.getWorldPosition(p); b.getWorldQuaternion(q);
+                    towerGroup.remove(b);
+                    scene.add(b);
+                    b.position.copy(p); b.quaternion.copy(q);
+                }
+                const f = 0.65;
+                b.userData.velocity.set((Math.random()-0.5)*f, Math.random()*f, (Math.random()-0.5)*f);
+                b.userData.rotVel.set((Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4);
+            });
+
+            setTimeout(() => {
+                gameState = 'result';
+                document.getElementById('question-panel').classList.add('hidden-view');
+                document.getElementById('result-panel').classList.remove('hidden-view');
+                document.getElementById('penalty-text').innerText = `"${preloadedPenalty}"`;
+            }, COLLAPSE_DELAY);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

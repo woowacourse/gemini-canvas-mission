@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>바니런 (Bunny Run)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
+
+        body {
+            font-family: 'Jua', sans-serif;
+            overflow: hidden;
+            background-color: #f0f4f8;
+            margin: 0;
+            padding: 0;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(to bottom, #a1c4fd 0%, #c2e9fb 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        #ground {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 100px;
+            background-color: #8bc34a;
+            border-top: 5px solid #689f38;
+        }
+
+        #rabbit {
+            position: absolute;
+            bottom: 100px;
+            left: 100px;
+            width: 60px;
+            height: 60px;
+            z-index: 10;
+        }
+
+        /* 히트박스 가시화 제거 (완전 투명) */
+        .hitbox-visual {
+            position: absolute;
+            pointer-events: none;
+            z-index: 100;
+            box-sizing: border-box;
+            background: transparent;
+            border: none;
+        }
+
+        .game-object {
+            position: absolute;
+            bottom: 100px;
+            z-index: 5;
+            width: 50px;
+            height: 40px;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 20;
+        }
+
+        .heart-icon {
+            width: 30px;
+            height: 30px;
+            fill: #ff4081;
+        }
+
+        #score-board {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 24px;
+            color: #333;
+            z-index: 20;
+            background: rgba(255,255,255,0.8);
+            padding: 8px 20px;
+            border-radius: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        #video-container {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 120px;
+            height: 90px;
+            border: 2px solid white;
+            border-radius: 10px;
+            overflow: hidden;
+            z-index: 30;
+            background: #000;
+        }
+
+        #input-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 100;
+        }
+
+        .btn {
+            background-color: #ff4081;
+            padding: 15px 50px;
+            border-radius: 40px;
+            font-size: 24px;
+            cursor: pointer;
+            border: none;
+            color: white;
+            margin-top: 25px;
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 6px 0 #c2185b;
+        }
+
+        .btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 #c2185b;
+        }
+
+        #blink-indicator {
+            position: absolute;
+            bottom: 110px;
+            right: 10px;
+            background: rgba(0,255,0,0.8);
+            padding: 2px 8px;
+            border-radius: 5px;
+            font-size: 12px;
+            display: none;
+            font-weight: bold;
+        }
+
+        .final-score-text {
+            font-size: 3rem;
+            color: #ffeb3b;
+            text-shadow: 2px 2px 0 #f57f17;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui-layer"></div>
+    <div id="score-board">0m</div>
+    <div id="ground"></div>
+
+    <div id="rabbit">
+        <svg viewBox="0 0 100 100">
+            <ellipse cx="35" cy="20" rx="8" ry="25" fill="#ffc1e3" stroke="#f06292" stroke-width="2"/>
+            <ellipse cx="65" cy="20" rx="8" ry="25" fill="#ffc1e3" stroke="#f06292" stroke-width="2"/>
+            <circle cx="50" cy="65" r="30" fill="#fff" stroke="#f06292" stroke-width="2"/>
+            <circle cx="50" cy="45" r="25" fill="#fff" stroke="#f06292" stroke-width="2"/>
+            <circle cx="40" cy="40" r="3" fill="#333"/>
+            <circle cx="60" cy="40" r="3" fill="#333"/>
+            <path d="M 48 50 L 52 50 L 50 53 Z" fill="#f06292"/>
+            <circle cx="35" cy="48" r="4" fill="#ff80ab" opacity="0.4"/>
+            <circle cx="65" cy="48" r="4" fill="#ff80ab" opacity="0.4"/>
+        </svg>
+    </div>
+
+    <div id="rabbit-hitbox-visual" class="hitbox-visual"></div>
+
+    <div id="video-container">
+        <video id="input-video" playsinline></video>
+        <div id="blink-indicator">점프!</div>
+    </div>
+
+    <div id="overlay">
+        <h1 id="status-title" class="text-6xl mb-2 text-center text-pink-400" style="text-shadow: 3px 3px 0 #fff;">바니런</h1>
+        <div id="final-score-container" class="hidden flex flex-col items-center">
+            <p class="text-2xl">최종 기록</p>
+            <div id="final-score-val" class="final-score-text">0m</div>
+        </div>
+        <p id="status-desc" class="text-xl text-center px-8 opacity-80 mt-2">눈을 깜빡여서 장애물을 피하세요!</p>
+        <div id="loading-spinner" class="mt-8 border-4 border-white border-t-pink-500 rounded-full w-12 h-12 animate-spin"></div>
+        <button id="start-btn" class="btn hidden">게임 시작</button>
+    </div>
+</div>
+
+<script>
+    const rabbit = document.getElementById('rabbit');
+    const rabbitVisual = document.getElementById('rabbit-hitbox-visual');
+    const gameContainer = document.getElementById('game-container');
+    const uiLayer = document.getElementById('ui-layer');
+    const scoreBoard = document.getElementById('score-board');
+    const overlay = document.getElementById('overlay');
+    const startBtn = document.getElementById('start-btn');
+    const statusTitle = document.getElementById('status-title');
+    const statusDesc = document.getElementById('status-desc');
+    const finalScoreContainer = document.getElementById('final-score-container');
+    const finalScoreVal = document.getElementById('final-score-val');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const videoElement = document.getElementById('input-video');
+    const blinkIndicator = document.getElementById('blink-indicator');
+
+    let isPlaying = false;
+    let score = 0;
+    let lives = 3;
+    let rabbitY = 0;
+    let jumpVelocity = 0;
+    let isJumping = false;
+    const gravity = 0.8;
+    const jumpStrength = 18;
+    
+    let gameObjects = [];
+    let lastSpawnTime = 0;
+    let gameSpeed = 6;
+
+    let eyeClosed = false;
+    const BLINK_THRESHOLD = 0.22;
+
+    function updateLivesUI() {
+        uiLayer.innerHTML = '';
+        for (let i = 0; i < lives; i++) {
+            uiLayer.innerHTML += `
+                <svg class="heart-icon" viewBox="0 0 24 24">
+                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>`;
+        }
+    }
+
+    function spawnObject() {
+        const now = Date.now();
+        const spawnInterval = Math.max(800, 1800 - (score * 2.5)) + Math.random() * 800;
+        
+        if (now - lastSpawnTime < spawnInterval) return;
+        
+        lastSpawnTime = now;
+        const isHeart = Math.random() > 0.88; 
+        
+        const obj = document.createElement('div');
+        obj.className = 'game-object';
+        obj.style.left = window.innerWidth + 'px';
+        
+        const debugBox = document.createElement('div');
+        debugBox.className = 'hitbox-visual';
+        
+        if (isHeart) {
+            obj.innerHTML = `
+                <svg width="40" height="40" viewBox="0 0 24 24">
+                    <path fill="#ff4081" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>`;
+            obj.dataset.type = 'heart';
+        } else {
+            obj.innerHTML = `
+                <svg width="50" height="40" viewBox="0 0 100 80">
+                    <path d="M10 80 L30 30 L50 60 L70 10 L90 80 Z" fill="#795548" stroke="#3e2723" stroke-width="3"/>
+                </svg>`;
+            obj.dataset.type = 'obstacle';
+        }
+        
+        gameContainer.appendChild(obj);
+        gameContainer.appendChild(debugBox);
+
+        gameObjects.push({
+            el: obj,
+            debugEl: debugBox,
+            x: window.innerWidth,
+            type: obj.dataset.type
+        });
+    }
+
+    function jump() {
+        if (!isJumping) {
+            isJumping = true;
+            jumpVelocity = jumpStrength;
+        }
+    }
+
+    function update() {
+        if (!isPlaying) return;
+
+        score += 0.15;
+        scoreBoard.innerText = Math.floor(score) + 'm';
+        
+        gameSpeed = 6 + (score / 35); 
+
+        if (isJumping) {
+            rabbitY += jumpVelocity;
+            jumpVelocity -= gravity;
+
+            if (rabbitY <= 0) {
+                rabbitY = 0;
+                isJumping = false;
+                jumpVelocity = 0;
+            }
+            rabbit.style.bottom = (100 + rabbitY) + 'px';
+        }
+
+        const rRect = rabbit.getBoundingClientRect();
+        const rHit = {
+            width: rRect.width * 0.4,
+            height: rRect.height * 0.3,
+            left: rRect.left + (rRect.width * 0.3),
+            top: rRect.top + (rRect.height * 0.65)
+        };
+
+        rabbitVisual.style.top = rHit.top + 'px';
+        rabbitVisual.style.left = rHit.left + 'px';
+        rabbitVisual.style.width = rHit.width + 'px';
+        rabbitVisual.style.height = rHit.height + 'px';
+
+        spawnObject();
+
+        for (let i = gameObjects.length - 1; i >= 0; i--) {
+            const obj = gameObjects[i];
+            obj.x -= gameSpeed;
+            obj.el.style.left = obj.x + 'px';
+
+            const oRect = obj.el.getBoundingClientRect();
+            let oHit;
+
+            if (obj.type === 'obstacle') {
+                oHit = {
+                    left: oRect.left + (oRect.width * 0.15),
+                    right: oRect.right - (oRect.width * 0.15),
+                    top: oRect.top + (oRect.height * 0.45),
+                    bottom: oRect.bottom - 2
+                };
+            } else {
+                oHit = {
+                    left: oRect.left + 5,
+                    right: oRect.right - 5,
+                    top: oRect.top + 5,
+                    bottom: oRect.bottom - 5
+                };
+            }
+
+            obj.debugEl.style.left = oHit.left + 'px';
+            obj.debugEl.style.top = oHit.top + 'px';
+            obj.debugEl.style.width = (oHit.right - oHit.left) + 'px';
+            obj.debugEl.style.height = (oHit.bottom - oHit.top) + 'px';
+
+            if (obj.x < -100) {
+                obj.el.remove();
+                obj.debugEl.remove();
+                gameObjects.splice(i, 1);
+                continue;
+            }
+
+            if (
+                rHit.left < oHit.right &&
+                rHit.left + rHit.width > oHit.left &&
+                rHit.top < oHit.bottom &&
+                rHit.top + rHit.height > oHit.top
+            ) {
+                if (obj.type === 'obstacle') {
+                    lives--;
+                    updateLivesUI();
+                    obj.el.remove();
+                    obj.debugEl.remove();
+                    gameObjects.splice(i, 1);
+                    if (lives <= 0) gameOver();
+                } else if (obj.type === 'heart') {
+                    if (lives < 3) lives++;
+                    updateLivesUI();
+                    obj.el.remove();
+                    obj.debugEl.remove();
+                    gameObjects.splice(i, 1);
+                }
+            }
+        }
+        requestAnimationFrame(update);
+    }
+
+    function gameOver() {
+        isPlaying = false;
+        statusTitle.innerText = "GAME OVER";
+        statusTitle.classList.add('text-red-500');
+        statusTitle.style.textShadow = "none";
+        statusDesc.innerText = "아쉬워요! 당근을 더 많이 모아보세요.";
+        
+        finalScoreVal.innerText = Math.floor(score) + 'm';
+        finalScoreContainer.classList.remove('hidden');
+        
+        startBtn.innerText = "다시 시작";
+        startBtn.classList.remove('hidden');
+        overlay.style.display = 'flex';
+    }
+
+    function startGame() {
+        score = 0;
+        lives = 3;
+        rabbitY = 0;
+        isJumping = false;
+        gameSpeed = 6;
+        
+        statusTitle.innerText = "바니런";
+        statusTitle.classList.remove('text-red-500');
+        statusTitle.classList.add('text-pink-400');
+        statusTitle.style.textShadow = "3px 3px 0 #fff";
+        statusDesc.innerText = "눈을 깜빡여서 장애물을 피하세요!";
+        finalScoreContainer.classList.add('hidden');
+        
+        gameObjects.forEach(obj => {
+            obj.el.remove();
+            obj.debugEl.remove();
+        });
+        gameObjects = [];
+        updateLivesUI();
+        isPlaying = true;
+        overlay.style.display = 'none';
+        update();
+    }
+
+    const faceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    function getEAR(upper, lower, left, right) {
+        const vertical = Math.sqrt(Math.pow(upper.x - lower.x, 2) + Math.pow(upper.y - lower.y, 2));
+        const horizontal = Math.sqrt(Math.pow(left.x - right.x, 2) + Math.pow(left.y - right.y, 2));
+        return vertical / horizontal;
+    }
+
+    faceMesh.onResults((results) => {
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            const landmarks = results.multiFaceLandmarks[0];
+            const leftEAR = getEAR(landmarks[159], landmarks[145], landmarks[33], landmarks[133]);
+            const rightEAR = getEAR(landmarks[386], landmarks[374], landmarks[362], landmarks[263]);
+            const avgEAR = (leftEAR + rightEAR) / 2;
+
+            if (avgEAR < BLINK_THRESHOLD) {
+                if (!eyeClosed) {
+                    eyeClosed = true;
+                    blinkIndicator.style.display = 'block';
+                    if (isPlaying) jump();
+                }
+            } else {
+                eyeClosed = false;
+                blinkIndicator.style.display = 'none';
+            }
+        }
+    });
+
+    const camera = new Camera(videoElement, {
+        onFrame: async () => {
+            await faceMesh.send({image: videoElement});
+        },
+        width: 160,
+        height: 120
+    });
+
+    camera.start().then(() => {
+        loadingSpinner.classList.add('hidden');
+        startBtn.classList.remove('hidden');
+    });
+
+    startBtn.addEventListener('click', startGame);
+
+</script>
+</body>
+</html>

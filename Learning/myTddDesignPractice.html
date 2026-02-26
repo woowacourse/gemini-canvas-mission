@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TDD 설계 연습기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+            overflow-x: hidden;
+            touch-action: manipulation;
+        }
+
+        /* Canvas Background */
+        .canvas-bg {
+            background-color: #ffffff;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* Node Styles */
+        .node {
+            position: absolute;
+            width: 240px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            border: 2px solid transparent;
+            display: flex;
+            flex-direction: column;
+            user-select: none;
+            touch-action: none;
+        }
+        .node.selected {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+            z-index: 10;
+        }
+        .node-header {
+            padding: 8px 12px;
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+            cursor: grab;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            color: white;
+        }
+        .node-header:active { cursor: grabbing; }
+        .node-type-class .node-header { background-color: #475569; }
+        .node-type-interface .node-header { background-color: #10b981; }
+
+        .node-body {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+        }
+        .node-input {
+            width: 100%;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 14px;
+            outline: none;
+        }
+        .node-input:focus { border-color: #3b82f6; }
+        .node-textarea {
+            width: 100%;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-family: monospace;
+            resize: none;
+            height: 70px;
+            outline: none;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .node-textarea:focus { border-color: #3b82f6; }
+
+        .node-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 4px;
+            border-top: 1px solid #f1f5f9;
+            padding-top: 8px;
+        }
+        .icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #64748b;
+            padding: 4px;
+            border-radius: 4px;
+        }
+        .icon-btn:hover { background-color: #f1f5f9; color: #0f172a; }
+
+        /* Connection Overlay */
+        .connect-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background-color: rgba(59, 130, 246, 0.2);
+            backdrop-filter: blur(1px);
+            z-index: 20;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            cursor: crosshair;
+            border: 2px dashed #3b82f6;
+        }
+        body.is-connecting .node:not(.selected) .connect-overlay {
+            display: flex;
+        }
+        .connect-badge {
+            background-color: #3b82f6;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-weight: bold;
+            font-size: 14px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            pointer-events: none;
+        }
+
+        /* SVG Overlay */
+        #svg-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 20; /* 선과 라벨이 노드 위로 표시되도록 z-index 상향 */
+        }
+        .connection-line {
+            stroke: #94a3b8;
+            stroke-width: 2.5;
+            fill: none;
+            pointer-events: auto;
+            cursor: pointer;
+        }
+        .connection-line:hover {
+            stroke: #ef4444;
+            stroke-width: 4;
+        }
+        .connection-label {
+            font-size: 13px;
+            fill: #1e293b;
+            font-weight: bold;
+            pointer-events: none;
+        }
+
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .screen { display: none; }
+        .screen.active { display: flex; }
+
+        /* Markdown Styles */
+        .markdown-body h1 { font-size: 1.25rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem; }
+        .markdown-body h2 { font-size: 1.125rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; color: #334155; }
+        .markdown-body h3 { font-size: 1rem; font-weight: bold; margin-top: 0.75rem; margin-bottom: 0.5rem; color: #475569; }
+        .markdown-body p { margin-bottom: 0.75rem; line-height: 1.6; color: #334155; font-size: 0.95rem; }
+        .markdown-body ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; color: #334155; font-size: 0.95rem; }
+        .markdown-body li { margin-bottom: 0.25rem; }
+        .markdown-body strong { color: #0f172a; font-weight: 600; }
+        .markdown-body pre { background: #f8fafc; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; border: 1px solid #e2e8f0; margin-bottom: 1rem; }
+        .markdown-body code { font-family: monospace; font-size: 0.875em; color: #2563eb; }
+        .markdown-body pre code { color: #334155; font-size: 0.85rem; }
+
+        /* Chat Markdown Adjustments */
+        .chat-markdown p { margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .chat-markdown ul { margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .chat-markdown pre { padding: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8rem; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col overflow-hidden">
+
+<!-- 1. Start Screen -->
+<div id="screen-start" class="screen active flex-col items-center justify-center h-full w-full bg-slate-50 p-6 text-center">
+    <div class="max-w-md w-full bg-white p-8 rounded-2xl shadow-lg fade-in">
+        <div class="mb-4 flex justify-center">
+            <svg class="w-16 h-16 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+        </div>
+        <h1 class="text-3xl font-bold text-slate-800 mb-2">TDD 설계 연습기</h1>
+        <p class="text-slate-500 mb-6 leading-relaxed text-sm">테스트 코드를 작성하기 전, 클래스와 인터페이스를 설계하고 대역(Mock/Stub) 필요성을 판단하는 시각화 연습 앱입니다.</p>
+
+        <div class="mb-8 text-left bg-slate-50 p-4 rounded-lg border border-slate-200">
+            <label class="block text-slate-700 font-bold mb-3 text-sm">문제 난이도 선택</label>
+            <div class="flex flex-col gap-3 text-sm">
+                <label class="flex items-start gap-3 cursor-pointer p-2 rounded hover:bg-white transition">
+                    <input type="radio" name="difficulty" value="1" class="mt-1" checked>
+                    <div><span class="font-bold text-slate-800">Lv 1. 초급</span><br><span class="text-slate-500">가볍게 TDD 감각을 익히기 좋은 아주 쉬운 문제</span></div>
+                </label>
+                <label class="flex items-start gap-3 cursor-pointer p-2 rounded hover:bg-white transition">
+                    <input type="radio" name="difficulty" value="2" class="mt-1">
+                    <div><span class="font-bold text-slate-800">Lv 2. 중급</span><br><span class="text-slate-500">테스트 대역(Mock) 설계에 도전해보는 중간 수준의 문제</span></div>
+                </label>
+                <label class="flex items-start gap-3 cursor-pointer p-2 rounded hover:bg-white transition">
+                    <input type="radio" name="difficulty" value="3" class="mt-1">
+                    <div><span class="font-bold text-slate-800">Lv 3. 고급</span><br><span class="text-slate-500">여러 객체의 협력과 외부 연동이 포함된 실무 느낌의 문제</span></div>
+                </label>
+            </div>
+        </div>
+
+        <button onclick="app.startPractice()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition shadow-md">
+            문제 생성 및 시작하기
+        </button>
+    </div>
+</div>
+
+<!-- Loading Screen -->
+<div id="screen-loading" class="screen flex-col items-center justify-center h-full w-full bg-slate-50 p-6 text-center z-50 absolute top-0 left-0">
+    <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mb-4"></div>
+    <h2 id="loading-text" class="text-xl font-semibold text-slate-700">AI가 문제를 생성하는 중입니다...</h2>
+    <p id="loading-subtext" class="text-slate-500 mt-2 text-sm">선택한 난이도에 맞게 출제하고 있습니다.</p>
+</div>
+
+<!-- 2. Requirements Screen -->
+<div id="screen-problem" class="screen flex-col h-full w-full bg-slate-50">
+    <header class="bg-white shadow-sm p-4 flex justify-between items-center z-10">
+        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            요구사항 확인 <span id="diff-badge" class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded">Lv 1</span>
+        </h2>
+        <span class="bg-slate-100 text-slate-600 text-xs font-semibold px-2.5 py-1 rounded border">STEP 1</span>
+    </header>
+    <div class="flex-1 overflow-y-auto p-4 md:p-8">
+        <div class="max-w-3xl mx-auto bg-white p-6 md:p-8 rounded-xl shadow-sm border border-slate-200 fade-in">
+            <h3 class="text-xl font-bold text-slate-800 mb-4 border-b pb-2">문제 설명</h3>
+            <div id="problem-content" class="text-slate-700 leading-relaxed whitespace-pre-wrap font-medium">
+                <!-- Problem injected here -->
+            </div>
+
+            <div class="mt-8 bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+                <strong>💡 설계 가이드:</strong><br>
+                • 위 요구사항을 해결하기 위한 객체(클래스/인터페이스)를 도출하세요.<br>
+                • <strong>테스트 코드 작성을 위한 설계</strong>이므로 <u>필드(속성)는 생략하고 핵심 메서드 위주</u>로 정의하세요.<br>
+                • 테스트하기 어려운 외부 의존성(DB, API, 시간 등)은 인터페이스로 분리하여 대역을 사용할 수 있게 설계하세요.
+            </div>
+
+            <div class="mt-8 flex justify-end">
+                <button onclick="app.goToCanvas()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition shadow-md flex items-center gap-2">
+                    설계 다이어그램 그리기
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 3. Diagram Canvas Screen -->
+<div id="screen-canvas" class="screen flex-col h-full w-full">
+    <!-- Toolbar -->
+    <header class="bg-white shadow-sm p-3 flex flex-wrap gap-3 justify-between items-center z-20 relative">
+        <div class="flex items-center gap-2">
+            <button onclick="app.showProblemModal()" class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 px-3 rounded transition shadow-sm border border-slate-200">
+                📋 문제 보기
+            </button>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="app.addNode('class')" class="text-sm bg-slate-700 hover:bg-slate-800 text-white font-medium py-2 px-4 rounded transition flex items-center gap-1 shadow-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                클래스 추가
+            </button>
+            <button onclick="app.addNode('interface')" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded transition flex items-center gap-1 shadow-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                인터페이스 추가
+            </button>
+        </div>
+        <div>
+            <button onclick="app.submitDiagram()" class="text-sm bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded transition shadow-md">
+                제출 및 AI 평가
+            </button>
+        </div>
+    </header>
+
+    <!-- Connecting State Indicator -->
+    <div id="connection-toast" class="hidden absolute top-20 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-5 py-3 rounded-full text-sm font-bold shadow-xl z-30 flex items-center gap-3">
+        <span class="animate-pulse w-3 h-3 bg-blue-400 rounded-full"></span>
+        연결할 대상 노드를 선택하세요
+        <button onclick="app.cancelConnection()" class="ml-2 bg-slate-600 hover:bg-slate-500 px-2 py-1 rounded text-xs">취소</button>
+    </div>
+
+    <!-- Canvas Workspace -->
+    <div id="canvas-workspace" class="flex-1 relative canvas-bg overflow-hidden touch-none" onclick="app.onCanvasClick(event)">
+        <svg id="svg-overlay">
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9.5" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+                </marker>
+                <marker id="arrowhead-hover" markerWidth="10" markerHeight="7" refX="9.5" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444" />
+                </marker>
+            </defs>
+            <g id="edges-container"></g>
+        </svg>
+        <div id="nodes-container" class="absolute inset-0 pointer-events-none">
+            <!-- Nodes rendered here. pointer-events-none on container, auto on children -->
+        </div>
+    </div>
+</div>
+
+<!-- 4. Evaluation Screen -->
+<div id="screen-evaluation" class="screen flex-col h-full w-full bg-slate-50">
+    <header class="bg-white shadow-sm p-4 flex justify-between items-center z-10 shrink-0">
+        <h2 class="text-lg font-bold text-slate-800">AI 설계 평가 결과</h2>
+        <div class="flex items-center gap-2">
+            <button onclick="app.showProblemModal()" class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 px-3 rounded transition shadow-sm border border-slate-200">
+                📋 문제 보기
+            </button>
+            <button onclick="app.resetApp()" class="text-sm bg-slate-800 hover:bg-slate-900 text-white font-medium py-2 px-4 rounded transition shadow-sm">
+                처음으로 돌아가기
+            </button>
+        </div>
+    </header>
+    <div class="flex-1 overflow-y-auto p-4 md:p-8 relative scroll-smooth" id="evaluation-scroll-container">
+        <div class="max-w-4xl mx-auto flex flex-col gap-6">
+            <!-- Grid Row 1: Summary & Feedback -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- User's Diagram Snapshot Summary -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
+                    <h3 class="font-bold text-slate-800 border-b pb-2 mb-3">제출한 설계 요약</h3>
+                    <div id="summary-content" class="text-sm text-slate-600 space-y-2">
+                        <!-- Summary injected here -->
+                    </div>
+                </div>
+
+                <!-- AI Feedback -->
+                <div class="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-slate-200 lg:col-span-2 flex flex-col gap-8">
+                    <div>
+                        <div class="flex items-center gap-2 mb-4 border-b pb-3">
+                            <div class="bg-blue-100 p-2 rounded-lg">
+                                <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-slate-800">TDD 핵심 피드백</h3>
+                        </div>
+                        <div id="evaluation-content" class="markdown-body text-slate-700">
+                            <!-- Feedback injected here -->
+                        </div>
+                    </div>
+
+                    <!-- Recommended Design Infographic -->
+                    <div id="recommended-design-section" class="hidden flex-col gap-4 border-t pt-6">
+                        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <span class="text-xl">✨</span> AI 추천 설계안 (인포그래픽)
+                        </h3>
+                        <div id="recommended-canvas" class="relative bg-slate-100/80 rounded-xl border border-slate-300 min-h-[400px] flex p-6 overflow-hidden shadow-inner">
+                            <svg id="rec-svg-overlay" class="absolute inset-0 w-full h-full pointer-events-none z-20">
+                                <defs>
+                                    <marker id="rec-arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                        <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6" />
+                                    </marker>
+                                </defs>
+                                <g id="rec-edges-container"></g>
+                            </svg>
+                            <div id="rec-nodes-container" class="relative z-10 w-full flex flex-wrap justify-center items-center gap-8 md:gap-12 py-8">
+                                <!-- Nodes injected here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat AI Consultant Row -->
+            <div class="bg-white p-5 md:p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[450px]">
+                <div class="flex items-center gap-2 mb-3 border-b pb-3 shrink-0">
+                    <div class="bg-indigo-100 p-2 rounded-lg">
+                        <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                    </div>
+                    <h3 class="text-lg font-bold text-slate-800">설계 멘토 AI 상담소</h3>
+                    <span class="ml-auto text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded">현재 결과(컨텍스트) 반영됨</span>
+                </div>
+
+                <div id="chat-messages" class="flex-1 overflow-y-auto p-2 space-y-4 mb-4 scroll-smooth">
+                    <!-- Chat messages injected here -->
+                </div>
+
+                <div class="flex gap-2 relative shrink-0">
+                    <input type="text" id="chat-input" class="flex-1 border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm font-medium text-slate-800 transition" placeholder="설계나 피드백에 대해 궁금한 점을 질문해보세요...">
+                    <button onclick="app.sendChatMessage()" id="chat-send-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-lg font-bold transition shadow-sm flex items-center justify-center min-w-[80px]">
+                        전송
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Problem Modal Overlay -->
+<div id="problem-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col">
+        <div class="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-xl">
+            <h3 class="font-bold text-lg text-slate-800">요구사항</h3>
+            <button onclick="app.hideProblemModal()" class="text-slate-500 hover:text-slate-800 bg-slate-200 p-1 rounded transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div class="p-6 overflow-y-auto flex-1 text-slate-700 whitespace-pre-wrap font-medium text-sm leading-relaxed bg-white rounded-b-xl">
+            <div id="modal-problem-content"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Connection Prompt Modal -->
+<div id="connection-prompt-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 fade-in">
+        <h3 class="text-lg font-bold text-slate-800 mb-2">의존 관계 설정</h3>
+        <p class="text-sm text-slate-600 mb-4">호출하는 메서드나 전달하는 메시지를 입력하세요.<br>(예: calculate(), findById() 등)</p>
+        <input type="text" id="connection-label-input" class="w-full border border-slate-300 rounded-lg p-3 mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-800" placeholder="메시지 입력">
+        <div class="flex justify-end gap-3">
+            <button onclick="app.cancelConnectionPrompt()" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition">취소</button>
+            <button onclick="app.confirmConnection()" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition shadow-sm">연결하기</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const apiKey = ""; // API key will be injected by the environment
+
+    class DiagramApp {
+        constructor() {
+            this.problem = "";
+            this.nodes = [];
+            this.edges = [];
+            this.nodeIdCounter = 1;
+
+            // Canvas state
+            this.draggedNode = null;
+            this.dragOffset = { x: 0, y: 0 };
+            this.connectingSource = null;
+            this.promptTargetId = null;
+
+            // Chat state
+            this.chatHistory = [];
+            this.evaluationContext = "";
+
+            this.initEvents();
+        }
+
+        initEvents() {
+            // Global mouse/touch events for dragging
+            const workspace = document.getElementById('canvas-workspace');
+
+            const onMove = (e) => {
+                if (!this.draggedNode) return;
+                e.preventDefault();
+                const touch = e.type.includes('touch') ? e.touches[0] : e;
+                const rect = workspace.getBoundingClientRect();
+
+                let newX = touch.clientX - rect.left - this.dragOffset.x;
+                let newY = touch.clientY - rect.top - this.dragOffset.y;
+
+                newX = Math.max(0, Math.min(newX, rect.width - 240));
+                newY = Math.max(0, Math.min(newY, rect.height - 150));
+
+                this.draggedNode.x = newX;
+                this.draggedNode.y = newY;
+
+                this.updateNodeElement(this.draggedNode);
+                this.renderEdges();
+            };
+
+            const onEnd = () => {
+                if (this.draggedNode) {
+                    this.draggedNode = null;
+                }
+            };
+
+            workspace.addEventListener('mousemove', onMove);
+            workspace.addEventListener('touchmove', onMove, { passive: false });
+            window.addEventListener('mouseup', onEnd);
+            window.addEventListener('touchend', onEnd);
+            window.addEventListener('resize', () => this.renderEdges());
+
+            // Enter key for connection prompt
+            document.getElementById('connection-label-input').addEventListener('keydown', (e) => {
+                if(e.key === 'Enter') this.confirmConnection();
+            });
+
+            // Enter key for chat prompt
+            document.getElementById('chat-input').addEventListener('keydown', (e) => {
+                if(e.key === 'Enter') this.sendChatMessage();
+            });
+        }
+
+        showScreen(id) {
+            document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        async callGemini(prompt, systemInstruction) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+
+            let retries = 5;
+            let delay = 1000;
+
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    return data.candidates[0].content.parts[0].text;
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    await new Promise(res => setTimeout(res, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        showLoading(text, subtext = "") {
+            document.getElementById('loading-text').innerText = text;
+            document.getElementById('loading-subtext').innerText = subtext;
+            this.showScreen('screen-loading');
+        }
+
+        async startPractice() {
+            const diffSelect = document.querySelector('input[name="difficulty"]:checked').value;
+            document.getElementById('diff-badge').innerText = `Lv ${diffSelect}`;
+
+            const difficultyInstructions = {
+                '1': '난이도 1(초급): 1~2개의 객체만으로 설계 가능한 아주 단순한 순수 로직 문제(예: 계산기, 단순 포맷팅 등). 외부 연동(DB, API, 시간 등)이 전혀 없어 대역(Mock/Stub)이 불필요해야 합니다.',
+                '2': '난이도 2(중급): 2~3개의 객체로 설계 가능한 문제. 1개의 외부 연동(API, DB, 랜덤, 시간 등)이 포함되어 테스트 대역(인터페이스) 설계가 필요한 수준으로 출제하세요. 비즈니스 로직은 최대한 단순하게 하세요.',
+                '3': '난이도 3(고급): 3~4개의 객체로 설계 가능한 문제. 2개의 외부 연동(예: DB 조회 후 알림 발송 등)이 포함된 직관적인 흐름으로 출제하세요. 절대 복잡한 정책을 넣지 말고, 각 객체의 책임이 명확히 나뉘는 아주 쉬운 수준으로 난이도를 대폭 낮춰주세요.'
+            };
+
+            this.showLoading(`AI가 Lv ${diffSelect} 난이도의 요구사항을 생성하는 중입니다...`, '선택한 난이도에 맞게 출제하고 있습니다.');
+
+            try {
+                const systemPrompt = "당신은 TDD(테스트 주도 개발) 및 객체지향 설계 교육을 담당하는 시니어 백엔드 개발자입니다.";
+                const userPrompt = `사용자가 TDD를 위한 초기 설계(클래스/인터페이스 도출, 대역 설계)를 연습할 수 있도록 요구사항 시나리오를 1개 출제해주세요.
+
+[출제 조건]
+- ${difficultyInstructions[diffSelect]}
+- 마크다운이나 불필요한 인사말 없이 **순수 텍스트로 명확하게 요구사항 내용만** 바로 작성해주세요. (한국어)
+- 시스템의 배경, 처리해야 할 규칙, 외부 연동 요건(해당 난이도일 경우)이 명확히 드러나야 합니다.`;
+
+                this.problem = await this.callGemini(userPrompt, systemPrompt);
+
+                document.getElementById('problem-content').innerText = this.problem;
+                document.getElementById('modal-problem-content').innerText = this.problem;
+
+                this.nodes = [];
+                this.edges = [];
+                this.renderNodes();
+                this.renderEdges();
+
+                this.showScreen('screen-problem');
+            } catch (error) {
+                alert("문제 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
+                this.showScreen('screen-start');
+            }
+        }
+
+        goToCanvas() {
+            this.showScreen('screen-canvas');
+            setTimeout(() => this.renderEdges(), 100);
+        }
+
+        showProblemModal() {
+            document.getElementById('problem-modal').classList.remove('hidden');
+        }
+
+        hideProblemModal() {
+            document.getElementById('problem-modal').classList.add('hidden');
+        }
+
+        addNode(type) {
+            const workspace = document.getElementById('canvas-workspace');
+            const rect = workspace.getBoundingClientRect();
+
+            const x = (rect.width / 2) - 120 + (Math.random() * 60 - 30);
+            const y = (rect.height / 2) - 80 + (Math.random() * 60 - 30);
+
+            const node = {
+                id: `node-${this.nodeIdCounter++}`,
+                type: type,
+                x: Math.max(20, x),
+                y: Math.max(20, y),
+                name: type === 'class' ? 'Class' : 'Interface',
+                methods: '+ 메서드명()'
+            };
+
+            this.nodes.push(node);
+            this.renderNodes();
+        }
+
+        deleteNode(id) {
+            this.nodes = this.nodes.filter(n => n.id !== id);
+            this.edges = this.edges.filter(e => e.source !== id && e.target !== id);
+            this.renderNodes();
+            this.renderEdges();
+
+            if (this.connectingSource && this.connectingSource.id === id) {
+                this.cancelConnection();
+            }
+        }
+
+        updateNodeData(id, field, value) {
+            const node = this.nodes.find(n => n.id === id);
+            if (node) node[field] = value;
+        }
+
+        // --- Canvas Rendering & Interactions ---
+
+        renderNodes() {
+            const container = document.getElementById('nodes-container');
+            container.innerHTML = '';
+
+            this.nodes.forEach(node => {
+                const el = document.createElement('div');
+                el.id = node.id;
+                el.className = `node node-type-${node.type} pointer-events-auto`;
+                el.style.left = `${node.x}px`;
+                el.style.top = `${node.y}px`;
+
+                if (this.connectingSource && this.connectingSource.id === node.id) {
+                    el.classList.add('selected');
+                }
+
+                const titleText = node.type === 'class' ? 'Class' : 'Interface';
+                const titleIcon = node.type === 'class' ? 'C' : 'I';
+
+                el.innerHTML = `
+                        <div class="node-header" onmousedown="app.onNodeDragStart(event, '${node.id}')" ontouchstart="app.onNodeDragStart(event, '${node.id}')">
+                            <div class="flex items-center gap-2">
+                                <span class="bg-white/20 px-1.5 py-0.5 rounded text-xs">${titleIcon}</span>
+                                <span class="text-sm tracking-wide">${titleText}</span>
+                            </div>
+                            <button onclick="app.deleteNode('${node.id}')" class="text-white hover:text-red-300 bg-black/10 p-1 rounded transition">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                        <div class="node-body">
+                            <!-- Overlay for connection mode -->
+                            <div class="connect-overlay" onclick="app.completeConnection('${node.id}', event)">
+                                <span class="connect-badge">여기로 연결 🎯</span>
+                            </div>
+
+                            <input type="text" class="node-input font-bold text-slate-800" value="${node.name}" placeholder="이름 (예: OrderService)" onchange="app.updateNodeData('${node.id}', 'name', this.value)" onkeyup="app.updateNodeData('${node.id}', 'name', this.value)">
+                            <textarea class="node-textarea text-slate-600" placeholder="+ 메서드명()" onchange="app.updateNodeData('${node.id}', 'methods', this.value)" onkeyup="app.updateNodeData('${node.id}', 'methods', this.value)">${node.methods}</textarea>
+
+                            <div class="node-actions">
+                                <button onclick="app.startConnection('${node.id}', event)" class="icon-btn flex items-center gap-1 text-xs font-semibold" title="다른 노드와 화살표로 연결">
+                                    <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                    의존 연결
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                container.appendChild(el);
+            });
+        }
+
+        updateNodeElement(node) {
+            const el = document.getElementById(node.id);
+            if (el) {
+                el.style.left = `${node.x}px`;
+                el.style.top = `${node.y}px`;
+            }
+        }
+
+        onNodeDragStart(e, id) {
+            if (document.body.classList.contains('is-connecting')) return;
+            if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+
+            this.draggedNode = this.nodes.find(n => n.id === id);
+            if (!this.draggedNode) return;
+
+            const touch = e.type.includes('touch') ? e.touches[0] : e;
+            const el = document.getElementById(id);
+            const rect = el.getBoundingClientRect();
+
+            this.dragOffset.x = touch.clientX - rect.left;
+            this.dragOffset.y = touch.clientY - rect.top;
+        }
+
+        // --- Connection Logic (Modal based to bypass iframe restrictions) ---
+        startConnection(id, event) {
+            if(event) event.stopPropagation();
+            this.connectingSource = this.nodes.find(n => n.id === id);
+
+            document.body.classList.add('is-connecting');
+            document.getElementById('connection-toast').classList.remove('hidden');
+
+            document.querySelectorAll('.node').forEach(n => n.classList.remove('selected'));
+            document.getElementById(id).classList.add('selected');
+        }
+
+        completeConnection(targetId, event) {
+            if(event) event.stopPropagation();
+            if (!this.connectingSource || this.connectingSource.id === targetId) return;
+
+            this.promptTargetId = targetId;
+            const inputEl = document.getElementById('connection-label-input');
+            inputEl.value = "호출";
+            document.getElementById('connection-prompt-modal').classList.remove('hidden');
+            setTimeout(() => inputEl.focus(), 100); // UI 렌더 후 포커스
+        }
+
+        confirmConnection() {
+            const label = document.getElementById('connection-label-input').value.trim() || "호출";
+
+            if (this.connectingSource && this.promptTargetId) {
+                this.edges.push({
+                    id: `edge-${Date.now()}`,
+                    source: this.connectingSource.id,
+                    target: this.promptTargetId,
+                    label: label
+                });
+                this.renderEdges();
+            }
+            this.cancelConnectionPrompt();
+        }
+
+        cancelConnectionPrompt() {
+            this.promptTargetId = null;
+            document.getElementById('connection-prompt-modal').classList.add('hidden');
+            this.cancelConnection();
+        }
+
+        cancelConnection() {
+            this.connectingSource = null;
+            document.body.classList.remove('is-connecting');
+            document.getElementById('connection-toast').classList.add('hidden');
+            document.querySelectorAll('.node').forEach(n => n.classList.remove('selected'));
+        }
+
+        onCanvasClick(e) {
+            if (this.connectingSource && e.target.id === 'canvas-workspace') {
+                this.cancelConnection();
+            }
+        }
+
+        deleteEdge(edgeId) {
+            if(confirm('이 연결선을 삭제하시겠습니까?')) {
+                this.edges = this.edges.filter(e => e.id !== edgeId);
+                this.renderEdges();
+            }
+        }
+
+        // AABB(Axis-Aligned Bounding Box) 기반 교차점 계산 헬퍼
+        getIntersectionPoint(cx1, cy1, cx2, cy2, w, h, padding) {
+            const dx = cx2 - cx1;
+            const dy = cy2 - cy1;
+            if (dx === 0 && dy === 0) return {x: cx2, y: cy2};
+
+            const halfW = w / 2 + padding;
+            const halfH = h / 2 + padding;
+
+            const tan = Math.abs(dy / dx);
+            const boxTan = halfH / halfW;
+
+            let ix, iy;
+            if (tan > boxTan) {
+                iy = dy > 0 ? cy2 - halfH : cy2 + halfH;
+                ix = cx2 - (cy2 - iy) * (dx / dy);
+            } else {
+                ix = dx > 0 ? cx2 - halfW : cx2 + halfW;
+                iy = cy2 - (cx2 - ix) * (dy / dx);
+            }
+            return {x: ix, y: iy};
+        }
+
+        renderEdges() {
+            const container = document.getElementById('edges-container');
+            container.innerHTML = '';
+
+            this.edges.forEach(edge => {
+                const sourceNode = this.nodes.find(n => n.id === edge.source);
+                const targetNode = this.nodes.find(n => n.id === edge.target);
+                if (!sourceNode || !targetNode) return;
+
+                const sEl = document.getElementById(sourceNode.id);
+                const tEl = document.getElementById(targetNode.id);
+                if(!sEl || !tEl) return;
+
+                // 노드의 중심 좌표
+                const sx = sourceNode.x + sEl.offsetWidth / 2;
+                const sy = sourceNode.y + sEl.offsetHeight / 2;
+                const tx = targetNode.x + tEl.offsetWidth / 2;
+                const ty = targetNode.y + tEl.offsetHeight / 2;
+
+                // 테두리에서의 시작점과 끝점 계산 (화살표 여백 포함)
+                const startP = this.getIntersectionPoint(tx, ty, sx, sy, sEl.offsetWidth, sEl.offsetHeight, 4);
+                const endP = this.getIntersectionPoint(sx, sy, tx, ty, tEl.offsetWidth, tEl.offsetHeight, 14);
+
+                // 곡선 경로 그리기
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const d = `M ${startP.x} ${startP.y} C ${startP.x + (endP.x - startP.x)/2} ${startP.y}, ${startP.x + (endP.x - startP.x)/2} ${endP.y}, ${endP.x} ${endP.y}`;
+
+                path.setAttribute('d', d);
+                path.setAttribute('class', 'connection-line');
+                path.setAttribute('marker-end', 'url(#arrowhead)');
+                path.onclick = () => this.deleteEdge(edge.id);
+
+                path.onmouseenter = () => path.setAttribute('marker-end', 'url(#arrowhead-hover)');
+                path.onmouseleave = () => path.setAttribute('marker-end', 'url(#arrowhead)');
+
+                container.appendChild(path);
+
+                // 라벨 그리기
+                if (edge.label) {
+                    const midX = startP.x + (endP.x - startP.x) / 2;
+                    const midY = startP.y + (endP.y - startP.y) / 2;
+
+                    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+                    text.setAttribute('x', midX);
+                    text.setAttribute('y', midY);
+                    text.setAttribute('text-anchor', 'middle');
+                    text.setAttribute('dominant-baseline', 'middle');
+                    text.setAttribute('class', 'connection-label fill-slate-800');
+                    text.textContent = edge.label;
+
+                    container.appendChild(text);
+
+                    // 배경 사각형 크기를 텍스트에 맞춤 (에러 방지용 Fallback 포함)
+                    let bbox;
+                    try { bbox = text.getBBox(); }
+                    catch(e) { bbox = { width: 0 }; }
+
+                    if (!bbox || bbox.width === 0) {
+                        const estW = edge.label.length * 10;
+                        bbox = { x: midX - estW/2, y: midY - 10, width: estW, height: 20 };
+                    }
+
+                    bg.setAttribute('x', bbox.x - 4);
+                    bg.setAttribute('y', bbox.y - 2);
+                    bg.setAttribute('width', bbox.width + 8);
+                    bg.setAttribute('height', bbox.height + 4);
+                    bg.setAttribute('fill', '#ffffff');
+                    bg.setAttribute('rx', '4');
+                    bg.setAttribute('stroke', '#e2e8f0');
+
+                    container.insertBefore(bg, text);
+                }
+            });
+        }
+
+        // --- Evaluation ---
+        async submitDiagram() {
+            if (this.nodes.length === 0) {
+                alert("최소 1개 이상의 클래스/인터페이스를 설계해주세요.");
+                return;
+            }
+
+            this.showLoading("제출된 설계를 분석하여 TDD 관점의 평가를 진행 중입니다...", "AI가 결과를 계산 및 추천 설계안을 도식화하고 있습니다.");
+
+            const designJSON = {
+                nodes: this.nodes.map(n => ({
+                    type: n.type,
+                    name: n.name,
+                    methods: n.methods.split('\n').filter(m => m.trim() !== '')
+                })),
+                connections: this.edges.map(e => {
+                    const s = this.nodes.find(n => n.id === e.source);
+                    const t = this.nodes.find(n => n.id === e.target);
+                    return {
+                        from: s ? s.name : 'Unknown',
+                        to: t ? t.name : 'Unknown',
+                        relationship: e.label
+                    };
+                })
+            };
+
+            const systemPrompt = "당신은 명쾌하고 실용적인 조언을 해주는 시니어 백엔드 개발자이자 TDD 코치입니다.";
+            const userPrompt = `
+다음은 시스템 요구사항과 사용자가 TDD를 위해 초기 설계한 객체 다이어그램(JSON)입니다.
+
+[요구사항]
+${this.problem}
+
+[사용자 설계 Data]
+${JSON.stringify(designJSON, null, 2)}
+
+위 내용을 바탕으로 사용자의 설계를 평가해주세요. 평가는 길지 않게 **핵심만 짧고 명확하게** 마크다운으로 작성하세요.
+
+**[요청 사항] - 다음 두 파트로 나누어 출력하세요.**
+
+### 1. 설계 평가 (요약)
+- 잘 분리된 점이나 부족한 점 (단일 책임, 객체 간 협력 위주로 평가하되, 요구사항에 외부 연동이 포함된 경우에만 인터페이스/대역 설계 여부를 추가로 평가할 것. 순수 로직만 있는 문제에 대역이 없다고 감점하지 말 것)
+
+### 2. 추천 설계안 (데이터)
+- 문제 해결을 위해 추천하는 이상적인 구조를 아래 JSON 형식으로만 작성하여 반드시 \`\`\`json 블록 안에 제공해주세요.
+- **테스트 코드를 작성할 때 외부 연동을 위해 대역(Mock/Stub)이 필요하다면, 해당 대역 객체도 "클래스(class)" 타입으로 추가하고 인터페이스를 구현(의존)하는 형태로 도식화에 포함시켜주세요. (예: MockPaymentGateway)**
+- JSON 구조 이외의 설명이나 텍스트 다이어그램은 2번 항목에 절대로 추가하지 마세요. (설명은 1번 항목에 모두 적어주세요)
+- JSON 구조 예시:
+\`\`\`json
+{
+  "nodes": [
+    { "id": "n1", "type": "class", "name": "OrderService", "methods": ["+ placeOrder()"] },
+    { "id": "n2", "type": "interface", "name": "PaymentGateway", "methods": ["+ pay()"] },
+    { "id": "n3", "type": "class", "name": "MockPaymentGateway (대역)", "methods": ["+ pay()"] }
+  ],
+  "edges": [
+    { "source": "n1", "target": "n2", "label": "pay() 호출" },
+    { "source": "n3", "target": "n2", "label": "구현 (Test Double)" }
+  ]
+}
+\`\`\`
+`;
+
+            try {
+                const feedbackText = await this.callGemini(userPrompt, systemPrompt);
+
+                // Render user summary
+                const summaryContainer = document.getElementById('summary-content');
+                summaryContainer.innerHTML = '';
+                designJSON.nodes.forEach(n => {
+                    const typeBadge = n.type === 'class'
+                        ? '<span class="px-1.5 py-0.5 bg-slate-700 text-white rounded text-xs font-bold">C</span>'
+                        : '<span class="px-1.5 py-0.5 bg-emerald-600 text-white rounded text-xs font-bold">I</span>';
+
+                    let html = `<div class="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg shadow-sm"><div class="font-bold flex items-center gap-2 mb-2 text-slate-800">${typeBadge} ${n.name}</div>`;
+                    if (n.methods.length > 0) {
+                        html += `<ul class="text-xs space-y-1.5 ml-1">`;
+                        n.methods.forEach(m => html += `<li class="flex items-start gap-1"><span class="text-blue-500 mt-0.5">•</span> <code class="text-slate-700 bg-white border border-slate-100 px-1 rounded break-all whitespace-normal">${m}</code></li>`);
+                        html += `</ul>`;
+                    } else {
+                        html += `<div class="text-xs text-slate-400 italic ml-1">정의된 메서드 없음</div>`;
+                    }
+                    html += `</div>`;
+                    summaryContainer.innerHTML += html;
+                });
+
+                if(designJSON.connections.length > 0) {
+                    let connHtml = '<div class="mt-4 font-bold text-slate-800 mb-2 border-t pt-3">의존 관계</div><ul class="text-xs space-y-2 list-none bg-slate-50 p-3 rounded border">';
+                    designJSON.connections.forEach(c => {
+                        connHtml += `<li class="flex items-center gap-2"><span class="font-semibold text-slate-700 bg-white px-1.5 py-0.5 rounded border">${c.from}</span> <span class="text-blue-500 text-xs font-bold">─[${c.relationship}]→</span> <span class="font-semibold text-slate-700 bg-white px-1.5 py-0.5 rounded border">${c.to}</span></li>`;
+                    });
+                    connHtml += '</ul>';
+                    summaryContainer.innerHTML += connHtml;
+                }
+
+                // Parse Recommended Design JSON
+                let markdownText = feedbackText;
+                let recommendedDesign = null;
+                const jsonMatch = feedbackText.match(/```json\n([\s\S]*?)\n```/);
+
+                if (jsonMatch) {
+                    try {
+                        recommendedDesign = JSON.parse(jsonMatch[1]);
+                        markdownText = feedbackText.replace(jsonMatch[0], '');
+                    } catch (e) {
+                        console.error("Failed to parse recommended design JSON", e);
+                    }
+                }
+
+                document.getElementById('evaluation-content').innerHTML = marked.parse(markdownText);
+
+                // Render Recommended Infographic
+                const recSection = document.getElementById('recommended-design-section');
+                if (recommendedDesign && recommendedDesign.nodes && recommendedDesign.nodes.length > 0) {
+                    recSection.classList.remove('hidden');
+                    recSection.classList.add('flex');
+                    this.renderRecommendedDiagram(recommendedDesign);
+                } else {
+                    recSection.classList.add('hidden');
+                    recSection.classList.remove('flex');
+                }
+
+                // --- Initialize Chat Context ---
+                this.evaluationContext = `
+[원래 문제 요구사항]
+${this.problem}
+
+[사용자가 제출한 설계 데이터]
+${JSON.stringify(designJSON, null, 2)}
+
+[당신(AI)이 제공한 피드백 전문]
+${markdownText}
+
+[당신(AI)이 제공한 추천 설계안 데이터]
+${recommendedDesign ? JSON.stringify(recommendedDesign, null, 2) : "제공되지 않음"}
+                    `;
+
+                this.chatHistory = [];
+                const chatMessagesContainer = document.getElementById('chat-messages');
+                chatMessagesContainer.innerHTML = `
+                        <div class="flex justify-start fade-in">
+                            <div class="bg-slate-100 text-slate-800 px-4 py-3 rounded-2xl rounded-tl-none max-w-[90%] text-sm leading-relaxed shadow-sm">
+                                제출하신 설계와 피드백 결과에 대해 궁금한 점이 있다면 무엇이든 물어보세요! 😊<br>
+                                예: "왜 여기서 대역(Mock)을 써야 하나요?", "클래스 이름을 OOO라고 바꾸면 어떨까요?"
+                            </div>
+                        </div>
+                    `;
+
+                this.showScreen('screen-evaluation');
+                // 스크롤 상단으로 이동
+                document.getElementById('evaluation-scroll-container').scrollTop = 0;
+            } catch (error) {
+                console.error(error);
+                alert("평가 중 오류가 발생했습니다. 다시 시도해주세요.");
+                this.showScreen('screen-canvas');
+            }
+        }
+
+        // --- Chat Feature Logic ---
+        async sendChatMessage() {
+            const inputEl = document.getElementById('chat-input');
+            const message = inputEl.value.trim();
+            if (!message) return;
+
+            // Add user message to UI
+            this.appendChatMessage('user', message);
+            inputEl.value = '';
+            inputEl.disabled = true;
+            const btnEl = document.getElementById('chat-send-btn');
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<div class="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mx-auto"></div>';
+
+            // Add to history
+            this.chatHistory.push({ role: "user", parts: [{ text: message }] });
+
+            const systemPrompt = `당신은 친절하고 명쾌한 시니어 백엔드 개발자이자 TDD 코치입니다.
+방금 사용자가 TDD 설계를 연습했고, 당신이 그에 대한 피드백을 제공했습니다.
+다음은 연습했던 문제, 사용자의 설계, 그리고 당신의 피드백 컨텍스트입니다.
+이 컨텍스트를 바탕으로 사용자의 질문에 답변해주세요. 답변은 마크다운을 적절히 사용해 가독성 좋게, 그리고 친근하게 작성하세요.
+
+${this.evaluationContext}`;
+
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: this.chatHistory,
+                    systemInstruction: { parts: [{ text: systemPrompt }] }
+                };
+
+                let retries = 5;
+                let delay = 1000;
+                let replyText = "";
+
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        const data = await response.json();
+                        replyText = data.candidates[0].content.parts[0].text;
+                        break;
+                    } catch (error) {
+                        if (i === retries - 1) throw error;
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2;
+                    }
+                }
+
+                this.chatHistory.push({ role: "model", parts: [{ text: replyText }] });
+                this.appendChatMessage('model', replyText);
+
+            } catch (error) {
+                console.error("Chat error", error);
+                this.appendChatMessage('error', "죄송합니다. 오류가 발생하여 답변을 가져오지 못했습니다.");
+                this.chatHistory.pop(); // Remove the user message from history so they can retry
+            } finally {
+                inputEl.disabled = false;
+                btnEl.disabled = false;
+                btnEl.innerText = '전송';
+                inputEl.focus();
+            }
+        }
+
+        appendChatMessage(role, text) {
+            const container = document.getElementById('chat-messages');
+            const el = document.createElement('div');
+            el.className = role === 'user' ? 'flex justify-end fade-in' : 'flex justify-start fade-in';
+
+            if (role === 'user') {
+                el.innerHTML = `<div class="bg-indigo-600 text-white px-4 py-3 rounded-2xl rounded-tr-none max-w-[85%] text-sm leading-relaxed shadow-sm break-words whitespace-pre-wrap">${text}</div>`;
+            } else if (role === 'model') {
+                el.innerHTML = `<div class="bg-slate-100 text-slate-800 px-4 py-3 rounded-2xl rounded-tl-none max-w-[90%] text-sm leading-relaxed shadow-sm markdown-body chat-markdown overflow-x-auto">${marked.parse(text)}</div>`;
+            } else {
+                el.innerHTML = `<div class="bg-red-50 text-red-600 border border-red-200 px-4 py-3 rounded-2xl max-w-[85%] text-sm shadow-sm">${text}</div>`;
+            }
+
+            container.appendChild(el);
+            // Scroll down
+            container.scrollTop = container.scrollHeight;
+        }
+
+        renderRecommendedDiagram(design) {
+            const nodesContainer = document.getElementById('rec-nodes-container');
+            const edgesContainer = document.getElementById('rec-edges-container');
+            nodesContainer.innerHTML = '';
+            edgesContainer.innerHTML = '';
+
+            // 노드 렌더링 (w-auto 와 줄바꿈 클래스 적용)
+            design.nodes.forEach(node => {
+                const el = document.createElement('div');
+                el.id = `rec-${node.id}`;
+                el.className = 'w-auto min-w-[16rem] max-w-[24rem] bg-white rounded-lg shadow-md border border-slate-200 overflow-hidden shrink-0 flex flex-col z-10';
+
+                const titleBg = node.type === 'class' ? 'bg-slate-700' : 'bg-emerald-600';
+                const icon = node.type === 'class' ? 'C' : 'I';
+
+                let methodsHtml = '';
+                if(node.methods && node.methods.length > 0) {
+                    methodsHtml = node.methods.map(m => `<div class="font-mono text-[13px] text-slate-700 py-1.5 border-b border-slate-100 last:border-0 whitespace-normal break-all leading-relaxed">${m}</div>`).join('');
+                } else {
+                    methodsHtml = `<div class="text-[13px] text-slate-400 italic">메서드 없음</div>`;
+                }
+
+                el.innerHTML = `
+                        <div class="${titleBg} text-white px-4 py-2.5 flex items-center justify-between">
+                            <span class="font-bold text-sm tracking-wide break-all">${node.name}</span>
+                            <span class="bg-white/20 px-1.5 py-0.5 rounded text-[10px] font-bold ml-3 shrink-0">${icon}</span>
+                        </div>
+                        <div class="p-3 bg-white flex-1">
+                            ${methodsHtml}
+                        </div>
+                    `;
+                nodesContainer.appendChild(el);
+            });
+
+            // 브라우저 렌더링 대기 후 화살표 처리
+            setTimeout(() => {
+                const canvasRect = document.getElementById('recommended-canvas').getBoundingClientRect();
+
+                design.edges.forEach(edge => {
+                    const sourceEl = document.getElementById(`rec-${edge.source}`);
+                    const targetEl = document.getElementById(`rec-${edge.target}`);
+                    if(!sourceEl || !targetEl) return;
+
+                    const sRect = sourceEl.getBoundingClientRect();
+                    const tRect = targetEl.getBoundingClientRect();
+
+                    const sx = sRect.left - canvasRect.left + sRect.width / 2;
+                    const sy = sRect.top - canvasRect.top + sRect.height / 2;
+                    const tx = tRect.left - canvasRect.left + tRect.width / 2;
+                    const ty = tRect.top - canvasRect.top + tRect.height / 2;
+
+                    // AABB 기반 교점 (선이 텍스트 배경 파고드는 현상 방지)
+                    const startP = this.getIntersectionPoint(tx, ty, sx, sy, sRect.width, sRect.height, 4);
+                    const endP = this.getIntersectionPoint(sx, sy, tx, ty, tRect.width, tRect.height, 14);
+
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    // 직선 처리
+                    const d = `M ${startP.x} ${startP.y} L ${endP.x} ${endP.y}`;
+
+                    path.setAttribute('d', d);
+                    path.setAttribute('stroke', '#3b82f6');
+                    path.setAttribute('stroke-width', '2.5');
+                    path.setAttribute('fill', 'none');
+                    path.setAttribute('stroke-dasharray', '5,5');
+                    path.setAttribute('marker-end', 'url(#rec-arrowhead)');
+
+                    edgesContainer.appendChild(path);
+
+                    if(edge.label) {
+                        const midX = startP.x + (endP.x - startP.x) / 2;
+                        const midY = startP.y + (endP.y - startP.y) / 2;
+
+                        const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+                        text.setAttribute('x', midX);
+                        text.setAttribute('y', midY);
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('dominant-baseline', 'middle');
+                        text.setAttribute('class', 'text-xs font-bold fill-blue-700');
+                        text.textContent = edge.label;
+
+                        edgesContainer.appendChild(text);
+
+                        let bbox;
+                        try { bbox = text.getBBox(); }
+                        catch(e) { bbox = { width: 0 }; }
+
+                        if (!bbox || bbox.width === 0) {
+                            const estW = edge.label.length * 10;
+                            bbox = { x: midX - estW/2, y: midY - 10, width: estW, height: 20 };
+                        }
+
+                        bg.setAttribute('x', bbox.x - 6);
+                        bg.setAttribute('y', bbox.y - 3);
+                        bg.setAttribute('width', bbox.width + 12);
+                        bg.setAttribute('height', bbox.height + 6);
+                        bg.setAttribute('fill', 'rgba(255, 255, 255, 0.85)');
+                        bg.setAttribute('rx', '4');
+                        bg.setAttribute('stroke', '#bfdbfe');
+
+                        edgesContainer.insertBefore(bg, text);
+                    }
+                });
+            }, 50);
+        }
+
+        resetApp() {
+            this.problem = "";
+            this.nodes = [];
+            this.edges = [];
+            this.nodeIdCounter = 1;
+            this.chatHistory = [];
+            this.evaluationContext = "";
+            this.cancelConnection();
+            this.showScreen('screen-start');
+        }
+    }
+
+    const app = new DiagramApp();
+</script>
+</body>
+</html>

@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>하루 일정 관리자</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- html-to-image for exact DOM exporting (html2canvas 대체) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
+    <style>
+        /* 커스텀 스크롤바 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* 드래그 앤 드롭 관련 스타일 */
+        .task-item {
+            cursor: grab;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .task-item:active {
+            cursor: grabbing;
+        }
+        .task-item.dragging {
+            opacity: 0.5;
+            transform: scale(0.95);
+        }
+        .drop-zone {
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .drop-zone.drag-over {
+            background-color: #eff6ff;
+            border-color: #3b82f6;
+            border-style: dashed;
+        }
+
+        /* 뷰 전환 애니메이션 */
+        .view-section {
+            display: none;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        .view-section.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans h-screen flex flex-col overflow-hidden">
+
+<!-- 상단 헤더 -->
+<header class="bg-white shadow-sm px-6 py-4 flex justify-between items-center z-10 shrink-0">
+    <h1 class="text-2xl font-bold text-blue-600 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" />
+        </svg>
+        Daily Planner
+    </h1>
+    <div id="header-actions">
+        <!-- 동적으로 버튼이 변경됩니다 -->
+    </div>
+</header>
+
+<!-- 뷰 1: 할 일 목록 작성 화면 -->
+<main id="view-list" class="view-section active flex-col flex-1 max-w-3xl w-full mx-auto p-4 sm:p-6 overflow-hidden">
+    <div class="bg-white rounded-xl shadow-md p-6 flex-1 flex flex-col overflow-hidden">
+        <h2 class="text-xl font-semibold mb-4 border-b pb-2">오늘 할 일 작성하기</h2>
+
+        <!-- 입력 폼 -->
+        <form id="task-form" class="flex flex-row gap-3 mb-6 shrink-0 bg-gray-50 border border-gray-200 p-4 rounded-xl shadow-sm items-stretch">
+            <div class="flex flex-col flex-1 gap-3">
+                    <textarea id="task-input" rows="1" placeholder="할 일을 입력하세요 (예: 이메일 확인)" required
+                              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-medium resize-none overflow-hidden leading-relaxed"></textarea>
+                <textarea id="memo-input" rows="2" placeholder="메모를 입력하세요 (선택사항)"
+                          class="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white resize-none overflow-hidden leading-relaxed"></textarea>
+            </div>
+            <button type="submit" class="px-6 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm whitespace-nowrap flex items-center justify-center">
+                추가하기
+            </button>
+        </form>
+
+        <!-- 할 일 목록 -->
+        <div class="flex-1 overflow-y-auto pr-2">
+            <ul id="todo-list" class="space-y-4">
+                <!-- 할 일 아이템들이 여기에 추가됩니다 -->
+            </ul>
+            <div id="empty-state" class="text-center py-12 text-gray-400">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                </svg>
+                <p>아직 추가된 할 일이 없습니다.</p>
+            </div>
+        </div>
+
+        <!-- 하단 액션 -->
+        <div class="mt-6 pt-4 border-t shrink-0 flex flex-col items-end gap-2">
+            <p id="validation-msg" class="text-sm text-red-500 font-medium hidden">중요도가 선택되지 않은 항목이 있습니다.</p>
+            <button id="btn-confirm" disabled class="px-8 py-3 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-xl transition-colors shadow-md flex items-center gap-2 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                목록 확정 및 일정 배치하기
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+            </button>
+        </div>
+    </div>
+</main>
+
+<!-- 뷰 2: 시간표 배치 화면 -->
+<main id="view-schedule" class="view-section flex-col md:flex-row flex-1 w-full mx-auto p-4 sm:p-6 gap-6 overflow-hidden">
+
+    <!-- 왼쪽: 확정된 할 일 (드래그 소스) -->
+    <div class="w-full md:w-1/3 lg:w-1/4 bg-white rounded-xl shadow-md p-4 flex flex-col overflow-hidden shrink-0">
+        <h3 class="font-bold text-lg mb-3 pb-2 border-b flex justify-between items-center">
+            <span>배치할 항목</span>
+            <span id="unassigned-count" class="bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full">0</span>
+        </h3>
+        <p class="text-xs text-gray-500 mb-4">항목을 드래그하여 우측 시간표에 놓으세요.</p>
+
+        <div id="unassigned-zone" class="flex-1 overflow-y-auto space-y-3 p-1 drop-zone bg-gray-50 rounded-lg border-2 border-transparent">
+            <!-- 미배치 할 일들이 여기에 표시됩니다 -->
+        </div>
+    </div>
+
+    <!-- 오른쪽: 시간표 (드롭 타겟) -->
+    <div class="w-full md:w-2/3 lg:w-3/4 flex flex-col overflow-hidden min-w-0">
+
+        <div class="flex justify-between items-end mb-2 shrink-0">
+            <h3 class="font-bold text-lg">오늘의 일정표</h3>
+            <button id="btn-export" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                이미지로 내보내기
+            </button>
+        </div>
+
+        <!-- 캡처될 시간표 영역 -->
+        <div id="schedule-board" class="bg-white rounded-xl shadow-md flex-1 overflow-y-auto overflow-x-hidden border border-gray-200">
+            <div class="p-4 sm:p-6 bg-white" id="schedule-content">
+                <div class="text-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800" id="schedule-date"></h2>
+                    <p class="text-gray-500 text-sm mt-1">나만의 데일리 플랜</p>
+                </div>
+
+                <div id="timeline-container" class="flex flex-col relative border-t border-l border-r border-gray-200 w-full mb-4">
+                    <!-- 시간 슬롯들이 자바스크립트로 생성됩니다 -->
+                </div>
+            </div>
+        </div>
+
+    </div>
+</main>
+
+<!-- 앱 로직 -->
+<script>
+    // --- 상태 관리 ---
+    let tasks = [];
+    let draggedTaskId = null;
+
+    // --- DOM 요소 ---
+    const viewList = document.getElementById('view-list');
+    const viewSchedule = document.getElementById('view-schedule');
+    const headerActions = document.getElementById('header-actions');
+
+    const taskForm = document.getElementById('task-form');
+    const taskInput = document.getElementById('task-input');
+    const memoInput = document.getElementById('memo-input');
+    const todoList = document.getElementById('todo-list');
+    const emptyState = document.getElementById('empty-state');
+    const btnConfirm = document.getElementById('btn-confirm');
+    const validationMsg = document.getElementById('validation-msg');
+
+    const unassignedZone = document.getElementById('unassigned-zone');
+    const unassignedCount = document.getElementById('unassigned-count');
+    const timelineContainer = document.getElementById('timeline-container');
+    const scheduleDate = document.getElementById('schedule-date');
+    const btnExport = document.getElementById('btn-export');
+
+    // --- 초기화 ---
+    function init() {
+        const today = new Date();
+        const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+        scheduleDate.textContent = today.toLocaleDateString('ko-KR', options);
+
+        generateTimeSlots(6, 23);
+
+        taskForm.addEventListener('submit', handleAddTask);
+        btnConfirm.addEventListener('click', switchToScheduleView);
+        btnExport.addEventListener('click', exportToImage);
+
+        taskInput.addEventListener('input', function() { autoResize(this); });
+        memoInput.addEventListener('input', function() { autoResize(this); });
+
+        taskInput.addEventListener('keydown', handleEnterPress);
+        memoInput.addEventListener('keydown', handleEnterPress);
+
+        setupDropZone(unassignedZone, 'unassigned');
+
+        renderTodoList();
+    }
+
+    // --- 유틸리티 ---
+    function autoResize(el) {
+        el.style.height = 'auto';
+        el.style.height = el.scrollHeight + 'px';
+    }
+
+    function handleEnterPress(e) {
+        if (e.isComposing) return;
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (taskInput.value.trim() !== '') {
+                taskForm.requestSubmit();
+            } else {
+                taskInput.reportValidity();
+            }
+        }
+    }
+
+    // --- 중요도별 스타일 정보 ---
+    const priorityStyles = {
+        none: {
+            bg: 'bg-white',
+            border: 'border-gray-200 border-dashed',
+            text: 'text-gray-400',
+            btnIdle: 'bg-white text-gray-400 border-gray-200 hover:border-blue-400 hover:text-blue-500'
+        },
+        high: {
+            bg: 'bg-red-50',
+            border: 'border-red-200',
+            text: 'text-red-900',
+            badge: 'bg-red-500',
+            btnActive: 'bg-red-600 text-white border-red-600 shadow-sm',
+            btnIdle: 'bg-white text-red-400 border-red-100 hover:bg-red-100 hover:text-red-600',
+            memoBg: 'bg-red-100/30 border-red-100'
+        },
+        medium: {
+            bg: 'bg-amber-50',
+            border: 'border-amber-200',
+            text: 'text-amber-900',
+            badge: 'bg-amber-500',
+            btnActive: 'bg-amber-500 text-white border-amber-500 shadow-sm',
+            btnIdle: 'bg-white text-amber-400 border-amber-100 hover:bg-amber-100 hover:text-amber-600',
+            memoBg: 'bg-amber-100/30 border-amber-100'
+        },
+        low: {
+            bg: 'bg-emerald-50',
+            border: 'border-emerald-200',
+            text: 'text-emerald-900',
+            badge: 'bg-emerald-500',
+            btnActive: 'bg-emerald-600 text-white border-emerald-600 shadow-sm',
+            btnIdle: 'bg-white text-emerald-400 border-emerald-100 hover:bg-emerald-100 hover:text-emerald-600',
+            memoBg: 'bg-emerald-100/30 border-emerald-100'
+        }
+    };
+
+    function sortTasks() {
+        const weight = { none: 4, high: 3, medium: 2, low: 1 };
+        tasks.sort((a, b) => {
+            const wA = a.priority === null ? weight.none : weight[a.priority];
+            const wB = b.priority === null ? weight.none : weight[b.priority];
+            if (wB !== wA) return wB - wA;
+            return b.id.localeCompare(a.id);
+        });
+    }
+
+    function handleAddTask(e) {
+        e.preventDefault();
+        const text = taskInput.value.trim();
+        const memo = memoInput.value.trim();
+        if (!text) return;
+
+        const newTask = {
+            id: 'task_' + Date.now(),
+            text: text,
+            memo: memo,
+            priority: null,
+            timeSlot: null
+        };
+
+        tasks.push(newTask);
+        taskInput.value = '';
+        memoInput.value = '';
+        autoResize(taskInput);
+        autoResize(memoInput);
+        taskInput.focus();
+        sortTasks();
+        renderTodoList();
+    }
+
+    function deleteTask(id) {
+        tasks = tasks.filter(task => task.id !== id);
+        renderTodoList();
+    }
+
+    function changePriority(id, priority) {
+        const task = tasks.find(t => t.id === id);
+        if (task) {
+            task.priority = priority;
+            sortTasks();
+            renderTodoList();
+        }
+    }
+
+    function renderTodoList() {
+        todoList.innerHTML = '';
+        const hasTasks = tasks.length > 0;
+        const allSelected = hasTasks && tasks.every(t => t.priority !== null);
+
+        if (!hasTasks) {
+            emptyState.style.display = 'block';
+            btnConfirm.disabled = true;
+            validationMsg.classList.add('hidden');
+        } else {
+            emptyState.style.display = 'none';
+            btnConfirm.disabled = !allSelected;
+
+            if (tasks.some(t => t.priority === null)) {
+                validationMsg.classList.remove('hidden');
+            } else {
+                validationMsg.classList.add('hidden');
+            }
+
+            tasks.forEach(task => {
+                const isNone = task.priority === null;
+                const style = isNone ? priorityStyles.none : priorityStyles[task.priority];
+                const li = document.createElement('li');
+
+                li.className = `flex flex-col p-4 rounded-xl border-2 ${style.bg} ${style.border} shadow-sm hover:shadow-md transition-all duration-300 gap-3`;
+
+                if (isNone) {
+                    li.classList.add('ring-2', 'ring-blue-400', 'ring-opacity-50');
+                }
+
+                let memoHtml = '';
+                if (task.memo) {
+                    const memoStyle = isNone ? 'bg-gray-50 border-gray-100 text-gray-400' : `${style.text} opacity-80 ${style.memoBg} border`;
+                    memoHtml = `<div class="text-sm ${memoStyle} mt-1 p-3 rounded-lg flex items-start gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-0.5 shrink-0 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            <span class="break-words whitespace-pre-wrap flex-1 min-w-0" style="word-break: break-all;">${task.memo}</span>
+                        </div>`;
+                }
+
+                li.innerHTML = `
+                        <div class="flex justify-between items-start gap-3">
+                            <div class="flex flex-col flex-1 min-w-0">
+                                <span class="font-black ${style.text} text-lg break-words whitespace-normal leading-tight" style="word-break: break-all;">
+                                    ${isNone ? '<span class="text-blue-500 mr-2 text-sm font-bold">[중요도 선택 필요]</span>' : ''}${task.text}
+                                </span>
+                                ${memoHtml}
+                            </div>
+                            <button onclick="deleteTask('${task.id}')" class="text-gray-400 hover:text-red-600 transition-colors p-2 bg-white/50 hover:bg-white rounded-lg shrink-0 shadow-sm" title="삭제">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="flex gap-2 mt-1">
+                            <button type="button" onclick="changePriority('${task.id}', 'high')"
+                                class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all duration-200 ${task.priority === 'high' ? priorityStyles.high.btnActive : priorityStyles.high.btnIdle}">높음</button>
+                            <button type="button" onclick="changePriority('${task.id}', 'medium')"
+                                class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all duration-200 ${task.priority === 'medium' ? priorityStyles.medium.btnActive : priorityStyles.medium.btnIdle}">보통</button>
+                            <button type="button" onclick="changePriority('${task.id}', 'low')"
+                                class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all duration-200 ${task.priority === 'low' ? priorityStyles.low.btnActive : priorityStyles.low.btnIdle}">낮음</button>
+                        </div>
+                    `;
+                todoList.appendChild(li);
+            });
+        }
+    }
+
+    // --- 화면 전환 ---
+    function switchToScheduleView() {
+        if (tasks.length === 0 || tasks.some(t => t.priority === null)) return;
+        viewList.classList.remove('active');
+        viewSchedule.classList.add('active');
+        headerActions.innerHTML = `
+                <button onclick="switchToListView()" class="text-sm font-medium text-gray-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    목록으로 돌아가기
+                </button>
+            `;
+        renderScheduleItems();
+    }
+
+    function switchToListView() {
+        viewSchedule.classList.remove('active');
+        viewList.classList.add('active');
+        headerActions.innerHTML = '';
+    }
+
+    // --- 시간표 및 드래그 앤 드롭 로직 ---
+    function generateTimeSlots(startHour, endHour) {
+        timelineContainer.innerHTML = '';
+        for (let i = startHour; i <= endHour; i++) {
+            const hourStr = i.toString().padStart(2, '0') + ':00';
+            const slotRow = document.createElement('div');
+            slotRow.className = 'flex border-b border-gray-200 min-h-[60px] group';
+            const timeLabel = document.createElement('div');
+            // 수정: text-right와 pr-3/4를 제거하고, flex justify-center items-center로 완벽한 중앙 정렬 적용
+            timeLabel.className = 'w-16 sm:w-20 shrink-0 flex justify-center items-center py-3 text-sm text-gray-500 font-medium border-r border-gray-200 bg-gray-50';
+            timeLabel.textContent = hourStr;
+            const dropArea = document.createElement('div');
+            dropArea.className = 'flex-1 p-2 drop-zone flex flex-col gap-2 content-start transition-colors bg-white min-w-0';
+            dropArea.dataset.time = hourStr;
+            setupDropZone(dropArea, hourStr);
+            slotRow.appendChild(timeLabel);
+            slotRow.appendChild(dropArea);
+            timelineContainer.appendChild(slotRow);
+        }
+    }
+
+    function renderScheduleItems() {
+        unassignedZone.innerHTML = '';
+        document.querySelectorAll('.drop-zone[data-time]').forEach(zone => zone.innerHTML = '');
+        let unassignedNum = 0;
+        tasks.forEach(task => {
+            const taskEl = createTaskElement(task);
+            if (task.timeSlot) {
+                const targetZone = document.querySelector(`.drop-zone[data-time="${task.timeSlot}"]`);
+                if (targetZone) targetZone.appendChild(taskEl);
+                else {
+                    task.timeSlot = null;
+                    unassignedZone.appendChild(taskEl);
+                    unassignedNum++;
+                }
+            } else {
+                unassignedZone.appendChild(taskEl);
+                unassignedNum++;
+            }
+        });
+        unassignedCount.textContent = unassignedNum;
+    }
+
+    function createTaskElement(task) {
+        const style = priorityStyles[task.priority];
+        const el = document.createElement('div');
+        el.className = `task-item w-full p-2 sm:px-3 sm:py-2 rounded shadow-sm border ${style.bg} ${style.border} group`;
+        el.draggable = true;
+        el.id = task.id;
+
+        let memoHtml = '';
+        if (task.memo) {
+            memoHtml = `<div class="text-[11px] text-gray-500 mt-1 pl-4 break-all whitespace-pre-wrap w-full leading-relaxed">${task.memo}</div>`;
+        }
+
+        // html-to-image 라이브러리는 브라우저 렌더링을 100% 동일하게 가져가므로, 가장 깔끔한 Tailwind Flex 구조로 복구
+        el.innerHTML = `
+                <div class="flex items-start gap-2 min-w-0 w-full px-1">
+                    <div class="w-2 h-2 rounded-full ${style.badge.split(' ')[0].replace('100', '500')} shrink-0 mt-1.5"></div>
+                    <div class="text-sm font-bold ${style.text} pointer-events-none break-all whitespace-normal min-w-0 flex-1 leading-snug">${task.text}</div>
+                </div>
+                ${memoHtml}
+            `;
+
+        el.addEventListener('dragstart', (e) => {
+            draggedTaskId = task.id;
+            el.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', task.id);
+            setTimeout(() => el.style.opacity = '0.5', 0);
+        });
+
+        el.addEventListener('dragend', () => {
+            draggedTaskId = null;
+            el.classList.remove('dragging');
+            el.style.opacity = '1';
+            document.querySelectorAll('.drop-zone').forEach(zone => {
+                zone.classList.remove('drag-over');
+            });
+        });
+        return el;
+    }
+
+    function setupDropZone(zone, timeSlotId) {
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            zone.classList.add('drag-over');
+        });
+        zone.addEventListener('dragleave', () => {
+            zone.classList.remove('drag-over');
+        });
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            zone.classList.remove('drag-over');
+            if (draggedTaskId) {
+                const taskIndex = tasks.findIndex(t => t.id === draggedTaskId);
+                if (taskIndex !== -1) {
+                    tasks[taskIndex].timeSlot = timeSlotId === 'unassigned' ? null : timeSlotId;
+                    renderScheduleItems();
+                }
+            }
+        });
+    }
+
+    async function exportToImage() {
+        const target = document.getElementById('schedule-content');
+        const originalBtnHtml = btnExport.innerHTML;
+
+        btnExport.innerHTML = `<svg class="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 캡처 중...`;
+        btnExport.disabled = true;
+
+        try {
+            // DOM 렌더링 안정화 시간 부여
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            // html-to-image 사용: 브라우저 화면 렌더링과 100% 일치하는 이미지 추출
+            const dataUrl = await htmlToImage.toPng(target, {
+                quality: 1.0,
+                pixelRatio: 2, // 해상도 2배수
+                backgroundColor: '#ffffff'
+            });
+
+            const link = document.createElement('a');
+            const dateStr = new Date().toISOString().slice(0, 10);
+            link.download = `내일정표_${dateStr}.png`;
+            link.href = dataUrl;
+            link.click();
+        } catch (error) {
+            console.error('이미지 저장 실패:', error);
+        } finally {
+            btnExport.innerHTML = originalBtnHtml;
+            btnExport.disabled = false;
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>

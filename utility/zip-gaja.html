@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>집가자 - 스마트 이동 가이드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #f1f5f9; }
+        .gradient-header { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
+        .time-chip-anim { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236366f1' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1rem;
+        }
+    </style>
+</head>
+<body class="pb-24">
+    <!-- Header -->
+    <header class="gradient-header text-white px-6 pt-8 pb-12 rounded-b-[2.5rem] shadow-xl mb-6 sticky top-0 z-40">
+        <div class="max-w-md mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <button id="backBtn" onclick="goBack()" class="hidden bg-white/20 p-2 rounded-xl">
+                    <i data-lucide="chevron-left"></i>
+                </button>
+                <div>
+                    <h1 id="headerTitle" class="text-2xl font-bold flex items-center gap-2">
+                        <i data-lucide="compass"></i> 집가자
+                    </h1>
+                    <p id="headerSubtitle" class="text-sm opacity-90 mt-1">이동 경로를 선택하세요</p>
+                </div>
+            </div>
+            <button id="addBtn" onclick="handleAddClick()" class="bg-white/20 hover:bg-white/30 p-3 rounded-2xl transition backdrop-blur-md">
+                <i data-lucide="plus" class="w-6 h-6"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-md mx-auto px-4">
+        <div id="routeView" class="space-y-4">
+            <div id="routeList" class="space-y-4"></div>
+            <div id="routeEmpty" class="hidden text-center py-20">
+                <div class="bg-white w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                    <i data-lucide="map" class="text-gray-300 w-10 h-10"></i>
+                </div>
+                <p class="text-gray-400 font-medium">자주 가는 경로를<br>먼저 등록해 보세요!</p>
+            </div>
+        </div>
+
+        <div id="methodView" class="hidden space-y-4">
+            <div id="methodList" class="space-y-4"></div>
+            <div id="methodEmpty" class="hidden text-center py-20">
+                <div class="bg-white w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                    <i data-lucide="bus" class="text-gray-300 w-10 h-10"></i>
+                </div>
+                <p class="text-gray-400 font-medium">이 경로로 이동하는 구체적인<br>방법들을 등록해 보세요!</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Route Modal -->
+    <div id="routeModal" class="fixed inset-0 bg-black/60 hidden z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-md rounded-[2rem] p-8 shadow-2xl">
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-xl font-bold text-gray-800">새 경로 등록</h2>
+                <button onclick="closeModal('routeModal')"><i data-lucide="x"></i></button>
+            </div>
+            <div class="space-y-6">
+                <div>
+                    <label class="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2 block">경로 이름</label>
+                    <input type="text" id="routeInputTitle" class="w-full bg-gray-50 border-none rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 font-semibold" placeholder="예: 회사에서 집으로">
+                </div>
+                <button onclick="saveRoute()" class="w-full bg-indigo-600 text-white font-bold py-5 rounded-2xl shadow-lg hover:bg-indigo-700 transition transform active:scale-[0.98]">
+                    경로 저장하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Method Modal -->
+    <div id="methodModal" class="fixed inset-0 bg-black/60 hidden z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-md rounded-[2rem] p-8 overflow-y-auto max-h-[90vh] shadow-2xl">
+            <input type="hidden" id="editingMethodId">
+            <div class="flex justify-between items-center mb-8">
+                <h2 id="methodModalTitle" class="text-xl font-bold text-gray-800">이동 방법 등록</h2>
+                <button onclick="closeModal('methodModal')" class="text-gray-400 hover:text-gray-600"><i data-lucide="x"></i></button>
+            </div>
+            <div class="space-y-6">
+                <div>
+                    <label class="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2 block">방법 명칭</label>
+                    <input type="text" id="methodInputTitle" class="w-full bg-gray-50 border-none rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 font-semibold" placeholder="예: 3202번 광역버스">
+                </div>
+                
+                <div>
+                    <label class="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2 block">상세 이동 단계 (환승 순서)</label>
+                    <div class="space-y-2 mb-3">
+                        <div class="flex gap-2">
+                            <input type="text" id="stepInputVehicle" class="w-full bg-gray-50 border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm" placeholder="수단 (예: 3202)">
+                        </div>
+                        <div class="flex gap-2">
+                            <input type="text" id="stepInputBoardingStation" class="w-1/2 bg-gray-50 border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm" placeholder="탑승 정류장">
+                            <input type="text" id="stepInputArrivalStation" class="w-1/2 bg-gray-50 border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm" placeholder="도착 정류장">
+                        </div>
+                        <button onclick="addStepChip()" class="w-full bg-indigo-100 text-indigo-600 py-3 rounded-xl font-bold hover:bg-indigo-200 transition text-sm">단계 추가</button>
+                    </div>
+                    <div id="modalStepList" class="space-y-2 mb-4"></div>
+                </div>
+
+                <div>
+                    <label class="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2 block">평균 소요 시간 (분)</label>
+                    <input type="number" id="methodInputDuration" class="w-full bg-gray-50 border-none rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 font-semibold" placeholder="예: 45">
+                </div>
+                
+                <div>
+                    <label class="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2 block">출발해야 하는 시간 등록</label>
+                    <div class="flex gap-2 mb-3 items-center">
+                        <select id="hourSelect" class="flex-1 bg-gray-50 border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-600 text-center"></select>
+                        <span class="text-indigo-300 font-bold">:</span>
+                        <select id="minuteSelect" class="flex-1 bg-gray-50 border-none rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-600 text-center"></select>
+                        <button onclick="addTimeChip()" class="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-indigo-700 transition shrink-0">추가</button>
+                    </div>
+                    <div id="modalTimeList" class="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-2xl min-h-[60px]"></div>
+                </div>
+
+                <div>
+                    <label class="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2 block">이동 가이드 & 메모</label>
+                    <textarea id="methodInputMemo" rows="3" class="w-full bg-gray-50 border-none rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500 text-sm leading-relaxed" placeholder="환승 꿀팁 등을 적어주세요"></textarea>
+                </div>
+                <button onclick="saveMethod()" class="w-full bg-indigo-600 text-white font-bold py-5 rounded-2xl shadow-lg hover:bg-indigo-700 transition transform active:scale-[0.98]">
+                    저장하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'zip-gaja-v10';
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        let currentUser = null;
+        let currentRouteId = null;
+        let routes = [];
+        let methods = [];
+        let userSelectedTimes = {};
+
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+        window.openModal = (id) => document.getElementById(id).classList.remove('hidden');
+        window.goBack = () => { currentRouteId = null; render(); };
+
+        function initTimeSelectors() {
+            const hSel = document.getElementById('hourSelect');
+            const mSel = document.getElementById('minuteSelect');
+            if(!hSel || !mSel) return;
+            hSel.innerHTML = ""; mSel.innerHTML = "";
+            for(let i=0; i<24; i++) {
+                const val = String(i).padStart(2, '0');
+                hSel.innerHTML += `<option value="${val}">${val}시</option>`;
+            }
+            for(let i=0; i<60; i++) {
+                const val = String(i).padStart(2, '0');
+                mSel.innerHTML += `<option value="${val}">${val}분</option>`;
+            }
+        }
+
+        window.handleAddClick = () => {
+            if (!currentRouteId) {
+                document.getElementById('routeInputTitle').value = '';
+                openModal('routeModal');
+            } else {
+                document.getElementById('methodModalTitle').innerText = '이동 방법 등록';
+                document.getElementById('editingMethodId').value = '';
+                document.getElementById('methodInputTitle').value = '';
+                document.getElementById('methodInputDuration').value = '';
+                document.getElementById('methodInputMemo').value = '';
+                document.getElementById('modalTimeList').innerHTML = '';
+                document.getElementById('modalStepList').innerHTML = '';
+                document.getElementById('stepInputVehicle').value = '';
+                document.getElementById('stepInputBoardingStation').value = '';
+                document.getElementById('stepInputArrivalStation').value = '';
+                initTimeSelectors();
+                openModal('methodModal');
+            }
+            lucide.createIcons();
+        };
+
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        };
+        initAuth();
+
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) loadData();
+        });
+
+        function loadData() {
+            if (!currentUser) return;
+            const routeCol = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'routes');
+            const methodCol = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'methods');
+            onSnapshot(routeCol, (s) => { routes = s.docs.map(d => ({id: d.id, ...d.data()})); render(); });
+            onSnapshot(methodCol, (s) => { methods = s.docs.map(d => ({id: d.id, ...d.data()})); render(); });
+        }
+
+        window.saveRoute = async () => {
+            const title = document.getElementById('routeInputTitle').value;
+            if (!title) return alert('경로 이름을 입력하세요.');
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'routes'), {
+                    title, createdAt: new Date().getTime()
+                });
+                closeModal('routeModal');
+            } catch (e) { console.error(e); }
+        };
+
+        window.saveMethod = async () => {
+            const id = document.getElementById('editingMethodId').value;
+            const title = document.getElementById('methodInputTitle').value;
+            const duration = parseInt(document.getElementById('methodInputDuration').value) || 0;
+            const memo = document.getElementById('methodInputMemo').value;
+            const times = Array.from(document.querySelectorAll('#modalTimeList .time-chip')).map(c => c.dataset.time).sort();
+            const transportSteps = Array.from(document.querySelectorAll('#modalStepList .step-chip-item')).map(c => ({
+                vehicle: c.dataset.vehicle,
+                boardingStation: c.dataset.boardingStation,
+                arrivalStation: c.dataset.arrivalStation
+            }));
+
+            if (!title) return alert('방법 이름을 입력하세요.');
+
+            const data = {
+                routeId: currentRouteId,
+                title, duration, memo, times, transportSteps,
+                updatedAt: new Date().getTime()
+            };
+
+            try {
+                const colRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'methods');
+                if (id) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'methods', id), data);
+                } else {
+                    await addDoc(colRef, { ...data, createdAt: new Date().getTime() });
+                }
+                closeModal('methodModal');
+            } catch (e) { console.error(e); }
+        };
+
+        window.deleteRoute = async (e, id) => {
+            e.stopPropagation();
+            if (!confirm('경로와 모든 정보가 삭제됩니다. 계속할까요?')) return;
+            await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'routes', id));
+        };
+
+        window.deleteMethod = async (id) => {
+            if (!confirm('이 이동 방법을 삭제할까요?')) return;
+            await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'methods', id));
+        };
+
+        window.editMethod = (id) => {
+            const item = methods.find(m => m.id === id);
+            if (!item) return;
+            document.getElementById('methodModalTitle').innerText = '이동 방법 수정';
+            document.getElementById('editingMethodId').value = id;
+            document.getElementById('methodInputTitle').value = item.title;
+            document.getElementById('methodInputDuration').value = item.duration || '';
+            document.getElementById('methodInputMemo').value = item.memo || '';
+            initTimeSelectors();
+            const timeList = document.getElementById('modalTimeList');
+            timeList.innerHTML = '';
+            item.times.forEach(t => addTimeChipUI(timeList, t));
+            const stepList = document.getElementById('modalStepList');
+            stepList.innerHTML = '';
+            if(item.transportSteps) {
+                item.transportSteps.forEach(s => {
+                    addStepChipUI(stepList, s.vehicle, s.boardingStation || s.station || '', s.arrivalStation || '');
+                });
+            }
+            openModal('methodModal');
+        };
+
+        window.addTimeChip = () => {
+            const h = document.getElementById('hourSelect').value;
+            const m = document.getElementById('minuteSelect').value;
+            const time = `${h}:${m}`;
+            const list = document.getElementById('modalTimeList');
+            if(Array.from(list.querySelectorAll('.time-chip')).some(c => c.dataset.time === time)) return;
+            addTimeChipUI(list, time);
+        };
+
+        function addTimeChipUI(container, time) {
+            const chip = document.createElement('span');
+            chip.className = "time-chip bg-white border border-indigo-100 text-indigo-600 text-sm font-bold px-3 py-1.5 rounded-lg flex items-center gap-2 group shadow-sm";
+            chip.dataset.time = time;
+            chip.innerHTML = `${time} <i data-lucide="x" class="w-3 h-3 cursor-pointer opacity-40 group-hover:opacity-100" onclick="this.parentElement.remove()"></i>`;
+            container.appendChild(chip);
+            lucide.createIcons();
+        }
+
+        window.addStepChip = () => {
+            const vInput = document.getElementById('stepInputVehicle');
+            const bInput = document.getElementById('stepInputBoardingStation');
+            const aInput = document.getElementById('stepInputArrivalStation');
+            const list = document.getElementById('modalStepList');
+            if (!vInput.value) return alert('교통수단을 입력하세요.');
+            addStepChipUI(list, vInput.value, bInput.value, aInput.value);
+            vInput.value = ''; bInput.value = ''; aInput.value = '';
+        };
+
+        function addStepChipUI(container, vehicle, boarding, arrival) {
+            const item = document.createElement('div');
+            item.className = "step-chip-item flex items-center justify-between bg-indigo-50 p-4 rounded-2xl border border-indigo-100 group";
+            item.dataset.vehicle = vehicle;
+            item.dataset.boardingStation = boarding;
+            item.dataset.arrivalStation = arrival;
+            item.innerHTML = `
+                <div class="flex flex-col flex-1 pr-2">
+                    <span class="text-sm font-bold text-indigo-700">${vehicle}</span>
+                    <div class="flex items-center gap-1 text-[11px] text-indigo-400 font-medium">
+                        <span>${boarding || '?'}</span>
+                        <i data-lucide="arrow-right" class="w-2.5 h-2.5"></i>
+                        <span>${arrival || '?'}</span>
+                    </div>
+                </div>
+                <button onclick="this.parentElement.remove()" class="text-indigo-300 hover:text-red-500 transition shrink-0">
+                    <i data-lucide="x-circle" class="w-5 h-5"></i>
+                </button>
+            `;
+            container.appendChild(item);
+            lucide.createIcons();
+        }
+
+        window.selectManualTime = (methodId, time) => {
+            if (userSelectedTimes[methodId] === time) delete userSelectedTimes[methodId];
+            else userSelectedTimes[methodId] = time;
+            render();
+        };
+
+        function render() {
+            const routeView = document.getElementById('routeView');
+            const methodView = document.getElementById('methodView');
+            const headerTitle = document.getElementById('headerTitle');
+            const headerSubtitle = document.getElementById('headerSubtitle');
+            const backBtn = document.getElementById('backBtn');
+
+            if (!currentRouteId) {
+                routeView.classList.remove('hidden');
+                methodView.classList.add('hidden');
+                backBtn.classList.add('hidden');
+                headerTitle.innerHTML = `<i data-lucide="compass"></i> 집가자`;
+                headerSubtitle.innerText = "이동 경로를 선택하세요";
+                const list = document.getElementById('routeList');
+                list.innerHTML = '';
+                if (routes.length === 0) document.getElementById('routeEmpty').classList.remove('hidden');
+                else {
+                    document.getElementById('routeEmpty').classList.add('hidden');
+                    routes.forEach(r => {
+                        const div = document.createElement('div');
+                        div.className = "bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex justify-between items-center cursor-pointer hover:shadow-md transition active:scale-[0.98]";
+                        div.onclick = () => { currentRouteId = r.id; render(); };
+                        div.innerHTML = `<div class="flex items-center gap-4"><div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600"><i data-lucide="map-pin"></i></div><span class="text-lg font-bold text-gray-800">${r.title}</span></div><div class="flex items-center gap-2"><button onclick="deleteRoute(event, '${r.id}')" class="text-gray-300 hover:text-red-400 p-2"><i data-lucide="trash-2" class="w-5 h-5"></i></button><i data-lucide="chevron-right" class="text-gray-300"></i></div>`;
+                        list.appendChild(div);
+                    });
+                }
+            } else {
+                routeView.classList.add('hidden');
+                methodView.classList.remove('hidden');
+                backBtn.classList.remove('hidden');
+                const r = routes.find(r => r.id === currentRouteId);
+                headerTitle.innerText = r ? r.title : "상세 방법";
+                headerSubtitle.innerText = "가장 빠른 출발 시간 확인";
+                const list = document.getElementById('methodList');
+                list.innerHTML = '';
+                const filtered = methods.filter(m => m.routeId === currentRouteId);
+                if (filtered.length === 0) document.getElementById('methodEmpty').classList.remove('hidden');
+                else filtered.forEach(m => list.appendChild(createMethodCard(m)));
+            }
+            lucide.createIcons();
+        }
+
+        function createMethodCard(item) {
+            const card = document.createElement('div');
+            card.className = "bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden mb-4 transition duration-300";
+            
+            const selectedManual = userSelectedTimes[item.id];
+            let displayInfos = [];
+
+            if (selectedManual) {
+                const idx = item.times.indexOf(selectedManual);
+                displayInfos.push(getSpecificTimeInfo(selectedManual, item.duration));
+                if (idx !== -1 && idx + 1 < item.times.length) {
+                    displayInfos.push(getSpecificTimeInfo(item.times[idx+1], item.duration));
+                }
+            } else {
+                displayInfos = getNextTwoInfo(item.times, item.duration);
+            }
+            
+            const stepsHtml = item.transportSteps && item.transportSteps.length > 0 ? `
+                <div class="flex flex-col gap-3 mb-4 bg-indigo-50/30 p-4 rounded-2xl border border-indigo-50">
+                    ${item.transportSteps.map((step, idx) => `
+                        <div class="flex items-start gap-3">
+                            <div class="flex flex-col items-center">
+                                <div class="w-2.5 h-2.5 rounded-full border-2 border-indigo-400 bg-white mt-1.5 z-10"></div>
+                                ${idx < item.transportSteps.length - 1 ? '<div class="w-0.5 h-8 bg-indigo-100 -my-0.5"></div>' : ''}
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-sm font-bold text-indigo-700">${step.vehicle}</span>
+                                    ${idx === item.transportSteps.length - 1 ? '<i data-lucide="flag" class="w-3 h-3 text-indigo-400"></i>' : ''}
+                                </div>
+                                <div class="flex items-center gap-1.5 text-[11px] text-indigo-400 font-medium -mt-0.5">
+                                    <span class="truncate max-w-[100px]">${step.boardingStation || '탑승지 미정'}</span>
+                                    <i data-lucide="arrow-right" class="w-2.5 h-2.5 opacity-50"></i>
+                                    <span class="truncate max-w-[100px]">${step.arrivalStation || '하차지 미정'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '';
+
+            let arrivalHtml = "";
+            if (displayInfos.length > 0) {
+                arrivalHtml = `
+                    <div class="mt-4 space-y-4 border-t border-dashed border-gray-100 pt-4">
+                        ${displayInfos.map((info, i) => `
+                        <div class="flex justify-between items-center ${i > 0 ? 'opacity-60 border-t border-gray-50 pt-3' : ''}">
+                            <div class="flex flex-col">
+                                <span class="text-[10px] font-bold text-indigo-400 uppercase tracking-tighter">
+                                    ${selectedManual ? (i === 0 ? '선택한 출발' : '그 다음 출발') : (i === 0 ? '바로 다음 출발' : '그 다음 출발')}
+                                </span>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-sm font-bold text-gray-500">${info.time}</span>
+                                    <i data-lucide="arrow-right" class="w-3 h-3 text-gray-300"></i>
+                                    <span class="text-sm font-black text-indigo-600">${info.arrivalTime} 도착</span>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-[9px] font-bold text-gray-400 uppercase">남은 시간</span>
+                                <div class="text-lg font-black ${info.diff < 0 ? 'text-gray-300' : 'text-indigo-600'}">
+                                    ${Math.abs(info.diff)}<span class="text-xs font-bold">${info.diff < 0 ? '분 전' : '분 전'}</span>
+                                </div>
+                            </div>
+                        </div>
+                        `).join('')}
+                        
+                        <!-- NEW: 차편 없음 표시 로직 -->
+                        ${(displayInfos.length === 1 && (selectedManual || getNextTwoInfo(item.times, item.duration).length > 0)) ? `
+                        <div class="flex justify-between items-center opacity-40 border-t border-gray-50 pt-3">
+                            <div class="flex flex-col">
+                                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">그 다음 출발</span>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-sm font-bold text-gray-300">--:--</span>
+                                    <i data-lucide="minus" class="w-3 h-3 text-gray-200"></i>
+                                    <span class="text-sm font-medium text-gray-400 italic">차편 없음</span>
+                                </div>
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-4">
+                    <div class="flex-1">
+                        <h3 class="text-lg font-bold text-gray-800 leading-tight">${item.title}</h3>
+                        <div class="flex items-center gap-2 mt-1 text-xs text-gray-400 font-medium">
+                            <i data-lucide="clock" class="w-3 h-3"></i>
+                            <span>소요 시간: ${item.duration || 0}분</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="editMethod('${item.id}')" class="p-2 text-gray-300 hover:text-indigo-500 transition"><i data-lucide="edit-2" class="w-5 h-5"></i></button>
+                        <button onclick="deleteMethod('${item.id}')" class="p-2 text-gray-300 hover:text-red-500 transition"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                    </div>
+                </div>
+                ${stepsHtml}
+                <div class="mb-4">
+                    <div class="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                        ${item.times.map(t => `
+                            <button onclick="selectManualTime('${item.id}', '${t}')" 
+                                class="text-[11px] font-bold px-2 py-0.5 rounded-md transition duration-200 
+                                ${ (displayInfos[0] && t === displayInfos[0].time) ? 'bg-indigo-600 text-white ring-2 ring-indigo-200 scale-105' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}">
+                                ${t}
+                            </button>`).join('')}
+                    </div>
+                </div>
+                ${item.memo ? `<div class="bg-slate-50 rounded-2xl p-4 flex gap-3 items-start mb-2"><i data-lucide="info" class="w-4 h-4 text-indigo-400 mt-0.5 flex-shrink-0"></i><p class="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">${item.memo}</p></div>` : ''}
+                ${arrivalHtml || '<div class="text-right text-xs text-gray-300 font-medium mt-4">출발 가능한 시간 없음</div>'}
+            `;
+            return card;
+        }
+
+        function getSpecificTimeInfo(time, duration) {
+            const now = new Date();
+            const currentMin = now.getHours() * 60 + now.getMinutes();
+            const [h, m] = time.split(':').map(Number);
+            const tMin = h * 60 + m;
+            const arrivalMin = tMin + (duration || 0);
+            return {
+                time: time,
+                diff: tMin - currentMin,
+                arrivalTime: `${String(Math.floor(arrivalMin / 60) % 24).padStart(2, '0')}:${String(arrivalMin % 60).padStart(2, '0')}`
+            };
+        }
+
+        function getNextTwoInfo(times, duration) {
+            const now = new Date();
+            const currentMin = now.getHours() * 60 + now.getMinutes();
+            const results = [];
+            for (let t of times) {
+                const [h, m] = t.split(':').map(Number);
+                if (h * 60 + m > currentMin) results.push(getSpecificTimeInfo(t, duration));
+                if (results.length >= 2) break;
+            }
+            return results;
+        }
+
+        setInterval(() => { if (currentUser) render(); }, 60000);
+        initTimeSelectors();
+        lucide.createIcons();
+    </script>
+</body>
+</html>

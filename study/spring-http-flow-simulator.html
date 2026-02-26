@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spring HTTP Flow Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Pretendard:wght@300;400;600;700&display=swap');
+        
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #030712; /* 더 깊고 선명한 다크 배경 */
+            color: #f1f5f9;
+            overflow: hidden;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* 인프라 레이아웃 구성 */
+        .infra-grid {
+            display: grid;
+            grid-template-columns: 160px 180px 240px 1fr 180px;
+            gap: 0;
+            height: 100%;
+        }
+
+        /* 레이어 구역 및 구분선 개선 */
+        .layer-zone {
+            position: relative;
+            height: 100%;
+            border-right: 1px solid rgba(148, 163, 184, 0.2); /* 더 밝고 명확한 구분선 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 2.5rem;
+            padding: 0 1.25rem;
+            transition: background 0.4s ease;
+        }
+
+        /* 레이어별 배경 대비 강화 */
+        .layer-zone:nth-child(odd) { background: rgba(30, 41, 59, 0.15); }
+        .layer-zone:nth-child(even) { background: rgba(15, 23, 42, 0.3); }
+        .layer-zone:last-child { border-right: none; }
+
+        .zone-label {
+            position: absolute;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            color: #94a3b8;
+            white-space: nowrap;
+            background: #111827;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        /* 노드(컴포넌트 박스) 가시성 개선 */
+        .node {
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            background: #1e293b; /* 더 밝은 박스 배경으로 가시성 확보 */
+            border: 1px solid #334155;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+            z-index: 10;
+            width: 100%;
+        }
+
+        .node.active {
+            border-color: #3b82f6;
+            background: #1e293b;
+            box-shadow: 0 0 40px rgba(59, 130, 246, 0.35);
+            transform: scale(1.08);
+            border-width: 1.5px;
+        }
+
+        .node.active .icon-bg {
+            background: #3b82f6;
+            color: white;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.6);
+        }
+
+        /* 경로 애니메이션 */
+        #network-paths {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .active-path {
+            fill: none;
+            stroke: #3b82f6;
+            stroke-width: 3.5;
+            stroke-linecap: round;
+            stroke-dasharray: 8;
+            animation: flow-dash 0.8s linear infinite;
+            filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.7));
+        }
+
+        @keyframes flow-dash {
+            to { stroke-dashoffset: -16; }
+        }
+
+        .packet {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            background: #60a5fa;
+            border-radius: 50%;
+            z-index: 50;
+            display: none;
+            transition: all 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 20px #3b82f6, 0 0 40px #3b82f6;
+        }
+
+        /* 설명창(Popover) 스타일 */
+        #popover {
+            position: absolute;
+            z-index: 100;
+            width: 450px;
+            max-width: 90vw;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            pointer-events: none;
+        }
+
+        #popover.visible {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        .popover-arrow {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            transform: rotate(45deg);
+        }
+
+        /* 리셋 버튼 강조 애니메이션 */
+        @keyframes reset-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); border-color: #3b82f6; }
+            50% { box-shadow: 0 0 20px 8px rgba(59, 130, 246, 0.3); border-color: #60a5fa; }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); border-color: #3b82f6; }
+        }
+
+        .btn-reset-highlight {
+            animation: reset-pulse 1.5s infinite;
+            color: #60a5fa !important;
+            background: rgba(59, 130, 246, 0.15) !important;
+            border-color: #3b82f6 !important;
+            font-weight: 800 !important;
+        }
+
+        .glass-sidebar {
+            background: rgba(2, 6, 23, 0.98);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <!-- 헤더 -->
+    <header class="h-14 flex items-center justify-between px-8 bg-slate-950 border-b border-slate-800 z-50">
+        <div class="flex items-center gap-3">
+            <div class="w-7 h-7 bg-blue-600 rounded flex items-center justify-center font-black text-white text-sm shadow-lg shadow-blue-900/20">S</div>
+            <h1 class="text-sm font-bold tracking-tight">Spring HTTP Flow Simulator</h1>
+        </div>
+        <div class="flex items-center gap-4 text-[10px] font-bold text-slate-400 mono">
+            <span class="px-2 py-0.5 border border-slate-800 rounded bg-slate-900">SPACE BAR TO STEP</span>
+            <span class="text-blue-500 font-bold uppercase tracking-wider">Visual High-Contrast Mode</span>
+        </div>
+    </header>
+
+    <div class="flex-1 flex overflow-hidden">
+        <!-- 사이드바 -->
+        <aside class="w-80 glass-sidebar flex flex-col p-6 overflow-y-auto">
+            <h2 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6">Execution Sequence</h2>
+            <div id="step-list" class="space-y-1.5 mb-8">
+                <!-- 단계가 자바스크립트에 의해 주입됩니다 -->
+            </div>
+
+            <div class="mt-auto pt-6 border-t border-slate-800 space-y-2.5">
+                <button id="btn-next" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-sm">
+                    <span>다음 단계</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </button>
+                <button id="btn-reset" class="w-full py-3 text-slate-400 hover:text-white text-[10px] font-bold uppercase tracking-widest border border-slate-800 rounded-xl transition-all bg-slate-900/50">
+                    리셋 (ESC)
+                </button>
+            </div>
+        </aside>
+
+        <!-- 시뮬레이션 스테이지 -->
+        <main class="flex-1 relative bg-[#020617]" id="stage">
+            <!-- 동적 팝오버 -->
+            <div id="popover" class="bg-[#0f172a] border border-slate-600 p-6 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.8)]">
+                <div class="popover-arrow" id="popover-arrow"></div>
+                <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+                    <h4 id="pop-title" class="text-[14px] font-black text-white uppercase tracking-wider">제목</h4>
+                    <span id="pop-step-label" class="text-[10px] px-3 py-1 bg-blue-600/30 text-blue-300 border border-blue-500/40 rounded-full font-bold mono tracking-tighter">Step 01/16</span>
+                </div>
+                <p id="pop-desc" class="text-[14px] text-slate-200 leading-relaxed font-normal">설명 내용</p>
+                
+                <div id="pop-reset-hint" class="mt-5 pt-4 border-t border-slate-800 hidden">
+                    <div class="flex items-center gap-3 text-blue-400 font-bold text-[12px] bg-blue-500/10 p-3.5 rounded-xl border border-blue-500/30">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                        <span>다시 시작하려면 ESC 키를 누르세요.</span>
+                    </div>
+                </div>
+            </div>
+
+            <svg id="network-paths">
+                <path id="active-path" class="active-path" d=""></path>
+            </svg>
+            <div id="packet" class="packet"></div>
+
+            <div class="infra-grid relative z-10">
+                <!-- Zone 1: External -->
+                <div class="layer-zone">
+                    <span class="zone-label">01. External</span>
+                    <div id="node-client" class="node p-4 rounded-xl flex flex-col items-center gap-2 max-w-[120px]">
+                        <div class="icon-bg w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                        </div>
+                        <span class="text-[9px] font-black uppercase tracking-tighter">Client</span>
+                    </div>
+                    <div id="node-response" class="node p-4 rounded-xl flex flex-col items-center gap-2 border-emerald-500/30 max-w-[120px]">
+                        <div class="icon-bg w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>
+                        </div>
+                        <span class="text-[9px] font-black uppercase tracking-tighter text-center">Response</span>
+                    </div>
+                </div>
+
+                <!-- Zone 2: Servlet Filter -->
+                <div class="layer-zone">
+                    <span class="zone-label text-orange-400">02. Servlet Context</span>
+                    <div id="node-filter" class="node p-5 rounded-xl flex flex-col items-center gap-3 border-orange-500/30 max-w-[140px]">
+                        <div class="icon-bg w-11 h-11 rounded-lg bg-orange-500/10 text-orange-400 flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+                        </div>
+                        <span class="text-[11px] font-black uppercase text-center leading-tight">Filter Chain<br><span class="text-[8px] font-bold text-slate-400">(Security)</span></span>
+                    </div>
+                </div>
+
+                <!-- Zone 3: Spring Hub -->
+                <div class="layer-zone">
+                    <span class="zone-label text-blue-400">03. Spring Hub</span>
+                    <div id="node-interceptor" class="node p-4 rounded-lg flex flex-col items-center gap-2 border-indigo-500/30 max-w-[130px]">
+                        <div class="icon-bg w-9 h-9 rounded bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        </div>
+                        <span class="text-[10px] font-black uppercase">Interceptor</span>
+                    </div>
+                    <div id="node-ds" class="node p-6 rounded-2xl flex flex-col items-center gap-3 border-blue-500/40 max-w-[160px]">
+                        <div class="icon-bg w-14 h-14 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center shadow-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M9 3v18"/></svg>
+                        </div>
+                        <span class="text-[11px] font-black uppercase text-center leading-tight">Dispatcher<br>Servlet</span>
+                    </div>
+                    <div id="node-converter" class="node p-3 rounded-lg flex flex-col items-center gap-2 border-teal-500/30 max-w-[130px]">
+                        <div class="icon-bg w-9 h-9 rounded bg-teal-500/10 text-teal-400 flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M16 3h5v5M8 3H3v5M3 16v5h5M16 21h5v-5"/></svg>
+                        </div>
+                        <span class="text-[10px] font-black uppercase text-teal-400">Converter</span>
+                    </div>
+                </div>
+
+                <!-- Zone 4: Application -->
+                <div class="layer-zone">
+                    <span class="zone-label text-purple-400">04. Application</span>
+                    <div class="flex flex-col gap-4 w-full px-2">
+                        <div id="node-controller" class="node p-4 rounded-xl flex items-center gap-5 border-orange-500/20">
+                            <div class="icon-bg w-10 h-10 rounded-lg bg-orange-500/10 text-orange-400 flex items-center justify-center flex-shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+                            </div>
+                            <span class="text-[11px] font-black uppercase tracking-tighter">Controller</span>
+                        </div>
+                        <div id="node-service" class="node p-4 rounded-xl flex items-center gap-5 border-purple-500/20">
+                            <div class="icon-bg w-10 h-10 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center flex-shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            </div>
+                            <span class="text-[11px] font-black uppercase tracking-tighter">Service</span>
+                        </div>
+                        <div id="node-repository" class="node p-4 rounded-xl flex items-center gap-5 border-indigo-500/20">
+                            <div class="icon-bg w-10 h-10 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center flex-shrink-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20M4 19.5V3a1 1 0 0 1 1-1h15a1 1 0 0 1 1 1v19a1 1 0 0 1-1 1H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+                            </div>
+                            <span class="text-[11px] font-black uppercase tracking-tighter text-indigo-300">Repository</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Zone 5: Storage -->
+                <div class="layer-zone">
+                    <span class="zone-label text-rose-500">05. Storage</span>
+                    <div id="node-db" class="node p-8 rounded-[2.5rem] flex flex-col items-center gap-5 border-rose-500/40 max-w-[180px]">
+                        <div class="icon-bg w-16 h-16 rounded-3xl bg-rose-500/10 text-rose-500 flex items-center justify-center shadow-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                        </div>
+                        <span class="text-[12px] font-black uppercase text-rose-500 tracking-widest">Database</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer class="h-10 bg-black border-t border-slate-800 px-8 flex items-center justify-between transition-colors duration-700" id="footer-main">
+        <div class="flex items-center gap-4">
+            <div id="info-num" class="text-[10px] font-black text-blue-400 mono bg-blue-500/10 px-2.5 py-1 rounded-md border border-blue-500/20 tracking-tighter">STEP 00/16</div>
+            <h3 id="info-title" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">요청 대기 중</h3>
+        </div>
+        <div class="flex items-center gap-6">
+            <div id="completion-status" class="hidden items-center gap-3">
+                <span class="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Simulation Completed</span>
+                <div class="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-900/40">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-slate-950" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="5"><path d="M5 13l4 4L19 7"/></svg>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <div class="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_10px_#3b82f6]"></div>
+                <div class="w-1.5 h-1.5 rounded-full bg-slate-800"></div>
+            </div>
+            <span class="text-[9px] text-slate-500 font-bold uppercase tracking-wider mono">Spring HTTP Engine v2.1</span>
+        </div>
+    </footer>
+
+    <script>
+        const steps = [
+            { id: '1', from: 'node-client', to: 'node-filter', title: 'Filter Chain (Inbound)', desc: 'Servlet Container 수준에서 실행되는 첫 번째 관문입니다. <b>Spring Security</b> 기반의 인증(Authentication), 인코딩 처리, CORS 검증 등 애플리케이션 공통 인프라 로직이 처리됩니다.' },
+            { id: '2', from: 'node-filter', to: 'node-ds', title: 'DispatcherServlet Ingress', desc: 'Spring MVC의 핵심 <b>Front Controller</b>입니다. 필터를 통과한 요청을 수신하여 중앙 집중식으로 전체 요청 수명 주기를 제어하며 적절한 핸들러를 탐색합니다.' },
+            { id: '3', from: 'node-ds', to: 'node-interceptor', title: 'Interceptor preHandle', desc: '비즈니스 로직(Controller) 진입 전 실행됩니다. <b>JWT 토큰 검증</b>, 로그인 세션 체크, 실행 권한 확인 등 HTTP 요청 컨텍스트와 밀접한 보안 정책이 여기서 적용됩니다.' },
+            { id: '4', from: 'node-interceptor', to: 'node-controller', title: 'Controller Execution', desc: '실제 비즈니스 요청을 처리할 핸들러 메서드입니다. <b>Request Body 바인딩</b> 및 유효성 검증(Validation) 후, 서비스 계층으로 작업을 위임합니다.' },
+            { id: '5', from: 'node-controller', to: 'node-service', title: 'Service Layer Call', desc: '핵심 비즈니스 도메인 로직이 담긴 계층입니다. <b>@Transactional</b>에 의한 트랜잭션 경계가 설정되며, 로직 실패 시 원자적인 롤백을 보장합니다.' },
+            { id: '6', from: 'node-service', to: 'node-repository', title: 'Repository Access', desc: '영속성 계층과의 통신을 담당합니다. <b>Spring Data JPA</b> 등의 기술을 통해 데이터베이스 엔티티를 관리하고 영속성 컨텍스트를 활용합니다.' },
+            { id: '7', from: 'node-repository', to: 'node-db', title: 'Database Query', desc: 'ORM(Hibernate)에 의해 자동 생성되거나 수동 작성된 <b>SQL 질의</b>가 실제 데이터베이스 서버로 전송되어 엔진 레벨에서 실행됩니다.' },
+            { id: '8', from: 'node-db', to: 'node-repository', title: 'Database Result', desc: '데이터베이스 엔진에서 실행된 쿼리의 결과인 Row Set이 JDBC 커넥션을 통해 애플리케이션 영속성 계층으로 반환됩니다.' },
+            { id: '9', from: 'node-repository', to: 'node-service', title: 'Entity Mapping', desc: 'DB로부터 반환된 데이터를 <b>Java 엔티티 객체</b>로 매핑합니다. 이 시점에 엔티티는 영속화되어 스냅샷 비교 및 변경 감지(Dirty Check)가 가능해집니다.' },
+            { id: '10', from: 'node-service', to: 'node-controller', title: 'Business Logic Finish', desc: '비즈니스 가공 처리가 완료되었습니다. 엔티티를 직접 노출하지 않기 위해 <b>DTO(Data Transfer Object)</b>로 변환하여 컨트롤러로 결과를 전달합니다.' },
+            { id: '11', from: 'node-controller', to: 'node-interceptor', title: 'Interceptor postHandle', desc: '컨트롤러 로직 종료 후 응답 전송 직전 단계입니다. 실행 결과의 추가 가공, 실행 시간 로깅, 혹은 <b>공통 응답 모델 래핑</b> 작업이 수행됩니다.' },
+            { id: '12', from: 'node-interceptor', to: 'node-ds', title: 'Return to Servlet Hub', desc: '모든 처리 결과와 모델 데이터가 다시 중앙 제어 장치인 DispatcherServlet으로 수집되어 최종 응답 구성을 준비합니다.' },
+            { id: '13', from: 'node-ds', to: 'node-converter', title: 'HttpMessageConverter', desc: '<b>Jackson Library</b> 등을 활용하여 자바 객체를 JSON/XML 형식의 문자열로 <b>직렬화(Serialization)</b>하여 응답 본문에 작성합니다.' },
+            { id: '14', from: 'node-converter', to: 'node-ds', title: 'Response Preparation', desc: 'HTTP 상태 코드 설정, Content-Type 헤더 정의 등 클라이언트가 해석할 수 있는 최종 <b>HTTP Response Packet</b>이 메모리에 구성됩니다.' },
+            { id: '15', from: 'node-ds', to: 'node-filter', title: 'Filter Chain (Outbound)', desc: '응답이 네트워크로 나가기 전 마지막 서블릿 필터 단계입니다. 응답 암호화, 압축, 혹은 <b>Access Log 최종 기록</b> 등 인프라 마무리 작업을 수행합니다.' },
+            { id: '16', from: 'node-filter', to: 'node-response', title: 'Final HTTP Response', desc: '클라이언트에게 네트워크를 통해 <b>200 OK</b> 상태 코드와 함께 가공된 결과가 전송되며 전체 HTTP 요청 수명 주기가 완료됩니다.' }
+        ];
+
+        let currentIdx = -1;
+        const packet = document.getElementById('packet');
+        const activePath = document.getElementById('active-path');
+        const stepList = document.getElementById('step-list');
+        const infoTitle = document.getElementById('info-title');
+        const infoNum = document.getElementById('info-num');
+        const popover = document.getElementById('popover');
+        const popTitle = document.getElementById('pop-title');
+        const popDesc = document.getElementById('pop-desc');
+        const popStepLabel = document.getElementById('pop-step-label');
+        const popArrow = document.getElementById('popover-arrow');
+        const popResetHint = document.getElementById('pop-reset-hint');
+        const btnNext = document.getElementById('btn-next');
+        const btnReset = document.getElementById('btn-reset');
+        const footerMain = document.getElementById('footer-main');
+        const completionStatus = document.getElementById('completion-status');
+
+        // 사이드바 초기화
+        steps.forEach((s, i) => {
+            const el = document.createElement('div');
+            el.id = `side-step-${i}`;
+            el.className = 'flex items-center gap-3 p-3 rounded-xl border border-slate-900 bg-slate-900/30 text-[10px] font-bold text-slate-500 transition-all opacity-30 cursor-pointer hover:opacity-100';
+            el.innerHTML = `<span class="mono w-4 text-slate-600">${(i+1).toString().padStart(2, '0')}</span> <span class="truncate">${s.title}</span>`;
+            el.onclick = () => { if(i === currentIdx + 1) next(); };
+            stepList.appendChild(el);
+        });
+
+        function getCoords(id) {
+            const el = document.getElementById(id);
+            const stage = document.getElementById('stage').getBoundingClientRect();
+            const rect = el.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2 - stage.left,
+                y: rect.top + rect.height / 2 - stage.top,
+                w: rect.width,
+                h: rect.height,
+                top: rect.top - stage.top,
+                bottom: rect.bottom - stage.top
+            };
+        }
+
+        function positionPopover(targetId, title, desc, idx) {
+            popover.classList.remove('visible');
+            
+            setTimeout(() => {
+                const coords = getCoords(targetId);
+                const stageHeight = document.getElementById('stage').offsetHeight;
+                
+                popTitle.innerText = title;
+                popDesc.innerHTML = desc;
+                popStepLabel.innerText = `Step ${(idx + 1).toString().padStart(2, '0')}/${steps.length}`;
+
+                if (idx === steps.length - 1) {
+                    popResetHint.classList.remove('hidden');
+                } else {
+                    popResetHint.classList.add('hidden');
+                }
+
+                const showBelow = coords.y < stageHeight * 0.45;
+                const offset = 30;
+
+                popover.style.left = `${coords.x - popover.offsetWidth / 2}px`;
+                
+                if (showBelow) {
+                    popover.style.top = `${coords.bottom + offset}px`;
+                    popArrow.style.top = `-6px`;
+                    popArrow.style.bottom = `auto`;
+                    popArrow.style.left = `calc(50% - 6px)`;
+                    popArrow.style.transform = `rotate(45deg)`;
+                    popArrow.style.borderTop = `1px solid #475569`;
+                    popArrow.style.borderLeft = `1px solid #475569`;
+                    popArrow.style.borderBottom = `none`;
+                    popArrow.style.borderRight = `none`;
+                } else {
+                    popover.style.top = `${coords.top - popover.offsetHeight - offset}px`;
+                    popArrow.style.top = `auto`;
+                    popArrow.style.bottom = `-6px`;
+                    popArrow.style.left = `calc(50% - 6px)`;
+                    popArrow.style.transform = `rotate(45deg)`;
+                    popArrow.style.borderBottom = `1px solid #475569`;
+                    popArrow.style.borderRight = `1px solid #475569`;
+                    popArrow.style.borderTop = `none`;
+                    popArrow.style.borderLeft = `none`;
+                }
+
+                popover.classList.add('visible');
+            }, 650);
+        }
+
+        function runStep(idx) {
+            const step = steps[idx];
+            const from = getCoords(step.from);
+            const to = getCoords(step.to);
+
+            if (packet.style.display === 'none' || idx === 0) {
+                packet.style.display = 'block';
+                packet.style.left = `${from.x - 7}px`;
+                packet.style.top = `${from.y - 7}px`;
+            }
+
+            setTimeout(() => {
+                packet.style.left = `${to.x - 7}px`;
+                packet.style.top = `${to.y - 7}px`;
+                activePath.setAttribute('d', `M ${from.x} ${from.y} L ${to.x} ${to.y}`);
+                
+                document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+                document.getElementById(step.to).classList.add('active');
+                
+                positionPopover(step.to, step.title, step.desc, idx);
+            }, 50);
+
+            infoTitle.innerText = step.title;
+            infoNum.innerText = `STEP ${(idx + 1).toString().padStart(2, '0')}/${steps.length}`;
+
+            document.querySelectorAll('[id^="side-step-"]').forEach(el => {
+                el.classList.remove('bg-blue-600/10', 'border-blue-500/20', 'text-blue-300', 'opacity-100', 'shadow-md');
+                el.classList.add('opacity-30');
+            });
+            const activeSide = document.getElementById(`side-step-${idx}`);
+            activeSide.classList.add('bg-blue-600/10', 'border-blue-500/20', 'text-blue-300', 'opacity-100', 'shadow-md');
+            activeSide.classList.remove('opacity-30');
+            activeSide.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            if (idx === steps.length - 1) {
+                btnNext.innerHTML = '<span>완료 (ESC로 리셋)</span>';
+                btnNext.classList.replace('bg-blue-600', 'bg-emerald-600');
+                btnNext.classList.add('cursor-default');
+                btnReset.classList.add('btn-reset-highlight');
+                footerMain.classList.add('bg-emerald-950/20');
+                completionStatus.classList.remove('hidden');
+                completionStatus.classList.add('flex');
+            }
+        }
+
+        const next = () => {
+            if (currentIdx < steps.length - 1) {
+                currentIdx++;
+                runStep(currentIdx);
+            }
+        };
+
+        const reset = () => {
+            currentIdx = -1;
+            packet.style.display = 'none';
+            activePath.setAttribute('d', '');
+            popover.classList.remove('visible');
+            popResetHint.classList.add('hidden');
+            document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+            infoTitle.innerText = 'Standby';
+            infoNum.innerText = `STEP 00/${steps.length}`;
+            btnNext.innerHTML = '<span>다음 단계</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>';
+            btnNext.classList.replace('bg-emerald-600', 'bg-blue-600');
+            btnNext.classList.remove('cursor-default');
+            btnReset.classList.remove('btn-reset-highlight');
+            footerMain.classList.remove('bg-emerald-950/20');
+            completionStatus.classList.add('hidden');
+            document.querySelectorAll('[id^="side-step-"]').forEach(el => {
+                el.classList.remove('bg-blue-600/10', 'border-blue-500/20', 'text-blue-300', 'opacity-100', 'shadow-md');
+                el.classList.add('opacity-30');
+            });
+        };
+
+        btnNext.addEventListener('click', next);
+        btnReset.addEventListener('click', reset);
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') { e.preventDefault(); next(); }
+            if (e.code === 'Escape') { reset(); }
+        });
+
+        window.addEventListener('resize', () => {
+            if (currentIdx >= 0) runStep(currentIdx);
+        });
+    </script>
+</body>
+</html>

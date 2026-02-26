@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JVM Memory Visualizer - Sized Environment</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f1f5f9;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .main-layout {
+            height: calc(100vh - 40px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .content-area {
+            flex: 1;
+            min-height: 0;
+        }
+
+        .object-block {
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transition: all 0.5s ease-in-out;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: rgba(0,0,0,0.7);
+            border: 1px solid rgba(0,0,0,0.15);
+        }
+
+        .object-id { font-size: 8px; line-height: 1; }
+        .object-size-label { font-size: 7px; opacity: 0.8; line-height: 1; margin-top: 1px; }
+
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .gc-flash {
+            animation: flash 0.5s infinite alternate;
+        }
+
+        @keyframes flash {
+            from { background-color: transparent; }
+            to { background-color: rgba(239, 68, 68, 0.15); }
+        }
+
+        #guide-log::-webkit-scrollbar {
+            width: 4px;
+        }
+        #guide-log::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 10px;
+        }
+
+        .progress-fill {
+            transition: width 0.4s ease-in-out;
+        }
+    </style>
+</head>
+<body class="p-3 md:p-5 text-slate-900">
+
+    <div class="max-w-7xl mx-auto main-layout">
+        <!-- Header -->
+        <header class="mb-3 flex justify-between items-center">
+            <div>
+                <h1 class="text-xl font-bold text-slate-900 leading-none tracking-tight flex items-center gap-2">
+                    JVM Memory Visualizer 
+                    <span class="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full uppercase">Physical Capacity Mode</span>
+                </h1>
+                <p class="text-slate-500 text-[11px] mt-1">객체 크기와 메모리 용량의 상관관계를 시뮬레이션합니다. (1슬롯 = 10MB)</p>
+            </div>
+            <div class="flex gap-4 items-center">
+                <div class="text-[11px] font-bold text-slate-600 bg-white px-3 py-1 rounded-lg border border-slate-200 shadow-sm">
+                    Total Heap: <span class="text-blue-600">750MB</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Content Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 content-area mb-4">
+            
+            <!-- Left: Visualization -->
+            <div class="lg:col-span-2 flex flex-col gap-4 overflow-hidden">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col">
+                    <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4">
+                        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                        Heap Memory Area
+                    </h2>
+                    
+                    <div class="space-y-6 flex-1 flex flex-col">
+                        <!-- Young Gen -->
+                        <div class="grid grid-cols-4 gap-4">
+                            <div class="col-span-2">
+                                <div class="flex justify-between items-end mb-1">
+                                    <label class="text-[10px] font-bold text-slate-500 uppercase">Eden (150MB)</label>
+                                    <span id="eden-usage-text" class="text-[9px] text-slate-400 font-medium">0 / 150 MB</span>
+                                </div>
+                                <div class="w-full bg-slate-100 h-1.5 rounded-full mb-2 overflow-hidden">
+                                    <div id="eden-bar" class="progress-fill h-full bg-blue-500 w-0"></div>
+                                </div>
+                                <div id="eden-area" class="h-24 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex flex-wrap content-start p-2 gap-1.5 overflow-hidden transition-all"></div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between items-end mb-1">
+                                    <label class="text-[10px] font-bold text-slate-500 uppercase">S0 (50MB)</label>
+                                    <span id="s0-usage-text" class="text-[9px] text-slate-400 font-medium">0MB</span>
+                                </div>
+                                <div class="w-full bg-slate-100 h-1.5 rounded-full mb-2 overflow-hidden">
+                                    <div id="s0-bar" class="progress-fill h-full bg-amber-500 w-0"></div>
+                                </div>
+                                <div id="s0-area" class="h-24 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex flex-wrap content-start p-2 gap-1.5 overflow-hidden"></div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between items-end mb-1">
+                                    <label class="text-[10px] font-bold text-slate-500 uppercase">S1 (50MB)</label>
+                                    <span id="s1-usage-text" class="text-[9px] text-slate-400 font-medium">0MB</span>
+                                </div>
+                                <div class="w-full bg-slate-100 h-1.5 rounded-full mb-2 overflow-hidden">
+                                    <div id="s1-bar" class="progress-fill h-full bg-amber-500 w-0"></div>
+                                </div>
+                                <div id="s1-area" class="h-24 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex flex-wrap content-start p-2 gap-1.5 overflow-hidden"></div>
+                            </div>
+                        </div>
+
+                        <!-- Old Gen -->
+                        <div class="flex-1 min-h-0 flex flex-col">
+                            <div class="flex justify-between items-end mb-1">
+                                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Old Generation (500MB)</label>
+                                <span id="old-usage-text" class="text-[9px] text-slate-400 font-medium text-right">Usage: 0 / 500 MB</span>
+                            </div>
+                            <div class="w-full bg-slate-100 h-2 rounded-full mb-3 overflow-hidden">
+                                <div id="old-bar" class="progress-fill h-full bg-indigo-500 w-0"></div>
+                            </div>
+                            <div id="old-area" class="flex-1 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex flex-wrap content-start p-3 gap-2 overflow-hidden"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stack Area -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-24 shrink-0 flex flex-col">
+                    <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
+                        <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.58 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.58 4 8 4s8-1.79 8-4M4 7c0-2.21 3.58-4 8-4s8 1.79 8 4m0 5c0 2.21-3.58 4-8 4s-8-1.79-8-4"></path></svg>
+                        Thread Stack (참조 루트)
+                    </h2>
+                    <div id="stack-area" class="flex-1 flex flex-row overflow-x-auto bg-slate-50 p-2 rounded-lg border border-slate-100 gap-2 items-center">
+                        <div class="text-center w-full text-slate-300 italic text-[10px]" id="stack-empty-msg">메서드를 실행하면 객체 생존을 위한 '참조'가 생성됩니다.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Guide Log -->
+            <div class="bg-slate-900 rounded-xl shadow-xl border border-slate-800 flex flex-col overflow-hidden">
+                <div class="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-800/50 shrink-0">
+                    <h3 class="text-emerald-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+                        실시간 동작 해설
+                    </h3>
+                    <button onclick="clearLog()" class="text-[9px] text-slate-500 hover:text-white font-bold">지우기</button>
+                </div>
+                <div id="guide-log" class="flex-1 p-4 overflow-y-auto text-[11px] space-y-0">
+                    <div class="text-slate-500 italic py-2 leading-relaxed">
+                        자바 프로그램을 실행하면 위와 같은 메모리 환경이 조성됩니다.<br><br>
+                        객체를 생성하여 힙 메모리를 채워보세요. 꽉 차는 순간 JVM이 어떤 결정을 내리는지 중계해 드립니다.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="bg-white px-5 py-4 rounded-xl shadow-sm border border-slate-200 shrink-0">
+            <div class="flex flex-wrap items-center gap-3">
+                <button onclick="createObject('small')" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] transition active:scale-95 shadow-md flex flex-col items-center">
+                    <span>소형 객체</span>
+                    <span class="text-[9px] opacity-70">10MB</span>
+                </button>
+                <button onclick="createObject('medium')" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-bold text-[11px] transition active:scale-95 shadow-md flex flex-col items-center">
+                    <span>중형 객체</span>
+                    <span class="text-[9px] opacity-70">30MB</span>
+                </button>
+                <button onclick="createObject('large')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-[11px] transition active:scale-95 shadow-md flex flex-col items-center">
+                    <span>거대 객체</span>
+                    <span class="text-[9px] opacity-70">120MB</span>
+                </button>
+                
+                <div class="h-8 w-px bg-slate-200 mx-1"></div>
+                
+                <button onclick="callMethod()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] transition active:scale-95 shadow-md">메서드 실행 (참조)</button>
+                <button onclick="returnMethod()" id="btn-return" disabled class="px-4 py-2 bg-slate-100 text-slate-400 rounded-lg font-bold text-[11px] transition cursor-not-allowed">메서드 종료 (해제)</button>
+                
+                <button onclick="triggerFullGC()" class="px-4 py-2 ml-auto border-2 border-red-100 text-red-500 hover:bg-red-50 rounded-lg font-bold text-[11px] transition">Full GC (수동)</button>
+                <button onclick="resetSimulation()" class="px-4 py-2 text-slate-400 hover:text-slate-600 font-bold text-[11px] transition">초기화</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CONFIG = {
+            eden: 150,
+            survivor: 50,
+            old: 500,
+            threshold: 3,
+            sizes: { small: 10, medium: 30, large: 120 }
+        };
+
+        const state = {
+            eden: [], s0: [], s1: [], old: [], stack: [],
+            activeSurvivor: 0, 
+            objectCounter: 0
+        };
+
+        const edenArea = document.getElementById('eden-area');
+        const s0Area = document.getElementById('s0-area');
+        const s1Area = document.getElementById('s1-area');
+        const oldArea = document.getElementById('old-area');
+        const stackArea = document.getElementById('stack-area');
+        const guideLog = document.getElementById('guide-log');
+        const btnReturn = document.getElementById('btn-return');
+
+        function getRandomColor() {
+            const hue = Math.floor(Math.random() * 360);
+            return `hsl(${hue}, 75%, 85%)`;
+        }
+
+        function log(title, desc, type = 'info') {
+            const colors = { 
+                info: 'text-blue-400', 
+                success: 'text-emerald-400', 
+                warning: 'text-amber-400', 
+                danger: 'text-red-400'
+            };
+            
+            const logItem = document.createElement('div');
+            logItem.className = 'log-entry py-3 px-1';
+            logItem.innerHTML = `
+                <div class="font-bold ${colors[type]} mb-1 text-[10px] uppercase tracking-tighter">${title}</div>
+                <div class="text-slate-300 leading-normal">${desc}</div>
+            `;
+            guideLog.prepend(logItem);
+        }
+
+        function calculateMB(list) {
+            return list.reduce((acc, obj) => acc + CONFIG.sizes[obj.size], 0);
+        }
+
+        function updateUI() {
+            renderArea(edenArea, state.eden);
+            renderArea(s0Area, state.s0);
+            renderArea(s1Area, state.s1);
+            renderArea(oldArea, state.old);
+            renderStack();
+
+            // Usage Texts & Bars
+            const edenMB = calculateMB(state.eden);
+            const s0MB = calculateMB(state.s0);
+            const s1MB = calculateMB(state.s1);
+            const oldMB = calculateMB(state.old);
+
+            document.getElementById('eden-usage-text').innerText = `${edenMB} / ${CONFIG.eden} MB`;
+            document.getElementById('eden-bar').style.width = (edenMB / CONFIG.eden * 100) + '%';
+
+            document.getElementById('s0-usage-text').innerText = `${s0MB} MB`;
+            document.getElementById('s0-bar').style.width = (s0MB / CONFIG.survivor * 100) + '%';
+
+            document.getElementById('s1-usage-text').innerText = `${s1MB} MB`;
+            document.getElementById('s1-bar').style.width = (s1MB / CONFIG.survivor * 100) + '%';
+
+            document.getElementById('old-usage-text').innerText = `Usage: ${oldMB} / ${CONFIG.old} MB`;
+            document.getElementById('old-bar').style.width = (oldMB / CONFIG.old * 100) + '%';
+
+            // Button state
+            btnReturn.disabled = state.stack.length === 0;
+            btnReturn.className = state.stack.length === 0 
+                ? "px-4 py-2 bg-slate-100 text-slate-400 rounded-lg font-bold text-[11px] transition cursor-not-allowed"
+                : "px-4 py-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-lg font-bold text-[11px] transition shadow-sm active:scale-95";
+        }
+
+        function renderArea(container, data) {
+            container.innerHTML = '';
+            data.forEach(obj => {
+                const div = document.createElement('div');
+                div.className = `object-block rounded shadow-sm border border-white/20`;
+                div.style.backgroundColor = obj.color;
+                
+                // 10MB = 24px width
+                const sizeVal = CONFIG.sizes[obj.size];
+                div.style.width = (sizeVal * 2.4) + 'px';
+                div.style.height = '24px';
+                div.innerHTML = `<span class="object-id">#${obj.id}</span><span class="object-size-label">${sizeVal}MB</span>`;
+                container.appendChild(div);
+            });
+        }
+
+        function renderStack() {
+            const emptyMsg = document.getElementById('stack-empty-msg');
+            if (state.stack.length === 0) {
+                emptyMsg.style.display = 'block';
+                Array.from(stackArea.children).forEach(c => { if(c.id !== 'stack-empty-msg') c.remove(); });
+                return;
+            }
+            emptyMsg.style.display = 'none';
+            Array.from(stackArea.children).forEach(c => { if(c.id !== 'stack-empty-msg') c.remove(); });
+            state.stack.forEach(method => {
+                const div = document.createElement('div');
+                div.className = 'bg-emerald-500 text-white px-3 py-2 rounded-md text-[10px] font-bold shadow-sm whitespace-nowrap min-w-[90px] text-center border-b-2 border-emerald-700';
+                div.innerText = method;
+                stackArea.appendChild(div);
+            });
+        }
+
+        async function createObject(size) {
+            state.objectCounter++;
+            const objSizeMB = CONFIG.sizes[size];
+            const obj = { id: state.objectCounter, size: size, age: 0, color: getRandomColor() };
+            
+            if (size === 'large') {
+                log('대형 객체(Humongous) 할당', `객체 <strong>#${obj.id}</strong>는 ${objSizeMB}MB로, Eden 용량(150MB)의 대부분을 차지하거나 비효율을 초래합니다. JVM은 이를 바로 <strong>Old</strong> 영역에 할당합니다.`, 'info');
+                state.old.push(obj);
+            } else {
+                const currentEdenMB = calculateMB(state.eden);
+
+                if (currentEdenMB + objSizeMB > CONFIG.eden) {
+                    log('메모리 한계 도달', `Eden 영역(150MB)에 ${objSizeMB}MB를 추가할 공간이 부족합니다. (현재: ${currentEdenMB}MB). <strong>Minor GC</strong>를 수행합니다.`, 'warning');
+                    await triggerMinorGC();
+                }
+                
+                state.eden.push(obj);
+                log('객체 할당', `신규 객체 <strong>#${obj.id}</strong> (${objSizeMB}MB)가 Eden 영역에 생성되었습니다.`, 'info');
+            }
+            updateUI();
+        }
+
+        async function triggerMinorGC() {
+            edenArea.classList.add('gc-flash');
+            await new Promise(r => setTimeout(r, 800));
+            
+            const survivorList = state.activeSurvivor === 0 ? state.s0 : state.s1;
+            const currentYoungObjects = [...state.eden, ...survivorList];
+            
+            log('Minor GC: Reachability 판정', 'JVM이 스택(Root)을 뒤져 이 객체들을 누가 쓰고 있는지 확인합니다. 연결 고리가 없는 객체는 삭제됩니다.', 'warning');
+            
+            const remaining = []; 
+            const promoted = [];
+            const collectedIds = [];
+
+            const hasStack = state.stack.length > 0;
+            const survivalRate = hasStack ? 0.7 : 0.1;
+            
+            const shuffledObjects = [...currentYoungObjects].sort(() => Math.random() - 0.5);
+            
+            shuffledObjects.forEach((o, index) => {
+                // 스택이 있으면 최소 1-2개는 강제 생존 (시뮬레이션 가독성)
+                const mustSurvive = hasStack && (index < 2);
+                if (mustSurvive || Math.random() < survivalRate) {
+                    o.age++;
+                    if (o.age >= CONFIG.threshold) promoted.push(o);
+                    else remaining.push(o);
+                } else {
+                    collectedIds.push(o.id);
+                }
+            });
+
+            state.eden = []; 
+            state.s0 = []; 
+            state.s1 = [];
+            
+            state.activeSurvivor = state.activeSurvivor === 0 ? 1 : 0;
+            if (state.activeSurvivor === 0) state.s0 = remaining; else state.s1 = remaining;
+            state.old.push(...promoted);
+            
+            if (collectedIds.length > 0) {
+                const totalCleaned = collectedIds.length * 10; // 근사치
+                log('청소 완료', `참조가 해제된 <strong>[${collectedIds.join(', ')}]</strong> 객체들이 수거되었습니다. 공간이 다시 확보되었습니다.`, 'danger');
+            }
+
+            if (remaining.length > 0) {
+                log('생존자 이동', `참조 중인 <strong>[${remaining.map(o=>o.id).join(', ')}]</strong> 객체들은 생존하여 Survivor 영역으로 이동했습니다.`, 'success');
+            }
+            
+            if (promoted.length > 0) {
+                log('승격 (Promotion)', `나이가 ${CONFIG.threshold}살이 된 성숙한 객체 <strong>[${promoted.map(o=>o.id).join(', ')}]</strong>는 Old 영역으로 이동했습니다.`, 'success');
+            }
+            
+            edenArea.classList.remove('gc-flash');
+            updateUI();
+        }
+
+        function triggerFullGC() {
+            log('Full GC 실행', 'Old 영역(500MB)까지 포함하여 전체 힙을 조사합니다. 참조되지 않는 모든 장기 객체를 제거합니다.', 'danger');
+            
+            const before = state.old.length;
+            // Old 영역은 참조가 끊길 확률이 낮음 시뮬레이션
+            state.old = state.old.filter(() => Math.random() > 0.4); 
+            state.eden = []; state.s0 = []; state.s1 = [];
+            
+            log('Full GC 결과', `Old 영역에서 ${before - state.old.length}개의 노후 객체가 정리되었습니다.`, 'success');
+            updateUI();
+        }
+
+        function callMethod() {
+            const names = ['login()', 'fetch()', 'process()', 'render()'];
+            const method = names[state.stack.length % names.length];
+            state.stack.push(method);
+            log('메서드 실행', `<strong>${method}</strong> 메서드가 호출되었습니다. 스택 참조가 생겨 객체들의 <strong>생존 확률</strong>이 높아졌습니다.`, 'info');
+            updateUI();
+        }
+
+        function returnMethod() {
+            if (state.stack.length > 0) {
+                const popped = state.stack.pop();
+                log('메서드 종료', `<strong>${popped}</strong>가 종료되었습니다. 이 메서드와 연결된 객체들은 이제 '참조가 끊긴 쓰레기'가 될 수 있습니다.`, 'info');
+                updateUI();
+            }
+        }
+
+        function clearLog() { guideLog.innerHTML = ''; }
+
+        function resetSimulation() {
+            state.eden = []; state.s0 = []; state.s1 = []; state.old = []; state.stack = []; state.objectCounter = 0;
+            clearLog();
+            log('리셋', '메모리가 깨끗하게 비워졌습니다.', 'info');
+            updateUI();
+        }
+
+        updateUI();
+    </script>
+</body>
+</html>

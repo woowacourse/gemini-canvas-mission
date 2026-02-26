@@ -140,10 +140,11 @@ https://gemini.google.com/share/e70523785c76
 ## 카테고리: 페어 프롬프트 릴레이
 
 ## 페어
+@eastar-ds
 @th-97
 
 ### 배포 링크
-https://gemini.google.com/share/4a385f8440c2
+https://gemini.google.com/share/67880bd86abe
 
 ### 이 앱을 만든 이유
 - 어떤 문제/불편함을 해결하려고 했나요?

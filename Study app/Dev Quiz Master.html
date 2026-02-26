@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dev Quiz Master - 개발자 학습 퀴즈</title>
+    <!-- 빠르고 깔끔한 UI 구성을 위해 Tailwind CSS CDN 사용 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 커스텀 애니메이션 및 스타일 */
+        body {
+            background-color: #f8fafc;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .pop-in {
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        @keyframes popIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* 정답 토스트 메시지 */
+        #toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-20px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+        #toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        /* 오답 노트 스크롤바 정돈 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- 정답 안내 토스트 -->
+    <div id="toast" class="bg-emerald-500 text-white px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2 pointer-events-none">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+        정답입니다!
+    </div>
+
+    <!-- 메인 컨테이너 -->
+    <main class="w-full max-w-2xl w-full">
+        
+        <!-- 1. 초기 설정 화면 -->
+        <section id="screen-setup" class="glass-panel rounded-2xl p-8 fade-in">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-extrabold text-indigo-600 mb-2">Dev Quiz Master 🚀</h1>
+                <p class="text-slate-500">프론트엔드, 백엔드, 안드로이드 지식을 테스트해보세요!</p>
+            </div>
+
+            <div class="space-y-6">
+                <div>
+                    <label class="block text-sm font-semibold mb-2">카테고리 선택</label>
+                    <select id="select-category" class="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                        <option value="frontend">프론트엔드 (Frontend)</option>
+                        <option value="backend">백엔드 (Backend)</option>
+                        <option value="android">안드로이드 (Android)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold mb-2">난이도 선택</label>
+                    <select id="select-difficulty" class="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                        <option value="basic">기본 (Basic)</option>
+                        <option value="intermediate">중급 (Intermediate)</option>
+                        <option value="advanced">고급 (Advanced)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold mb-2">문제 수</label>
+                    <select id="select-count" class="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                        <option value="1">1문제 (맛보기)</option>
+                        <option value="5" selected>5문제 (추천)</option>
+                        <option value="10">10문제 (도전)</option>
+                    </select>
+                </div>
+
+                <button id="btn-start" class="w-full mt-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition duration-200 transform hover:-translate-y-1 shadow-md">
+                    퀴즈 시작하기
+                </button>
+                <button id="btn-profile" class="w-full mt-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-xl transition duration-200">
+                    내 누적 오답 노트 보기 📚
+                </button>
+            </div>
+        </section>
+
+        <!-- 2. 문제 풀이 화면 -->
+        <section id="screen-quiz" class="glass-panel rounded-2xl p-8 hidden">
+            <div class="flex justify-between items-center mb-6 text-sm font-medium text-slate-500">
+                <span id="quiz-meta" class="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full">프론트엔드 • 기본</span>
+                <span id="quiz-progress" class="font-bold">1 / 5</span>
+            </div>
+
+            <!-- 프로그레스 바 -->
+            <div class="w-full bg-slate-200 rounded-full h-2 mb-8">
+                <div id="progress-bar" class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: 20%"></div>
+            </div>
+
+            <h2 id="question-text" class="text-2xl font-bold leading-snug mb-8">문제 타이틀이 여기에 표시됩니다.</h2>
+
+            <div id="options-container" class="space-y-3">
+                <!-- 보기 버튼들이 JavaScript를 통해 동적으로 추가됩니다 -->
+            </div>
+        </section>
+
+        <!-- 3. 결과 및 동기 부여 화면 -->
+        <section id="screen-result" class="glass-panel rounded-2xl p-8 hidden">
+            <div class="text-center mb-8">
+                <div class="inline-block p-4 bg-indigo-50 rounded-full mb-4">
+                    <svg class="w-12 h-12 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <h2 class="text-3xl font-extrabold mb-2">학습 완료!</h2>
+                <p id="score-text" class="text-5xl font-black text-indigo-600 my-4">80<span class="text-2xl text-slate-400"> / 100점</span></p>
+                
+                <div class="bg-slate-50 border border-slate-100 rounded-lg py-3 px-6 inline-block">
+                    <p id="high-score-text" class="text-sm font-medium text-slate-600">나의 최고 점수: 100점 🏆</p>
+                    <p id="motivation-text" class="text-xs text-slate-400 mt-1">다음엔 더 잘해봐요!</p>
+                </div>
+            </div>
+
+            <div class="border-t border-slate-100 pt-6">
+                <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                    오답 노트
+                </h3>
+                
+                <div id="wrong-answers-container" class="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                    <!-- 오답 내역이 동적으로 추가됩니다 -->
+                </div>
+            </div>
+
+            <button id="btn-restart" class="w-full mt-8 bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 rounded-xl transition duration-200">
+                처음으로 돌아가기
+            </button>
+        </section>
+
+        <!-- 4. 내 프로필 (오답 노트) 화면 -->
+        <section id="screen-profile" class="glass-panel rounded-2xl p-8 hidden">
+            <div class="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
+                <h2 class="text-2xl font-extrabold flex items-center gap-2">
+                    <svg class="w-6 h-6 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                    누적 오답 노트
+                </h2>
+                <button id="btn-clear-history" class="text-sm text-slate-400 hover:text-rose-500 transition">
+                    기록 초기화
+                </button>
+            </div>
+
+            <div id="profile-wrong-container" class="space-y-4 max-h-[500px] overflow-y-auto pr-2 mb-6">
+                <!-- 누적 오답 내역이 동적으로 추가됩니다 -->
+            </div>
+
+            <button id="btn-profile-back" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 rounded-xl transition duration-200">
+                메인으로 돌아가기
+            </button>
+        </section>
+
+    </main>
+
+    <!-- 오답 확인 모달창 (팝업) -->
+    <div id="modal-backdrop" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div id="modal-content" class="bg-white rounded-2xl w-full max-w-md mx-4 p-6 shadow-2xl pop-in">
+            <div class="flex items-center gap-3 mb-4 text-rose-500">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <h3 class="text-2xl font-bold">오답입니다!</h3>
+            </div>
+            
+            <div class="bg-emerald-50 border border-emerald-100 rounded-lg p-4 mb-4">
+                <p class="text-sm text-emerald-800 font-semibold mb-1">정답</p>
+                <p id="modal-correct-answer" class="text-lg font-bold text-emerald-600">정답 텍스트</p>
+            </div>
+
+            <div class="mb-6">
+                <p class="text-sm text-slate-500 font-semibold mb-2">상세 해설</p>
+                <p id="modal-explanation" class="text-slate-700 leading-relaxed text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+                    해설 내용이 여기에 표시됩니다.
+                </p>
+            </div>
+
+            <button id="btn-modal-next" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl transition">
+                확인 (다음 문제로)
+            </button>
+        </div>
+    </div>
+
+    <!-- 커스텀 알림창 (Alert/Confirm 대체) -->
+    <div id="custom-alert" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[100]">
+        <div class="bg-white rounded-2xl w-full max-w-sm mx-4 p-6 shadow-2xl pop-in text-center border border-slate-100">
+            <div id="custom-alert-icon" class="mb-4 flex justify-center text-indigo-500">
+                <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+            <h3 id="custom-alert-title" class="text-xl font-bold text-slate-800 mb-2">알림</h3>
+            <p id="custom-alert-message" class="text-slate-600 mb-6 text-sm leading-relaxed whitespace-pre-line">메시지 내용</p>
+            <div class="flex gap-2 justify-center">
+                <button id="btn-alert-cancel" class="hidden flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition">취소</button>
+                <button id="btn-alert-ok" class="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition shadow-md">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI 채팅 모달창 -->
+    <div id="chat-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[150]">
+        <div class="bg-white rounded-2xl w-full max-w-lg mx-4 h-[80vh] max-h-[800px] flex flex-col shadow-2xl pop-in overflow-hidden border border-slate-100">
+            <!-- Header -->
+            <div class="px-6 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white flex justify-between items-center shadow-md z-10">
+                <h3 class="font-bold flex items-center gap-2 text-lg">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    AI 튜터 Gemini
+                </h3>
+                <button id="btn-chat-close" class="text-indigo-100 hover:text-white transition transform hover:scale-110">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <!-- Messages -->
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50 flex flex-col">
+                <!-- 메시지들이 동적으로 추가됩니다 -->
+            </div>
+            
+            <!-- Input Area -->
+            <div class="p-4 bg-white border-t border-slate-100 flex gap-2">
+                <textarea id="chat-input" rows="1" class="flex-1 border border-slate-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none overflow-hidden text-sm" placeholder="추가로 궁금한 점을 물어보세요..."></textarea>
+                <button id="btn-chat-send" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 rounded-xl transition font-bold flex items-center justify-center shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript 로직 -->
+    <script>
+        // --- 더미 데이터 (카테고리/난이도별 하드코딩) ---
+        const dummyData = [
+            // ==================== 프론트엔드 ====================
+            // [프론트엔드 - 기본] 10문제
+            { category: 'frontend', difficulty: 'basic', question: 'HTML에서 하이퍼링크를 생성할 때 사용하는 태그는 무엇인가요?', options: ['<link>', '<a>', '<href>', '<nav>'], answer: 1, explanation: 'HTML에서 하이퍼링크를 생성할 때는 <a> (anchor) 태그를 사용하며, 이동할 주소는 href 속성에 작성합니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'CSS의 Box Model에 포함되지 않는 것은 무엇인가요?', options: ['Margin', 'Padding', 'Border', 'Position'], answer: 3, explanation: 'CSS Box Model은 내용(Content)을 둘러싸는 Padding, Border, Margin으로 구성됩니다. Position은 요소의 배치 방법을 지정하는 별도의 속성입니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'HTML에서 이미지를 화면에 표시하기 위해 사용하는 태그는 무엇인가요?', options: ['<image>', '<picture>', '<img>', '<src>'], answer: 2, explanation: 'HTML에서 이미지를 삽입할 때는 <img> 태그를 사용하며, src 속성에 이미지의 경로를 지정합니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'CSS에서 글자 색상을 변경할 때 사용하는 속성은 무엇인가요?', options: ['font-color', 'color', 'text-color', 'background-color'], answer: 1, explanation: '글자(텍스트)의 색상을 변경할 때는 color 속성을 사용합니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'JavaScript에서 변수를 선언할 때 사용할 수 없는 키워드는 무엇인가요?', options: ['var', 'let', 'const', 'def'], answer: 3, explanation: 'JavaScript에서 변수 선언 키워드는 var, let, const이며, def는 Python 등 다른 언어에서 함수를 선언할 때 사용됩니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'HTML에서 순서가 있는 목록(Numbered list)을 만들 때 사용하는 태그는 무엇인가요?', options: ['<ul>', '<ol>', '<li>', '<list>'], answer: 1, explanation: '<ol> (Ordered List) 태그를 사용하면 1, 2, 3... 번호가 매겨진 목록을 생성할 수 있습니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'CSS에서 요소의 배경색을 지정하는 속성은 무엇인가요?', options: ['color', 'bg-color', 'background-color', 'paint'], answer: 2, explanation: '요소의 배경색을 변경할 때는 background-color 속성을 사용합니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'JavaScript에서 콘솔에 메시지를 출력할 때 사용하는 메서드는 무엇인가요?', options: ['print()', 'echo()', 'console.log()', 'document.write()'], answer: 2, explanation: '개발자 도구의 콘솔 창에 메시지나 변수 값을 출력하여 디버깅할 때 console.log()를 주로 사용합니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'HTML 문서의 최상위 요소를 나타내는 태그는 무엇인가요?', options: ['<head>', '<body>', '<html>', '<root>'], answer: 2, explanation: '모든 HTML 문서는 <html> 태그로 시작하고 끝나며, 이 태그가 문서의 최상위(Root) 요소입니다.' },
+            { category: 'frontend', difficulty: 'basic', question: 'CSS에서 텍스트를 가운데 정렬하는 올바른 방법은 무엇인가요?', options: ['align: center;', 'text-align: middle;', 'text-align: center;', 'vertical-align: middle;'], answer: 2, explanation: '블록 요소 안의 인라인 요소(텍스트 등)를 가로 기준 가운데 정렬할 때는 text-align: center; 를 사용합니다.' },
+            
+            // [프론트엔드 - 중급] 10문제
+            { category: 'frontend', difficulty: 'intermediate', question: 'JavaScript에서 비동기 처리를 위한 방식이 아닌 것은?', options: ['Callback', 'Promise', 'async/await', 'Thread.sleep()'], answer: 3, explanation: 'JavaScript는 싱글 스레드 기반이므로 Java 등에서 사용하는 Thread.sleep()과 같은 동기식 지연 메서드는 내장되어 있지 않습니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: 'React에서 컴포넌트의 상태(State)가 변경될 때 발생하는 라이프사이클 단계는?', options: ['Mounting', 'Updating', 'Unmounting', 'Bootstrapping'], answer: 1, explanation: '상태나 프롭스가 변경되면 컴포넌트는 Updating(업데이트) 단계를 거쳐 화면을 리렌더링(Re-rendering)합니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: '함수와 그 함수가 선언된 렉시컬 환경의 조합을 의미하는 JavaScript 개념은?', options: ['호이스팅 (Hoisting)', '클로저 (Closure)', '프로미스 (Promise)', '이벤트 루프 (Event Loop)'], answer: 1, explanation: '클로저(Closure)는 함수가 생성될 당시의 외부 변수를 기억하고 접근할 수 있는 메커니즘을 의미합니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: '하위 요소에 각각 이벤트를 붙이지 않고, 상위 요소에서 하위 요소의 이벤트를 제어하는 기법은?', options: ['이벤트 캡처링', '이벤트 버블링', '이벤트 위임 (Event Delegation)', '이벤트 전파 (Event Propagation)'], answer: 2, explanation: '이벤트 위임은 메모리 절약과 동적 요소 관리를 위해 상위 요소에서 이벤트를 캐치하여 처리하는 패턴입니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: '브라우저를 닫아도 데이터가 유지되며, 도메인별로 영구적으로 저장되는 웹 스토리지는?', options: ['Session Storage', 'Local Storage', 'Cookie', 'IndexedDB'], answer: 1, explanation: 'Local Storage는 데이터의 만료 기간이 없으며 브라우저를 닫아도 데이터가 유지됩니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: '다른 도메인의 서버 리소스에 안전하게 접근할 수 있도록 브라우저에서 권한을 제어하는 체제는?', options: ['CSP', 'HTTPS', 'CORS', 'SSL'], answer: 2, explanation: 'CORS(Cross-Origin Resource Sharing)는 교차 출처 리소스 공유를 허용하기 위한 HTTP 헤더 기반 메커니즘입니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: 'CSS Flexbox에서 교차축(Cross Axis) 기준으로 아이템을 정렬하는 속성은?', options: ['justify-content', 'align-items', 'flex-direction', 'align-content'], answer: 1, explanation: '주축(Main Axis) 정렬은 justify-content, 교차축(Cross Axis) 정렬은 align-items를 사용합니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: 'CSS Grid에서 행(Row)의 크기를 정의할 때 사용하는 속성은?', options: ['grid-template-columns', 'grid-auto-flow', 'grid-template-rows', 'grid-column-gap'], answer: 2, explanation: '행의 트랙 크기를 지정할 때는 grid-template-rows 속성을 사용합니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: 'React에서 부수 효과(Side Effect)를 처리하기 위해 사용하는 Hook은?', options: ['useState', 'useMemo', 'useEffect', 'useReducer'], answer: 2, explanation: 'useEffect는 데이터 패칭, 구독(Subscription), DOM 수동 조작 등 렌더링 이후에 실행되어야 하는 부수 효과를 다룹니다.' },
+            { category: 'frontend', difficulty: 'intermediate', question: '자바스크립트 화살표 함수(Arrow Function)에서 this가 바인딩되는 방식은?', options: ['호출한 객체를 가리킨다.', '전역 객체(Window)를 가리킨다.', '항상 undefined이다.', '상위 렉시컬 스코프의 this를 상속받는다.'], answer: 3, explanation: '화살표 함수는 자체적인 this를 가지지 않고, 선언될 당시의 상위 스코프의 this(Lexical this)를 그대로 사용합니다.' },
+
+            // [프론트엔드 - 고급] 10문제
+            { category: 'frontend', difficulty: 'advanced', question: '다음 중 브라우저의 렌더링 과정 순서로 알맞은 것은?', options: ['DOM 트리 생성 -> Render 트리 생성 -> Layout -> Paint', 'Render 트리 생성 -> DOM 트리 생성 -> Paint -> Layout', 'Layout -> DOM 트리 생성 -> Render 트리 생성 -> Paint', 'CSSOM 생성 -> Layout -> DOM 트리 생성 -> Paint'], answer: 0, explanation: '브라우저는 HTML을 파싱해 DOM 트리를, CSS를 파싱해 CSSOM 트리를 만든 후 이 둘을 결합해 Render 트리를 구성합니다. 이후 레이아웃을 계산(Layout/Reflow)하고 화면에 그립니다(Paint/Repaint).' },
+            { category: 'frontend', difficulty: 'advanced', question: 'SPA(Single Page Application)에서 발생하는 SEO(검색 엔진 최적화) 문제를 해결하기 위해 도입된 렌더링 방식은?', options: ['CSR (Client-Side Rendering)', 'SSR (Server-Side Rendering)', 'PWA (Progressive Web App)', 'WebAssembly'], answer: 1, explanation: 'CSR은 초기 HTML이 비어 있어 크롤러가 콘텐츠를 읽기 어렵습니다. SSR을 사용하면 서버에서 완성된 HTML을 내려주므로 SEO를 개선할 수 있습니다.' },
+            { category: 'frontend', difficulty: 'advanced', question: 'Core Web Vitals 중 페이지의 시각적 안정성(예상치 못한 레이아웃 이동)을 측정하는 지표는?', options: ['LCP (Largest Contentful Paint)', 'FID (First Input Delay)', 'CLS (Cumulative Layout Shift)', 'TTFB (Time to First Byte)'], answer: 2, explanation: 'CLS는 사용자가 페이지를 읽는 도중 콘텐츠가 갑자기 이동하여 겪는 불편함을 점수화한 지표입니다.' },
+            { category: 'frontend', difficulty: 'advanced', question: '최신 자바스크립트(ES6+) 코드를 구형 브라우저에서도 동작하도록 하위 버전으로 변환(Transpile)해주는 도구는?', options: ['Webpack', 'Babel', 'ESLint', 'Prettier'], answer: 1, explanation: 'Babel은 자바스크립트 컴파일러(트랜스파일러)로서, 최신 문법을 구형 브라우저가 이해할 수 있는 코드로 변환해줍니다.' },
+            { category: 'frontend', difficulty: 'advanced', question: '브라우저 렌더링 최적화 시, 요소의 너비/높이 등 기하학적 변화가 생겨 렌더 트리를 다시 계산하는 현상은?', options: ['Repaint', 'Reflow (Layout)', 'Compositing', 'Parsing'], answer: 1, explanation: 'Reflow(또는 Layout)는 노드의 크기나 위치가 변경되어 페이지의 레이아웃을 다시 계산하는 비용이 큰 작업입니다.' },
+            { category: 'frontend', difficulty: 'advanced', question: '자바스크립트에서 객체의 원형을 참조하여 프로퍼티나 메서드를 상속받는 메커니즘은?', options: ['Class Extends', 'Interface Implementation', 'Prototype Chain', 'Dependency Injection'], answer: 2, explanation: '자바스크립트는 프로토타입(Prototype) 기반 언어로, 특정 객체에 없는 프로퍼티를 [[Prototype]] 링크를 타고 올라가며 찾는 체이닝 방식을 사용합니다.' },
+            { category: 'frontend', difficulty: 'advanced', question: 'React에서 함수의 재생성을 방지하여 자식 컴포넌트의 불필요한 리렌더링을 막는 최적화 Hook은?', options: ['useMemo', 'useRef', 'useCallback', 'useContext'], answer: 2, explanation: 'useCallback은 메모이제이션된 함수 자체를 반환하여 의존성 배열의 값이 변하지 않는 한 동일한 함수 참조를 유지합니다.' },
+            { category: 'frontend', difficulty: 'advanced', question: 'PWA(Progressive Web App)에서 오프라인 캐싱 및 백그라운드 동기화를 담당하는 핵심 스크립트는?', options: ['Web Worker', 'Service Worker', 'Manifest.json', 'IndexedDB'], answer: 1, explanation: 'Service Worker는 브라우저의 메인 스레드와 분리되어 백그라운드에서 실행되며 네트워크 요청을 가로채어 캐싱 전략을 수행합니다.' },
+            { category: 'frontend', difficulty: 'advanced', question: 'React Virtual DOM의 재조정(Reconciliation) 과정에서 트리를 비교할 때 사용하는 알고리즘 방식은?', options: ['BFS (너비 우선 탐색)', 'DFS (깊이 우선 탐색)', '휴리스틱 알고리즘 (Heuristic algorithm)', '이진 탐색 (Binary Search)'], answer: 2, explanation: 'React는 O(n^3)의 트리 비교 알고리즘 대신, "같은 타입의 엘리먼트는 같은 트리를 만든다"는 가정하에 O(n)의 휴리스틱 알고리즘을 사용합니다.' },
+            { category: 'frontend', difficulty: 'advanced', question: '악의적인 스크립트를 웹 페이지에 삽입하여 사용자의 쿠키나 세션 토큰 등을 탈취하는 보안 취약점은?', options: ['CSRF', 'SQL Injection', 'XSS (Cross-Site Scripting)', 'DDoS'], answer: 2, explanation: 'XSS는 클라이언트 브라우저에서 스크립트가 실행되게 만드는 공격으로, 입력값 검증 및 이스케이프 처리가 필수적입니다.' },
+
+            // ==================== 백엔드 ====================
+            // [백엔드 - 기본] 10문제
+            { category: 'backend', difficulty: 'basic', question: 'HTTP 메서드 중, 서버의 리소스를 조회할 때 사용하는 것은?', options: ['POST', 'PUT', 'DELETE', 'GET'], answer: 3, explanation: 'GET 메서드는 서버로부터 정보(데이터)를 요청하기 위해 사용됩니다. 데이터 변경은 일으키지 않는 것이 원칙입니다.' },
+            { category: 'backend', difficulty: 'basic', question: '다음 중 RDBMS(관계형 데이터베이스)가 아닌 것은?', options: ['MySQL', 'PostgreSQL', 'Oracle', 'MongoDB'], answer: 3, explanation: 'MongoDB는 테이블 구조가 아닌 문서(Document) 형태로 데이터를 저장하는 대표적인 NoSQL 데이터베이스입니다.' },
+            { category: 'backend', difficulty: 'basic', question: 'SQL에서 데이터를 조회할 때 사용하는 명령어는 무엇인가요?', options: ['INSERT', 'UPDATE', 'DELETE', 'SELECT'], answer: 3, explanation: '데이터베이스에서 데이터를 조회(검색)할 때는 SELECT 문을 사용합니다.' },
+            { category: 'backend', difficulty: 'basic', question: '클라이언트의 요청이 정상적으로 처리되었음을 의미하는 HTTP 상태 코드는 무엇인가요?', options: ['200 OK', '404 Not Found', '500 Internal Server Error', '403 Forbidden'], answer: 0, explanation: 'HTTP 상태 코드 200번대는 성공을 의미하며, 그 중 200 OK는 요청이 성공적으로 처리되었음을 나타냅니다.' },
+            { category: 'backend', difficulty: 'basic', question: '다음 중 웹 서버(Web Server) 소프트웨어로 적절하지 않은 것은?', options: ['Apache', 'Nginx', 'React', 'IIS'], answer: 2, explanation: 'React는 프론트엔드 UI 라이브러리이며, Apache, Nginx, IIS는 대표적인 웹 서버 소프트웨어입니다.' },
+            { category: 'backend', difficulty: 'basic', question: '데이터베이스 테이블에 새로운 데이터를 추가할 때 사용하는 SQL 명령어는 무엇인가요?', options: ['ADD', 'INSERT', 'CREATE', 'UPDATE'], answer: 1, explanation: '테이블에 새로운 레코드(행)를 삽입할 때는 INSERT INTO 명령어를 사용합니다.' },
+            { category: 'backend', difficulty: 'basic', question: '클라이언트가 서버로 새로운 데이터를 전송하고 생성을 요청할 때 주로 사용하는 HTTP 메서드는?', options: ['GET', 'POST', 'DELETE', 'PUT'], answer: 1, explanation: 'POST 메서드는 요청 데이터 처리, 주로 새로운 리소스를 생성할 때 사용됩니다.' },
+            { category: 'backend', difficulty: 'basic', question: '웹 브라우저와 웹 서버 간의 통신에 사용되는 기본 프로토콜은 무엇인가요?', options: ['FTP', 'SMTP', 'HTTP', 'SSH'], answer: 2, explanation: '웹(Web)에서는 HTML 문서와 같은 리소스들을 가져오기 위해 HTTP(HyperText Transfer Protocol)를 사용합니다.' },
+            { category: 'backend', difficulty: 'basic', question: 'Node.js 환경에서 패키지를 관리하기 위해 주로 사용하는 도구는 무엇인가요?', options: ['pip', 'npm', 'maven', 'gradle'], answer: 1, explanation: 'npm(Node Package Manager)은 Node.js의 기본 패키지 관리자로, 수많은 자바스크립트 라이브러리를 설치하고 관리할 수 있습니다.' },
+            { category: 'backend', difficulty: 'basic', question: '데이터베이스의 구조와 제약 조건에 대한 명세를 기술한 것을 무엇이라고 하나요?', options: ['스키마 (Schema)', '인덱스 (Index)', '쿼리 (Query)', '뷰 (View)'], answer: 0, explanation: '스키마(Schema)는 데이터베이스의 구조, 자료의 타입, 제약조건 등을 정의한 명세서입니다.' },
+
+            // [백엔드 - 중급] 10문제
+            { category: 'backend', difficulty: 'intermediate', question: 'RESTful API 설계 시 자원(Resource)의 표현으로 가장 적절한 방식은?', options: ['동사 사용 (예: /getUser/1)', '명사 사용 (예: /users/1)', '대문자 사용 (예: /USERS/1)', '파일 확장자 포함 (예: /users.json)'], answer: 1, explanation: 'RESTful API에서 URI는 자원을 명시해야 하므로 동사보다는 명사를 사용하며, 행위는 HTTP Method(GET, POST 등)로 표현합니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: '웹 인증 방식 중 JWT(JSON Web Token)의 가장 큰 특징은?', options: ['서버의 메모리에 세션 상태를 저장한다.', '쿠키를 사용할 수 없는 환경에서는 무용지물이다.', '토큰 자체에 사용자의 정보를 포함(Self-contained)하여 상태를 저장하지 않는다(Stateless).', '데이터베이스에 무조건 토큰을 저장해야만 검증이 가능하다.'], answer: 2, explanation: 'JWT는 서버가 상태를 유지(Stateful)하는 세션과 달리, 토큰 내부에 필요한 정보(Payload)와 서명을 포함하고 있어 Stateless한 인증이 가능합니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: '데이터베이스 검색 속도를 향상시키기 위해 특정한 컬럼에 설정하는 자료구조는?', options: ['트리거 (Trigger)', '인덱스 (Index)', '파티션 (Partition)', '외래키 (Foreign Key)'], answer: 1, explanation: '인덱스(Index)는 책의 색인(목차)처럼 데이터베이스의 검색 속도를 비약적으로 높여주는 역할을 합니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: '객체 지향 프로그래밍(OOP)에서 객체와 관계형 DB의 데이터를 자동으로 매핑해주는 기술은?', options: ['MVC', 'API', 'ORM (Object-Relational Mapping)', 'DAO'], answer: 2, explanation: 'ORM을 사용하면 SQL 쿼리를 직접 작성하지 않고도 프로그래밍 언어의 객체를 통해 DB 데이터를 조작할 수 있습니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: '애플리케이션과 그 의존성을 독립적인 환경인 "컨테이너"로 패키징하여 배포를 돕는 플랫폼은?', options: ['Linux', 'Docker', 'Git', 'Jenkins'], answer: 1, explanation: 'Docker는 애플리케이션을 컨테이너 단위로 묶어 어떤 환경에서든 동일하게 실행될 수 있도록 보장합니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: '비동기 통신을 위해 프로세스 간에 메시지를 전달하고 임시 보관하는 미들웨어 시스템은?', options: ['Message Queue (예: RabbitMQ, Kafka)', 'API Gateway', 'Load Balancer', 'Reverse Proxy'], answer: 0, explanation: '메시지 큐(Message Queue)는 시스템 간의 결합도를 낮추고 대용량 트래픽을 비동기로 안정적으로 처리할 때 사용됩니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: '객체 지향 프로그래밍에서 부모 클래스의 메서드를 자식 클래스에서 필요에 맞게 재정의하는 개념은?', options: ['Overloading', 'Overriding', 'Encapsulation', 'Polymorphism'], answer: 1, explanation: '오버라이딩(Overriding)은 상속받은 메서드의 내용(구현)을 자식 클래스에서 변경하는 것을 의미합니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: 'SQL에서 두 개 이상의 테이블을 연결할 때, 일치하는 행(Row)만 결과로 반환하는 조인 방식은?', options: ['LEFT OUTER JOIN', 'RIGHT OUTER JOIN', 'FULL OUTER JOIN', 'INNER JOIN'], answer: 3, explanation: 'INNER JOIN은 조인 조건에 일치하는 교집합 데이터만을 반환합니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: 'DB의 부하를 줄이고 빠른 응답을 위해, 자주 조회되는 데이터를 메모리(RAM)에 임시 저장하는 시스템은?', options: ['Hadoop', 'Elasticsearch', 'Redis (Cache)', 'Logstash'], answer: 2, explanation: 'Redis나 Memcached 같은 인메모리 데이터 스토어는 디스크 기반 DB보다 훨씬 빠른 캐시 저장소로 활용됩니다.' },
+            { category: 'backend', difficulty: 'intermediate', question: '코드 변경 사항을 자동으로 빌드, 테스트하고 운영 환경에 배포하는 자동화 프로세스를 뜻하는 용어는?', options: ['TDD', 'CI/CD', 'Agile', 'DevOps'], answer: 1, explanation: 'CI(Continuous Integration)는 지속적 통합, CD(Continuous Deployment)는 지속적 배포를 의미하며 개발 생산성을 높입니다.' },
+
+            // [백엔드 - 고급] 10문제
+            { category: 'backend', difficulty: 'advanced', question: '데이터베이스 트랜잭션의 4가지 주요 특성(ACID)에 해당하지 않는 것은?', options: ['Atomicity (원자성)', 'Consistency (일관성)', 'Isolation (고립성)', 'Dependency (의존성)'], answer: 3, explanation: '트랜잭션의 ACID 특성은 Atomicity(원자성), Consistency(일관성), Isolation(고립성), Durability(지속성)입니다.' },
+            { category: 'backend', difficulty: 'advanced', question: 'MSA(Microservices Architecture)를 도입할 때 발생할 수 있는 주요 단점은?', options: ['시스템의 확장성이 떨어짐', '특정 서비스의 장애가 전체 시스템의 다운으로 직결됨', '서비스 간 분산 통신으로 인한 복잡도와 트랜잭션 관리의 어려움 증가', '기술 스택의 다양성을 확보할 수 없음'], answer: 2, explanation: 'MSA는 서비스가 분리되어 네트워크 통신이 잦아지므로, 모놀리식 아키텍처보다 데이터 일관성 유지(분산 트랜잭션)와 디버깅, 모니터링이 훨씬 복잡해집니다.' },
+            { category: 'backend', difficulty: 'advanced', question: '분산 데이터베이스 시스템에서 일관성(Consistency), 가용성(Availability), 파티션 감내성(Partition Tolerance) 중 2가지만 충족할 수 있다는 정리는?', options: ['BASE 이론', 'CAP 정리', 'SOLID 원칙', 'Paxos 알고리즘'], answer: 1, explanation: 'CAP 정리에 따르면 네트워크 파티션(P)이 발생했을 때 시스템은 일관성(C)이나 가용성(A) 중 하나를 선택해야 합니다.' },
+            { category: 'backend', difficulty: 'advanced', question: '사용자가 비밀번호를 제공하지 않고도 서드파티 앱이 웹 서비스의 리소스에 제한적으로 접근할 수 있게 해주는 인가(Authorization) 프레임워크는?', options: ['SAML', 'SSO', 'OAuth 2.0', 'OpenID Connect'], answer: 2, explanation: 'OAuth 2.0은 구글 로그인, 페이스북 로그인처럼 타사 서비스에 안전하게 권한을 위임할 때 사용되는 표준 프레임워크입니다.' },
+            { category: 'backend', difficulty: 'advanced', question: '데이터베이스 트랜잭션 격리 수준 중, 한 트랜잭션에서 다른 트랜잭션이 추가한 새로운 레코드가 보였다 안 보였다 하는 현상(Phantom Read)이 발생할 수 있는 수준은?', options: ['Read Uncommitted', 'Read Committed', 'Repeatable Read', 'Serializable'], answer: 2, explanation: 'Repeatable Read 수준에서는 Non-Repeatable Read는 방지하지만, 새로운 행이 추가/삭제되는 Phantom Read 현상은 발생할 수 있습니다.' },
+            { category: 'backend', difficulty: 'advanced', question: '마이크로서비스 아키텍처에서 여러 분산된 서비스의 API를 단일 진입점으로 통합하여 라우팅, 인증, 로깅 등을 처리하는 패턴은?', options: ['Circuit Breaker', 'Service Mesh', 'API Gateway', 'Sidecar Pattern'], answer: 2, explanation: 'API Gateway는 클라이언트가 내부의 여러 마이크로서비스 구조를 알 필요 없이 하나의 엔드포인트로 통신할 수 있게 해줍니다.' },
+            { category: 'backend', difficulty: 'advanced', question: '서버에 가해지는 트래픽 부하를 여러 대의 분산된 서버로 균등하게 분배시켜주는 장치나 기술은?', options: ['Load Balancer', 'Firewall', 'CDN', 'Router'], answer: 0, explanation: '로드 밸런서(Load Balancer)는 Round Robin, Least Connection 등의 알고리즘을 사용해 서버 트래픽 병목을 방지합니다.' },
+            { category: 'backend', difficulty: 'advanced', question: '애플리케이션의 현재 상태를 저장하는 대신, 상태를 변경한 "이벤트의 기록(Log)들"을 모두 저장하여 상태를 재생성하는 데이터 아키텍처 패턴은?', options: ['CQRS', 'Event Sourcing', 'Saga Pattern', 'Two-Phase Commit'], answer: 1, explanation: '이벤트 소싱(Event Sourcing) 패턴은 모든 데이터 변경 내역을 순차적인 이벤트 스트림으로 저장하여 추적성 및 복원력을 극대화합니다.' },
+            { category: 'backend', difficulty: 'advanced', question: '다수의 컨테이너화된 애플리케이션의 자동 배포, 스케일링, 상태 관리를 오케스트레이션해주는 오픈소스 플랫폼은?', options: ['Terraform', 'Ansible', 'Kubernetes (K8s)', 'Prometheus'], answer: 2, explanation: '쿠버네티스는 컨테이너 오케스트레이션의 사실상 표준(De facto)으로, 대규모 컨테이너 환경을 효율적으로 관리합니다.' },
+            { category: 'backend', difficulty: 'advanced', question: 'JWT(JSON Web Token)의 구조를 이루는 3가지 요소가 올바른 순서로 나열된 것은?', options: ['Header.Payload.Signature', 'Payload.Header.Signature', 'Signature.Header.Payload', 'Header.Signature.Payload'], answer: 0, explanation: 'JWT는 점(.)을 구분자로 하여 Header(헤더), Payload(페이로드/내용), Signature(서명) 순으로 구성됩니다.' },
+
+            // ==================== 안드로이드 ====================
+            // [안드로이드 - 기본] 10문제
+            { category: 'android', difficulty: 'basic', question: '안드로이드 앱의 4대 주요 컴포넌트가 아닌 것은?', options: ['Activity', 'Service', 'Fragment', 'Broadcast Receiver'], answer: 2, explanation: '안드로이드 4대 컴포넌트는 Activity, Service, Broadcast Receiver, Content Provider입니다. Fragment는 Activity 내의 UI 모듈입니다.' },
+            { category: 'android', difficulty: 'basic', question: '안드로이드에서 다른 화면(Activity)으로 전환하거나 데이터를 전달할 때 사용하는 핵심 객체는?', options: ['Intent', 'Context', 'Handler', 'Manifest'], answer: 0, explanation: 'Intent는 안드로이드 애플리케이션 컴포넌트 간에 작업을 요청하거나 데이터를 전달할 때 사용하는 메시징 객체입니다.' },
+            { category: 'android', difficulty: 'basic', question: '여러 자식 뷰(View)를 가로 또는 세로로 한 줄로 나열할 때 사용하는 안드로이드 레이아웃은?', options: ['RelativeLayout', 'ConstraintLayout', 'LinearLayout', 'FrameLayout'], answer: 2, explanation: 'LinearLayout은 orientation 속성에 따라 내부 요소들을 수직(vertical) 또는 수평(horizontal)으로 순서대로 배치합니다.' },
+            { category: 'android', difficulty: 'basic', question: '사용자가 텍스트를 입력하고 수정할 수 있도록 제공하는 안드로이드 기본 UI 컴포넌트는?', options: ['TextView', 'Button', 'EditText', 'ImageView'], answer: 2, explanation: 'EditText는 텍스트를 입력받는 뷰이며, TextView를 상속받아 구현되어 있습니다.' },
+            { category: 'android', difficulty: 'basic', question: '앱의 패키지명, 권한(Permission), 4대 컴포넌트 정보 등을 정의하는 필수 XML 파일은?', options: ['build.gradle', 'AndroidManifest.xml', 'strings.xml', 'activity_main.xml'], answer: 1, explanation: 'AndroidManifest.xml은 안드로이드 시스템이 앱을 실행하기 전에 알아야 할 모든 필수 정보를 담고 있는 명세서입니다.' },
+            { category: 'android', difficulty: 'basic', question: '안드로이드 스튜디오(Logcat)에서 개발자가 디버깅 메시지를 출력할 때 사용하는 클래스는?', options: ['System.out', 'Console', 'Log', 'Print'], answer: 2, explanation: '안드로이드에서는 Log.d(), Log.e() 등의 Log 클래스 정적 메서드를 사용하여 로그캣에 메시지를 출력합니다.' },
+            { category: 'android', difficulty: 'basic', question: '앱에서 사용하는 이미지, 문자열, 색상, 레이아웃 파일 등이 저장되는 디렉토리의 이름은?', options: ['src', 'assets', 'res', 'java'], answer: 2, explanation: 'res(Resources) 폴더에는 앱 컴파일 시 관리되어 R 클래스로 자동 매핑되는 리소스들이 저장됩니다.' },
+            { category: 'android', difficulty: 'basic', question: '화면 하단에 짧은 시간 동안 간단한 알림 메시지를 띄우고 자동으로 사라지는 UI 요소는?', options: ['Snackbar', 'Dialog', 'Notification', 'Toast'], answer: 3, explanation: 'Toast는 사용자의 상호작용을 방해하지 않고 잠시 떴다 사라지는 팝업 메시지입니다.' },
+            { category: 'android', difficulty: 'basic', question: '애플리케이션 환경에 대한 전역 정보를 담고 있으며, 리소스 접근이나 컴포넌트 실행에 필요한 객체는?', options: ['Context', 'Application', 'Bundle', 'Looper'], answer: 0, explanation: 'Context는 안드로이드 시스템 서비스에 접근하거나 리소스를 가져올 때 필수적으로 사용되는 연결 고리입니다.' },
+            { category: 'android', difficulty: 'basic', question: '안드로이드 스튜디오의 기본 빌드 시스템으로, 의존성 관리와 빌드 프로세스를 자동화하는 도구는?', options: ['Maven', 'Ant', 'Gradle', 'Make'], answer: 2, explanation: 'Gradle은 유연하고 강력한 빌드 자동화 시스템으로, 안드로이드 공식 빌드 도구로 사용됩니다.' },
+
+            // [안드로이드 - 중급] 10문제
+            { category: 'android', difficulty: 'intermediate', question: '대량의 데이터 리스트를 화면에 스크롤 형태로 효율적으로 보여주기 위해 권장되는 위젯은?', options: ['ListView', 'ScrollView', 'RecyclerView', 'GridView'], answer: 2, explanation: 'RecyclerView는 화면에서 벗어난 아이템의 뷰(View)를 재활용(Recycle)하여 메모리 효율을 극대화하는 컴포넌트입니다.' },
+            { category: 'android', difficulty: 'intermediate', question: '안드로이드 Activity 생명주기(Lifecycle) 메서드가 아닌 것은?', options: ['onCreate()', 'onResume()', 'onUpdate()', 'onDestroy()'], answer: 2, explanation: 'Activity 생명주기에는 onCreate, onStart, onResume, onPause, onStop, onDestroy 등이 있으며 onUpdate는 존재하지 않습니다.' },
+            { category: 'android', difficulty: 'intermediate', question: '화면 회전 등 기기 구성 변경 시에도 UI 관련 데이터를 안전하게 보존해주는 Jetpack 컴포넌트는?', options: ['SavedStateHandle', 'ViewModel', 'LiveData', 'Room'], answer: 1, explanation: 'ViewModel은 수명 주기를 고려하여 UI 관련 데이터를 저장하고 관리하므로 화면 회전 시 데이터가 날아가는 것을 방지합니다.' },
+            { category: 'android', difficulty: 'intermediate', question: '앱의 환경설정 등 키-값(Key-Value) 쌍의 간단한 데이터를 기기 내부에 저장할 때 사용하는 기존 API는?', options: ['SQLite', 'ContentProvider', 'SharedPreferences', 'Internal Storage'], answer: 2, explanation: 'SharedPreferences는 간단한 설정값 등을 XML 파일 형태로 저장하는 데 사용되며, 최근에는 DataStore로 대체되는 추세입니다.' },
+            { category: 'android', difficulty: 'intermediate', question: '앱이 종료된 상태라도 조건이 맞으면 백그라운드 작업을 보장하여 실행해주는 Jetpack 라이브러리는?', options: ['AlarmManager', 'JobScheduler', 'WorkManager', 'Service'], answer: 2, explanation: 'WorkManager는 배터리 최적화를 고려하면서 지연 가능하고 비동기적인 백그라운드 작업을 안정적으로 처리합니다.' },
+            { category: 'android', difficulty: 'intermediate', question: '안드로이드에서 REST API 서버 통신을 위해 가장 널리 사용되는 Square사의 HTTP 클라이언트 라이브러리는?', options: ['Volley', 'Retrofit', 'OkHttp', 'HttpURLConnection'], answer: 1, explanation: 'Retrofit은 인터페이스를 통해 HTTP API를 자바/코틀린 객체로 변환해주는 강력하고 편리한 라이브러리입니다.' },
+            { category: 'android', difficulty: 'intermediate', question: '안드로이드에서 인터넷 상의 이미지를 비동기적으로 로딩하고 캐싱 처리를 자동화해주는 대표적인 라이브러리는?', options: ['Glide', 'Gson', 'Room', 'Dagger'], answer: 0, explanation: 'Glide(또는 Coil, Picasso)는 복잡한 이미지 로딩, 메모리/디스크 캐싱, 리사이징을 한 줄의 코드로 처리해줍니다.' },
+            { category: 'android', difficulty: 'intermediate', question: 'RecyclerView를 구현할 때, 데이터 목록과 뷰를 연결하고 뷰홀더(ViewHolder)를 생성하는 필수 클래스는?', options: ['LayoutManager', 'Adapter', 'ItemDecoration', 'ItemAnimator'], answer: 1, explanation: 'Adapter는 데이터 소스와 RecyclerView 사이의 다리 역할을 하며 항목의 뷰를 생성하고 데이터를 바인딩합니다.' },
+            { category: 'android', difficulty: 'intermediate', question: '하나의 Activity 내에서 여러 화면의 전환 및 백스택(Back Stack) 관리를 간편하게 해주는 라이브러리는?', options: ['FragmentManager', 'ViewPager2', 'Navigation Component', 'BottomNavigationView'], answer: 2, explanation: 'Navigation Component는 시각적인 네비게이션 그래프를 통해 Fragment 간의 이동과 인자 전달을 안전하게 관리합니다.' },
+            { category: 'android', difficulty: 'intermediate', question: '자체적인 생명주기를 가지며, 태블릿/모바일 등 다양한 화면 크기에 맞춰 UI 모듈을 재사용할 수 있게 해주는 컴포넌트는?', options: ['CustomView', 'Fragment', 'Include Layout', 'Dialog'], answer: 1, explanation: 'Fragment는 액티비티 내에 배치될 수 있는 독립적인 UI 모듈로 화면 분할이나 탭 메뉴 등에 널리 쓰입니다.' },
+
+            // [안드로이드 - 고급] 10문제
+            { category: 'android', difficulty: 'advanced', question: '안드로이드 개발(Kotlin)에서 비동기 프로그래밍을 간결하고 안전하게 처리하기 위해 널리 사용되는 개념은?', options: ['RxJava', 'Coroutine', 'AsyncTask', 'Thread'], answer: 1, explanation: 'Kotlin Coroutine(코루틴)은 비동기 코드를 동기 코드처럼 직관적으로 작성하게 해주며, 가벼운 스레딩 처리로 성능과 안정성이 뛰어납니다. (현재 구글 권장)' },
+            { category: 'android', difficulty: 'advanced', question: '안드로이드 권장 아키텍처인 MVVM 패턴에서 UI 컨트롤러(Activity/Fragment)와 데이터를 분리하고 관리하는 역할은?', options: ['Model', 'Repository', 'DataBinding', 'ViewModel'], answer: 3, explanation: 'ViewModel은 UI 관련 데이터를 수명 주기와 무관하게 보관하고 관리하며, View(UI)와 Model 사이의 연결 고리 역할을 수행합니다.' },
+            { category: 'android', difficulty: 'advanced', question: 'XML 레이아웃 대신 Kotlin 코드만으로 선언형(Declarative) UI를 빠르고 쉽게 개발할 수 있는 최신 툴킷은?', options: ['DataBinding', 'Jetpack Compose', 'ViewBinding', 'Flutter'], answer: 1, explanation: 'Jetpack Compose는 상태 변화에 따라 UI를 자동으로 다시 그리는 선언형 패러다임을 도입한 안드로이드의 최신 네이티브 UI 툴킷입니다.' },
+            { category: 'android', difficulty: 'advanced', question: '안드로이드에서 보일러플레이트 코드를 줄이고 의존성 주입(DI)을 쉽게 구현하기 위해 제공되는 구글의 공식 라이브러리는?', options: ['Koin', 'Dagger', 'Hilt', 'Guice'], answer: 2, explanation: 'Hilt는 Dagger를 기반으로 만들어져 안드로이드 컴포넌트(Activity, ViewModel 등)에 생명주기를 고려한 의존성 주입을 간편하게 해줍니다.' },
+            { category: 'android', difficulty: 'advanced', question: '시간에 따라 순차적으로 발생하는 데이터의 흐름(Stream)을 비동기적으로 처리하기 위한 Kotlin 코루틴의 API는?', options: ['LiveData', 'Flow', 'Channel', 'RxJava'], answer: 1, explanation: 'Kotlin Flow는 콜드 스트림(Cold Stream) 방식으로 연속적인 데이터를 비동기로 반환하고 조작할 수 있는 코루틴 기반의 API입니다.' },
+            { category: 'android', difficulty: 'advanced', question: '앱 개발 중 발생하는 메모리 누수(Memory Leak)를 탐지하고 원인을 알려주기 위해 널리 사용되는 라이브러리는?', options: ['LeakCanary', 'Crashlytics', 'Timber', 'Stetho'], answer: 0, explanation: 'LeakCanary는 개발 빌드에 포함되어 액티비티나 프래그먼트가 파괴된 후에도 가비지 컬렉터에 의해 회수되지 않는 객체를 경고해줍니다.' },
+            { category: 'android', difficulty: 'advanced', question: '사용자 인터페이스(UI) 테스트를 자동화하기 위해 구글에서 제공하는 기본 테스팅 프레임워크는?', options: ['JUnit', 'Mockito', 'Robolectric', 'Espresso'], answer: 3, explanation: 'Espresso는 실제 기기나 에뮬레이터에서 뷰를 찾고 클릭하는 등의 UI 상호작용 테스트를 작성할 수 있게 해줍니다.' },
+            { category: 'android', difficulty: 'advanced', question: '코드 난독화, 최적화, 사용하지 않는 리소스 제거를 통해 앱 크기를 줄이고 리버스 엔지니어링을 방어하는 빌드 도구는?', options: ['Lint', 'R8 (ProGuard)', 'D8', 'AAPT2'], answer: 1, explanation: 'R8(과거 ProGuard)은 릴리스 빌드 시 클래스와 메서드 이름을 짧게 바꾸고 불필요한 코드를 축소시켜 보안과 성능을 높입니다.' },
+            { category: 'android', difficulty: 'advanced', question: '메인 스레드(UI 스레드)에서 무거운 작업(예: 네트워크 요청, 긴 DB 쿼리)을 실행하면 발생하는 크래시나 현상은?', options: ['OOM (Out Of Memory)', 'ANR / NetworkOnMainThreadException', 'NullPointerException', 'ConcurrentModificationException'], answer: 1, explanation: '메인 스레드가 5초 이상 블로킹되면 ANR(Application Not Responding)이 발생하며, 네트워크 요청 시 NetworkOnMainThreadException 예외를 던집니다.' },
+            { category: 'android', difficulty: 'advanced', question: '커스텀 뷰(Custom View)를 만들 때 캔버스(Canvas) 객체를 사용하여 화면에 직접 도형이나 텍스트를 그리기 위해 오버라이드해야 하는 메서드는?', options: ['onMeasure()', 'onLayout()', 'onDraw()', 'onAttachedToWindow()'], answer: 2, explanation: 'onDraw(Canvas canvas) 메서드 내에서 Paint 객체와 함께 선, 원, 텍스트 등을 직접 그리는 로직을 작성합니다.' }
+        ];
+
+        // --- 애플리케이션 상태 관리 ---
+        const state = {
+            questions: [],
+            currentIndex: 0,
+            score: 0,
+            wrongAnswers: [],
+            highScoreKey: 'devQuiz_highScore',
+            wrongHistoryKey: 'devQuiz_wrongHistory',
+            chatHistory: [] // AI 채팅 기록
+        };
+
+        // --- DOM 요소 참조 ---
+        const UI = {
+            screens: {
+                setup: document.getElementById('screen-setup'),
+                quiz: document.getElementById('screen-quiz'),
+                result: document.getElementById('screen-result'),
+                profile: document.getElementById('screen-profile')
+            },
+            setup: {
+                category: document.getElementById('select-category'),
+                difficulty: document.getElementById('select-difficulty'),
+                count: document.getElementById('select-count'),
+                startBtn: document.getElementById('btn-start'),
+                profileBtn: document.getElementById('btn-profile')
+            },
+            quiz: {
+                meta: document.getElementById('quiz-meta'),
+                progressTxt: document.getElementById('quiz-progress'),
+                progressBar: document.getElementById('progress-bar'),
+                question: document.getElementById('question-text'),
+                options: document.getElementById('options-container')
+            },
+            modal: {
+                backdrop: document.getElementById('modal-backdrop'),
+                correctText: document.getElementById('modal-correct-answer'),
+                explanation: document.getElementById('modal-explanation'),
+                nextBtn: document.getElementById('btn-modal-next')
+            },
+            result: {
+                score: document.getElementById('score-text'),
+                highScore: document.getElementById('high-score-text'),
+                motivation: document.getElementById('motivation-text'),
+                wrongContainer: document.getElementById('wrong-answers-container'),
+                restartBtn: document.getElementById('btn-restart')
+            },
+            profile: {
+                container: document.getElementById('profile-wrong-container'),
+                backBtn: document.getElementById('btn-profile-back'),
+                clearBtn: document.getElementById('btn-clear-history')
+            },
+            alert: {
+                modal: document.getElementById('custom-alert'),
+                title: document.getElementById('custom-alert-title'),
+                message: document.getElementById('custom-alert-message'),
+                okBtn: document.getElementById('btn-alert-ok'),
+                cancelBtn: document.getElementById('btn-alert-cancel')
+            },
+            chat: {
+                modal: document.getElementById('chat-modal'),
+                messages: document.getElementById('chat-messages'),
+                input: document.getElementById('chat-input'),
+                sendBtn: document.getElementById('btn-chat-send'),
+                closeBtn: document.getElementById('btn-chat-close')
+            },
+            toast: document.getElementById('toast')
+        };
+
+        // --- 커스텀 알림창 (alert/confirm 대체) ---
+        function showAlert(message, isConfirm = false, onConfirm = null) {
+            UI.alert.message.textContent = message;
+            
+            if (isConfirm) {
+                UI.alert.cancelBtn.classList.remove('hidden');
+                UI.alert.title.textContent = "확인";
+            } else {
+                UI.alert.cancelBtn.classList.add('hidden');
+                UI.alert.title.textContent = "알림";
+            }
+
+            UI.alert.modal.classList.remove('hidden');
+            UI.alert.modal.style.display = 'flex';
+
+            UI.alert.okBtn.onclick = () => {
+                UI.alert.modal.classList.add('hidden');
+                UI.alert.modal.style.display = '';
+                if (onConfirm) onConfirm();
+            };
+
+            UI.alert.cancelBtn.onclick = () => {
+                UI.alert.modal.classList.add('hidden');
+                UI.alert.modal.style.display = '';
+            };
+        }
+
+        // --- 초기화 및 이벤트 리스너 세팅 ---
+        function init() {
+            UI.setup.startBtn.addEventListener('click', startQuiz);
+            UI.setup.profileBtn.addEventListener('click', showProfile);
+            UI.modal.nextBtn.addEventListener('click', nextQuestion);
+            UI.result.restartBtn.addEventListener('click', resetApp);
+            UI.profile.backBtn.addEventListener('click', resetApp);
+            UI.profile.clearBtn.addEventListener('click', clearWrongHistory);
+
+            // 채팅 모달 이벤트
+            UI.chat.closeBtn.addEventListener('click', closeChat);
+            UI.chat.sendBtn.addEventListener('click', handleChatSend);
+            UI.chat.input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleChatSend();
+                }
+            });
+            // 입력창 높이 자동 조절
+            UI.chat.input.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = (this.scrollHeight < 120 ? this.scrollHeight : 120) + 'px';
+            });
+
+            // 이벤트 위임을 통한 'Gemini에게 물어보기' 버튼 이벤트 처리
+            document.addEventListener('click', (e) => {
+                const btn = e.target.closest('.btn-ask-gemini');
+                if (btn) {
+                    openChat(decodeURIComponent(btn.dataset.prompt));
+                }
+            });
+        }
+
+        // --- 화면 전환 유틸 ---
+        function showScreen(screenName) {
+            Object.values(UI.screens).forEach(screen => {
+                screen.classList.add('hidden');
+                screen.classList.remove('fade-in');
+            });
+            UI.screens[screenName].classList.remove('hidden');
+            // 리플로우 강제 트리거 후 애니메이션 클래스 추가
+            void UI.screens[screenName].offsetWidth; 
+            UI.screens[screenName].classList.add('fade-in');
+        }
+
+        // --- 퀴즈 시작 로직 ---
+        function startQuiz() {
+            const category = UI.setup.category.value;
+            const difficulty = UI.setup.difficulty.value;
+            const requestedCount = parseInt(UI.setup.count.value);
+
+            // 조건에 맞는 데이터 필터링
+            let filtered = dummyData.filter(q => q.category === category && q.difficulty === difficulty);
+            
+            // 문제 섞기
+            filtered = filtered.sort(() => Math.random() - 0.5);
+
+            // 요청한 문제 수만큼 자르기 (부족할 경우 예외처리)
+            state.questions = filtered.slice(0, requestedCount);
+            
+            if (state.questions.length === 0) {
+                showAlert("선택하신 조건에 해당하는 문제가 없습니다.\n다른 조건을 선택해주세요.");
+                return;
+            } else if (state.questions.length < requestedCount) {
+                showAlert(`선택하신 조건의 문제가 ${state.questions.length}개 준비되어 있습니다.\n준비된 문제만 출제합니다.`);
+            }
+
+            // 상태 초기화
+            state.currentIndex = 0;
+            state.score = 0;
+            state.wrongAnswers = [];
+
+            // UI 라벨용 텍스트 매핑
+            const catLabel = UI.setup.category.options[UI.setup.category.selectedIndex].text.split(' ')[0];
+            const diffLabel = UI.setup.difficulty.options[UI.setup.difficulty.selectedIndex].text.split(' ')[0];
+            UI.quiz.meta.textContent = `${catLabel} • ${diffLabel}`;
+
+            renderQuestion();
+            showScreen('quiz');
+        }
+
+        // --- 문제 렌더링 ---
+        function renderQuestion() {
+            const currentQ = state.questions[state.currentIndex];
+            const total = state.questions.length;
+            const currentNum = state.currentIndex + 1;
+
+            // 상단 진행도 업데이트
+            UI.quiz.progressTxt.textContent = `${currentNum} / ${total}`;
+            UI.quiz.progressBar.style.width = `${(currentNum / total) * 100}%`;
+
+            // 문제 텍스트
+            UI.quiz.question.textContent = currentQ.question;
+
+            // 보기 렌더링
+            UI.quiz.options.innerHTML = '';
+            currentQ.options.forEach((optionText, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full text-left p-4 rounded-xl border-2 border-slate-100 hover:border-indigo-400 hover:bg-indigo-50 font-medium transition duration-200 group';
+                btn.innerHTML = `
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-500 mr-3 group-hover:bg-indigo-100 group-hover:text-indigo-600 transition font-bold">${index + 1}</span>
+                    <span class="text-slate-700">${escapeHTML(optionText)}</span>
+                `;
+                btn.onclick = () => handleAnswer(index, btn);
+                UI.quiz.options.appendChild(btn);
+            });
+        }
+
+        // --- 정답 확인 로직 ---
+        function handleAnswer(selectedIndex, clickedBtn) {
+            const currentQ = state.questions[state.currentIndex];
+            const isCorrect = selectedIndex === currentQ.answer;
+
+            // 모든 버튼 비활성화 방지 (더블클릭 방지)
+            const allBtns = UI.quiz.options.querySelectorAll('button');
+            allBtns.forEach(btn => btn.disabled = true);
+
+            if (isCorrect) {
+                state.score++;
+                // 시각적 피드백 (녹색)
+                clickedBtn.classList.remove('border-slate-100', 'hover:border-indigo-400', 'hover:bg-indigo-50');
+                clickedBtn.classList.add('border-emerald-500', 'bg-emerald-50');
+                
+                // 정답 토스트 메시지
+                UI.toast.classList.add('show');
+                setTimeout(() => {
+                    UI.toast.classList.remove('show');
+                    nextQuestion();
+                }, 1000); // 1초 후 부드럽게 다음 문제로
+
+            } else {
+                // 시각적 피드백 (빨간색 및 정답 녹색)
+                clickedBtn.classList.remove('border-slate-100', 'hover:border-indigo-400');
+                clickedBtn.classList.add('border-rose-400', 'bg-rose-50');
+                
+                allBtns[currentQ.answer].classList.remove('border-slate-100');
+                allBtns[currentQ.answer].classList.add('border-emerald-500', 'bg-emerald-50');
+
+                // 오답 노트에 저장
+                state.wrongAnswers.push({
+                    question: currentQ.question,
+                    userAnswer: currentQ.options[selectedIndex],
+                    correctAnswer: currentQ.options[currentQ.answer],
+                    explanation: currentQ.explanation
+                });
+
+                // 오답 모달 띄우기 (약간의 지연으로 버튼 피드백을 보여줌)
+                setTimeout(() => {
+                    showModal(currentQ.options[currentQ.answer], currentQ.explanation);
+                }, 300);
+            }
+        }
+
+        // --- 모달 관리 ---
+        function showModal(correctAnswerText, explanationText) {
+            UI.modal.correctText.textContent = correctAnswerText;
+            UI.modal.explanation.textContent = explanationText;
+            UI.modal.backdrop.style.display = 'flex'; // 클래스 기반 hidden 대신 flex 사용
+            UI.modal.backdrop.classList.remove('hidden');
+        }
+
+        function hideModal() {
+            UI.modal.backdrop.classList.add('hidden');
+            UI.modal.backdrop.style.display = '';
+        }
+
+        // --- 다음 문제 혹은 결과창 ---
+        function nextQuestion() {
+            if (!UI.modal.backdrop.classList.contains('hidden')) {
+                hideModal();
+            }
+
+            state.currentIndex++;
+            if (state.currentIndex < state.questions.length) {
+                renderQuestion();
+            } else {
+                finishQuiz();
+            }
+        }
+
+        // --- 결과 처리 로직 ---
+        function finishQuiz() {
+            const totalCount = state.questions.length;
+            const finalScore = Math.round((state.score / totalCount) * 100);
+
+            // 점수 UI 업데이트
+            UI.result.score.innerHTML = `${finalScore}<span class="text-2xl text-slate-400"> / 100점</span>`;
+
+            // 최고 점수 로컬 스토리지 처리
+            let highestScore = parseInt(localStorage.getItem(state.highScoreKey)) || 0;
+            if (finalScore > highestScore) {
+                highestScore = finalScore;
+                localStorage.setItem(state.highScoreKey, highestScore);
+            }
+            
+            UI.result.highScore.textContent = `나의 최고 점수: ${highestScore}점 🏆`;
+
+            // 동기 부여 메시지
+            if (finalScore === 100) {
+                UI.result.motivation.textContent = "완벽합니다! 최고의 실력이네요 🔥";
+                UI.result.motivation.className = "text-sm text-emerald-600 mt-1 font-bold";
+            } else if (finalScore >= 70) {
+                UI.result.motivation.textContent = "아주 좋아요! 조금만 더 다듬으면 완벽할 거예요.";
+                UI.result.motivation.className = "text-sm text-indigo-600 mt-1 font-bold";
+            } else {
+                UI.result.motivation.textContent = "오답 노트를 꼼꼼히 복습해 볼까요? 화이팅!";
+                UI.result.motivation.className = "text-sm text-rose-500 mt-1 font-bold";
+            }
+
+            // 누적 오답 노트 저장 (로컬 스토리지)
+            if (state.wrongAnswers.length > 0) {
+                let savedHistory = JSON.parse(localStorage.getItem(state.wrongHistoryKey)) || [];
+                // 중복 방지를 위해 문제 텍스트 기준으로 필터링하여 추가
+                state.wrongAnswers.forEach(newWrong => {
+                    if (!savedHistory.some(saved => saved.question === newWrong.question)) {
+                        savedHistory.push({
+                            ...newWrong,
+                            timestamp: new Date().getTime()
+                        });
+                    }
+                });
+                localStorage.setItem(state.wrongHistoryKey, JSON.stringify(savedHistory));
+            }
+
+            // 오답 노트 렌더링
+            renderWrongAnswers(UI.result.wrongContainer, state.wrongAnswers, true);
+
+            showScreen('result');
+        }
+
+        function renderWrongAnswers(container, wrongList, isResultScreen = false) {
+            container.innerHTML = '';
+            
+            if (wrongList.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-6 bg-emerald-50 rounded-xl text-emerald-600 font-bold border border-emerald-100">
+                        ${isResultScreen ? '🎉 틀린 문제가 없습니다! 완벽합니다.' : '저장된 오답 노트가 없습니다. 퀴즈를 풀어보세요!'}
+                    </div>
+                `;
+                return;
+            }
+
+            // 내 프로필 화면일 경우 최신순(역순)으로 정렬
+            const displayList = isResultScreen ? wrongList : [...wrongList].reverse();
+
+            displayList.forEach((wrong, idx) => {
+                const item = document.createElement('div');
+                item.className = 'bg-slate-50 border border-slate-200 p-4 rounded-xl relative';
+                
+                // 프롬프트 생성 (클립보드 복사용)
+                const aiPrompt = `"문제: ${wrong.question}"\n이 문제의 정답이 "${wrong.correctAnswer}"인 이유를 더 자세히 설명해 줘.`;
+
+                item.innerHTML = `
+                    <div class="flex gap-2 items-start mb-2">
+                        <span class="bg-rose-100 text-rose-600 px-2 py-0.5 rounded text-xs font-bold whitespace-nowrap mt-0.5">Q</span>
+                        <p class="font-bold text-slate-800">${escapeHTML(wrong.question)}</p>
+                    </div>
+                    <div class="text-sm mt-3 ml-1 border-l-2 border-emerald-400 pl-3">
+                        <p class="text-slate-500 mb-1">정답: <span class="font-semibold text-emerald-600">${escapeHTML(wrong.correctAnswer)}</span></p>
+                        <p class="text-slate-600 leading-relaxed">${escapeHTML(wrong.explanation)}</p>
+                    </div>
+                    
+                    <!-- encodeURIComponent를 사용하여 따옴표 충돌 완벽 방지 -->
+                    <button data-prompt="${encodeURIComponent(aiPrompt)}" class="btn-ask-gemini mt-4 flex items-center justify-center w-full gap-2 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white text-sm font-bold py-2.5 rounded-lg shadow-sm transition transform hover:-translate-y-0.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Gemini에게 더 물어보기
+                    </button>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // --- 내 프로필(오답노트) 로직 ---
+        function showProfile() {
+            const savedHistory = JSON.parse(localStorage.getItem(state.wrongHistoryKey)) || [];
+            renderWrongAnswers(UI.profile.container, savedHistory, false);
+            showScreen('profile');
+        }
+
+        function clearWrongHistory() {
+            showAlert("정말 모든 오답 노트 기록을 삭제하시겠습니까?", true, () => {
+                localStorage.removeItem(state.wrongHistoryKey);
+                renderWrongAnswers(UI.profile.container, [], false);
+            });
+        }
+
+        // --- AI 채팅 연동 (Gemini API) ---
+        const apiKey = ""; // 런타임 환경에서 자동 주입됨
+
+        function openChat(initialPrompt) {
+            UI.chat.modal.classList.remove('hidden');
+            UI.chat.modal.style.display = 'flex';
+            UI.chat.messages.innerHTML = '';
+            UI.chat.input.value = '';
+            UI.chat.input.style.height = 'auto';
+            state.chatHistory = []; // 대화 기록 초기화
+
+            // 시스템 프롬프트 느낌의 환영 메시지 추가
+            appendMessage('model', "안녕하세요! AI 튜터 Gemini입니다. 무엇이든 물어보세요.");
+
+            if (initialPrompt) {
+                // 사용자의 초기 질문 화면에 표시 및 API 전송
+                appendMessage('user', initialPrompt);
+                state.chatHistory.push({ role: 'user', parts: [{ text: initialPrompt }] });
+                fetchGeminiResponse();
+            }
+        }
+
+        function closeChat() {
+            UI.chat.modal.classList.add('hidden');
+            UI.chat.modal.style.display = '';
+        }
+
+        function handleChatSend() {
+            const text = UI.chat.input.value.trim();
+            if (!text) return;
+
+            UI.chat.input.value = '';
+            UI.chat.input.style.height = 'auto';
+            UI.chat.input.focus();
+
+            appendMessage('user', text);
+            state.chatHistory.push({ role: 'user', parts: [{ text: text }] });
+            
+            fetchGeminiResponse();
+        }
+
+        function appendMessage(role, text, isTyping = false) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex w-full ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+            
+            // 간단한 마크다운 파싱 (볼드, 줄바꿈) 처리
+            const formattedText = escapeHTML(text).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+
+            if (role === 'user') {
+                wrapper.innerHTML = `
+                    <div class="bg-indigo-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-sm text-sm leading-relaxed">
+                        ${formattedText}
+                    </div>
+                `;
+            } else {
+                wrapper.innerHTML = `
+                    <div class="flex gap-3 max-w-[95%]">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white flex-shrink-0 shadow-sm mt-1">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        </div>
+                        <div class="bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm text-sm leading-relaxed typing-container">
+                            ${isTyping ? '<div class="flex gap-1 py-2 px-1"><div class="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></div><div class="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style="animation-delay: 0.2s"></div><div class="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style="animation-delay: 0.4s"></div></div>' : formattedText}
+                        </div>
+                    </div>
+                `;
+            }
+
+            UI.chat.messages.appendChild(wrapper);
+            UI.chat.messages.scrollTop = UI.chat.messages.scrollHeight;
+            return wrapper;
+        }
+
+        async function fetchGeminiResponse() {
+            UI.chat.input.disabled = true;
+            UI.chat.sendBtn.disabled = true;
+            
+            const typingIndicator = appendMessage('model', '', true);
+
+            const payload = {
+                contents: state.chatHistory,
+                systemInstruction: {
+                    parts: [{ text: "너는 친절하고 명확하게 설명해주는 시니어 개발자 멘토야. 사용자가 퀴즈에서 틀린 문제나 개발 관련 질문을 하면, 핵심을 잘 짚어 알기 쉽게 한국어로 답변해 줘. 너무 길지 않게 핵심 위주로 설명해 줘." }]
+                }
+            };
+
+            try {
+                const responseData = await fetchWithBackoff(payload);
+                const replyText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "답변을 생성하지 못했습니다.";
+                
+                // 타이핑 인디케이터 제거 및 실제 답변 추가
+                typingIndicator.remove();
+                appendMessage('model', replyText);
+                state.chatHistory.push({ role: 'model', parts: [{ text: replyText }] });
+                
+            } catch (error) {
+                typingIndicator.remove();
+                appendMessage('model', "죄송합니다. 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+                // 에러 발생 시 히스토리 롤백
+                state.chatHistory.pop();
+            } finally {
+                UI.chat.input.disabled = false;
+                UI.chat.sendBtn.disabled = false;
+                UI.chat.input.focus();
+            }
+        }
+
+        // 지수 백오프(Exponential Backoff)가 적용된 안전한 API 호출 함수
+        async function fetchWithBackoff(payload, retries = 5) {
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return await response.json();
+                } catch (e) {
+                    if (i === retries - 1) throw e;
+                    await new Promise(res => setTimeout(res, delays[i]));
+                }
+            }
+        }
+
+        // --- 초기화 ---
+        function resetApp() {
+            showScreen('setup');
+        }
+
+        // --- 유틸리티 ---
+        // XSS 방지를 위한 이스케이프 함수
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, 
+                tag => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    "'": '&#39;',
+                    '"': '&quot;'
+                }[tag] || tag)
+            );
+        }
+
+        // 앱 실행
+        init();
+
+    </script>
+</body>
+</html>

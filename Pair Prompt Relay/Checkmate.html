@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>16조 일상 공유 앱 (Vanilla JS)</title>
+    <style>
+        /* ==========================================================================
+           1. CSS Variables (Design Tokens)
+           ========================================================================== */
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --secondary: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --bg-body: #f3f4f6;
+            --bg-surface: #ffffff;
+            --text-main: #111827;
+            --text-muted: #6b7280;
+            --border: #e5e7eb;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        /* ==========================================================================
+           2. Reset & Base Styles
+           ========================================================================== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+        button { cursor: pointer; border: none; background: none; font-family: inherit; }
+        input, select, textarea { font-family: inherit; border: 1px solid var(--border); border-radius: 4px; padding: 8px; width: 100%; }
+        ul { list-style: none; }
+        
+        /* ==========================================================================
+           3. Layout Components
+           ========================================================================== */
+        .app-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-surface);
+            padding: 16px 24px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+        }
+        .header-title h1 { font-size: 1.5rem; color: var(--primary); }
+        .header-controls { display: flex; align-items: center; gap: 15px; }
+        .user-selector { padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg-body); font-weight: bold; }
+        
+        /* Main Layout */
+        .main-content {
+            display: flex;
+            gap: 20px;
+            flex: 1;
+        }
+        .calendar-section {
+            flex: 2;
+            background: var(--bg-surface);
+            padding: 20px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+        }
+        .sidebar-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* ==========================================================================
+           4. Calendar Styles
+           ========================================================================== */
+        .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .calendar-nav button { padding: 8px 16px; background: var(--bg-body); border-radius: 4px; transition: background 0.2s; }
+        .calendar-nav button:hover { background: var(--border); }
+        .calendar-title { font-size: 1.25rem; font-weight: bold; }
+        
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1px;
+            background-color: var(--border);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+        .calendar-day-header {
+            background: var(--bg-body);
+            text-align: center;
+            padding: 10px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .calendar-cell {
+            background: var(--bg-surface);
+            min-height: 120px;
+            padding: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            flex-direction: column;
+        }
+        .calendar-cell:hover { background: #f9fafb; }
+        .calendar-cell.today .date-num { background: var(--primary); color: white; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; }
+        .calendar-cell.other-month { color: var(--text-muted); background: #fafafa; }
+        
+        .date-num { font-size: 0.9rem; font-weight: 500; margin-bottom: 4px; }
+        .event-list { display: flex; flex-direction: column; gap: 4px; flex: 1; overflow-y: auto; }
+        .event-badge {
+            font-size: 0.75rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: white;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .event-leave { background: var(--primary); }
+        .event-vacation { background: var(--danger); }
+        .event-lunch { background: var(--secondary); }
+
+        /* ==========================================================================
+           5. Sidebar Components (Status, Board, Voting)
+           ========================================================================== */
+        .card {
+            background: var(--bg-surface);
+            padding: 20px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+        }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .card-title { font-size: 1.1rem; font-weight: bold; border-bottom: 2px solid var(--primary); padding-bottom: 4px; display: inline-block; }
+        
+        /* My Status Actions */
+        .status-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .btn-status { padding: 10px; border-radius: var(--radius-md); font-weight: 500; color: white; transition: opacity 0.2s; }
+        .btn-status:hover { opacity: 0.9; }
+        .bg-work { background: var(--danger); }
+        .bg-away { background: #eab308; }
+        .bg-lunch { background: var(--secondary); }
+        .bg-home { background: var(--primary); }
+
+        /* Team Status List */
+        .team-status-list li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        .team-status-list li:last-child { border-bottom: none; }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+        /* Board */
+        .board-list { display: flex; flex-direction: column; gap: 10px; max-height: 200px; overflow-y: auto; }
+        .board-item { padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 0.9rem; }
+        .board-item-header { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.8rem; margin-bottom: 4px; }
+        
+        /* Buttons */
+        .btn-sm { padding: 4px 8px; font-size: 0.8rem; background: var(--bg-body); border-radius: 4px; }
+        .btn-sm:hover { background: var(--border); }
+        .btn-primary { background: var(--primary); color: white; padding: 8px 16px; border-radius: 4px; }
+        .btn-primary:hover { background: var(--primary-hover); }
+
+        /* Voting */
+        .vote-item { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; margin-bottom: 10px; }
+        .vote-question { font-weight: bold; margin-bottom: 10px; font-size: 0.95rem; }
+        .vote-option { display: block; width: 100%; text-align: left; padding: 8px; margin-bottom: 6px; background: var(--bg-body); border-radius: 4px; transition: background 0.2s; }
+        .vote-option:hover:not(:disabled) { background: #e2e8f0; }
+        .vote-result-bar { background: var(--primary); height: 8px; border-radius: 4px; margin-top: 4px; transition: width 0.3s ease; }
+        .vote-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 8px; text-align: right; }
+        .security-notice { font-size: 0.75rem; color: var(--danger); background: #fee2e2; padding: 6px; border-radius: 4px; margin-top: 10px; text-align: center; }
+
+        /* ==========================================================================
+           6. Modals
+           ========================================================================== */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex; justify-content: center; align-items: center;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+        }
+        .modal-overlay.show { opacity: 1; pointer-events: auto; }
+        .modal-content {
+            background: white; padding: 24px; border-radius: var(--radius-lg);
+            width: 100%; max-width: 400px;
+            transform: translateY(-20px); transition: transform 0.2s ease;
+            box-shadow: var(--shadow-md);
+        }
+        .modal-overlay.show .modal-content { transform: translateY(0); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .modal-header h2 { font-size: 1.25rem; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-weight: 500; margin-bottom: 6px; font-size: 0.9rem; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+        .btn-cancel { padding: 8px 16px; background: var(--bg-body); border-radius: 4px; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .main-content { flex-direction: column; }
+            .calendar-section, .sidebar-section { width: 100%; }
+            .calendar-cell { min-height: 80px; }
+            .event-badge { font-size: 0.65rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header>
+            <div class="header-title">
+                <h1>📅 16조 일상 공유</h1>
+            </div>
+            <div class="header-controls">
+                <span style="font-size: 0.9rem; color: var(--text-muted); white-space: nowrap;">현재 접속자:</span>
+                <select id="user-select" class="user-selector">
+                    <!-- JS로 렌더링 -->
+                </select>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <main class="main-content">
+            <!-- Calendar Section -->
+            <section class="calendar-section">
+                <div class="calendar-header">
+                    <div class="calendar-nav">
+                        <button id="btn-prev-month">◀ 이전달</button>
+                    </div>
+                    <div class="calendar-title" id="calendar-title">2023년 10월</div>
+                    <div class="calendar-nav">
+                        <button id="btn-next-month">다음달 ▶</button>
+                    </div>
+                </div>
+                
+                <div class="calendar-grid" id="calendar-grid">
+                    <!-- 요일 헤더 -->
+                    <div class="calendar-day-header" style="color: var(--danger);">일</div>
+                    <div class="calendar-day-header">월</div>
+                    <div class="calendar-day-header">화</div>
+                    <div class="calendar-day-header">수</div>
+                    <div class="calendar-day-header">목</div>
+                    <div class="calendar-day-header">금</div>
+                    <div class="calendar-day-header" style="color: var(--primary);">토</div>
+                    <!-- 날짜 셀들 (JS 렌더링) -->
+                </div>
+            </section>
+
+            <!-- Sidebar Section -->
+            <aside class="sidebar-section">
+                
+                <!-- 1. 상태 관리 카드 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">내 상태 업데이트</h3>
+                    </div>
+                    <div class="status-buttons">
+                        <button class="btn-status bg-work" onclick="app.updateStatus('근무중', '#ef4444')">💻 근무중</button>
+                        <button class="btn-status bg-away" onclick="app.updateStatus('자리비움', '#eab308')">☕ 자리비움</button>
+                        <button class="btn-status bg-lunch" onclick="app.updateStatus('식사중', '#10b981')">🍱 식사중</button>
+                        <button class="btn-status bg-home" onclick="app.updateStatus('퇴근', '#4f46e5')">🏠 퇴근</button>
+                    </div>
+                    <div class="card-header" style="margin-top: 20px;">
+                        <h3 class="card-title" style="font-size: 0.95rem;">팀원 현재 상태</h3>
+                    </div>
+                    <ul class="team-status-list" id="team-status-list">
+                        <!-- JS 렌더링 -->
+                    </ul>
+                </div>
+
+                <!-- 2. 정보/꿀팁 게시판 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">💡 정보 / 꿀팁 공유</h3>
+                        <button class="btn-sm" onclick="app.openModal('post-modal')">글쓰기</button>
+                    </div>
+                    <div class="board-list" id="board-list">
+                        <!-- JS 렌더링 -->
+                    </div>
+                </div>
+
+                <!-- 3. 비밀 투표 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">🗳️ 의견 투표</h3>
+                        <button class="btn-sm" onclick="app.openModal('vote-modal')">투표 만들기</button>
+                    </div>
+                    <div id="vote-list">
+                        <!-- JS 렌더링 -->
+                    </div>
+                    <div class="security-notice">
+                        ※ 본 투표는 브라우저 로컬 저장소를 사용합니다. (새로고침 시 유지되나, 완벽한 비밀 보장 및 위변조 방지에는 기술적 한계가 있습니다.)
+                    </div>
+                </div>
+
+            </aside>
+        </main>
+    </div>
+
+    <!-- ==========================================================================
+         Modals (숨겨진 상태로 존재하며 JS로 제어)
+         ========================================================================== -->
+    
+    <!-- 일정 추가 모달 -->
+    <div class="modal-overlay" id="event-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>나의 일정 등록</h2>
+                <button onclick="app.closeModal('event-modal')">✕</button>
+            </div>
+            <form id="event-form">
+                <input type="hidden" id="event-date">
+                <div class="form-group">
+                    <label>일정 유형 선택</label>
+                    <select id="event-category" onchange="app.handleCategoryChange()" required>
+                        <option value="">등록할 항목을 선택하세요</option>
+                        <option value="vacation">휴가 여부</option>
+                        <option value="leave">퇴근 시간</option>
+                        <option value="lunch">점심 계획</option>
+                    </select>
+                </div>
+                <div class="form-group" id="event-detail-group" style="display: none;">
+                    <label id="event-detail-label">상세 선택</label>
+                    <select id="event-detail-select">
+                        <!-- JS로 옵션 렌더링 -->
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" onclick="app.closeModal('event-modal')">취소</button>
+                    <button type="submit" class="btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 꿀팁 작성 모달 -->
+    <div class="modal-overlay" id="post-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>꿀팁 공유하기</h2>
+                <button onclick="app.closeModal('post-modal')">✕</button>
+            </div>
+            <form id="post-form">
+                <div class="form-group">
+                    <label>내용</label>
+                    <textarea id="post-content" rows="4" required placeholder="유용한 정보를 공유해주세요!"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" onclick="app.closeModal('post-modal')">취소</button>
+                    <button type="submit" class="btn-primary">등록</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 투표 생성 모달 -->
+    <div class="modal-overlay" id="vote-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>새 투표 만들기</h2>
+                <button onclick="app.closeModal('vote-modal')">✕</button>
+            </div>
+            <form id="vote-form">
+                <div class="form-group">
+                    <label>투표 주제</label>
+                    <input type="text" id="vote-question" required placeholder="예: 이번 주 회식 메뉴는?">
+                </div>
+                <div id="vote-options-container">
+                    <div class="form-group">
+                        <label>항목 1</label>
+                        <input type="text" class="vote-opt-input" required placeholder="항목 입력">
+                    </div>
+                    <div class="form-group">
+                        <label>항목 2</label>
+                        <input type="text" class="vote-opt-input" required placeholder="항목 입력">
+                    </div>
+                </div>
+                <button type="button" class="btn-sm" onclick="app.addVoteOption()" style="margin-bottom: 15px; width: 100%; border: 1px dashed var(--border);">+ 항목 추가</button>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" onclick="app.closeModal('vote-modal')">취소</button>
+                    <button type="submit" class="btn-primary">생성</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
+         JavaScript (Vanilla JS Architecture)
+         ========================================================================== -->
+    <script>
+        /**
+         * 20년 경력의 바닐라 JS 아키텍처:
+         * 1. 전역 네임스페이스 오염 방지를 위해 하나의 객체(app) 안으로 캡슐화.
+         * 2. Store 모듈을 분리하여 데이터 영속성(localStorage) 담당.
+         * 3. DOM 요소 캐싱을 통해 접근 성능 최적화.
+         * 4. 이벤트 위임(Event Delegation)을 사용하여 동적 요소 제어.
+         */
+
+        const STORE_PREFIX = '16th_team_';
+
+        // 1. Data Store (로컬 스토리지 래퍼)
+        const store = {
+            get(key, defaultValue = null) {
+                try {
+                    const data = localStorage.getItem(STORE_PREFIX + key);
+                    return data ? JSON.parse(data) : defaultValue;
+                } catch (e) {
+                    console.error('Storage read error', e);
+                    return defaultValue;
+                }
+            },
+            set(key, value) {
+                localStorage.setItem(STORE_PREFIX + key, JSON.stringify(value));
+            }
+        };
+
+        // 초기 데이터 세팅 (앱 최초 실행 시)
+        const mockUsers = [
+            { id: 'u1', name: '루크' },
+            { id: 'u2', name: '모아' },
+            { id: 'u3', name: '은오' },
+            { id: 'u4', name: '라티' },
+            { id: 'u5', name: '밍구' }
+        ];
+
+        // 2. Main Application Controller
+        const app = {
+            state: {
+                users: mockUsers,
+                currentUser: mockUsers[0],
+                currentDate: new Date(),
+                events: store.get('events', {}),       // { '2023-10-25': [{id, title, ...}] }
+                posts: store.get('posts', []),         // [{id, content, author, date}]
+                votes: store.get('votes', []),         // [{id, question, options: [{text, count}], voters: []}]
+                statuses: store.get('statuses', {})    // { 'u1': { text: '근무중', color: '#...' } }
+            },
+
+            // DOM Elements Cache
+            els: {
+                userSelect: document.getElementById('user-select'),
+                calendarTitle: document.getElementById('calendar-title'),
+                calendarGrid: document.getElementById('calendar-grid'),
+                teamStatusList: document.getElementById('team-status-list'),
+                boardList: document.getElementById('board-list'),
+                voteList: document.getElementById('vote-list')
+            },
+
+            // 초기화
+            init() {
+                this.renderUserSelector();
+                this.bindEvents();
+                
+                // 초기 상태 설정
+                if (Object.keys(this.state.statuses).length === 0) {
+                    this.state.users.forEach(u => this.state.statuses[u.id] = { text: '근무중', color: '#ef4444' });
+                    this.saveData('statuses');
+                }
+
+                this.renderAll();
+            },
+
+            renderAll() {
+                this.renderCalendar();
+                this.renderTeamStatus();
+                this.renderBoard();
+                this.renderVotes();
+            },
+
+            // 이벤트 바인딩
+            bindEvents() {
+                // 사용자 변경 이벤트
+                this.els.userSelect.addEventListener('change', (e) => {
+                    this.state.currentUser = this.state.users.find(u => u.id === e.target.value);
+                    this.renderAll(); // 사용자 관점에 따라 화면 재구성 (특히 투표)
+                });
+
+                // 캘린더 네비게이션
+                document.getElementById('btn-prev-month').addEventListener('click', () => this.changeMonth(-1));
+                document.getElementById('btn-next-month').addEventListener('click', () => this.changeMonth(1));
+
+                // 캘린더 날짜 클릭 (이벤트 위임)
+                this.els.calendarGrid.addEventListener('click', (e) => {
+                    const cell = e.target.closest('.calendar-cell');
+                    if (cell && cell.dataset.date) {
+                        const date = cell.dataset.date;
+                        document.getElementById('event-date').value = date;
+                        
+                        // 기존 폼 초기화 및 카테고리 선택 UI 초기화
+                        document.getElementById('event-form').reset();
+                        this.handleCategoryChange(); // 상세 선택 숨기기
+                        
+                        this.openModal('event-modal');
+                    }
+                });
+
+                // 폼 제출 이벤트
+                document.getElementById('event-form').addEventListener('submit', (e) => this.handleEventSubmit(e));
+                document.getElementById('post-form').addEventListener('submit', (e) => this.handlePostSubmit(e));
+                document.getElementById('vote-form').addEventListener('submit', (e) => this.handleVoteSubmit(e));
+            },
+
+            // ==================================================================
+            // Rendering Logics
+            // ==================================================================
+
+            renderUserSelector() {
+                this.els.userSelect.innerHTML = this.state.users.map(u => 
+                    `<option value="${u.id}">${u.name}</option>`
+                ).join('');
+            },
+
+            renderCalendar() {
+                const year = this.state.currentDate.getFullYear();
+                const month = this.state.currentDate.getMonth();
+                
+                this.els.calendarTitle.textContent = `${year}년 ${month + 1}월`;
+
+                const firstDay = new Date(year, month, 1).getDay();
+                const lastDate = new Date(year, month + 1, 0).getDate();
+                const prevLastDate = new Date(year, month, 0).getDate();
+                
+                const today = new Date();
+                const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+
+                // 요일 헤더 유지하면서 날짜 셀만 지우기
+                const cells = Array.from(this.els.calendarGrid.children).slice(7);
+                cells.forEach(cell => cell.remove());
+
+                const fragment = document.createDocumentFragment();
+
+                // 1. 이전 달 빈 칸
+                for (let i = firstDay - 1; i >= 0; i--) {
+                    const cell = this.createCalendarCell(year, month - 1, prevLastDate - i, true);
+                    fragment.appendChild(cell);
+                }
+
+                // 2. 이번 달 날짜
+                for (let i = 1; i <= lastDate; i++) {
+                    const isToday = isCurrentMonth && today.getDate() === i;
+                    const cell = this.createCalendarCell(year, month, i, false, isToday);
+                    fragment.appendChild(cell);
+                }
+
+                // 3. 다음 달 빈 칸 (총 42칸을 맞추기 위함)
+                const totalCells = firstDay + lastDate;
+                const nextDays = 42 - totalCells;
+                for (let i = 1; i <= nextDays; i++) {
+                    const cell = this.createCalendarCell(year, month + 1, i, true);
+                    fragment.appendChild(cell);
+                }
+
+                this.els.calendarGrid.appendChild(fragment);
+            },
+
+            createCalendarCell(year, month, dateNum, isOtherMonth, isToday = false) {
+                // 날짜 보정 (이전/다음 달)
+                const dateObj = new Date(year, month, dateNum);
+                const y = dateObj.getFullYear();
+                const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const d = String(dateObj.getDate()).padStart(2, '0');
+                const dateString = `${y}-${m}-${d}`;
+
+                const cell = document.createElement('div');
+                cell.className = `calendar-cell ${isOtherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}`;
+                cell.dataset.date = dateString;
+
+                let html = `<div class="date-num">${dateObj.getDate()}</div>`;
+                html += `<div class="event-list">`;
+                
+                // 해당 날짜의 이벤트 렌더링
+                const dayEvents = this.state.events[dateString] || [];
+                dayEvents.forEach(evt => {
+                    const colorClass = `event-${evt.type}`;
+                    // XSS 방어: innerText 역할 (템플릿 리터럴 내부이므로 제한적, 실무에선 escape 함수 사용)
+                    const title = evt.title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    html += `<div class="event-badge ${colorClass}" title="${title}">${evt.authorName}: ${title}</div>`;
+                });
+                
+                html += `</div>`;
+                cell.innerHTML = html;
+                return cell;
+            },
+
+            changeMonth(delta) {
+                this.state.currentDate.setMonth(this.state.currentDate.getMonth() + delta);
+                this.renderCalendar();
+            },
+
+            renderTeamStatus() {
+                let html = '';
+                this.state.users.forEach(u => {
+                    const status = this.state.statuses[u.id] || { text: '알수없음', color: '#ccc' };
+                    const isMe = u.id === this.state.currentUser.id;
+                    html += `
+                        <li>
+                            <span>
+                                <span class="status-dot" style="background-color: ${status.color}"></span>
+                                ${u.name} ${isMe ? '(나)' : ''}
+                            </span>
+                            <span style="color: var(--text-muted); font-size: 0.85rem;">${status.text}</span>
+                        </li>
+                    `;
+                });
+                this.els.teamStatusList.innerHTML = html;
+            },
+
+            renderBoard() {
+                if (this.state.posts.length === 0) {
+                    this.els.boardList.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 20px;">등록된 게시물이 없습니다.</div>';
+                    return;
+                }
+
+                let html = '';
+                // 최신글이 위로 오도록 역순 정렬 렌더링
+                [...this.state.posts].reverse().forEach(post => {
+                    const content = post.content.replace(/\n/g, '<br>').replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    html += `
+                        <div class="board-item">
+                            <div class="board-item-header">
+                                <span>${post.authorName}</span>
+                                <span>${post.date}</span>
+                            </div>
+                            <div>${content}</div>
+                        </div>
+                    `;
+                });
+                this.els.boardList.innerHTML = html;
+            },
+
+            renderVotes() {
+                if (this.state.votes.length === 0) {
+                    this.els.voteList.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 20px;">진행중인 투표가 없습니다.</div>';
+                    return;
+                }
+
+                let html = '';
+                [...this.state.votes].reverse().forEach((vote, idx) => {
+                    const hasVoted = vote.voters.includes(this.state.currentUser.id);
+                    const totalVotes = vote.options.reduce((sum, opt) => sum + opt.count, 0);
+                    
+                    html += `<div class="vote-item">
+                                <div class="vote-question">Q. ${this.escapeHTML(vote.question)}</div>`;
+                    
+                    vote.options.forEach((opt, optIdx) => {
+                        const percent = totalVotes === 0 ? 0 : Math.round((opt.count / totalVotes) * 100);
+                        
+                        if (hasVoted) {
+                            // 결과 보기
+                            html += `
+                                <div style="margin-bottom: 8px;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+                                        <span>${this.escapeHTML(opt.text)}</span>
+                                        <span>${opt.count}표 (${percent}%)</span>
+                                    </div>
+                                    <div style="background: var(--border); border-radius: 4px; height: 8px; margin-top: 4px;">
+                                        <div class="vote-result-bar" style="width: ${percent}%;"></div>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            // 투표 하기 버튼
+                            html += `
+                                <button class="vote-option" onclick="app.submitVote('${vote.id}', ${optIdx})">
+                                    ${this.escapeHTML(opt.text)}
+                                </button>
+                            `;
+                        }
+                    });
+
+                    html += `<div class="vote-meta">참여자: ${vote.voters.length}명</div>
+                            </div>`;
+                });
+                this.els.voteList.innerHTML = html;
+            },
+
+            // ==================================================================
+            // Actions & Data Handling
+            // ==================================================================
+
+            updateStatus(text, color) {
+                this.state.statuses[this.state.currentUser.id] = { text, color };
+                this.saveData('statuses');
+                this.renderTeamStatus();
+            },
+
+            handleCategoryChange() {
+                const category = document.getElementById('event-category').value;
+                const detailGroup = document.getElementById('event-detail-group');
+                const detailSelect = document.getElementById('event-detail-select');
+                const detailLabel = document.getElementById('event-detail-label');
+
+                if (!category) {
+                    detailGroup.style.display = 'none';
+                    return;
+                }
+
+                detailGroup.style.display = 'block';
+                detailSelect.innerHTML = ''; // 옵션 초기화
+
+                let options = [];
+                if (category === 'vacation') {
+                    detailLabel.textContent = '휴가 여부';
+                    options = [
+                        { value: '휴가', label: '휴가' },
+                        { value: '', label: '선택 안함 (기존 기록 삭제)' }
+                    ];
+                } else if (category === 'leave') {
+                    detailLabel.textContent = '퇴근 시간';
+                    options = [
+                        { value: '칼퇴', label: '칼퇴' },
+                        { value: '퇴근 후 스터디', label: '퇴근 후 스터디' },
+                        { value: '', label: '선택 안함 (기존 기록 삭제)' }
+                    ];
+                } else if (category === 'lunch') {
+                    detailLabel.textContent = '점심 계획';
+                    options = [
+                        { value: '구내식당', label: '구내식당' },
+                        { value: '외부식당', label: '외부식당' },
+                        { value: '선약', label: '선약' },
+                        { value: '', label: '선택 안함 (기존 기록 삭제)' }
+                    ];
+                }
+
+                options.forEach(opt => {
+                    const el = document.createElement('option');
+                    el.value = opt.value;
+                    el.textContent = opt.label;
+                    detailSelect.appendChild(el);
+                });
+
+                // 이미 등록된 내 일정이 있다면 기본값으로 세팅
+                const date = document.getElementById('event-date').value;
+                const myEvents = (this.state.events[date] || []).filter(evt => evt.authorId === this.state.currentUser.id);
+                const existingEvent = myEvents.find(evt => evt.type === category);
+                
+                if (existingEvent) {
+                    detailSelect.value = existingEvent.title;
+                }
+            },
+
+            handleEventSubmit(e) {
+                e.preventDefault();
+                const date = document.getElementById('event-date').value;
+                const category = document.getElementById('event-category').value;
+                const detail = document.getElementById('event-detail-select').value;
+
+                if (!category) return;
+
+                if (!this.state.events[date]) this.state.events[date] = [];
+                
+                // 선택한 항목(category)에 대한 내 일정만 제거 (덮어쓰기 로직, 다른 항목은 유지)
+                this.state.events[date] = this.state.events[date].filter(
+                    evt => !(evt.authorId === this.state.currentUser.id && evt.type === category)
+                );
+                
+                const authorId = this.state.currentUser.id;
+                const authorName = this.state.currentUser.name;
+
+                // '선택 안함'이 아닐 경우에만 새로 추가
+                if (detail) {
+                    this.state.events[date].push({ 
+                        id: Date.now() + category, 
+                        authorId, 
+                        authorName, 
+                        type: category, 
+                        title: detail 
+                    });
+                }
+
+                this.saveData('events');
+                this.renderCalendar();
+                this.closeModal('event-modal');
+                e.target.reset();
+            },
+
+            handlePostSubmit(e) {
+                e.preventDefault();
+                const content = document.getElementById('post-content').value;
+                const today = new Date();
+                const dateStr = `${today.getMonth()+1}/${today.getDate()} ${today.getHours()}:${String(today.getMinutes()).padStart(2,'0')}`;
+
+                this.state.posts.push({
+                    id: Date.now().toString(),
+                    authorId: this.state.currentUser.id,
+                    authorName: this.state.currentUser.name,
+                    content: content,
+                    date: dateStr
+                });
+
+                this.saveData('posts');
+                this.renderBoard();
+                this.closeModal('post-modal');
+                e.target.reset();
+            },
+
+            addVoteOption() {
+                const container = document.getElementById('vote-options-container');
+                const count = container.children.length + 1;
+                const div = document.createElement('div');
+                div.className = 'form-group';
+                div.innerHTML = `
+                    <label>항목 ${count}</label>
+                    <input type="text" class="vote-opt-input" required placeholder="항목 입력">
+                `;
+                container.appendChild(div);
+            },
+
+            handleVoteSubmit(e) {
+                e.preventDefault();
+                const question = document.getElementById('vote-question').value;
+                const inputs = document.querySelectorAll('.vote-opt-input');
+                const options = [];
+                
+                inputs.forEach(input => {
+                    if (input.value.trim() !== '') {
+                        options.push({ text: input.value.trim(), count: 0 });
+                    }
+                });
+
+                if (options.length < 2) {
+                    return; // HTML5 필수 입력 속성으로 2개가 보장되므로 처리 생략
+                }
+
+                this.state.votes.push({
+                    id: Date.now().toString(),
+                    question,
+                    options: options,
+                    voters: [] // 투표한 유저 ID 배열
+                });
+
+                this.saveData('votes');
+                this.renderVotes();
+                this.closeModal('vote-modal');
+                e.target.reset();
+                
+                // 항목 입력 필드 초기화 (기본 2개로 복구)
+                document.getElementById('vote-options-container').innerHTML = `
+                    <div class="form-group"><label>항목 1</label><input type="text" class="vote-opt-input" required placeholder="항목 입력"></div>
+                    <div class="form-group"><label>항목 2</label><input type="text" class="vote-opt-input" required placeholder="항목 입력"></div>
+                `;
+            },
+
+            submitVote(voteId, optionIndex) {
+                const vote = this.state.votes.find(v => v.id === voteId);
+                if (vote && !vote.voters.includes(this.state.currentUser.id)) {
+                    vote.options[optionIndex].count += 1;
+                    vote.voters.push(this.state.currentUser.id);
+                    this.saveData('votes');
+                    this.renderVotes(); // 리렌더링 (결과창으로 전환됨)
+                }
+            },
+
+            // ==================================================================
+            // Utilities
+            // ==================================================================
+
+            saveData(key) {
+                store.set(key, this.state[key]);
+            },
+
+            openModal(id) {
+                document.getElementById(id).classList.add('show');
+            },
+
+            closeModal(id) {
+                document.getElementById(id).classList.remove('show');
+            },
+
+            escapeHTML(str) {
+                return str.replace(/[&<>'"]/g, 
+                    tag => ({
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;',
+                        "'": '&#39;',
+                        '"': '&quot;'
+                    }[tag] || tag)
+                );
+            }
+        };
+
+        // 앱 실행
+        document.addEventListener('DOMContentLoaded', () => {
+            app.init();
+        });
+
+    </script>
+</body>
+</html>

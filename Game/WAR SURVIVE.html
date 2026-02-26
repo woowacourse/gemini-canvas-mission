@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WAR SURVIVE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a202c;
+            overflow: hidden;
+            touch-action: none; /* 모바일에서 스크롤 방지 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            max-width: 500px;
+            margin: 0 auto;
+            background-color: #2d3748;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .pointer-events-auto {
+            pointer-events: auto;
+        }
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            color: white;
+            font-weight: bold;
+            font-size: 1.2rem;
+            text-shadow: 1px 1px 2px black;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="400" height="700"></canvas>
+    
+    <!-- 게임 플레이 중 정보 표시 -->
+    <div id="hud">
+        <div id="roundDisplay">라운드: 1/5</div>
+        <div id="scoreDisplay">점수: 0</div>
+    </div>
+
+    <!-- 시작 화면 -->
+    <div id="startScreen" class="ui-layer bg-black bg-opacity-70 pointer-events-auto transition-opacity duration-300">
+        <h1 class="text-4xl font-bold text-white mb-4 text-center">WAR SURVIVE</h1>
+        <p class="text-gray-300 mb-8 text-center px-4">
+            좌우로 드래그하여 이동하세요.<br>
+            왼쪽의 <strong>녹색 벽</strong>을 부수면 업그레이드!<br>
+            오른쪽의 <strong>붉은 적</strong>을 물리치세요.<br>
+            총 5라운드의 보스를 쓰러뜨리세요!
+        </p>
+        <button onclick="startGame()" class="px-8 py-3 bg-blue-600 text-white rounded-full font-bold text-xl shadow-lg hover:bg-blue-500 transform transition hover:scale-105">
+            게임 시작
+        </button>
+    </div>
+
+    <!-- 게임 오버 화면 -->
+    <div id="gameOverScreen" class="ui-layer bg-red-900 bg-opacity-80 pointer-events-auto hidden">
+        <h1 class="text-5xl font-bold text-white mb-2">게임 오버</h1>
+        <p class="text-xl text-gray-200 mb-8">적과 부딪혔습니다!</p>
+        <button onclick="resetGame()" class="px-8 py-3 bg-white text-red-900 rounded-full font-bold text-xl shadow-lg hover:bg-gray-200 transform transition hover:scale-105">
+            다시 하기
+        </button>
+    </div>
+
+    <!-- 승리 화면 -->
+    <div id="victoryScreen" class="ui-layer bg-yellow-600 bg-opacity-80 pointer-events-auto hidden">
+        <h1 class="text-5xl font-bold text-white mb-2">임무 완수!</h1>
+        <p class="text-xl text-white mb-8">모든 보스를 물리쳤습니다!</p>
+        <button onclick="resetGame()" class="px-8 py-3 bg-white text-yellow-800 rounded-full font-bold text-xl shadow-lg hover:bg-gray-200 transform transition hover:scale-105">
+            처음부터 다시
+        </button>
+    </div>
+
+    <!-- 라운드 알림 -->
+    <div id="roundAnnouncement" class="ui-layer hidden">
+        <h2 id="roundText" class="text-4xl font-bold text-yellow-300 text-shadow-md drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">보스 등장!</h2>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI 요소
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const victoryScreen = document.getElementById('victoryScreen');
+    const roundAnnouncement = document.getElementById('roundAnnouncement');
+    const roundText = document.getElementById('roundText');
+    const roundDisplay = document.getElementById('roundDisplay');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+
+    // 게임 상태 변수
+    let gameState = 'start'; // start, playing, gameover, victory
+    let animationId;
+    let score = 0;
+    let round = 1;
+    let frameCount = 0;
+    let bossSpawnFrame = 1200; // 보스 등장 타이밍
+    
+    // 플레이어 설정
+    const player = {
+        x: canvas.width / 2,
+        y: canvas.height - 80,
+        radius: 12,
+        count: 1, // 인원수 (발사체 수 및 생명력 역할)
+        damage: 5,
+        fireRate: 25, // 낮을수록 빠름 (프레임 단위)
+        lastShot: 0,
+        color: '#4299e1' // 파란색
+    };
+
+    // 배열
+    let bullets = [];
+    let enemies = [];
+    let walls = [];
+    let particles = [];
+    let boss = null;
+
+    // 총알 속도 (적/벽의 속도는 동적으로 계산됨)
+    const BULLET_SPEED = -8;
+    
+    // 입력 처리 (마우스 이동만으로 조작)
+    function updatePlayerPosition(clientX) {
+        if (gameState !== 'playing') return;
+        const rect = canvas.getBoundingClientRect();
+        // 화면 크기에 맞게 좌표 변환
+        const scaleX = canvas.width / rect.width;
+        let x = (clientX - rect.left) * scaleX;
+        
+        // 화면 밖으로 나가지 않도록 제한
+        player.x = Math.max(20, Math.min(canvas.width - 20, x));
+    }
+
+    // 마우스 이벤트 (클릭 없이 바로 이동)
+    canvas.addEventListener('mousemove', (e) => { updatePlayerPosition(e.clientX); });
+
+    // 터치 이벤트
+    canvas.addEventListener('touchstart', (e) => { updatePlayerPosition(e.touches[0].clientX); });
+    canvas.addEventListener('touchmove', (e) => { 
+        e.preventDefault(); // 스크롤 방지
+        updatePlayerPosition(e.touches[0].clientX);
+    }, {passive: false});
+
+    // 유틸리티 함수
+    function showAnnouncement(text, duration = 2000) {
+        roundText.innerText = text;
+        roundAnnouncement.classList.remove('hidden');
+        setTimeout(() => {
+            roundAnnouncement.classList.add('hidden');
+        }, duration);
+    }
+
+    function createParticles(x, y, color, amount) {
+        for (let i = 0; i < amount; i++) {
+            particles.push({
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 5,
+                vy: (Math.random() - 0.5) * 5,
+                life: 1.0,
+                color: color
+            });
+        }
+    }
+
+    // 게임 시작 및 리셋
+    function startGame() {
+        startScreen.classList.add('hidden');
+        resetGame(true);
+    }
+
+    function resetGame(firstStart = false) {
+        if (!firstStart) {
+            gameOverScreen.classList.add('hidden');
+            victoryScreen.classList.add('hidden');
+        }
+        
+        gameState = 'playing';
+        score = 0;
+        round = 1;
+        frameCount = 0;
+        
+        // 플레이어 상태 완벽 초기화 (사격 버그 해결!)
+        player.x = canvas.width / 2;
+        player.count = 1;
+        player.damage = 5;
+        player.fireRate = 25;
+        player.lastShot = 0; 
+        
+        bullets = [];
+        enemies = [];
+        walls = [];
+        particles = [];
+        boss = null;
+        bossSpawnFrame = 1200; // 첫 라운드 보스 등장 타이밍
+        
+        updateHUD();
+        showAnnouncement(`라운드 1 시작!`);
+        
+        if (animationId) cancelAnimationFrame(animationId);
+        gameLoop();
+    }
+
+    function gameOver() {
+        gameState = 'gameover';
+        gameOverScreen.classList.remove('hidden');
+    }
+
+    function victory() {
+        gameState = 'victory';
+        victoryScreen.classList.remove('hidden');
+    }
+
+    function updateHUD() {
+        roundDisplay.innerText = `라운드: ${round}/5`;
+        scoreDisplay.innerText = `점수: ${score}`;
+    }
+
+    // 스폰 로직
+    function spawnEntities() {
+        // 보스 등장 조건
+        if (!boss && frameCount >= bossSpawnFrame) {
+            spawnBoss();
+        }
+
+        // 왼쪽에는 업그레이드 벽 스폰 (150 프레임마다)
+        if (frameCount % 150 === 0) {
+            const types = [
+                { type: 'clone', text: '+1 인원', color: '#48bb78', value: 1 },
+                { type: 'damage', text: '+공격력', color: '#ed8936', value: 2 },
+                { type: 'fireRate', text: '+연사력', color: '#9f7aea', value: 3 }
+            ];
+            const upgrade = types[Math.floor(Math.random() * types.length)];
+            
+            walls.push({
+                x: Math.random() * 120 + 30, // 왼쪽 영역
+                y: -50,
+                width: 70,
+                height: 40,
+                hp: 20 + ((round - 1) * 30), // 벽 체력 밸런스에 맞게 대폭 증가 (기본20 + 라운드당 30)
+                maxHp: 20 + ((round - 1) * 30),
+                ...upgrade
+            });
+        }
+
+        // 오른쪽에는 적 스폰 (라운드에 따라 빈도 급격히 증가)
+        const spawnRate = Math.max(25, 80 - (round * 12)); // 스폰 주기 동적 변경
+        if (frameCount % spawnRate === 0) {
+            enemies.push({
+                x: Math.random() * 140 + 220, // 오른쪽 영역
+                y: -30,
+                radius: 15,
+                hp: 15 + ((round - 1) * 15), // 일반 몹 체력 중간 난이도로 일정하게 증가
+                maxHp: 15 + ((round - 1) * 15),
+                color: '#e53e3e'
+            });
+        }
+    }
+
+    function spawnBoss() {
+        showAnnouncement(`보스 등장!`);
+        boss = {
+            x: canvas.width * 0.75, // 오른쪽 영역 중앙에 스폰
+            y: -100,
+            width: 120,
+            height: 80,
+            hp: 400 + ((round - 1) * 300), // 보스 체력 중간 난이도로 일정하게 증가
+            maxHp: 400 + ((round - 1) * 300),
+            color: '#805ad5'
+            // 좌우 이동 방향(moveDir) 변수 제거
+        };
+    }
+
+    // 업데이트 로직 (이동 및 충돌)
+    function update() {
+        frameCount++;
+        spawnEntities();
+
+        // [동적 난이도 조절] 라운드가 오를수록 스피드 증가
+        const currentWallSpeed = 1.0 + (round * 0.15);
+        const currentEnemySpeed = 1.0 + (round * 0.2);
+        const currentBossSpeed = 0.3 + (round * 0.05);
+
+        // 플레이어 사격
+        if (frameCount - player.lastShot >= player.fireRate) {
+            player.lastShot = frameCount;
+            // 인원수(count)에 따라 여러 발 발사
+            const spread = 15;
+            const startX = player.x - (spread * (Math.min(player.count, 5) - 1)) / 2;
+            
+            // 시각적으로 최대 5발까지만 넓게 퍼지게 쏘고, 데미지 자체는 중첩
+            const visualBullets = Math.min(player.count, 5); 
+            const damageMultiplier = Math.ceil(player.count / 5);
+
+            for (let i = 0; i < visualBullets; i++) {
+                bullets.push({
+                    x: startX + (i * spread),
+                    y: player.y - 20,
+                    damage: player.damage * damageMultiplier
+                });
+            }
+        }
+
+        // 총알 이동
+        for (let i = bullets.length - 1; i >= 0; i--) {
+            bullets[i].y += BULLET_SPEED;
+            if (bullets[i].y < -20) {
+                bullets.splice(i, 1);
+            }
+        }
+
+        // 파티클 업데이트
+        for (let i = particles.length - 1; i >= 0; i--) {
+            particles[i].x += particles[i].vx;
+            particles[i].y += particles[i].vy;
+            particles[i].life -= 0.05;
+            if (particles[i].life <= 0) particles.splice(i, 1);
+        }
+
+        // 벽 이동 및 충돌
+        for (let i = walls.length - 1; i >= 0; i--) {
+            let w = walls[i];
+            w.y += currentWallSpeed; // 동적 속도 적용
+            
+            // 총알과 벽 충돌 (AABB)
+            for (let j = bullets.length - 1; j >= 0; j--) {
+                let b = bullets[j];
+                if (b.x > w.x - w.width/2 && b.x < w.x + w.width/2 &&
+                    b.y > w.y - w.height/2 && b.y < w.y + w.height/2) {
+                    
+                    w.hp -= b.damage;
+                    bullets.splice(j, 1);
+                    createParticles(b.x, b.y, w.color, 3);
+                    
+                    if (w.hp <= 0) {
+                        // 벽 파괴 시 업그레이드 획득
+                        createParticles(w.x, w.y, w.color, 20);
+                        if (w.type === 'clone') player.count += w.value;
+                        if (w.type === 'damage') player.damage += w.value;
+                        if (w.type === 'fireRate') player.fireRate = Math.max(5, player.fireRate - w.value);
+                        
+                        // 업그레이드 알림 텍스트 효과 (파티클처럼 활용)
+                        showFloatingText(w.x, w.y, w.text, w.color);
+                        
+                        walls.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+            if (w && w.y > canvas.height + 50) walls.splice(i, 1);
+        }
+
+        // 적 이동 및 충돌
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            let e = enemies[i];
+            e.y += currentEnemySpeed; // 동적 속도 적용
+            
+            // 총알과 적 충돌 (원-점 거리)
+            for (let j = bullets.length - 1; j >= 0; j--) {
+                let b = bullets[j];
+                let dist = Math.hypot(b.x - e.x, b.y - e.y);
+                if (dist < e.radius + 5) {
+                    e.hp -= b.damage;
+                    bullets.splice(j, 1);
+                    createParticles(b.x, b.y, e.color, 3);
+                    
+                    if (e.hp <= 0) {
+                        createParticles(e.x, e.y, e.color, 15);
+                        score += 10;
+                        updateHUD();
+                        enemies.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+
+            // 플레이어와 적 충돌 및 놓침 처리
+            if (enemies.includes(e)) {
+                let pDist = Math.hypot(player.x - e.x, player.y - e.y);
+                if (pDist < player.radius + e.radius + (Math.min(player.count, 5)*3)) {
+                    // 적과 부딪히면 인원 1 감소, 적 파괴
+                    player.count--;
+                    createParticles(e.x, e.y, '#e53e3e', 20);
+                    showFloatingText(player.x, player.y - 20, "-1", "red");
+                    enemies.splice(i, 1);
+                    if (player.count <= 0) {
+                        gameOver();
+                        return;
+                    }
+                }
+                // 적을 놓쳤을 때 (화면 아래로 통과) 인원 감소
+                else if (e.y > canvas.height + 10) {
+                    player.count--;
+                    showFloatingText(player.x, player.y - 20, "놓침! -1", "red");
+                    enemies.splice(i, 1);
+                    if (player.count <= 0) {
+                        gameOver();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 보스 로직
+        if (boss) {
+            // 보스 내려오기 (일자로만 내려옴)
+            boss.y += currentBossSpeed;
+            
+            // 총알과 보스 충돌
+            for (let j = bullets.length - 1; j >= 0; j--) {
+                let b = bullets[j];
+                if (b.x > boss.x - boss.width/2 && b.x < boss.x + boss.width/2 &&
+                    b.y > boss.y - boss.height/2 && b.y < boss.y + boss.height/2) {
+                    
+                    boss.hp -= b.damage;
+                    bullets.splice(j, 1);
+                    createParticles(b.x, boss.y + boss.height/2, '#ecc94b', 5);
+                    
+                    if (boss.hp <= 0) {
+                        createParticles(boss.x, boss.y, boss.color, 50);
+                        score += 500 * round;
+                        boss = null;
+                        round++;
+                        updateHUD();
+                        
+                        if (round > 5) {
+                            victory();
+                            return;
+                        } else {
+                            showAnnouncement(`라운드 ${round} 클리어!`);
+                            // 체력 회복 및 다음 보스 타이밍 지연 (라운드마다 더 늦게 나옴)
+                            player.count += 2; 
+                            bossSpawnFrame = frameCount + 1200 + (round * 400);
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            // 보스가 플레이어 위치까지 내려오면 압사 (게임 오버)
+            if (boss && (boss.y + boss.height/2 >= player.y - player.radius)) {
+                 player.count = 0; // 즉사
+                 gameOver();
+                 return;
+            }
+        }
+        
+        // 떠다니는 텍스트 업데이트
+        for (let i = floatingTexts.length - 1; i >= 0; i--) {
+            floatingTexts[i].y -= 1;
+            floatingTexts[i].life -= 0.02;
+            if (floatingTexts[i].life <= 0) floatingTexts.splice(i, 1);
+        }
+    }
+
+    let floatingTexts = [];
+    function showFloatingText(x, y, text, color) {
+        floatingTexts.push({ x, y, text, color, life: 1.0 });
+    }
+
+    // 그리기 로직
+    function draw() {
+        // 배경 클리어
+        ctx.fillStyle = '#2d3748';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 중앙 분리선 그리기
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 10]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 0);
+        ctx.lineTo(canvas.width / 2, canvas.height);
+        ctx.stroke();
+        ctx.setLineDash([]); // 점선 설정 초기화
+
+        // 플레이어 (인원수에 따라 군집으로 그림)
+        const displayCount = Math.min(player.count, 9); // 화면에 그릴 최대 인원수
+        ctx.fillStyle = player.color;
+        
+        // 중심 캐릭터
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 추가 인원 그리기 (주변에 배치)
+        for (let i = 1; i < displayCount; i++) {
+            const angle = (i / (displayCount - 1)) * Math.PI - 0.5 * Math.PI;
+            const radiusOffset = 18 + (Math.floor(i/4) * 10);
+            const cx = player.x + Math.cos(angle) * radiusOffset;
+            const cy = player.y + Math.sin(angle) * radiusOffset;
+            
+            ctx.beginPath();
+            ctx.arc(cx, cy, player.radius * 0.8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // 인원수 텍스트
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(player.count, player.x, player.y + 25);
+
+        // 총알
+        ctx.fillStyle = '#ecc94b';
+        bullets.forEach(b => {
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // 파티클
+        particles.forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1.0;
+
+        // 벽 (업그레이드)
+        walls.forEach(w => {
+            // 박스
+            ctx.fillStyle = w.color;
+            ctx.globalAlpha = 0.8;
+            ctx.fillRect(w.x - w.width/2, w.y - w.height/2, w.width, w.height);
+            ctx.globalAlpha = 1.0;
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(w.x - w.width/2, w.y - w.height/2, w.width, w.height);
+            
+            // 텍스트
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText(w.text, w.x, w.y - 2);
+            ctx.font = '12px Arial';
+            ctx.fillText(`HP: ${w.hp}`, w.x, w.y + 14);
+            
+            // HP 바
+            const hpRatio = w.hp / w.maxHp;
+            ctx.fillStyle = 'red';
+            ctx.fillRect(w.x - w.width/2, w.y + w.height/2 + 2, w.width, 4);
+            ctx.fillStyle = '#48bb78';
+            ctx.fillRect(w.x - w.width/2, w.y + w.height/2 + 2, w.width * hpRatio, 4);
+        });
+
+        // 적
+        enemies.forEach(e => {
+            ctx.fillStyle = e.color;
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // HP 바
+            const hpRatio = Math.max(0, e.hp / e.maxHp);
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+            ctx.fillRect(e.x - 15, e.y - 22, 30, 4);
+            ctx.fillStyle = '#48bb78';
+            ctx.fillRect(e.x - 15, e.y - 22, 30 * hpRatio, 4);
+        });
+
+        // 보스
+        if (boss) {
+            ctx.fillStyle = boss.color;
+            ctx.fillRect(boss.x - boss.width/2, boss.y - boss.height/2, boss.width, boss.height);
+            
+            // 눈 그리기 (단순한 장식)
+            ctx.fillStyle = 'red';
+            ctx.beginPath(); ctx.arc(boss.x - 30, boss.y - 10, 10, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(boss.x + 30, boss.y - 10, 10, 0, Math.PI*2); ctx.fill();
+
+            // 보스 HP 바 (상단에 크게)
+            const hpRatio = Math.max(0, boss.hp / boss.maxHp);
+            ctx.fillStyle = 'gray';
+            ctx.fillRect(boss.x - boss.width/2, boss.y - boss.height/2 - 15, boss.width, 10);
+            ctx.fillStyle = '#f56565';
+            ctx.fillRect(boss.x - boss.width/2, boss.y - boss.height/2 - 15, boss.width * hpRatio, 10);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 10px Arial';
+            ctx.fillText(`BOSS HP`, boss.x, boss.y - boss.height/2 - 6);
+        }
+        
+        // 플로팅 텍스트
+        floatingTexts.forEach(ft => {
+            ctx.fillStyle = ft.color;
+            ctx.globalAlpha = ft.life;
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText(ft.text, ft.x, ft.y);
+        });
+        ctx.globalAlpha = 1.0;
+    }
+
+    // 메인 루프
+    function gameLoop() {
+        if (gameState === 'playing') {
+            update();
+            draw();
+            animationId = requestAnimationFrame(gameLoop);
+        }
+    }
+
+    // 초기 화면 그리기 (배경만)
+    draw();
+
+</script>
+</body>
+</html>

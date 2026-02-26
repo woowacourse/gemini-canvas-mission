@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sudoku Elite - Vanilla JS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f7f9;
+        }
+        .sudoku-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            border: 3px solid #0f172a;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            background-color: #0f172a;
+            width: 100%;
+            max-width: 700px;
+        }
+        .cell {
+            aspect-ratio: 1 / 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: white;
+            cursor: pointer;
+            font-weight: 900;
+            font-size: 1.5rem;
+            transition: all 0.1s ease-out;
+            position: relative;
+            border-right: 1px solid #f1f5f9;
+            border-bottom: 1px solid #f1f5f9;
+            user-select: none;
+        }
+        @media (min-width: 640px) {
+            .cell { font-size: 2.5rem; }
+        }
+        /* Grid dividers */
+        .cell:nth-child(3n) { border-right-width: 3px; border-right-color: #0f172a; }
+        .cell:nth-child(9n) { border-right: none; }
+        .cell:nth-child(n+19):nth-child(-n+27),
+        .cell:nth-child(n+46):nth-child(-n+54) { border-bottom-width: 3px; border-bottom-color: #0f172a; }
+        .cell:nth-child(n+73) { border-bottom: none; }
+
+        /* Highlight Logic */
+        .cell.selected {
+            background-color: #1d4ed8 !important;
+            color: white !important;
+            z-index: 10;
+            transform: scale(1.02);
+            box-shadow: inset 0 0 0 2px #2563eb, 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .cell.selected.wrong {
+            background-color: #be123c !important;
+        }
+
+        .cell.related { background-color: #f1f5f9; }
+        
+        .cell.same-number {
+            background-color: #dbeafe;
+            position: relative;
+        }
+        .cell.same-number::after {
+            content: '';
+            position: absolute;
+            inset: 4px;
+            border: 2px dashed #60a5fa;
+            border-radius: 4px;
+            opacity: 0.6;
+        }
+
+        .cell.initial { color: #0f172a; }
+        .cell.user-filled { color: #3b82f6; }
+        .cell.wrong { background-color: #fee2e2; color: #ef4444; }
+        
+        .note-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            width: 100%;
+            height: 100%;
+            padding: 4px;
+            pointer-events: none;
+        }
+        .note-num {
+            font-size: 0.5rem;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 500;
+            line-height: 1;
+        }
+        @media (min-width: 640px) {
+            .note-num { font-size: 0.75rem; }
+        }
+
+        .custom-select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1rem;
+        }
+
+        .answer-count-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background-color: #ef4444;
+            color: white;
+            font-size: 10px;
+            font-weight: 900;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid white;
+        }
+    </style>
+</head>
+<body class="text-slate-800">
+    <div class="min-h-screen flex items-center justify-center p-4">
+        <div class="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-12 gap-6 items-start lg:items-center">
+            
+            <!-- Sidebar -->
+            <aside class="lg:col-span-3 space-y-4 w-full">
+                <div class="bg-white rounded-[1.25rem] p-4 shadow-lg border border-white">
+                    <div class="mb-4">
+                        <label class="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">난이도 선택</label>
+                        <select id="difficulty-dropdown" class="custom-select w-full py-2 px-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all cursor-pointer">
+                            <option value="쉬움">쉬움 (Easy)</option>
+                            <option value="보통" selected>보통 (Medium)</option>
+                            <option value="어려움">어려움 (Hard)</option>
+                            <option value="전문가">전문가 (Expert)</option>
+                        </select>
+                    </div>
+
+                    <div class="space-y-2 mb-5">
+                        <div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <div class="flex items-center gap-1.5 text-slate-500 font-semibold text-[10px]">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                경과 시간
+                            </div>
+                            <span id="timer-display" class="font-mono font-bold text-sm text-slate-700">00:00</span>
+                        </div>
+                        <div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <div class="flex items-center gap-1.5 text-slate-500 font-semibold text-[10px]">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                                현재 상태
+                            </div>
+                            <span id="current-diff-label" class="font-bold text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">보통</span>
+                        </div>
+                    </div>
+
+                    <button id="restart-btn" class="w-full py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        게임 재시작
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Main Board -->
+            <main class="lg:col-span-9 flex flex-col items-center w-full">
+                <div class="bg-white p-4 sm:p-8 rounded-[3rem] shadow-2xl border border-white mb-6 w-full max-w-[700px] relative">
+                    <div id="sudoku-board" class="sudoku-grid mx-auto">
+                        <!-- Cells injected by JS -->
+                    </div>
+                    
+                    <!-- Win Overlay -->
+                    <div id="win-overlay" class="hidden absolute inset-0 bg-white/95 backdrop-blur-md z-20 flex flex-col items-center justify-center text-center rounded-[3rem]">
+                        <div class="w-20 h-20 bg-yellow-400 rounded-full flex items-center justify-center text-white shadow-2xl mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+                        </div>
+                        <h2 class="text-3xl font-black text-slate-900 mb-1">Victory!</h2>
+                        <p class="text-slate-500 font-bold mb-6">모든 퍼즐을 해결했습니다!</p>
+                        <button id="new-game-btn" class="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-xl hover:bg-blue-700 transition-all">새 게임 하기</button>
+                    </div>
+                </div>
+
+                <!-- Number Pad & Controls -->
+                <div class="w-full max-w-[600px] bg-white p-6 rounded-[2.5rem] shadow-xl border border-white flex flex-col gap-6">
+                    <div class="flex justify-around items-center border-b border-slate-50 pb-4">
+                        <button id="tool-eraser" class="tool-btn flex flex-col items-center gap-1.5 group">
+                            <div class="w-12 h-12 rounded-xl flex items-center justify-center bg-slate-50 text-slate-400 group-hover:bg-slate-100 transition-all">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21 14-14L17 3 3 17v4h4Z"/><path d="m14 3 7 7"/></svg>
+                            </div>
+                            <span class="text-[9px] font-black uppercase tracking-widest text-slate-300">지우개</span>
+                        </button>
+                        <button id="tool-note" class="tool-btn flex flex-col items-center gap-1.5 group">
+                            <div id="note-icon-bg" class="w-12 h-12 rounded-xl flex items-center justify-center bg-slate-50 text-slate-400 group-hover:bg-slate-100 transition-all">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                            </div>
+                            <span id="note-label" class="text-[9px] font-black uppercase tracking-widest text-slate-300">메모 모드</span>
+                        </button>
+                        <button id="tool-answer" class="tool-btn flex flex-col items-center gap-1.5 group relative">
+                            <div id="answer-icon-bg" class="w-12 h-12 rounded-xl flex items-center justify-center bg-slate-50 text-slate-400 group-hover:bg-slate-100 transition-all">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+                            </div>
+                            <span class="text-[9px] font-black uppercase tracking-widest text-slate-300">정답 보기</span>
+                            <div id="answer-count" class="answer-count-badge">3</div>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-9 gap-2" id="number-pad">
+                        <!-- Numbers 1-9 generated by JS -->
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const DIFF_SETTINGS = {
+            '쉬움': { blanks: 32, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            '보통': { blanks: 45, color: 'text-blue-600', bg: 'bg-blue-50' },
+            '어려움': { blanks: 54, color: 'text-orange-600', bg: 'bg-orange-50' },
+            '전문가': { blanks: 62, color: 'text-rose-600', bg: 'bg-rose-50' }
+        };
+
+        let solutionGrid = [];
+        let currentGrid = [];
+        let originalGrid = [];
+        let selected = null; 
+        let isNoteMode = false;
+        let noteStorage = {}; 
+        let currentDifficulty = '보통';
+        let elapsedTime = 0;
+        let timerRef = null;
+        let isGameOver = false;
+        let answerChance = 3; // Answer chances count
+
+        function generateBoard() {
+            const base = [
+                [5,3,4,6,7,8,9,1,2], [6,7,2,1,9,5,3,4,8], [1,9,8,3,4,2,5,6,7],
+                [8,5,9,7,6,1,4,2,3], [4,2,6,8,5,3,7,9,1], [7,1,3,9,2,4,8,5,6],
+                [9,6,1,5,3,7,2,8,4], [2,8,7,4,1,9,6,3,5], [3,4,5,2,8,6,1,7,9]
+            ];
+            // Simple Shuffle for randomness
+            let grid = JSON.parse(JSON.stringify(base));
+            for(let i=0; i<10; i++) {
+                // Swap rows within blocks
+                let b = Math.floor(Math.random()*3)*3;
+                let r1 = b + Math.floor(Math.random()*3);
+                let r2 = b + Math.floor(Math.random()*3);
+                [grid[r1], grid[r2]] = [grid[r2], grid[r1]];
+            }
+            return grid;
+        }
+
+        function createPuzzle(solved, level) {
+            let puzzle = JSON.parse(JSON.stringify(solved));
+            let blanks = DIFF_SETTINGS[level].blanks;
+            let removed = 0;
+            while (removed < blanks) {
+                let r = Math.floor(Math.random() * 9);
+                let c = Math.floor(Math.random() * 9);
+                if (puzzle[r][c] !== null) {
+                    puzzle[r][c] = null;
+                    removed++;
+                }
+            }
+            return puzzle;
+        }
+
+        function initGame(level = currentDifficulty) {
+            currentDifficulty = level;
+            solutionGrid = generateBoard();
+            currentGrid = createPuzzle(solutionGrid, level);
+            originalGrid = JSON.parse(JSON.stringify(currentGrid));
+            
+            noteStorage = {};
+            selected = null;
+            elapsedTime = 0;
+            isGameOver = false;
+            answerChance = 3;
+            
+            document.getElementById('win-overlay').classList.add('hidden');
+            document.getElementById('difficulty-dropdown').value = level;
+            document.getElementById('answer-count').innerText = answerChance;
+            document.getElementById('tool-answer').style.opacity = "1";
+            document.getElementById('tool-answer').style.cursor = "pointer";
+
+            updateSidebarUI();
+            renderBoard();
+            startTimer();
+        }
+
+        function startTimer() {
+            if (timerRef) clearInterval(timerRef);
+            document.getElementById('timer-display').innerText = "00:00";
+            timerRef = setInterval(() => {
+                elapsedTime++;
+                const m = Math.floor(elapsedTime / 60).toString().padStart(2, '0');
+                const s = (elapsedTime % 60).toString().padStart(2, '0');
+                document.getElementById('timer-display').innerText = `${m}:${s}`;
+            }, 1000);
+        }
+
+        function renderBoard() {
+            const board = document.getElementById('sudoku-board');
+            board.innerHTML = '';
+            
+            const selectedVal = selected ? currentGrid[selected[0]][selected[1]] : null;
+
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    const cellVal = currentGrid[r][c];
+                    const isSelected = selected && selected[0] === r && selected[1] === c;
+                    const isOrig = originalGrid[r][c] !== null;
+                    const isWrong = cellVal !== null && cellVal !== solutionGrid[r][c];
+                    
+                    let isRelated = false;
+                    let isSameNumber = false;
+
+                    if (selected) {
+                        const [sr, sc] = selected;
+                        const sameBox = Math.floor(r/3) === Math.floor(sr/3) && Math.floor(c/3) === Math.floor(sc/3);
+                        if ((r === sr || c === sc || sameBox) && !(r === sr && c === sc)) {
+                            isRelated = true;
+                        }
+                        if (selectedVal !== null && cellVal === selectedVal && !isSelected) {
+                            isSameNumber = true;
+                        }
+                    }
+
+                    const div = document.createElement('div');
+                    let classList = ['cell'];
+                    if (isSelected) classList.push('selected');
+                    if (!isSelected && isSameNumber) classList.push('same-number');
+                    if (!isSelected && !isSameNumber && isRelated) classList.push('related');
+                    if (isOrig) classList.push('initial');
+                    else if (cellVal !== null) classList.push('user-filled');
+                    if (isWrong) classList.push('wrong');
+
+                    div.className = classList.join(' ');
+                    
+                    if (cellVal !== null) {
+                        div.innerText = cellVal;
+                    } else if (noteStorage[`${r}-${c}`]) {
+                        const ng = document.createElement('div');
+                        ng.className = 'note-grid';
+                        const activeNotes = noteStorage[`${r}-${c}`];
+                        for (let n = 1; n <= 9; n++) {
+                            const ns = document.createElement('div');
+                            ns.className = 'note-num';
+                            ns.innerText = activeNotes.includes(n) ? n : '';
+                            ng.appendChild(ns);
+                        }
+                        div.appendChild(ng);
+                    }
+
+                    div.onclick = () => {
+                        if (isGameOver) return;
+                        selected = [r, c];
+                        renderBoard();
+                    };
+                    board.appendChild(div);
+                }
+            }
+        }
+
+        function updateSidebarUI() {
+            const label = document.getElementById('current-diff-label');
+            label.innerText = currentDifficulty;
+            label.className = `font-bold text-[10px] px-2 py-0.5 rounded-full ${DIFF_SETTINGS[currentDifficulty].bg} ${DIFF_SETTINGS[currentDifficulty].color}`;
+        }
+
+        function handleInput(num) {
+            if (!selected || isGameOver) return;
+            const [r, c] = selected;
+            if (originalGrid[r][c] !== null) return;
+
+            if (isNoteMode) {
+                const key = `${r}-${c}`;
+                if (!noteStorage[key]) noteStorage[key] = [];
+                if (noteStorage[key].includes(num)) {
+                    noteStorage[key] = noteStorage[key].filter(n => n !== num);
+                } else {
+                    noteStorage[key].push(num);
+                }
+                currentGrid[r][c] = null;
+            } else {
+                currentGrid[r][c] = (currentGrid[r][c] === num) ? null : num;
+                delete noteStorage[`${r}-${c}`];
+                checkWin();
+            }
+            renderBoard();
+        }
+
+        function handleErase() {
+            if (!selected || isGameOver) return;
+            const [r, c] = selected;
+            if (originalGrid[r][c] !== null) return;
+            currentGrid[r][c] = null;
+            delete noteStorage[`${r}-${c}`];
+            renderBoard();
+        }
+
+        function handleShowAnswer() {
+            if (!selected || isGameOver || answerChance <= 0) return;
+            const [r, c] = selected;
+            
+            // If already filled with correct initial value or correct user value, don't waste a chance
+            if (currentGrid[r][c] === solutionGrid[r][c]) return;
+
+            // Fill the correct answer
+            currentGrid[r][c] = solutionGrid[r][c];
+            delete noteStorage[`${r}-${c}`];
+            
+            // Deduct chance
+            answerChance--;
+            document.getElementById('answer-count').innerText = answerChance;
+            
+            if (answerChance === 0) {
+                document.getElementById('tool-answer').style.opacity = "0.3";
+                document.getElementById('tool-answer').style.cursor = "not-allowed";
+                document.getElementById('answer-count').style.backgroundColor = "#94a3b8";
+            }
+
+            checkWin();
+            renderBoard();
+        }
+
+        function checkWin() {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (currentGrid[r][c] !== solutionGrid[r][c]) return;
+                }
+            }
+            isGameOver = true;
+            clearInterval(timerRef);
+            document.getElementById('win-overlay').classList.remove('hidden');
+        }
+
+        // --- Init ---
+        const pad = document.getElementById('number-pad');
+        for (let i = 1; i <= 9; i++) {
+            const b = document.createElement('button');
+            b.className = "aspect-square bg-slate-50 hover:bg-blue-600 hover:text-white rounded-xl flex items-center justify-center text-xl sm:text-2xl font-black text-slate-700 transition-all active:scale-95 shadow-sm";
+            b.innerText = i;
+            b.onclick = () => handleInput(i);
+            pad.appendChild(b);
+        }
+
+        document.getElementById('tool-eraser').onclick = handleErase;
+        document.getElementById('tool-answer').onclick = handleShowAnswer;
+        document.getElementById('tool-note').onclick = () => {
+            isNoteMode = !isNoteMode;
+            const bg = document.getElementById('note-icon-bg');
+            const label = document.getElementById('note-label');
+            if (isNoteMode) {
+                bg.classList.replace('bg-slate-50', 'bg-blue-600');
+                bg.classList.replace('text-slate-400', 'text-white');
+                label.classList.replace('text-slate-300', 'text-blue-600');
+            } else {
+                bg.classList.replace('bg-blue-600', 'bg-slate-50');
+                bg.classList.replace('text-white', 'text-slate-400');
+                label.classList.replace('text-blue-600', 'text-slate-300');
+            }
+        };
+
+        document.getElementById('difficulty-dropdown').onchange = (e) => {
+            initGame(e.target.value);
+        };
+
+        document.getElementById('restart-btn').onclick = () => initGame();
+        document.getElementById('new-game-btn').onclick = () => initGame();
+
+        window.onkeydown = (e) => {
+            if (isGameOver) return;
+            if (e.key >= '1' && e.key <= '9') handleInput(parseInt(e.key));
+            if (e.key === 'Backspace' || e.key === 'Delete') handleErase();
+        };
+
+        initGame();
+        
+    </script>
+</body>
+</html>

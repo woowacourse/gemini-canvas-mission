@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java Collection Dungeon - Clean Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #020617; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
+        canvas { display: block; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px); align-items: center; justify-content: center; z-index: 50; }
+        .modal-overlay.active { display: flex; }
+        .progress-bar-fill { transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes pulse-gold {
+            0%, 100% { box-shadow: 0 0 15px rgba(251, 191, 36, 0.4); border-color: rgba(251, 191, 36, 0.8); }
+            50% { box-shadow: 0 0 30px rgba(251, 191, 36, 0.7); border-color: rgba(251, 191, 36, 1); }
+        }
+        .challenge-glow { animation: pulse-gold 2s infinite; }
+    </style>
+</head>
+<body>
+
+    <!-- Header & Progress -->
+    <header class="fixed top-0 left-0 right-0 p-4 bg-slate-900/90 border-b border-slate-800 shadow-xl z-20 flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-md">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-indigo-600 rounded-lg shadow-lg">
+                <i data-lucide="map-list" class="w-6 h-6 text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight">Java Collection Dungeon</h1>
+                <p class="text-[10px] text-slate-400 uppercase tracking-widest">Clean Explorer Mode v3.0</p>
+            </div>
+        </div>
+
+        <div class="flex-1 max-w-md w-full px-4 text-center md:text-left">
+            <div class="flex justify-between text-[10px] mb-1 font-bold text-slate-400">
+                <span>전체 탐험 진행률</span>
+                <span id="progress-text">0%</span>
+            </div>
+            <div class="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                <div id="progress-fill" class="progress-bar-fill h-full bg-gradient-to-r from-blue-600 to-indigo-500 w-0"></div>
+            </div>
+        </div>
+
+        <div class="flex gap-2">
+            <button onclick="resetCamera()" class="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors" title="화면 중앙으로">
+                <i data-lucide="maximize" class="w-5 h-5"></i>
+            </button>
+            <button onclick="clearProgress()" class="p-2 bg-slate-800 hover:bg-red-900/30 hover:text-red-400 rounded-lg border border-slate-700 transition-colors" title="초기화">
+                <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Canvas -->
+    <canvas id="dungeonCanvas"></canvas>
+
+    <!-- UI Legend -->
+    <div class="fixed bottom-6 right-6 p-4 bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl text-[10px] space-y-2 z-10">
+        <div class="flex items-center gap-2">
+            <div class="w-3 h-3 rounded-full bg-indigo-600"></div> <span>정복 완료 (클릭 시 요약)</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-3 h-3 rounded-full border-2 border-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]"></div> <span>도전 가능 (클릭 시 퀴즈 시작)</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-3 h-3 rounded-full bg-slate-950 border border-slate-800"></div> <span>잠김</span>
+        </div>
+        <p class="text-slate-500 pt-2 border-t border-slate-800">마우스 휠: 확대/축소 | 드래그: 이동</p>
+    </div>
+
+    <!-- Quiz Modal -->
+    <div id="quizModal" class="modal-overlay">
+        <div class="bg-slate-900 border-2 border-indigo-500 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden m-4">
+            <div class="bg-slate-800 p-6 flex justify-between items-center border-b border-slate-700">
+                <div class="flex items-center gap-3">
+                    <div class="bg-indigo-600 p-2 rounded-lg shadow-lg"><i data-lucide="shield-check" class="w-5 h-5 text-white"></i></div>
+                    <div>
+                        <h3 id="quiz-title" class="font-bold text-lg text-white">관문 챌린지</h3>
+                        <p class="text-[10px] text-slate-400">3연속 정답 시 통과</p>
+                    </div>
+                </div>
+                <div id="quiz-dots" class="flex gap-2"></div>
+            </div>
+            <div class="p-8 min-h-[350px]" id="quiz-content"></div>
+            <div class="px-8 pb-6 text-center border-t border-slate-800/50 pt-4">
+                <button onclick="closeQuiz()" class="text-slate-500 text-xs font-bold hover:text-slate-300 uppercase tracking-widest transition-colors">탐험 중단하고 도망치기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Modal -->
+    <div id="infoModal" class="modal-overlay">
+        <div class="bg-slate-900 border border-slate-700 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden m-4">
+            <div class="p-6 bg-indigo-900/20 border-b border-slate-800 flex items-center gap-4">
+                <div class="bg-indigo-600/20 p-2 rounded-lg"><i data-lucide="award" class="w-7 h-7 text-indigo-400"></i></div>
+                <h3 id="info-title" class="text-2xl font-black text-white uppercase tracking-tight"></h3>
+            </div>
+            <div class="p-8">
+                <div class="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 mb-6 shadow-inner">
+                    <p id="info-desc" class="text-slate-300 italic leading-relaxed"></p>
+                </div>
+                <button onclick="closeInfo()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-600/20">맵으로 돌아가기</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Data Definitions ---
+        const DUNGEON_DATA = [
+            { id: 'iterable', label: 'Iterable', parents: [], pos: { x: 150, y: 400 }, description: '대상을 순회(Iteration)할 수 있음을 의미하는 자바 컬렉션의 가장 기초가 되는 인터페이스입니다. for-each 구문의 엔진 역할을 합니다.' },
+            { id: 'collection', label: 'Collection', parents: ['iterable'], pos: { x: 380, y: 400 }, description: 'List, Set, Queue의 공통 동작을 정의하는 루트 인터페이스입니다. 데이터를 추가, 삭제, 확인하는 핵심 표준 메서드를 제공합니다.' },
+            { id: 'list', label: 'List', parents: ['collection'], pos: { x: 600, y: 250 }, description: '순서가 유지되고 중복을 허용하는 선형 자료구조입니다. ArrayList, LinkedList 등이 있으며 인덱스로 빠르게 데이터에 접근합니다.' },
+            { id: 'set', label: 'Set', parents: ['collection'], pos: { x: 600, y: 400 }, description: '중복을 허용하지 않는 수학적 집합을 모델링했습니다. 순서가 없는 HashSet과 정렬을 지원하는 TreeSet 등이 대표적입니다.' },
+            { id: 'map', label: 'Map', parents: ['collection'], pos: { x: 600, y: 550 }, description: 'Key와 Value의 쌍으로 데이터를 관리합니다. Key는 중복될 수 없으며, 매우 빠른 데이터 검색 성능을 보장합니다.' },
+            { id: 'stream', label: 'Stream', parents: ['list', 'set', 'map'], pos: { x: 900, y: 400 }, description: '자바 8에서 도입된 함수형 프로그래밍 스타일의 API입니다. 컬렉션 데이터를 선언적으로 처리하며 지연 연산과 병렬 처리를 지원합니다.' }
+        ];
+
+        // --- Question Database (10 each) ---
+        const QUESTION_DATABASE = {
+            'iterable': [
+                {q: "Iterable 인터페이스를 구현한 객체에서 요소를 순회하기 위해 호출하는 메서드는?", a: ["iterator()", "next()", "hasNext()", "get()"], correct: 0},
+                {q: "for-each 루프를 사용할 수 있는 객체는 어떤 인터페이스를 반드시 구현해야 하나요?", a: ["Collection", "List", "Iterable", "Map"], correct: 2},
+                {q: "iterator() 메서드가 반환하는 객체의 타입은 무엇입니까?", a: ["Iterable", "Iterator", "Collection", "List"], correct: 1},
+                {q: "Java 8부터 추가된 Iterable의 디폴트 메서드로, 함수형 처리를 돕는 것은?", a: ["map()", "forEach()", "filter()", "reduce()"], correct: 1},
+                {q: "Iterable 인터페이스는 어떤 패키지에 정의되어 있습니까?", a: ["java.util", "java.lang", "java.io", "java.stream"], correct: 1},
+                {q: "Iterator 인터페이스의 추상 메서드가 아닌 것은?", a: ["hasNext()", "next()", "remove()", "add()"], correct: 3},
+                {q: "Iterator에서 다음 데이터가 있는지 확인하는 메서드 이름은?", a: ["isNext()", "checkNext()", "hasNext()", "exists()"], correct: 2},
+                {q: "Collection 인터페이스는 Iterable을 상속받습니까?", a: ["예", "아니오"], correct: 0},
+                {q: "병렬 처리를 위한 Spliterator를 얻는 메서드가 Iterable에 포함되어 있나요?", a: ["예", "아니오"], correct: 0},
+                {q: "Iterator의 remove() 메서드를 통해 요소를 안전하게 삭제할 수 있습니까?", a: ["예", "아니오"], correct: 0}
+            ],
+            'collection': [
+                {q: "Collection 인터페이스에 정의되지 않은 메서드는?", a: ["add()", "size()", "isEmpty()", "get()"], correct: 3},
+                {q: "컬렉션의 모든 데이터를 비우는 메서드는?", a: ["delete()", "clear()", "reset()", "removeAll()"], correct: 1},
+                {q: "특정 객체가 컬렉션에 들어있는지 확인하는 메서드는?", a: ["has()", "find()", "contains()", "search()"], correct: 2},
+                {q: "Collection을 배열로 변환할 때 사용하는 메서드는?", a: ["toArray()", "asArray()", "toList()", "convert()"], correct: 0},
+                {q: "Collection 인터페이스는 Map을 상속받습니까?", a: ["예", "아니오"], correct: 1},
+                {q: "컬렉션에 담긴 요소의 개수를 반환하는 메서드는?", a: ["length()", "count()", "size()", "capacity()"], correct: 2},
+                {q: "Collection은 인터페이스입니까 아니면 추상 클래스입니까?", a: ["추상 클래스", "인터페이스", "일반 클래스", "열거형"], correct: 1},
+                {q: "다른 컬렉션의 모든 요소를 현재 컬렉션에 추가하는 메서드는?", a: ["addAll()", "appendAll()", "insertAll()", "push()"], correct: 0},
+                {q: "retainAll(Collection c) 메서드의 기능은 무엇입니까?", a: ["합집합 만들기", "교집합만 남기기", "차집합 만들기", "모든 요소 삭제"], correct: 1},
+                {q: "컬렉션 데이터를 Stream으로 변환하는 메서드 이름은?", a: ["asStream()", "toStream()", "stream()", "getStream()"], correct: 2}
+            ],
+            'list': [
+                {q: "ArrayList와 LinkedList 중 '인덱스 접근' 속도가 더 빠른 구조는?", a: ["ArrayList", "LinkedList"], correct: 0},
+                {q: "List 인터페이스에서 특정 인덱스에 요소를 끼워넣는 메서드 형태는?", a: ["add(int, E)", "insert(int, E)", "put(int, E)", "push(E)"], correct: 0},
+                {q: "Vector 클래스는 멀티스레드 환경에서 안전하게 설계되었습니까?", a: ["예", "아니오"], correct: 0},
+                {q: "LinkedList가 큐(Queue)처럼 쓰이기 위해 추가로 구현하는 인터페이스는?", a: ["Set", "Deque", "Map", "Stack"], correct: 1},
+                {q: "List를 정렬할 때 흔히 사용하는 유틸리티 클래스는?", a: ["Arrays", "Collections", "ListSorter", "Organizer"], correct: 1},
+                {q: "인덱스로 리스트의 데이터를 가져오는 메서드는?", a: ["at()", "get()", "fetch()", "pick()"], correct: 1},
+                {q: "List 자료구조는 중복된 데이터 저장을 허용합니까?", a: ["예", "아니오"], correct: 0},
+                {q: "ArrayList의 기본 초기 용량(Capacity)은 얼마인가요?", a: ["5", "10", "15", "20"], correct: 1},
+                {q: "Stack 클래스는 공식적으로 어떤 인터페이스의 하위 클래스입니까?", a: ["List", "Set", "Map", "None"], correct: 0},
+                {q: "특정 요소의 첫 번째 인덱스 위치를 찾는 메서드는?", a: ["find()", "indexOf()", "locate()", "search()"], correct: 1}
+            ],
+            'set': [
+                {q: "정렬된 순서를 유지하는 Set의 대표적인 구현체는?", a: ["HashSet", "LinkedHashSet", "TreeSet", "SortedSet"], correct: 2},
+                {q: "HashSet은 내부적으로 무엇을 사용하여 중복을 방지합니까?", a: ["ArrayList", "LinkedList", "HashMap", "BinaryTree"], correct: 2},
+                {q: "Set에 이미 존재하는 요소를 add() 하면 어떤 일이 벌어지나요?", a: ["에러 발생", "무시됨(false 반환)", "덮어씌워짐", "삭제됨"], correct: 1},
+                {q: "입력한 데이터의 순서를 보장하는 Set 구현체는?", a: ["HashSet", "LinkedHashSet", "TreeSet", "ArraySet"], correct: 1},
+                {q: "Set 인터페이스는 인덱스 기반의 get(index) 접근을 지원합니까?", a: ["예", "아니오"], correct: 1},
+                {q: "HashSet에서 null 저장을 허용합니까?", a: ["예 (하나만)", "아니오", "여러 개"], correct: 0},
+                {q: "Set에서 중복 판단을 위해 객체가 올바르게 구현해야 하는 메서드 쌍은?", a: ["toString/equals", "hashCode/equals", "clone/equals", "init/equals"], correct: 1},
+                {q: "TreeSet의 시간 복잡도는 탐색 시 보통 얼마인가요?", a: ["O(1)", "O(n)", "O(log n)", "O(n!)"], correct: 2},
+                {q: "두 Set의 합집합을 구하기 위해 사용하는 메서드는?", a: ["union()", "addAll()", "merge()", "combine()"], correct: 1},
+                {q: "Set의 데이터를 순회할 때 가장 권장되는 방법은?", a: ["for-each 문", "get(i) 루프", "index 접근", "Key 검색"], correct: 0}
+            ],
+            'map': [
+                {q: "Map 인터페이스에서 데이터를 저장할 때 사용하는 메서드는?", a: ["add()", "push()", "put()", "insert()"], correct: 2},
+                {q: "Map의 모든 Key들만 모아서 Set으로 반환하는 메서드는?", a: ["getKeys()", "keySet()", "keyArray()", "entryKey()"], correct: 1},
+                {q: "정렬된 순서를 유지하는 Map 구현체는?", a: ["HashMap", "Hashtable", "TreeMap", "LinkedHashMap"], correct: 2},
+                {q: "찾는 Key가 없을 때 지정한 기본값을 반환하는 Java 8 메서드는?", a: ["get()", "getOrDefault()", "fetchDefault()", "findOrDefault()"], correct: 1},
+                {q: "Key와 Value가 한 쌍으로 묶인 객체의 타입 이름은?", a: ["Entry", "Pair", "Record", "Node"], correct: 0},
+                {q: "Map은 Collection 인터페이스를 상속받습니까?", a: ["예", "아니오"], correct: 1},
+                {q: "Hashtable과 HashMap의 차이점이 아닌 것은?", a: ["동기화 여부", "null 허용 여부", "성능 차이", "List 상속 여부"], correct: 3},
+                {q: "특정 Value가 Map에 존재하는지 확인하는 메서드는?", a: ["containsValue()", "hasValue()", "isValue()", "findValue()"], correct: 0},
+                {q: "입력한 순서대로 데이터를 보관하는 Map 구현체는?", a: ["HashMap", "LinkedHashMap", "TreeMap", "WeakHashMap"], correct: 1},
+                {q: "Map에 저장된 데이터 쌍의 개수를 확인하는 메서드는?", a: ["length()", "size()", "count()", "capacity()"], correct: 1}
+            ],
+            'stream': [
+                {q: "다음 중 스트림의 '중간 연산'이 아닌 것은?", a: ["filter()", "map()", "sorted()", "forEach()"], correct: 3},
+                {q: "스트림 최종 연산 중 결과를 다시 컬렉션으로 변환하는 것은?", a: ["collect()", "toList()", "gather()", "assemble()"], correct: 0},
+                {q: "Stream 연산은 원본 데이터 소스를 직접 수정합니까?", a: ["예", "아니오"], correct: 1},
+                {q: "병렬 처리를 위한 스트림 생성 메서드는?", a: ["parallelStream()", "multiStream()", "asyncStream()", "fastStream()"], correct: 0},
+                {q: "한 번 최종 연산이 끝난 스트림을 다시 사용할 수 있습니까?", a: ["예", "아니오"], correct: 1},
+                {q: "조건에 맞는 요소만 걸러내는 중간 연산은?", a: ["pick()", "filter()", "select()", "extract()"], correct: 1},
+                {q: "요소의 타입을 다른 타입으로 변환하는 중간 연산은?", a: ["change()", "map()", "convert()", "transform()"], correct: 1},
+                {q: "중간 연산은 언제 실제로 실행되나요?", a: ["즉시 실행", "최종 연산이 호출될 때 (Lazy)"], correct: 1},
+                {q: "모든 요소가 주어진 조건을 만족하는지 검사하는 연산은?", a: ["anyMatch()", "allMatch()", "noneMatch()", "isMatch()"], correct: 1},
+                {q: "요소의 개수를 반환하는 최종 연산은 무엇입니까?", a: ["count()", "size()", "length()", "total()"], correct: 0}
+            ]
+        };
+
+        // --- App State ---
+        let unlockedNodes = [];
+        let camera = { x: 100, y: 0, scale: 0.9 };
+        let isDragging = false, dragStart = { x: 0, y: 0 };
+        let activeNode = null, currentQuizSet = [], currentQuizIndex = 0, isErrorState = false;
+
+        const canvas = document.getElementById('dungeonCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- Core Functions ---
+        function init() {
+            lucide.createIcons();
+            loadProgress();
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('wheel', onWheel, { passive: false });
+            requestAnimationFrame(draw);
+            updateUI();
+        }
+
+        function resizeCanvas() { 
+            canvas.width = window.innerWidth; 
+            canvas.height = window.innerHeight; 
+            camera.y = canvas.height/2 - 400; 
+        }
+
+        function loadProgress() { 
+            unlockedNodes = JSON.parse(localStorage.getItem('java_dungeon_v3') || '[]'); 
+        }
+
+        function saveLocalProgress() { 
+            localStorage.setItem('java_dungeon_v3', JSON.stringify(unlockedNodes)); 
+            updateUI(); 
+        }
+
+        window.resetCamera = () => { camera = { x: 100, y: canvas.height/2 - 400, scale: 0.9 }; };
+        window.clearProgress = () => { if(confirm("모든 진척도를 삭제하고 던전을 초기화할까요?")) { unlockedNodes = []; saveLocalProgress(); } };
+
+        function updateUI() {
+            const progress = (unlockedNodes.length / DUNGEON_DATA.length) * 100;
+            document.getElementById('progress-fill').style.width = progress + '%';
+            document.getElementById('progress-text').textContent = Math.round(progress) + '%';
+        }
+
+        // --- Rendering Loop ---
+        function draw(time) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(camera.x, camera.y);
+            ctx.scale(camera.scale, camera.scale);
+
+            // 1. Connections
+            DUNGEON_DATA.forEach(node => {
+                node.parents.forEach(pid => {
+                    const p = DUNGEON_DATA.find(n => n.id === pid);
+                    const isU = unlockedNodes.includes(node.id);
+                    ctx.beginPath(); ctx.moveTo(p.pos.x, p.pos.y); ctx.lineTo(node.pos.x, node.pos.y);
+                    ctx.strokeStyle = isU ? '#4f46e5' : (unlockedNodes.includes(pid) ? '#1e293b' : '#0f172a');
+                    ctx.lineWidth = 4; ctx.setLineDash(isU ? [] : [10, 5]); ctx.stroke(); ctx.setLineDash([]);
+                });
+            });
+
+            // 2. Nodes
+            const targetNode = DUNGEON_DATA.find(n => !unlockedNodes.includes(n.id) && (n.parents.length === 0 || n.parents.every(p => unlockedNodes.includes(p))));
+
+            DUNGEON_DATA.forEach(node => {
+                const isU = unlockedNodes.includes(node.id), isC = (node === targetNode);
+                
+                // Glow Effect
+                if (isU) {
+                    ctx.shadowBlur = 20; ctx.shadowColor = 'rgba(79, 70, 229, 0.6)';
+                } else if (isC) {
+                    ctx.shadowBlur = 25 + Math.sin(time/200)*10; ctx.shadowColor = 'rgba(251, 191, 36, 0.6)';
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.beginPath(); ctx.arc(node.pos.x, node.pos.y, 45, 0, Math.PI * 2);
+                ctx.fillStyle = isU ? '#4f46e5' : (isC ? '#1e293b' : '#020617'); ctx.fill();
+                ctx.strokeStyle = isU ? '#818cf8' : (isC ? '#fbbf24' : '#334155'); ctx.lineWidth = isC ? 4 : 2; ctx.stroke();
+                
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = isU || isC ? 'white' : '#475569'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText(node.label, node.pos.x, node.pos.y + 6);
+
+                // "Current" indicator
+                if (isC) {
+                    ctx.fillStyle = '#fbbf24'; ctx.font = '10px sans-serif'; ctx.fillText('CHALLENGE AVAILABLE', node.pos.x, node.pos.y - 60);
+                }
+            });
+
+            ctx.restore(); requestAnimationFrame(draw);
+        }
+
+        // --- Event Handlers ---
+        function onMouseDown(e) { isDragging = true; dragStart = { x: e.clientX - camera.x, y: e.clientY - camera.y }; }
+        function onMouseMove(e) { if (isDragging) { camera.x = e.clientX - dragStart.x; camera.y = e.clientY - dragStart.y; } }
+        function onMouseUp(e) {
+            if (!isDragging) return; isDragging = false;
+            const r = canvas.getBoundingClientRect();
+            const cx = (e.clientX-r.left-camera.x)/camera.scale, cy = (e.clientY-r.top-camera.y)/camera.scale;
+            DUNGEON_DATA.forEach(n => { if(Math.sqrt((cx-n.pos.x)**2+(cy-n.pos.y)**2)<45) window.handleNodeClick(n); });
+        }
+        function onWheel(e) { e.preventDefault(); const d = Math.exp(-e.deltaY*0.001); camera.scale = Math.min(Math.max(camera.scale*d,0.4),2.5); }
+
+        window.handleNodeClick = (n) => {
+            if (unlockedNodes.includes(n.id)) {
+                document.getElementById('infoModal').classList.add('active');
+                document.getElementById('info-title').textContent = n.label;
+                document.getElementById('info-desc').textContent = n.description;
+                lucide.createIcons();
+            } else if (n.parents.length === 0 || n.parents.every(p => unlockedNodes.includes(p))) {
+                startQuiz(n);
+            }
+        };
+
+        function startQuiz(node) {
+            activeNode = node;
+            const allPossible = QUESTION_DATABASE[node.id] || [];
+            currentQuizSet = [...allPossible].sort(() => 0.5 - Math.random()).slice(0, 3);
+            currentQuizIndex = 0;
+            isErrorState = false;
+            document.getElementById('quizModal').classList.add('active');
+            document.getElementById('quiz-title').textContent = `${node.label} 관문 챌린지`;
+            renderQuiz();
+        }
+
+        window.closeQuiz = () => { document.getElementById('quizModal').classList.remove('active'); };
+        window.closeInfo = () => { document.getElementById('infoModal').classList.remove('active'); };
+
+        function renderQuiz() {
+            const dots = document.getElementById('quiz-dots');
+            dots.innerHTML = [0,1,2].map(i => `<div class="w-3 h-3 rounded-full transition-all duration-500 ${i < currentQuizIndex ? 'bg-green-500 shadow-lg scale-125' : (i===currentQuizIndex ? 'bg-amber-500 animate-pulse shadow-md' : 'bg-slate-700')}"></div>`).join('');
+            
+            const content = document.getElementById('quiz-content');
+            if (isErrorState) {
+                content.innerHTML = `<div class="text-center py-16 animate-pulse"><i data-lucide="zap" class="w-20 h-20 text-red-500 mx-auto mb-6 drop-shadow-xl"></i><h4 class="text-2xl font-black text-red-400">함정 발동! (오답)</h4><p class="text-slate-400 mt-4 text-sm font-medium">새로운 문제가 무작위로 재배치됩니다...</p></div>`;
+            } else {
+                const q = currentQuizSet[currentQuizIndex];
+                content.innerHTML = `
+                    <div class="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <span class="text-indigo-400 text-[10px] font-bold tracking-[0.2em] uppercase mb-4 block">QUEST 0${currentQuizIndex + 1} / 03</span>
+                        <h4 class="text-xl font-bold mb-10 text-white leading-relaxed tracking-tight">${q.q}</h4>
+                        <div class="grid gap-3">
+                            ${q.a.map((ans, idx) => `
+                                <button onclick="window.checkAnswer(${idx})" class="group flex items-center justify-between p-5 rounded-2xl bg-slate-800/50 border border-slate-700 hover:border-indigo-500 hover:bg-slate-800 transition-all text-left shadow-lg">
+                                    <span class="font-semibold text-slate-300 group-hover:text-white">${ans}</span>
+                                    <i data-lucide="arrow-right-circle" class="w-5 h-5 text-slate-600 group-hover:text-indigo-400 transition-all"></i>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            lucide.createIcons();
+        }
+
+        window.checkAnswer = (idx) => {
+            if (idx === currentQuizSet[currentQuizIndex].correct) {
+                currentQuizIndex++;
+                if (currentQuizIndex === 3) {
+                    unlockedNodes.push(activeNode.id);
+                    saveLocalProgress();
+                    setTimeout(window.closeQuiz, 600);
+                } else {
+                    renderQuiz();
+                }
+            } else {
+                isErrorState = true; renderQuiz();
+                setTimeout(() => startQuiz(activeNode), 1800);
+            }
+        };
+
+        window.onload = init;
+    </script>
+</body>
+</html>

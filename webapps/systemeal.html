@@ -21,6 +21,24 @@
 
         /* 드래그 상태 반투명 처리 */
         .dragging { opacity: 0.5; transform: scale(0.95); }
+
+        /* AI 로딩 애니메이션 */
+        .ai-shimmer {
+            background: linear-gradient(90deg, #fce7f3 25%, #fbcfe8 50%, #fce7f3 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        /* 간단한 마크다운 렌더링 스타일 */
+        .md-content h2, .md-content h3 { font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; color: #1f2937; }
+        .md-content p { margin-bottom: 0.5rem; line-height: 1.5; }
+        .md-content ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+        .md-content li { margin-bottom: 0.25rem; }
+        .md-content strong { color: #f97316; }
     </style>
 </head>
 <body class="bg-gray-100 font-sans text-gray-800 antialiased selection:bg-orange-200">
@@ -91,11 +109,19 @@
                 </div>
             </div>
 
-            <!-- 추가 버튼 -->
-            <button id="btn-add-item" class="w-full mb-4 py-3 bg-orange-50/80 border-2 border-dashed border-orange-300 text-orange-600 rounded-2xl flex items-center justify-center font-bold hover:bg-orange-100 transition-colors shadow-sm">
-                <i data-lucide="plus" class="w-5 h-5 mr-2" stroke-width="2.5"></i>
-                <span id="add-btn-text">새 식재료/요리 추가</span>
-            </button>
+            <!-- 버튼 그룹 -->
+            <div class="flex space-x-2 mb-4">
+                <!-- 추가 버튼 -->
+                <button id="btn-add-item" class="flex-1 py-3 bg-orange-50/80 border-2 border-dashed border-orange-300 text-orange-600 rounded-2xl flex items-center justify-center font-bold hover:bg-orange-100 transition-colors shadow-sm">
+                    <i data-lucide="plus" class="w-5 h-5 mr-1" stroke-width="2.5"></i>
+                    <span id="add-btn-text">새 추가</span>
+                </button>
+
+                <!-- AI 추천 버튼 -->
+                <button id="btn-ai-suggest" class="px-4 py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-2xl flex items-center justify-center font-bold hover:opacity-90 transition-all shadow-md active:scale-95">
+                    ✨ AI 파먹기
+                </button>
+            </div>
 
             <!-- 아이템 리스트 -->
             <div id="list-content" class="space-y-3 flex-1">
@@ -185,8 +211,13 @@
             </div>
 
             <!-- 상세 설명 -->
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                <label class="block text-sm font-semibold text-gray-700 mb-1">상세 설명 & 레시피</label>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 relative">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-semibold text-gray-700">상세 설명 & 레시피</label>
+                    <button type="button" id="btn-ai-recipe" class="hidden text-xs px-2.5 py-1.5 bg-purple-50 text-purple-600 border border-purple-200 rounded-lg font-bold hover:bg-purple-100 transition-colors flex items-center">
+                        ✨ AI 자동 완성
+                    </button>
+                </div>
                 <textarea id="input-desc" placeholder="상세한 조리법, 유통기한, 보관법 등 긴 기록을 남겨보세요." maxlength="1000" rows="5" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-gray-800 text-sm resize-y"></textarea>
                 <div id="desc-counter" class="text-right text-xs text-gray-400 mt-1">0/1000</div>
             </div>
@@ -208,6 +239,23 @@
 </div> <!-- App Container End -->
 
 <!-- === 모달 영역 === -->
+
+<!-- AI 레시피 추천 결과 모달 -->
+<div id="modal-ai-result" class="hidden absolute inset-0 z-50 bg-black/60 flex-col justify-end sm:justify-center items-center backdrop-blur-sm p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+        <div class="bg-gradient-to-r from-pink-500 to-purple-600 p-4 flex justify-between items-center text-white shrink-0">
+            <h2 class="text-lg font-bold flex items-center">✨ AI 냉장고 파먹기 추천</h2>
+            <button type="button" class="btn-close-modal p-1 hover:bg-white/20 rounded-full transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div id="ai-result-content" class="p-5 overflow-y-auto text-sm text-gray-700 md-content">
+            <!-- 렌더링 영역 -->
+        </div>
+        <div class="p-4 border-t border-gray-100 shrink-0">
+            <button type="button" class="btn-close-modal w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition-colors">닫기</button>
+        </div>
+    </div>
+</div>
+
 <!-- 생성 모달 -->
 <div id="modal-create" class="hidden absolute inset-0 z-50 bg-black/50 flex-col justify-end sm:justify-center items-center backdrop-blur-sm p-4 animate-in fade-in">
     <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
@@ -274,6 +322,44 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    // --- Gemini API Setup ---
+    const geminiApiKey = ""; // Environment provided
+
+    // 단순 마크다운을 HTML로 파싱하는 유틸
+    function parseSimpleMarkdown(text) {
+        let html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+        html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+        html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+        html = html.replace(/^- (.*$)/gim, '<li>$1</li>');
+        // 리스트 감싸기 처리 단순화
+        html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+        html = html.replace(/\n/g, '<br/>');
+        return html;
+    }
+
+    async function callGeminiAPI(prompt, retries = 5) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiApiKey}`;
+        const payload = { contents: [{ parts: [{ text: prompt }] }] };
+        let delay = 1000;
+        for (let i = 0; i < retries; i++) {
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                const data = await res.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "응답을 생성할 수 없습니다.";
+            } catch (err) {
+                if (i === retries - 1) throw err;
+                await new Promise(r => setTimeout(r, delay));
+                delay *= 2;
+            }
+        }
+    }
 
     const MAX_INT = 2147483647;
 
@@ -344,6 +430,7 @@
         list: {
             noticeLogin: document.getElementById('notice-login'),
             btnAdd: document.getElementById('btn-add-item'),
+            btnAiSuggest: document.getElementById('btn-ai-suggest'),
             addText: document.getElementById('add-btn-text'),
             content: document.getElementById('list-content'),
             tagContainer: document.getElementById('tag-filter-container'),
@@ -363,6 +450,7 @@
             inputTag: document.getElementById('input-tag'),
             subIngContainer: document.getElementById('form-sub-ingredients'),
             subList: document.getElementById('form-sub-list'),
+            btnAiRecipe: document.getElementById('btn-ai-recipe'),
             inputs: {
                 name: document.getElementById('input-name'),
                 subtitle: document.getElementById('input-subtitle'),
@@ -382,7 +470,9 @@
         },
         modals: {
             create: document.getElementById('modal-create'),
-            load: document.getElementById('modal-load')
+            load: document.getElementById('modal-load'),
+            aiResult: document.getElementById('modal-ai-result'),
+            aiResultContent: document.getElementById('ai-result-content')
         }
     };
 
@@ -435,8 +525,9 @@
         }, (err) => console.error(err));
     }
 
-    async function syncItemsToCloud() {
-        updateMainUI(); // 낙관적 업데이트
+    async function syncItemsToCloud(newItems) {
+        if (newItems) state.items = newItems;
+        updateMainUI();
         if (!state.user || !state.inventoryId || !state.pin) return;
         try {
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventories', state.inventoryId);
@@ -449,6 +540,17 @@
         localStorage.removeItem('ingredient_manager_session');
         if (state.unsubscribeSnapshot) state.unsubscribeSnapshot();
         updateMainUI();
+    }
+
+    // --- 클립보드 복사 헬퍼 ---
+    function copyToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try { document.execCommand('copy'); } catch (err) {}
+        document.body.removeChild(textArea);
     }
 
     // --- UI Renderers ---
@@ -519,7 +621,7 @@
             UI.list.tagContainer.classList.add('hidden');
         }
 
-        UI.list.addText.textContent = state.selectedTag !== '전체' ? `'${state.selectedTag}' 식재료 추가` : '새 식재료/요리 추가';
+        UI.list.addText.textContent = state.selectedTag !== '전체' ? `'${state.selectedTag}' 추가` : '새 추가';
 
         // Items
         const isFiltered = state.selectedTag !== '전체';
@@ -657,10 +759,12 @@
             UI.form.typeIng.className = 'flex-1 py-2.5 text-sm font-bold rounded-lg transition-all bg-white shadow-sm text-gray-800';
             UI.form.typeDish.className = 'flex-1 py-2.5 text-sm font-bold rounded-lg transition-all text-gray-500 hover:text-gray-700';
             UI.form.subIngContainer.classList.add('hidden');
+            UI.form.btnAiRecipe.classList.add('hidden');
         } else {
             UI.form.typeIng.className = 'flex-1 py-2.5 text-sm font-bold rounded-lg transition-all text-gray-500 hover:text-gray-700';
             UI.form.typeDish.className = 'flex-1 py-2.5 text-sm font-bold rounded-lg transition-all bg-orange-500 shadow-sm text-white';
             UI.form.subIngContainer.classList.remove('hidden');
+            UI.form.btnAiRecipe.classList.remove('hidden');
         }
     }
 
@@ -708,12 +812,67 @@
         UI.form.counters.desc.textContent = `${UI.form.inputs.desc.value.length}/1000`;
     }
 
+    // --- AI Features ---
+    async function handleAISuggestion() {
+        const activeIngredients = state.items.filter(i => i.status === 'active' && i.type === 'ingredient');
+        if (activeIngredients.length === 0) {
+            alert("먼저 식재료를 등록해주세요!");
+            return;
+        }
+
+        const ingNames = activeIngredients.map(i => i.name).join(', ');
+
+        UI.modals.aiResult.classList.remove('hidden');
+        UI.modals.aiResult.classList.add('flex');
+        UI.modals.aiResultContent.innerHTML = `<div class="flex flex-col items-center justify-center py-10"><div class="w-full h-24 rounded-2xl ai-shimmer mb-4"></div><p class="text-gray-500 font-bold animate-pulse">냉장고를 분석하여 요리를 추천하고 있습니다...</p></div>`;
+
+        const prompt = `내가 가진 식재료 목록이야: [${ingNames}]. 이 재료들 중 일부를 활용해서 당장 만들 수 있는 맛있고 간단한 요리 레시피 3가지를 추천해줘. 각 레시피마다 1) 필요한 재료, 2) 간단한 조리 순서를 포함해서 마크다운 형식으로 친절하게 설명해줘.`;
+
+        const responseText = await callGeminiAPI(prompt);
+        UI.modals.aiResultContent.innerHTML = parseSimpleMarkdown(responseText);
+    }
+
+    async function handleAIFormRecipe() {
+        const dishName = UI.form.inputs.name.value.trim();
+        if (!dishName) {
+            alert("요리 이름을 먼저 입력해주세요!");
+            return;
+        }
+
+        const selectedIngs = state.formChildIds.map(id => {
+            const item = state.items.find(i => i.id === id);
+            return item ? item.name : '';
+        }).filter(Boolean).join(', ');
+
+        const originalText = UI.form.btnAiRecipe.innerHTML;
+        UI.form.btnAiRecipe.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 mr-1 animate-spin"></i> 생성중...`;
+        UI.form.btnAiRecipe.disabled = true;
+        lucide.createIcons();
+
+        const prompt = `요리 이름: '${dishName}'. 내가 사용할 재료: [${selectedIngs || '없음'}]. 이 요리의 상세한 레시피(조리 순서)와 꿀팁, 보관 방법 등을 작성해줘. 1000자 이내로 텍스트 영역에 들어가기 좋게 간결하게 적어줘.`;
+
+        const responseText = await callGeminiAPI(prompt);
+
+        // Remove any markdown strong tags for plain textarea
+        const plainText = responseText.replace(/\*\*/g, '').replace(/#/g, '').trim();
+        UI.form.inputs.desc.value = plainText;
+        updateFormCounters();
+
+        UI.form.btnAiRecipe.innerHTML = originalText;
+        UI.form.btnAiRecipe.disabled = false;
+        lucide.createIcons();
+    }
+
     // --- Events & Logic ---
     function setupEventListeners() {
         // Inputs counters
         UI.form.inputs.name.addEventListener('input', updateFormCounters);
         UI.form.inputs.subtitle.addEventListener('input', updateFormCounters);
         UI.form.inputs.desc.addEventListener('input', updateFormCounters);
+
+        // AI Buttons
+        UI.list.btnAiSuggest.addEventListener('click', handleAISuggestion);
+        UI.form.btnAiRecipe.addEventListener('click', handleAIFormRecipe);
 
         // Nav
         UI.header.btnBack.addEventListener('click', () => { state.currentView = 'list'; updateMainUI(); });

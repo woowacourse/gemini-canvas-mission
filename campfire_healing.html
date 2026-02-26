@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 힐링 캠프파이어 시뮬레이터</title>
+    <!-- Three.js 라이브러리 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        :root {
+            --btn-bg: rgba(211, 84, 0, 0.8);
+            --btn-hover: rgba(230, 126, 34, 1);
+            --text-color: #f1f1f1;
+            --font-main: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --sidebar-bg: rgba(10, 15, 20, 0.85);
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: var(--font-main);
+            color: var(--text-color);
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        /* 컨트롤 UI (일시정지, 음소거 버튼) */
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 5;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease;
+        }
+
+        #controls.visible, #sidebar.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .icon-btn {
+            background-color: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            backdrop-filter: blur(5px);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .icon-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* 좌측 컨트롤 UI (메뉴 토글) */
+        #left-controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 5;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease;
+        }
+
+        #left-controls.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* 사이드바 UI (재료 및 초기화 버튼) */
+        #sidebar {
+            position: absolute;
+            top: 70px;
+            left: 20px;
+            width: 220px;
+            background: var(--sidebar-bg);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            z-index: 5;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease, transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #sidebar.collapsed {
+            transform: translateX(-150%);
+            pointer-events: none;
+        }
+
+        #sidebar h3 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: #ff9d00;
+            border-bottom: 1px solid rgba(255,157,0,0.3);
+            padding-bottom: 10px;
+            text-align: center;
+        }
+
+        .material-item {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            cursor: grab;
+            transition: all 0.2s ease;
+            user-select: none;
+            font-size: 0.95rem;
+        }
+
+        .material-item:active {
+            cursor: grabbing;
+            transform: scale(0.95);
+        }
+
+        .material-item:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: #ff9d00;
+            box-shadow: 0 0 15px rgba(255,157,0,0.3);
+        }
+
+        .aurora {
+            background: linear-gradient(45deg, rgba(131,58,180,0.2) 0%, rgba(253,29,29,0.2) 50%, rgba(252,176,69,0.2) 100%);
+            border-color: rgba(253,29,29,0.5);
+        }
+
+        .water-item {
+            background: rgba(0, 150, 255, 0.1);
+            border-color: rgba(0, 150, 255, 0.4);
+            color: #88ccff;
+        }
+
+        .water-item:hover {
+            background: rgba(0, 150, 255, 0.2);
+            border-color: #00aaff;
+            box-shadow: 0 0 15px rgba(0, 170, 255, 0.4);
+        }
+
+        #reset-fire-btn {
+            margin-top: 10px;
+            background-color: rgba(255, 50, 50, 0.2);
+            border: 1px solid rgba(255, 50, 50, 0.5);
+            color: #ffaaaa;
+        }
+        #reset-fire-btn:hover {
+            background-color: rgba(255, 50, 50, 0.5);
+            color: #fff;
+        }
+
+        /* 초기 시작 화면 */
+        #intro-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(2, 4, 8, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            backdrop-filter: blur(8px);
+            transition: opacity 1.5s ease;
+        }
+
+        #intro-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(255, 100, 0, 0.9);
+            font-weight: 800;
+        }
+
+        p {
+            font-size: 1.1rem;
+            margin-bottom: 40px;
+            color: #ccc;
+        }
+
+        #start-btn {
+            padding: 15px 50px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: white;
+            background-color: var(--btn-bg);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(211, 84, 0, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        #start-btn:hover {
+            background-color: var(--btn-hover);
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="intro-screen">
+        <h1>3D 모닥불 힐링</h1>
+        <p>재료를 드래그 앤 드롭으로 불에 던져 넣으며 힐링하세요.</p>
+        <button id="start-btn">불 피우기</button>
+    </div>
+
+    <!-- 좌측 컨트롤 UI -->
+    <div id="left-controls">
+        <button id="btn-toggle-sidebar" class="icon-btn">◀ 메뉴 숨기기</button>
+    </div>
+
+    <!-- 좌측 재료 추가 사이드바 -->
+    <div id="sidebar">
+        <h3>🔥 태울 재료</h3>
+        <div class="material-item" draggable="true" data-type="leaf">🍂 마른 나뭇잎</div>
+        <div class="material-item" draggable="true" data-type="wood">🪵 장작</div>
+        <div class="material-item" draggable="true" data-type="hay">🌾 마른 건초 뭉치</div>
+        <div class="material-item aurora" draggable="true" data-type="aurora">✨ 오로라 가루</div>
+        <div class="material-item water-item" draggable="true" data-type="water">💧 물 뿌리기</div>
+        <button id="reset-fire-btn" class="icon-btn" style="justify-content:center;">🔄 모닥불 초기화</button>
+        <p style="font-size:0.75rem; color:#888; text-align:center; margin:0;">화면으로 드래그하거나<br>클릭하여 던지세요.</p>
+    </div>
+
+    <!-- 우측 상단 컨트롤 UI -->
+    <div id="controls">
+        <button id="btn-zoom-in" class="icon-btn">🔍 확대</button>
+        <button id="btn-zoom-out" class="icon-btn">🔍 축소</button>
+        <button id="btn-pause" class="icon-btn">일시정지</button>
+        <button id="btn-mute" class="icon-btn">음소거</button>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        /**
+         * Audio Engine: 타닥거리는 소리 증폭 기능 및 불 끄는 소리 추가
+         */
+        const AudioEngine = {
+            ctx: null, masterGain: null,
+            isPlaying: false, isMuted: false, isFireActive: true,
+            cricketTimeout: null, crackleTimeout: null,
+            crackleIntensity: 1.0, roarSource: null, roarGain: null,
+            cricketVolume: 0.015, // 귀뚜라미 소리 볼륨 변수 추가
+
+            init() {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.connect(this.ctx.destination);
+                this.masterGain.gain.value = 0.5;
+            },
+
+            start() {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                this.isPlaying = true;
+                if (this.isFireActive) {
+                    this.playFireBaseRoar();
+                    this.startCracklingLoop();
+                }
+                this.startCricketsLoop();
+            },
+
+            // 태울 때 타닥거리는 소리를 일시적으로 크고 잦게 만듦
+            burstCrackle(intensityMultiplier = 2.0, duration = 3000) {
+                if (!this.isFireActive) return;
+                this.crackleIntensity = intensityMultiplier;
+                for(let i=0; i<3; i++) setTimeout(() => this.playPopSound(), Math.random() * 500);
+                setTimeout(() => { this.crackleIntensity = 1.0; }, duration);
+            },
+
+            playPopSound() {
+                if (!this.isPlaying || this.isMuted || !this.isFireActive) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                const filter = this.ctx.createBiquadFilter();
+                
+                osc.type = 'square';
+                filter.type = 'highpass';
+                filter.frequency.value = 800;
+
+                const now = this.ctx.currentTime;
+                osc.frequency.setValueAtTime(600 + Math.random() * 600, now);
+                osc.frequency.exponentialRampToValueAtTime(10, now + 0.05);
+                
+                gain.gain.setValueAtTime(0.4 * this.crackleIntensity, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
+                osc.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
+                osc.start(now); osc.stop(now + 0.05);
+            },
+
+            // 물을 뿌려 불이 꺼질 때 나는 치이익 소리 (화이트 노이즈)
+            playSizzleSound() {
+                if (!this.isPlaying || this.isMuted) return;
+                const bufferSize = this.ctx.sampleRate * 2;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 1000;
+
+                const gain = this.ctx.createGain();
+                const now = this.ctx.currentTime;
+                gain.gain.setValueAtTime(1.0, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+
+                noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
+                noise.start(now); noise.stop(now + 1.5);
+            },
+
+            playFireBaseRoar() {
+                if (this.roarSource) this.roarSource.stop();
+                const bufferSize = this.ctx.sampleRate * 2;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+                
+                this.roarSource = this.ctx.createBufferSource();
+                this.roarSource.buffer = buffer; this.roarSource.loop = true;
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass'; filter.frequency.value = 350;
+                
+                this.roarGain = this.ctx.createGain(); 
+                this.roarGain.gain.value = 0.8;
+                
+                this.roarSource.connect(filter); filter.connect(this.roarGain); this.roarGain.connect(this.masterGain);
+                this.roarSource.start();
+            },
+
+            extinguishFire() {
+                this.isFireActive = false;
+                this.cricketVolume = 0.06; // 불이 꺼지면 귀뚜라미 소리 대폭 증폭 (청각 예민화)
+                this.playSizzleSound();
+                clearTimeout(this.crackleTimeout);
+                if (this.roarGain) {
+                    this.roarGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1.0);
+                }
+            },
+
+            igniteFire() {
+                if (this.isFireActive) return;
+                this.isFireActive = true;
+                this.cricketVolume = 0.015; // 불이 켜지면 귀뚜라미 소리 원상복구
+                if (this.isPlaying) {
+                    this.playFireBaseRoar();
+                    this.startCracklingLoop();
+                }
+            },
+
+            startCricketsLoop() {
+                if (!this.isPlaying) return;
+                const osc = this.ctx.createOscillator(); const gainNode = this.ctx.createGain();
+                osc.type = 'triangle'; osc.frequency.value = 4500;
+                const lfo = this.ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 30;
+                const lfoGain = this.ctx.createGain(); lfoGain.gain.value = 1; lfo.connect(lfoGain);
+                gainNode.gain.value = 0; osc.connect(gainNode); gainNode.connect(this.masterGain);
+                osc.start(); lfo.start();
+                const now = this.ctx.currentTime;
+                gainNode.gain.setValueAtTime(0, now);
+                gainNode.gain.linearRampToValueAtTime(this.cricketVolume, now + 0.1);
+                gainNode.gain.setValueAtTime(this.cricketVolume, now + 0.4);
+                gainNode.gain.linearRampToValueAtTime(0, now + 0.5);
+                setTimeout(() => { osc.stop(); lfo.stop(); }, 600);
+                this.cricketTimeout = setTimeout(() => this.startCricketsLoop(), 1000 + Math.random() * 2000);
+            },
+
+            startCracklingLoop() {
+                if (!this.isPlaying || !this.isFireActive) return;
+                this.playPopSound();
+                const delay = (80 + Math.random() * 1200) / this.crackleIntensity;
+                this.crackleTimeout = setTimeout(() => this.startCracklingLoop(), delay);
+            },
+
+            pause() { this.isPlaying = false; if(this.ctx) this.ctx.suspend(); clearTimeout(this.crackleTimeout); },
+            resume() { this.isPlaying = true; if(this.ctx) this.ctx.resume(); if(this.isFireActive) this.startCracklingLoop(); },
+            toggleMute() { this.isMuted = !this.isMuted; if(this.masterGain) this.masterGain.gain.setTargetAtTime(this.isMuted ? 0 : 0.5, this.ctx.currentTime, 0.1); return this.isMuted; }
+        };
+
+        /**
+         * 3D Rendering Engine: 재료 추가, 태움, 오로라 효과 구현
+         */
+        const Engine3D = {
+            scene: null, camera: null, renderer: null,
+            fireLight: null, embersLight: null, groundPlane: null,
+            flames: null, sparks: null, flameData: [], sparkData: [],
+            isPaused: false, mouseX: 0, mouseY: 0,
+            
+            // 인터랙션 상태 변수
+            thrownItems: [], // 현재 타고있는 재료들
+            fireFlareModifier: 0, // 불꽃이 커지는 효과 수치
+            auroraTimer: 0, // 오로라 유지 시간
+            isFireActive: true, // 불이 켜져있는지 여부
+            nightVision: 0, // 불이 꺼졌을 때 별빛/반딧불이 강조 효과 수치
+            raycaster: new THREE.Raycaster(),
+            
+            // 시점 제어를 위한 카메라 변수
+            baseRadius: 45, // 카메라 궤도 반지름
+            cameraAngleX: 0, // 카메라 방위각 (좌우 회전)
+            cameraAngleY: Math.PI / 8, // 카메라 고도각 (상하 회전)
+            isRightDragging: false,
+            prevMousePos: { x: 0, y: 0 },
+
+            // 밤하늘(별, 유성) 및 반딧불이 변수
+            stars: null, meteor: null, meteorData: null,
+            fireflies: null, fireflyData: [],
+
+            init() {
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x0a151b);
+                this.scene.fog = new THREE.FogExp2(0x0a151b, 0.008);
+
+                this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.camera.position.set(0, 15, 45);
+
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                document.getElementById('canvas-container').appendChild(this.renderer.domElement);
+
+                this.setupLighting();
+                this.createEnvironment();
+                this.createCampfireBase();
+                this.createFireParticles();
+                this.createSky();
+                this.createFireflies(); // 반딧불이 생성
+
+                window.addEventListener('resize', () => this.onResize());
+                
+                // 마우스 제어 및 뷰포트 시점 변경 이벤트 설정
+                this.setupMouseEvents();
+                // 드래그 앤 드롭 이벤트 설정
+                this.setupDragAndDrop();
+            },
+
+            setupMouseEvents() {
+                const container = document.getElementById('canvas-container');
+
+                // 우클릭 메뉴(컨텍스트 메뉴) 방지
+                container.addEventListener('contextmenu', (e) => e.preventDefault());
+
+                container.addEventListener('mousedown', (e) => {
+                    if (e.button === 2) { // 마우스 우클릭
+                        this.isRightDragging = true;
+                        this.prevMousePos = { x: e.clientX, y: e.clientY };
+                    }
+                });
+
+                container.addEventListener('mousemove', (e) => {
+                    if (this.isRightDragging) {
+                        const deltaX = e.clientX - this.prevMousePos.x;
+                        const deltaY = e.clientY - this.prevMousePos.y;
+
+                        // 마우스 드래그 이동량에 따라 카메라 각도 변경
+                        this.cameraAngleX -= deltaX * 0.005;
+                        this.cameraAngleY += deltaY * 0.005;
+
+                        // 상하(고도각) 제한: 바닥 밑으로 들어가거나 완전히 머리 위로 가지 않게 방지
+                        this.cameraAngleY = Math.max(0.05, Math.min(Math.PI / 2.2, this.cameraAngleY));
+
+                        this.prevMousePos = { x: e.clientX, y: e.clientY };
+                    } else {
+                        // 우클릭 드래그가 아닐 땐, 기존처럼 화면의 미세한 흔들림(패럴랙스) 적용
+                        this.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                        this.mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+                    }
+                });
+
+                container.addEventListener('mouseup', (e) => {
+                    if (e.button === 2) {
+                        this.isRightDragging = false;
+                    }
+                });
+
+                container.addEventListener('mouseleave', () => {
+                    this.isRightDragging = false;
+                });
+
+                // 터치 인터랙션
+                container.addEventListener('touchmove', (e) => {
+                    if(e.touches.length > 0) {
+                        this.mouseX = (e.touches[0].clientX / window.innerWidth) * 2 - 1;
+                        this.mouseY = -(e.touches[0].clientY / window.innerHeight) * 2 + 1;
+                    }
+                });
+            },
+
+            setupLighting() {
+                const ambientLight = new THREE.AmbientLight(0x203545, 1.2);
+                this.scene.add(ambientLight);
+
+                this.fireLight = new THREE.PointLight(0xff7711, 4.5, 200);
+                this.fireLight.position.set(0, 5, 0);
+                this.fireLight.castShadow = true;
+                this.scene.add(this.fireLight);
+
+                this.embersLight = new THREE.PointLight(0xff3300, 2.5, 80);
+                this.embersLight.position.set(0, 1, 0);
+                this.scene.add(this.embersLight);
+            },
+
+            createEnvironment() {
+                const groundGeo = new THREE.PlaneGeometry(300, 300, 64, 64);
+                const pos = groundGeo.attributes.position;
+                for (let i = 0; i < pos.count; i++) pos.setZ(i, Math.random() * 1.5);
+                groundGeo.computeVertexNormals();
+
+                const groundMat = new THREE.MeshStandardMaterial({ color: 0x0b1a10, roughness: 0.9, metalness: 0.05 });
+                this.groundPlane = new THREE.Mesh(groundGeo, groundMat);
+                this.groundPlane.rotation.x = -Math.PI / 2;
+                this.groundPlane.receiveShadow = true;
+                this.scene.add(this.groundPlane);
+
+                this.createForest();
+            },
+
+            createForest() {
+                const trunkMat = new THREE.MeshStandardMaterial({ color: 0x2d1b11, roughness: 1.0 });
+                const leavesMat = new THREE.MeshStandardMaterial({ color: 0x0f2515, roughness: 0.9 });
+                const trunkGeo = new THREE.CylinderGeometry(0.8, 1.2, 5, 5);
+                for (let i = 0; i < 70; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = 35 + Math.random() * 105;
+                    const treeGroup = new THREE.Group();
+                    const trunk = new THREE.Mesh(trunkGeo, trunkMat); trunk.position.y = 2.5; treeGroup.add(trunk);
+                    for (let j = 0; j < 3; j++) {
+                        const leaves = new THREE.Mesh(new THREE.ConeGeometry(5.5 - j*1.2, 9 - j*1.5, 7), leavesMat);
+                        leaves.position.y = 6 + (j * 4.5); treeGroup.add(leaves);
+                    }
+                    const scale = 0.8 + Math.random() * 0.8;
+                    treeGroup.scale.set(scale, scale, scale);
+                    treeGroup.rotation.y = Math.random() * Math.PI;
+                    treeGroup.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+                    this.scene.add(treeGroup);
+                }
+            },
+
+            createCampfireBase() {
+                const stoneMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 });
+                for (let i = 0; i < 14; i++) {
+                    const angle = (i / 14) * Math.PI * 2;
+                    const stone = new THREE.Mesh(new THREE.DodecahedronGeometry(2.5 + Math.random(), 1), stoneMat);
+                    const radius = 9 + Math.random() * 2;
+                    stone.position.set(Math.cos(angle) * radius, 0.5, Math.sin(angle) * radius);
+                    stone.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, 0);
+                    this.scene.add(stone);
+                }
+                const logMat = new THREE.MeshStandardMaterial({ color: 0x241208, roughness: 1.0 });
+                [0, Math.PI/3, Math.PI/1.5, Math.PI/2.5, -Math.PI/4, Math.PI].forEach((angle) => {
+                    const log = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 14, 7), logMat);
+                    log.position.set(Math.cos(angle) * 5, 3, Math.sin(angle) * 5);
+                    log.rotation.set(Math.PI/2 - 0.6, angle + Math.PI/2, 0);
+                    this.scene.add(log);
+                });
+            },
+
+            createParticleTexture() {
+                const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+                grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                grad.addColorStop(0.2, 'rgba(255, 200, 150, 0.8)');
+                grad.addColorStop(0.5, 'rgba(200, 50, 0, 0.3)');
+                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = grad; ctx.fillRect(0, 0, 64, 64);
+                return new THREE.CanvasTexture(canvas);
+            },
+
+            createFireParticles() {
+                const texture = this.createParticleTexture();
+                // 불꽃 입자
+                const flameGeo = new THREE.BufferGeometry();
+                const flamePos = new Float32Array(200 * 3); const flameColors = new Float32Array(200 * 3); const flameSizes = new Float32Array(200);
+                for (let i = 0; i < 200; i++) {
+                    this.flameData.push(this.resetFlameParticle(i, flamePos));
+                    flameSizes[i] = Math.random() * 8 + 8;
+                }
+                flameGeo.setAttribute('position', new THREE.BufferAttribute(flamePos, 3));
+                flameGeo.setAttribute('color', new THREE.BufferAttribute(flameColors, 3));
+                flameGeo.setAttribute('size', new THREE.BufferAttribute(flameSizes, 1));
+                const flameMat = new THREE.PointsMaterial({ map: texture, size: 15, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, vertexColors: true });
+                this.flames = new THREE.Points(flameGeo, flameMat);
+                this.scene.add(this.flames);
+
+                // 스파크
+                const sparkGeo = new THREE.BufferGeometry();
+                const sparkPos = new Float32Array(100 * 3); const sparkColors = new Float32Array(100 * 3);
+                for (let i = 0; i < 100; i++) {
+                    this.sparkData.push(this.resetSparkParticle(i, sparkPos));
+                    sparkColors[i*3] = 1.0; sparkColors[i*3+1] = 0.6; sparkColors[i*3+2] = 0.1;
+                }
+                sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+                sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkColors, 3));
+                const sparkMat = new THREE.PointsMaterial({ map: texture, size: 2, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, vertexColors: true });
+                this.sparks = new THREE.Points(sparkGeo, sparkMat);
+                this.scene.add(this.sparks);
+            },
+
+            createSky() {
+                // 1. 고정된 별들 생성
+                const starGeo = new THREE.BufferGeometry();
+                const starCount = 2000;
+                const starPos = new Float32Array(starCount * 3);
+                const starColors = new Float32Array(starCount * 3);
+
+                for(let i=0; i<starCount; i++) {
+                    const theta = Math.random() * Math.PI * 2;
+                    // 지평선 아래까지 별이 덮도록 v값 범위를 -0.2 ~ 1.0으로 조정 (빈 공간 방지)
+                    const v = Math.random() * 1.2 - 0.2; 
+                    const phi = Math.acos(v); 
+                    const radius = 600 + Math.random() * 400; // 숲보다 훨씬 멀리 배치
+
+                    starPos[i*3] = radius * Math.sin(phi) * Math.cos(theta);
+                    starPos[i*3+1] = radius * Math.cos(phi); // +50 제거하여 지평선과 자연스럽게 연결
+                    starPos[i*3+2] = radius * Math.sin(phi) * Math.sin(theta);
+
+                    // 별 색상 미세 조정 (푸른빛, 흰빛, 노란빛 섞임)
+                    const color = new THREE.Color().setHSL(Math.random() * 0.2 + 0.5, 0.4, Math.random() * 0.4 + 0.6);
+                    starColors[i*3] = color.r;
+                    starColors[i*3+1] = color.g;
+                    starColors[i*3+2] = color.b;
+                }
+
+                starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+                starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+
+                const starMat = new THREE.PointsMaterial({
+                    size: 2.5, // 기본 별 크기 증가
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.7, // 기본 투명도 증가 (평상시에도 잘 보이게)
+                    fog: false // 숲의 안개에 가려지지 않게 설정 (매우 중요)
+                });
+
+                this.stars = new THREE.Points(starGeo, starMat);
+                this.scene.add(this.stars);
+
+                // 2. 별똥별(유성) 시스템
+                // 머리부분은 굵고 꼬리로 갈수록 얇아지도록 설정 (반지름 0.4 -> 0.0) 후 Z축을 바라보게 회전
+                const meteorGeo = new THREE.CylinderGeometry(0.4, 0.0, 30, 5);
+                meteorGeo.rotateX(Math.PI / 2); 
+                
+                const meteorMat = new THREE.MeshBasicMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0,
+                    fog: false
+                });
+                this.meteor = new THREE.Mesh(meteorGeo, meteorMat);
+                this.scene.add(this.meteor);
+
+                this.meteorData = {
+                    isActive: false, progress: 0, speed: 0.015,
+                    start: new THREE.Vector3(), end: new THREE.Vector3()
+                };
+            },
+
+            // 숲속을 떠도는 반딧불이 생성
+            createFireflies() {
+                const texture = this.createParticleTexture();
+                const fireflyGeo = new THREE.BufferGeometry();
+                const fireflyCount = 12; // 반딧불이 개수 대폭 감소 (35 -> 12)
+                const fireflyPos = new Float32Array(fireflyCount * 3);
+                const fireflyColors = new Float32Array(fireflyCount * 3);
+
+                for(let i=0; i<fireflyCount; i++) {
+                    // 모닥불 주변뿐만 아니라 숲속 깊은 곳까지 넓게 배치 (반경 확장 10~200)
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = 10 + Math.random() * 190;
+                    const x = Math.cos(angle) * radius;
+                    const z = Math.sin(angle) * radius;
+                    const y = 1 + Math.random() * 12; // 비행 고도도 다양하게
+
+                    fireflyPos[i*3] = x;
+                    fireflyPos[i*3+1] = y;
+                    fireflyPos[i*3+2] = z;
+
+                    // 연두빛 색상
+                    fireflyColors[i*3] = 0.6;
+                    fireflyColors[i*3+1] = 1.0;
+                    fireflyColors[i*3+2] = 0.1;
+
+                    // 반딧불이 자유 비행 데이터
+                    this.fireflyData.push({
+                        baseX: x, baseY: y, baseZ: z,
+                        phaseX: Math.random() * Math.PI * 2,
+                        phaseY: Math.random() * Math.PI * 2,
+                        phaseZ: Math.random() * Math.PI * 2,
+                        speed: 0.01 + Math.random() * 0.02, // 날갯짓 같은 미세한 떨림 속도
+                        flySpeed: 0.03 + Math.random() * 0.05, // 실제 숲속을 이동하는 속도
+                        wanderAngle: Math.random() * Math.PI * 2, // 이동 방향
+                        blinkSpeed: 0.02 + Math.random() * 0.03,
+                        blinkPhase: Math.random() * Math.PI * 2
+                    });
+                }
+
+                fireflyGeo.setAttribute('position', new THREE.BufferAttribute(fireflyPos, 3));
+                fireflyGeo.setAttribute('color', new THREE.BufferAttribute(fireflyColors, 3));
+
+                const fireflyMat = new THREE.PointsMaterial({
+                    map: texture,
+                    size: 6.5, // 반딧불이 기본 크기 대폭 증가
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    vertexColors: true
+                });
+
+                this.fireflies = new THREE.Points(fireflyGeo, fireflyMat);
+                this.scene.add(this.fireflies);
+            },
+
+            updateSky() {
+                // 밤하늘이 아주 천천히 회전 (시간 경과 표현)
+                if (this.stars) {
+                    this.stars.rotation.y += 0.0001;
+                    
+                    // 불이 꺼졌을 때 별빛이 은은하게 밝아지고 크기도 살짝 커짐
+                    this.stars.material.opacity = 0.7 + (this.nightVision * 0.3);
+                    this.stars.material.size = 2.5 + (this.nightVision * 1.5);
+                }
+
+                // 별똥별 로직
+                if (!this.meteorData.isActive) {
+                    // 무작위 확률로 별똥별 출현 (약 0.15% 확률 -> 평균적으로 수 초에 1번 등장)
+                    if (Math.random() < 0.0015) {
+                        this.meteorData.isActive = true;
+                        this.meteorData.progress = 0;
+                        this.meteorData.speed = 0.015 + Math.random() * 0.015; // 떨어지는 속도 무작위
+
+                        // 하늘 높은 곳 무작위 시작점 지정
+                        const angle1 = Math.random() * Math.PI * 2;
+                        const r1 = 500 + Math.random() * 200;
+                        this.meteorData.start.set(Math.cos(angle1)*r1, 400 + Math.random()*200, Math.sin(angle1)*r1);
+
+                        // 비스듬히 떨어지는 도착점
+                        const angle2 = angle1 + (Math.random() - 0.5);
+                        const r2 = r1 + (Math.random() - 0.5) * 100;
+                        this.meteorData.end.set(Math.cos(angle2)*r2, 100 + Math.random()*150, Math.sin(angle2)*r2);
+
+                        this.meteor.position.copy(this.meteorData.start);
+                        this.meteor.lookAt(this.meteorData.end); // 진행 방향을 바라보게 함
+                        this.meteor.material.opacity = 1;
+                    }
+                } else {
+                    this.meteorData.progress += this.meteorData.speed;
+
+                    if (this.meteorData.progress >= 1) {
+                        this.meteorData.isActive = false;
+                        this.meteor.material.opacity = 0;
+                    } else {
+                        // 궤도를 따라 부드럽게 이동
+                        this.meteor.position.lerpVectors(this.meteorData.start, this.meteorData.end, this.meteorData.progress);
+                        // 궤도 끝으로 갈수록 꼬리가 서서히 희미하게 사라지는 효과
+                        this.meteor.material.opacity = 1 - Math.pow(this.meteorData.progress, 3);
+                    }
+                }
+            },
+
+            // 반딧불이 움직임 및 깜빡임 업데이트
+            updateFireflies() {
+                if (!this.fireflies) return;
+
+                const pos = this.fireflies.geometry.attributes.position.array;
+                const col = this.fireflies.geometry.attributes.color.array;
+
+                for (let i = 0; i < this.fireflyData.length; i++) {
+                    let data = this.fireflyData[i];
+
+                    // 1. 자유 비행 (Wander) 로직 - 숲속을 실제로 돌아다님
+                    data.wanderAngle += (Math.random() - 0.5) * 0.15; // 무작위로 방향을 서서히 틂
+                    data.baseX += Math.cos(data.wanderAngle) * data.flySpeed;
+                    data.baseZ += Math.sin(data.wanderAngle) * data.flySpeed;
+
+                    // 숲 경계(반경 200)를 벗어나거나 모닥불 중심(반경 5)에 너무 가까워지면 방향 반전
+                    const dist = Math.sqrt(data.baseX*data.baseX + data.baseZ*data.baseZ);
+                    if (dist > 200 || dist < 5) {
+                        data.wanderAngle += Math.PI; 
+                    }
+
+                    // 높이(고도) 서서히 변경
+                    data.baseY += (Math.random() - 0.5) * 0.08;
+                    if (data.baseY < 0.5) data.baseY = 0.5;
+                    if (data.baseY > 15) data.baseY = 15;
+
+                    // 2. 미세한 떨림 (벌레 특유의 날갯짓 움직임)
+                    data.phaseX += data.speed;
+                    data.phaseY += data.speed * 1.2;
+                    data.phaseZ += data.speed * 0.8;
+
+                    pos[i*3] = data.baseX + Math.sin(data.phaseX) * 1.5;
+                    pos[i*3+1] = data.baseY + Math.sin(data.phaseY) * 1.5;
+                    pos[i*3+2] = data.baseZ + Math.cos(data.phaseZ) * 1.5;
+
+                    // 깜빡임 로직 (0.2 ~ 1.0 사이로 투명도(색상 강도) 진동, 기본 밝기 증가)
+                    data.blinkPhase += data.blinkSpeed;
+                    const intensity = (Math.sin(data.blinkPhase) * 0.5 + 0.5) * 0.8 + 0.2;
+
+                    // 불이 꺼지면 반딧불이 빛이 은은하게 강조됨 (배수 증가)
+                    const nightBoost = 1.0 + (this.nightVision * 1.8);
+
+                    // 오로라가 터졌을 때는 반딧불이도 무지갯빛 영향을 살짝 받음
+                    if (this.auroraTimer > 0) {
+                        col[i*3] = intensity * (Math.sin(Date.now()*0.002 + i) * 0.5 + 0.5) * nightBoost;
+                        col[i*3+1] = intensity * nightBoost;
+                        col[i*3+2] = intensity * (Math.cos(Date.now()*0.002 + i) * 0.5 + 0.5) * nightBoost;
+                    } else {
+                        // 평상시 연두빛
+                        col[i*3] = 0.6 * intensity * nightBoost;
+                        col[i*3+1] = 1.0 * intensity * nightBoost;
+                        col[i*3+2] = 0.1 * intensity * nightBoost;
+                    }
+                }
+
+                this.fireflies.geometry.attributes.position.needsUpdate = true;
+                this.fireflies.geometry.attributes.color.needsUpdate = true;
+            },
+
+            resetFlameParticle(index, posArray) {
+                posArray[index*3] = (Math.random()-0.5)*6; posArray[index*3+1] = Math.random()*2+1; posArray[index*3+2] = (Math.random()-0.5)*6;
+                return { life: Math.random() * 100, maxLife: 60 + Math.random() * 40, vx: (Math.random() - 0.5) * 0.05, vy: 0.1 + Math.random() * 0.15, vz: (Math.random() - 0.5) * 0.05 };
+            },
+
+            resetSparkParticle(index, posArray) {
+                posArray[index*3] = (Math.random()-0.5)*4; posArray[index*3+1] = 2+Math.random()*3; posArray[index*3+2] = (Math.random()-0.5)*4;
+                return { life: 0, maxLife: 80 + Math.random() * 100, vx: (Math.random() - 0.5) * 0.2, vy: 0.15 + Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.2 };
+            },
+
+            // === 드래그 앤 드롭 시스템 ===
+            setupDragAndDrop() {
+                const container = document.getElementById('canvas-container');
+                let draggedType = null;
+
+                document.querySelectorAll('.material-item').forEach(item => {
+                    // 드래그 시작
+                    item.addEventListener('dragstart', (e) => {
+                        draggedType = e.target.getAttribute('data-type');
+                        e.dataTransfer.setData('text/plain', draggedType);
+                    });
+                    
+                    // 클릭 시 자동으로 불 속에 던지기 (편의성)
+                    item.addEventListener('click', (e) => {
+                        const type = e.target.getAttribute('data-type');
+                        // 모닥불 근처 무작위 위치
+                        const randomX = (Math.random() - 0.5) * 4;
+                        const randomZ = (Math.random() - 0.5) * 4;
+                        this.throwMaterial(type, randomX, randomZ);
+                    });
+                });
+
+                container.addEventListener('dragover', (e) => { e.preventDefault(); });
+
+                container.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    if (!draggedType) return;
+
+                    // 화면 좌표를 3D 공간 좌표로 변환 (Raycasting)
+                    const rect = container.getBoundingClientRect();
+                    const mouse = new THREE.Vector2(
+                        ((e.clientX - rect.left) / container.clientWidth) * 2 - 1,
+                        -((e.clientY - rect.top) / container.clientHeight) * 2 + 1
+                    );
+
+                    this.raycaster.setFromCamera(mouse, this.camera);
+                    // 바닥과 충돌 검사
+                    const intersects = this.raycaster.intersectObject(this.groundPlane);
+                    
+                    if (intersects.length > 0) {
+                        const dropPoint = intersects[0].point;
+                        this.throwMaterial(draggedType, dropPoint.x, dropPoint.z);
+                    }
+                    draggedType = null;
+                });
+            },
+
+            // 재료를 씬에 추가 (물리 엔진 기반 포물선 투척으로 변경)
+            throwMaterial(type, targetX, targetZ) {
+                let mesh, maxLife, flarePower;
+
+                // 카메라의 현재 위치와 모닥불(0,4,0) 사이의 방향 벡터를 구함
+                const dir = new THREE.Vector3(0, 4, 0).sub(this.camera.position).normalize();
+
+                // 어느 각도로 돌려보든 항상 카메라 바로 앞, 약간 아래에서 날아가도록 시작점 변경
+                const startX = this.camera.position.x + dir.x * 5 + (Math.random() * 2 - 1);
+                const startY = this.camera.position.y - 2; 
+                const startZ = this.camera.position.z + dir.z * 5 + (Math.random() * 2 - 1);
+
+                // 던지는 궤도(포물선) 물리 계산용 변수
+                const frames = 45; // 비행 시간(프레임 수, 약 0.75초)
+                const gravity = 0.03; // 중력
+                const targetY = 1.5; // 바닥 충돌 높이
+                
+                // 목표 지점에 정확히 도달하기 위한 x, y, z 초기 속도 계산
+                const vx = (targetX - startX) / frames;
+                const vz = (targetZ - startZ) / frames;
+                const vy = (targetY - startY + 0.5 * gravity * frames * frames) / frames;
+                
+                // 날아가는 동안 회전하는 속도
+                const rx = (Math.random() - 0.5) * 0.4;
+                const ry = (Math.random() - 0.5) * 0.4;
+                const rz = (Math.random() - 0.5) * 0.4;
+
+                if (type === 'aurora') {
+                    // 오로라 가루는 보랏빛 형광색 덩어리로 시각화하여 날아가게 함
+                    mesh = new THREE.Mesh(
+                        new THREE.DodecahedronGeometry(1.5, 0),
+                        new THREE.MeshStandardMaterial({ color: 0xaa00ff, emissive: 0x5500aa })
+                    );
+                    maxLife = 50; flarePower = 0;
+                } else if (type === 'water') {
+                    // 물 덩어리 (반투명 파란색 구체)
+                    mesh = new THREE.Mesh(
+                        new THREE.SphereGeometry(1.5, 16, 16),
+                        new THREE.MeshStandardMaterial({ color: 0x44aaff, transparent: true, opacity: 0.7, roughness: 0.1 })
+                    );
+                    maxLife = 50; flarePower = 0;
+                } else if (type === 'leaf') {
+                    mesh = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), new THREE.MeshStandardMaterial({ color: 0x8b5a2b, side: THREE.DoubleSide }));
+                    maxLife = 100; flarePower = 1.0;
+                } else if (type === 'wood') {
+                    mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 6, 6), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+                    maxLife = 500; flarePower = 2.0;
+                } else if (type === 'hay') {
+                    mesh = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 4), new THREE.MeshStandardMaterial({ color: 0xccb050 }));
+                    maxLife = 200; flarePower = 3.0;
+                }
+
+                if (mesh) {
+                    mesh.position.set(startX, startY, startZ);
+                    mesh.castShadow = true;
+                    this.scene.add(mesh);
+
+                    this.thrownItems.push({
+                        mesh: mesh,
+                        type: type,
+                        life: maxLife,
+                        maxLife: maxLife,
+                        flarePower: flarePower,
+                        isBurning: false,
+                        originalScale: mesh.scale.clone(),
+                        originalColor: mesh.material.color.clone(),
+                        // 물리 및 애니메이션 변수 저장
+                        vx: vx, vy: vy, vz: vz,
+                        rx: rx, ry: ry, rz: rz,
+                        gravity: gravity
+                    });
+                }
+            },
+
+            // 모닥불 초기화
+            resetFire() {
+                // 추가된 모든 3D 오브젝트 제거
+                this.thrownItems.forEach(item => {
+                    this.scene.remove(item.mesh);
+                    item.mesh.geometry.dispose();
+                    item.mesh.material.dispose();
+                });
+                this.thrownItems = [];
+                this.fireFlareModifier = 0;
+                this.auroraTimer = 0;
+
+                // 불 활성화 및 숨겨진 파티클 복구
+                this.isFireActive = true;
+                AudioEngine.igniteFire();
+
+                const flamePos = this.flames.geometry.attributes.position.array;
+                for (let i = 0; i < this.flameData.length; i++) this.flameData[i] = this.resetFlameParticle(i, flamePos);
+                
+                const sparkPos = this.sparks.geometry.attributes.position.array;
+                for (let i = 0; i < this.sparkData.length; i++) this.sparkData[i] = this.resetSparkParticle(i, sparkPos);
+            },
+
+            updateParticles() {
+                const flamePos = this.flames.geometry.attributes.position.array;
+                const flameCol = this.flames.geometry.attributes.color.array;
+                const sparkPos = this.sparks.geometry.attributes.position.array;
+                const sparkCol = this.sparks.geometry.attributes.color.array;
+
+                let fireIntensitySum = 0;
+                
+                // 불꽃 세기 자연스럽게 감소
+                if (this.fireFlareModifier > 0) {
+                    this.fireFlareModifier -= 0.01;
+                } else {
+                    this.fireFlareModifier = 0;
+                }
+
+                // 불이 꺼졌을 때 시야(별/반딧불이 강조) 전환 로직
+                if (this.isFireActive) {
+                    this.nightVision += (0 - this.nightVision) * 0.05; // 불이 켜지면 원래대로 빠르게
+                } else {
+                    this.nightVision += (1 - this.nightVision) * 0.015; // 불이 꺼지면 서서히 강조됨
+                }
+
+                // 오로라 타이머 감소
+                if (this.auroraTimer > 0) this.auroraTimer--;
+
+                // 플레어 효과에 따른 불꽃의 상승/크기 보정치
+                const flareScale = 1 + (this.fireFlareModifier * 0.5);
+
+                for (let i = 0; i < this.flameData.length; i++) {
+                    let p = this.flameData[i]; p.life++;
+
+                    flamePos[i*3] += p.vx - (flamePos[i*3] * 0.01);
+                    flamePos[i*3+1] += p.vy * flareScale; // 불꽃이 더 높이 치솟음
+                    flamePos[i*3+2] += p.vz - (flamePos[i*3+2] * 0.01);
+
+                    const lifeRatio = p.life / p.maxLife;
+                    let r=1, g=1, b=1;
+
+                    // 오로라 효과 적용 여부 및 불 꺼짐(연기) 처리
+                    if (!this.isFireActive) {
+                        // 물을 맞아 불이 꺼졌을 때, 남은 파티클을 짙은 회색 연기로 바꿈
+                        const fade = Math.max(0, 1 - lifeRatio);
+                        r = 0.35 * fade; g = 0.35 * fade; b = 0.4 * fade;
+                    } else if (this.auroraTimer > 0) {
+                        // 시간과 생명주기에 따라 화려한 색상 순환 (보라, 초록, 파랑 혼합)
+                        const timeOffset = Date.now() * 0.002 + p.life * 0.1;
+                        r = Math.sin(timeOffset) * 0.5 + 0.5;
+                        g = Math.sin(timeOffset + 2) * 0.5 + 0.5;
+                        b = Math.sin(timeOffset + 4) * 0.5 + 0.5;
+                        
+                        // 가장자리는 서서히 투명하게
+                        if (lifeRatio > 0.7) {
+                            const fade = 1 - ((lifeRatio - 0.7) / 0.3);
+                            r *= fade; g *= fade; b *= fade;
+                        }
+                    } else {
+                        // 기본 불꽃 색상
+                        if (lifeRatio < 0.2) { g=0.9; b=0.5; }
+                        else if (lifeRatio < 0.5) { g=0.5; b=0.0; }
+                        else if (lifeRatio < 0.8) { g=0.1; b=0.0; }
+                        else { r=Math.max(0, 1-lifeRatio); g=0; b=0; }
+                    }
+
+                    flameCol[i*3] = r; flameCol[i*3+1] = g; flameCol[i*3+2] = b;
+                    fireIntensitySum += (1 - lifeRatio);
+
+                    if (p.life >= p.maxLife) {
+                        if (this.isFireActive) {
+                            this.flameData[i] = this.resetFlameParticle(i, flamePos);
+                        } else {
+                            // 불이 꺼지면 파티클 수명이 다했을 때 지하(-999)로 숨겨 재생성하지 않음
+                            flamePos[i*3+1] = -999;
+                        }
+                    }
+                }
+
+                for (let i = 0; i < this.sparkData.length; i++) {
+                    let p = this.sparkData[i]; p.life++;
+                    p.vx += (Math.random() - 0.5) * 0.02; p.vz += (Math.random() - 0.5) * 0.02;
+                    sparkPos[i*3] += p.vx * flareScale; 
+                    sparkPos[i*3+1] += p.vy * flareScale; // 스파크도 더 높이
+                    sparkPos[i*3+2] += p.vz * flareScale;
+
+                    const lifeRatio = p.life / p.maxLife;
+                    const fade = Math.max(0, 1 - lifeRatio);
+                    
+                    if (!this.isFireActive) {
+                        sparkCol[i*3] = 0; sparkCol[i*3+1] = 0; sparkCol[i*3+2] = 0; // 스파크 숨김
+                    } else if (this.auroraTimer > 0) {
+                        sparkCol[i*3] = fade * 0.5; sparkCol[i*3+1] = fade; sparkCol[i*3+2] = fade * 0.8; // 오로라 스파크
+                    } else {
+                        sparkCol[i*3] = fade; sparkCol[i*3+1] = fade * 0.6; sparkCol[i*3+2] = fade * 0.1;
+                    }
+
+                    if (p.life >= p.maxLife) {
+                        if (this.isFireActive) this.sparkData[i] = this.resetSparkParticle(i, sparkPos);
+                        else sparkPos[i*3+1] = -999;
+                    }
+                }
+
+                this.flames.geometry.attributes.position.needsUpdate = true;
+                this.flames.geometry.attributes.color.needsUpdate = true;
+                this.sparks.geometry.attributes.position.needsUpdate = true;
+                this.sparks.geometry.attributes.color.needsUpdate = true;
+
+                // 조명 보정 (오로라, 플레어 적용 및 불 꺼짐 연출)
+                const time = Date.now() * 0.005;
+                const flicker = Math.sin(time) * 0.5 + Math.sin(time * 2.3) * 0.2;
+                
+                // 불이 꺼지면 조명의 목표 밝기를 0으로 설정하여 부드럽게 어두워짐
+                const targetFireLight = this.isFireActive ? 4.5 + flicker + (this.fireFlareModifier * 3) : 0;
+                const targetEmbersLight = this.isFireActive ? 2.5 + flicker * 0.5 : 0;
+
+                this.fireLight.intensity += (targetFireLight - this.fireLight.intensity) * 0.1;
+                this.embersLight.intensity += (targetEmbersLight - this.embersLight.intensity) * 0.1;
+                
+                if (this.isFireActive) {
+                    if (this.auroraTimer > 0) {
+                        this.fireLight.color.setHSL((time*0.1) % 1, 1, 0.5); // 조명색도 변경
+                        this.embersLight.color.setHex(0xaa00ff);
+                    } else {
+                        this.fireLight.color.setHex(0xff7711);
+                        this.embersLight.color.setHex(0xff3300);
+                    }
+                }
+            },
+
+            // 던져진 재료들의 물리 및 타는 효과 업데이트 (포물선 궤도 및 회전 적용)
+            updateThrownItems() {
+                for (let i = this.thrownItems.length - 1; i >= 0; i--) {
+                    let item = this.thrownItems[i];
+                    
+                    // 1. 공중에 날아가는 물리 처리
+                    if (!item.isBurning || item.type === 'aurora' || item.type === 'water') {
+                        // 중력 적용 및 속도에 따른 위치 이동
+                        item.vy -= item.gravity;
+                        item.mesh.position.x += item.vx;
+                        item.mesh.position.y += item.vy;
+                        item.mesh.position.z += item.vz;
+                        
+                        // 날아가는 동안 재료 회전
+                        item.mesh.rotation.x += item.rx;
+                        item.mesh.rotation.y += item.ry;
+                        item.mesh.rotation.z += item.rz;
+
+                        // 바닥 또는 모닥불 장작 위로 떨어짐
+                        if (item.mesh.position.y <= 1.5) {
+                            item.mesh.position.y = 1.5;
+                            // 마찰력 적용하여 멈추기 시작
+                            item.vx *= 0.5;
+                            item.vz *= 0.5;
+                            item.vy = 0; // 바닥에 닿았으므로 수직 하강 중지
+                            item.rx *= 0.7; item.ry *= 0.7; item.rz *= 0.7; // 회전 감속
+
+                            // 모닥불 중심부(반경 8 이내)에 들어왔는지 확인
+                            const dist = Math.sqrt(item.mesh.position.x**2 + item.mesh.position.z**2);
+                            
+                            // 오로라 가루 및 물의 특수 처리 로직
+                            if (item.type === 'aurora' || item.type === 'water') {
+                                if (dist < 8) {
+                                    if (item.type === 'aurora' && this.isFireActive) {
+                                        this.auroraTimer = 300;
+                                        this.fireFlareModifier += 1.5;
+                                        AudioEngine.burstCrackle(3.0, 2000); // 폭발음
+                                    } else if (item.type === 'water' && this.isFireActive) {
+                                        // 물이 모닥불 중앙에 맞으면 치이익 소리와 함께 소화
+                                        this.isFireActive = false;
+                                        AudioEngine.extinguishFire();
+                                    }
+                                    item.life = 0; // 닿자마자 효과 발생 후 증발
+                                } else {
+                                    // 불 밖에 떨어지면 서서히 작아지며 사라짐
+                                    item.life -= 2;
+                                    item.mesh.scale.multiplyScalar(0.9);
+                                    if(item.mesh.scale.x < 0.1) item.life = 0;
+                                }
+                            } 
+                            // 일반 재료 점화 로직 (불이 켜져 있고 속도가 멈췄을 때)
+                            else if (dist < 8 && !item.isBurning && Math.abs(item.vx) < 0.1 && this.isFireActive) {
+                                item.isBurning = true;
+                                this.fireFlareModifier += item.flarePower; // 불이 확 커짐
+                                AudioEngine.burstCrackle(2.0, 3000); // 타닥거리는 소리 증폭
+                            }
+                        }
+                    }
+
+                    // 2. 연소 중 애니메이션 처리 (불이 붙은 후)
+                    if (item.isBurning && item.type !== 'aurora' && item.type !== 'water') {
+                        item.life--;
+                        const burnRatio = item.life / item.maxLife;
+
+                        // 크기 축소 (점점 재가 되어 사라짐)
+                        const currentScale = Math.max(0.01, burnRatio);
+                        item.mesh.scale.set(
+                            item.originalScale.x * currentScale,
+                            item.originalScale.y * currentScale,
+                            item.originalScale.z * currentScale
+                        );
+
+                        // 가장자리부터 검게 타들어가는 색상 효과
+                        const targetColor = this.auroraTimer > 0 ? new THREE.Color(0x220033) : new THREE.Color(0x111111);
+                        item.mesh.material.color.lerpColors(targetColor, item.originalColor, burnRatio);
+                    }
+
+                    // 3. 수명이 다하거나 사라지면 씬에서 완전 제거
+                    if (item.life <= 0) {
+                        this.scene.remove(item.mesh);
+                        item.mesh.geometry.dispose();
+                        item.mesh.material.dispose();
+                        this.thrownItems.splice(i, 1);
+                    }
+                }
+            },
+
+            onResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            },
+
+            zoomIn() {
+                this.baseRadius = Math.max(20, this.baseRadius - 15);
+            },
+
+            zoomOut() {
+                this.baseRadius = Math.min(200, this.baseRadius + 15);
+            },
+
+            animate() {
+                if (!this.isPaused) {
+                    this.updateParticles();
+                    this.updateThrownItems();
+                    this.updateSky();
+                    this.updateFireflies(); // 반딧불이 애니메이션 적용
+
+                    // 구면 좌표계(Spherical Coordinates)를 이용한 카메라 궤도 회전 계산
+                    const radius = this.baseRadius;
+                    
+                    // 기존의 시선에 따른 미세한 패럴랙스(흔들림) 효과
+                    const parallaxX = this.mouseX * 1.5;
+                    const parallaxY = this.mouseY * 1.5;
+
+                    // 회전 각도(X, Y)와 줌(Radius)을 기반으로 타겟 위치 생성
+                    const targetX = Math.sin(this.cameraAngleX) * Math.cos(this.cameraAngleY) * radius + parallaxX;
+                    const targetY = Math.sin(this.cameraAngleY) * radius + parallaxY + 4; // 모닥불의 높이(4) 고려
+                    const targetZ = Math.cos(this.cameraAngleX) * Math.cos(this.cameraAngleY) * radius;
+
+                    // 부드러운 보간 이동
+                    this.camera.position.x += (targetX - this.camera.position.x) * 0.05;
+                    this.camera.position.y += (targetY - this.camera.position.y) * 0.05;
+                    this.camera.position.z += (targetZ - this.camera.position.z) * 0.05;
+                    
+                    this.camera.lookAt(0, 4, 0);
+
+                    this.renderer.render(this.scene, this.camera);
+                }
+                requestAnimationFrame(() => this.animate());
+            },
+
+            pause() { this.isPaused = true; },
+            resume() { this.isPaused = false; }
+        };
+
+        /**
+         * App Controller
+         */
+        window.onload = function() {
+            Engine3D.init();
+            Engine3D.animate();
+
+            const startBtn = document.getElementById('start-btn');
+            const introScreen = document.getElementById('intro-screen');
+            const controls = document.getElementById('controls');
+            const leftControls = document.getElementById('left-controls');
+            const sidebar = document.getElementById('sidebar');
+            const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
+            
+            // 신규 줌 버튼
+            const btnZoomIn = document.getElementById('btn-zoom-in');
+            const btnZoomOut = document.getElementById('btn-zoom-out');
+
+            const btnPause = document.getElementById('btn-pause');
+            const btnMute = document.getElementById('btn-mute');
+            const resetFireBtn = document.getElementById('reset-fire-btn');
+
+            startBtn.addEventListener('click', () => {
+                AudioEngine.init(); AudioEngine.start();
+                introScreen.classList.add('hidden');
+                controls.classList.add('visible');
+                leftControls.classList.add('visible');
+                sidebar.classList.add('visible');
+            });
+
+            btnToggleSidebar.addEventListener('click', () => {
+                sidebar.classList.toggle('collapsed');
+                if (sidebar.classList.contains('collapsed')) {
+                    btnToggleSidebar.innerHTML = `▶ 메뉴 보기`;
+                } else {
+                    btnToggleSidebar.innerHTML = `◀ 메뉴 숨기기`;
+                }
+            });
+
+            btnPause.addEventListener('click', () => {
+                if (Engine3D.isPaused) {
+                    Engine3D.resume(); AudioEngine.resume();
+                    btnPause.innerHTML = `일시정지`;
+                } else {
+                    Engine3D.pause(); AudioEngine.pause();
+                    btnPause.innerHTML = `▶ 재생`;
+                }
+            });
+
+            btnMute.addEventListener('click', () => {
+                if (AudioEngine.toggleMute()) btnMute.innerHTML = `소리켜기`;
+                else btnMute.innerHTML = `음소거`;
+            });
+
+            btnZoomIn.addEventListener('click', () => Engine3D.zoomIn());
+            btnZoomOut.addEventListener('click', () => Engine3D.zoomOut());
+
+            // 마우스 휠로도 줌인/줌아웃 가능하도록 추가
+            window.addEventListener('wheel', (e) => {
+                if (introScreen.classList.contains('hidden')) {
+                    if (e.deltaY > 0) Engine3D.zoomOut();
+                    else Engine3D.zoomIn();
+                }
+            });
+
+            resetFireBtn.addEventListener('click', () => {
+                Engine3D.resetFire();
+            });
+        };
+    </script>
+</body>
+</html>

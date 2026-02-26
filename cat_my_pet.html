@@ -1,0 +1,1875 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>리얼 3D 고양이 생태계 시뮬레이터 (태비 아기냥이)</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        user-select: none;
+        background-color: #000;
+      }
+      #canvas-container {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+      #ui-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        pointer-events: none;
+        background: rgba(0, 0, 0, 0.6);
+        transition: opacity 0.5s ease;
+        z-index: 20;
+      }
+      #start-btn {
+        pointer-events: auto;
+        padding: 18px 36px;
+        font-size: 24px;
+        font-weight: bold;
+        color: white;
+        background: linear-gradient(45deg, #ff8c00, #ff4757);
+        border: none;
+        border-radius: 50px;
+        cursor: pointer;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        transition:
+          transform 0.2s,
+          filter 0.2s;
+      }
+      #start-btn:hover {
+        transform: scale(1.05);
+        filter: brightness(1.1);
+      }
+
+      #instructions {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        color: white;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 15px;
+        border-radius: 15px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 1s;
+        line-height: 1.5;
+        z-index: 10;
+        backdrop-filter: blur(4px);
+      }
+      #action-panel {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        display: flex;
+        gap: 10px;
+        opacity: 0;
+        transition: opacity 1s;
+        z-index: 10;
+      }
+      .action-btn {
+        pointer-events: auto;
+        padding: 12px 20px;
+        font-size: 16px;
+        font-weight: bold;
+        color: white;
+        background-color: #4caf50;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        transition:
+          transform 0.1s,
+          background-color 0.2s;
+      }
+      .action-btn:hover {
+        transform: translateY(-2px);
+        background-color: #45a049;
+      }
+      .action-btn:active {
+        transform: translateY(1px);
+      }
+      .action-btn.churu {
+        background-color: #ff6b81;
+      }
+      .action-btn.churu:hover {
+        background-color: #ff4757;
+      }
+
+      .visible {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+      }
+      .hidden {
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+    </style>
+    <!-- Three.js 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.146.0/three.min.js"></script>
+  </head>
+  <body>
+    <div id="ui-layer">
+      <button id="start-btn">아기 고양이 만나기 🐾</button>
+    </div>
+
+    <div id="instructions">
+      🐾 <b>상호작용 가이드</b><br />
+      - 바닥 클릭: 지정한 위치로 고양이 이동<br />
+      - 마우스 휠 / 핀치: 화면 확대 및 축소<br />
+      - 우클릭 드래그: 카메라 회전<br />
+      - 사료/츄르 주기: (1인칭 시점) 혀로 날름날름 먹습니다.<br />
+      - 고양이 호버(쓰다듬기): 기분 좋은 그릉그릉 소리<br />
+      - 냅두면 그루밍(핥기), 식빵굽기, 나비 사냥을 합니다.
+    </div>
+
+    <div id="action-panel">
+      <button class="action-btn" onclick="spawnFood('kibble')">
+        🍚 사료 주기
+      </button>
+      <button class="action-btn churu" onclick="spawnFood('churu')">
+        🐟 츄르 주기
+      </button>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+      // --- 전역 변수 ---
+      let scene, camera, renderer;
+      let cat;
+      let raycaster, mouse;
+      let terrainMesh;
+      let clock = new THREE.Clock();
+
+      let currentZoom = 20;
+      let targetZoom = 20;
+      let initialPinchDistance = null;
+
+      // 카메라 회전을 위한 변수 추가
+      let orbitAngleX = 0;
+      let orbitAngleY = 1.0; // 위에서 내려다보는 기본 각도
+      let isRightDragging = false;
+      let previousMousePosition = { x: 0, y: 0 };
+
+      let itemsInScene = [];
+      let butterflies = [];
+
+      let dayTime = 8.0;
+      const TIME_SPEED = 0.015;
+      let sunLight, moonLight, hemiLight;
+      let skyMat;
+      let sunSphere, moonSphere;
+
+      let audioCtx;
+      let isPurring = false;
+      let purrNodes = null;
+      let lastMeowTime = 0;
+
+      // 팔레트 (회색 태비 & 호박색 눈에 맞춤)
+      const COLORS = {
+        gray: 0x8f9396,
+        darkGray: 0x414449,
+        white: 0xfffcf9,
+        pink: 0xff99a8,
+        black: 0x111111,
+        eyeAmber: 0xdca93d,
+        dirt: 0x634b35,
+        grass: 0x6ab04c,
+        tree: 0x535c68,
+        leaf: 0xbadc58,
+        skin: 0xf1c27d,
+        churuOrange: 0xe67e22, // 사람 손 및 츄르 색상
+      };
+
+      // --- 1. 지형 함수 ---
+      function getTerrainHeight(x, z) {
+        return (
+          Math.sin(x * 0.08) * 2.5 +
+          Math.cos(z * 0.07) * 2.5 +
+          Math.sin(x * 0.2 + z * 0.2) * 0.5
+        );
+      }
+
+      // --- 2. 오디오 시스템 ---
+      function initAudio() {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+        setupPurrSystem();
+      }
+
+      function playMeow() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        if (now - lastMeowTime < 1.0) return;
+        lastMeowTime = now;
+
+        const osc = audioCtx.createOscillator();
+        const filter = audioCtx.createBiquadFilter();
+        const gain = audioCtx.createGain();
+
+        osc.type = "sawtooth";
+        filter.type = "lowpass";
+        filter.Q.value = 3;
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.frequency.setValueAtTime(500, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+        osc.frequency.exponentialRampToValueAtTime(450, now + 0.4);
+
+        filter.frequency.setValueAtTime(1000, now);
+        filter.frequency.linearRampToValueAtTime(2500, now + 0.1);
+        filter.frequency.linearRampToValueAtTime(800, now + 0.4);
+
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+
+        osc.start(now);
+        osc.stop(now + 0.5);
+      }
+
+      function setupPurrSystem() {
+        if (!audioCtx) return;
+        const purrOsc = audioCtx.createOscillator();
+        purrOsc.type = "triangle";
+        purrOsc.frequency.value = 28;
+
+        const purrOsc2 = audioCtx.createOscillator();
+        purrOsc2.type = "sawtooth";
+        purrOsc2.frequency.value = 27;
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 100;
+
+        const breathOsc = audioCtx.createOscillator();
+        breathOsc.type = "sine";
+        breathOsc.frequency.value = 0.5;
+        const breathGain = audioCtx.createGain();
+        breathGain.gain.value = 0.5;
+
+        const masterGain = audioCtx.createGain();
+        masterGain.gain.value = 0;
+
+        purrOsc.connect(filter);
+        purrOsc2.connect(filter);
+        breathOsc.connect(breathGain.gain);
+        filter.connect(breathGain);
+        breathGain.connect(masterGain);
+        masterGain.connect(audioCtx.destination);
+
+        purrOsc.start();
+        purrOsc2.start();
+        breathOsc.start();
+        purrNodes = { masterGain };
+      }
+
+      function setPurring(state) {
+        if (!purrNodes || isPurring === state) return;
+        isPurring = state;
+        const now = audioCtx.currentTime;
+        purrNodes.masterGain.gain.cancelScheduledValues(now);
+        purrNodes.masterGain.gain.linearRampToValueAtTime(
+          state ? 0.6 : 0,
+          now + 1.0,
+        );
+      }
+
+      // --- 3. 나비 ---
+      class Butterfly {
+        constructor() {
+          this.group = new THREE.Group();
+          const wingGeo = new THREE.PlaneGeometry(0.3, 0.4);
+          wingGeo.translate(0.15, 0, 0);
+          const color = new THREE.Color().setHSL(Math.random(), 0.8, 0.6);
+          const wingMat = new THREE.MeshLambertMaterial({
+            color: color,
+            side: THREE.DoubleSide,
+          });
+
+          this.wingL = new THREE.Mesh(wingGeo, wingMat);
+          this.wingR = new THREE.Mesh(wingGeo, wingMat);
+          this.wingR.rotation.y = Math.PI;
+          this.group.add(this.wingL);
+          this.group.add(this.wingR);
+
+          const rx = (Math.random() - 0.5) * 30;
+          const rz = (Math.random() - 0.5) * 30;
+          this.group.position.set(rx, getTerrainHeight(rx, rz) + 1.5, rz);
+          this.targetPos = this.getNewTarget();
+          this.speed = 1.5 + Math.random();
+          this.timeOffset = Math.random() * 100;
+          scene.add(this.group);
+        }
+
+        getNewTarget() {
+          const rx = this.group.position.x + (Math.random() - 0.5) * 8;
+          const rz = this.group.position.z + (Math.random() - 0.5) * 8;
+          const ry = getTerrainHeight(rx, rz) + 0.5 + Math.random() * 2;
+          return new THREE.Vector3(rx, ry, rz);
+        }
+
+        update(delta, time) {
+          const flapSpeed = 20;
+          this.wingL.rotation.y =
+            Math.sin(time * flapSpeed + this.timeOffset) * 0.8;
+          this.wingR.rotation.y =
+            -Math.sin(time * flapSpeed + this.timeOffset) * 0.8 - Math.PI;
+
+          const dir = new THREE.Vector3().subVectors(
+            this.targetPos,
+            this.group.position,
+          );
+          if (dir.length() < 0.5) {
+            this.targetPos = this.getNewTarget();
+          } else {
+            dir.normalize();
+            dir.x += Math.sin(time * 3 + this.timeOffset) * 0.5;
+            dir.y += Math.cos(time * 2 + this.timeOffset) * 0.5;
+            dir.normalize();
+            this.group.position.addScaledVector(dir, this.speed * delta);
+            this.group.rotation.y = THREE.MathUtils.lerp(
+              this.group.rotation.y,
+              Math.atan2(dir.x, dir.z),
+              delta * 5,
+            );
+          }
+          const groundY =
+            getTerrainHeight(this.group.position.x, this.group.position.z) +
+            0.3;
+          if (this.group.position.y < groundY) this.group.position.y = groundY;
+        }
+      }
+
+      // --- 4. 귀여운 회색 태비 고양이 모델 (Tabby Kitten) ---
+      class CatModel {
+        constructor() {
+          this.group = new THREE.Group();
+          this.parts = {};
+          this.state = "idle";
+          this.targetPos = null;
+          this.targetItem = null;
+          this.lookTarget = new THREE.Vector3();
+          this.lookWeight = 1.0;
+          this.walkSpeed = 3.5;
+          this.timeCounter = 0;
+          this.stateTimer = 0;
+          this.poopTimer = 0;
+
+          this.buildCuteModel();
+        }
+
+        buildCuteModel() {
+          const matGray = new THREE.MeshLambertMaterial({
+            color: COLORS.gray,
+            roughness: 0.9,
+          });
+          const matDarkGray = new THREE.MeshLambertMaterial({
+            color: COLORS.darkGray,
+            roughness: 0.9,
+          });
+          const matWhite = new THREE.MeshLambertMaterial({
+            color: COLORS.white,
+            roughness: 0.9,
+          });
+          const matBlack = new THREE.MeshLambertMaterial({
+            color: COLORS.black,
+          });
+          const matPink = new THREE.MeshLambertMaterial({ color: COLORS.pink });
+          const matEye = new THREE.MeshLambertMaterial({
+            color: COLORS.eyeAmber,
+          }); // 호박색 눈
+
+          // 1. 몸통 (Gray with White belly)
+          this.parts.body = new THREE.Group();
+          this.parts.body.position.y = 0.8;
+          this.group.add(this.parts.body);
+
+          const torso = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.55, 0.7, 8, 16),
+            matGray,
+          );
+          torso.rotation.x = Math.PI / 2;
+          torso.castShadow = true;
+          this.parts.body.add(torso);
+
+          const belly = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.5, 0.65, 8, 16),
+            matWhite,
+          );
+          belly.rotation.x = Math.PI / 2;
+          belly.position.y = -0.15;
+          this.parts.body.add(belly);
+
+          // 등에 줄무늬 (Tabby stripes)
+          for (let i = 0; i < 3; i++) {
+            const stripe = new THREE.Mesh(
+              new THREE.CapsuleGeometry(0.56, 0.1, 4, 8),
+              matDarkGray,
+            );
+            stripe.rotation.x = Math.PI / 2;
+            stripe.position.set(0, 0, -0.2 + i * 0.2);
+            this.parts.body.add(stripe);
+          }
+
+          // 2. 머리 (Big Head, White muzzle)
+          this.parts.headGroup = new THREE.Group();
+          this.parts.headGroup.position.set(0, 0.4, 0.65);
+          this.parts.body.add(this.parts.headGroup);
+
+          const head = new THREE.Mesh(
+            new THREE.SphereGeometry(0.65, 32, 32),
+            matGray,
+          );
+          head.scale.set(1.15, 0.95, 1.0); // 볼살 통통
+          head.castShadow = true;
+          this.parts.headGroup.add(head);
+
+          // 이마 M자 무늬
+          for (let i = 0; i < 3; i++) {
+            const mStripe = new THREE.Mesh(
+              new THREE.CapsuleGeometry(0.04, 0.2, 4, 4),
+              matDarkGray,
+            );
+            mStripe.position.set(-0.15 + i * 0.15, 0.45, 0.45);
+            mStripe.rotation.z = (i - 1) * -0.2;
+            mStripe.rotation.x = 0.5;
+            this.parts.headGroup.add(mStripe);
+          }
+
+          // 하얀 주둥이와 턱
+          const muzzleGroup = new THREE.Group();
+          muzzleGroup.position.set(0, -0.15, 0.55);
+          this.parts.headGroup.add(muzzleGroup);
+
+          const muzzleL = new THREE.Mesh(
+            new THREE.SphereGeometry(0.2, 16, 16),
+            matWhite,
+          );
+          muzzleL.position.set(0.1, 0, 0);
+          const muzzleR = new THREE.Mesh(
+            new THREE.SphereGeometry(0.2, 16, 16),
+            matWhite,
+          );
+          muzzleR.position.set(-0.1, 0, 0);
+          muzzleGroup.add(muzzleL);
+          muzzleGroup.add(muzzleR);
+
+          const chin = new THREE.Mesh(
+            new THREE.SphereGeometry(0.15, 16, 16),
+            matWhite,
+          );
+          chin.position.set(0, -0.1, 0.05);
+          muzzleGroup.add(chin);
+
+          // 분홍 코
+          const nose = new THREE.Mesh(
+            new THREE.SphereGeometry(0.06, 8, 8),
+            matPink,
+          );
+          nose.position.set(0, 0.08, 0.18);
+          nose.scale.set(1.5, 0.8, 1.0);
+          muzzleGroup.add(nose);
+
+          // 낼름낼름 혀 (숨겨둠)
+          this.parts.tongue = new THREE.Mesh(
+            new THREE.BoxGeometry(0.1, 0.02, 0.2),
+            matPink,
+          );
+          this.parts.tongue.position.set(0, -0.05, 0.15);
+          this.parts.tongue.scale.set(0, 0, 0); // 초기엔 안보임
+          muzzleGroup.add(this.parts.tongue);
+
+          // 크고 영롱한 호박색 눈
+          const eyeGeo = new THREE.SphereGeometry(0.18, 16, 16);
+          this.parts.eyeLGroup = new THREE.Group();
+          this.parts.eyeLGroup.position.set(0.3, 0.1, 0.52);
+          const eyeL = new THREE.Mesh(eyeGeo, matEye);
+          const pupilL = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.04, 0.18, 4, 8),
+            matBlack,
+          ); // 세로 동공
+          pupilL.position.z = 0.15;
+          this.parts.eyeLGroup.add(eyeL);
+          this.parts.eyeLGroup.add(pupilL);
+
+          this.parts.eyeRGroup = new THREE.Group();
+          this.parts.eyeRGroup.position.set(-0.3, 0.1, 0.52);
+          const eyeR = new THREE.Mesh(eyeGeo, matEye);
+          const pupilR = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.04, 0.18, 4, 8),
+            matBlack,
+          );
+          pupilR.position.z = 0.15;
+          this.parts.eyeRGroup.add(eyeR);
+          this.parts.eyeRGroup.add(pupilR);
+
+          this.parts.headGroup.add(this.parts.eyeLGroup);
+          this.parts.headGroup.add(this.parts.eyeRGroup);
+
+          // 귀 (안쪽은 하얗게)
+          const earGeo = new THREE.ConeGeometry(0.18, 0.4, 16);
+          earGeo.translate(0, 0.2, 0);
+          const earL = new THREE.Mesh(earGeo, matGray);
+          earL.position.set(0.35, 0.45, 0.1);
+          earL.rotation.set(-0.1, 0, -0.4);
+          const earLInside = new THREE.Mesh(
+            new THREE.ConeGeometry(0.1, 0.35, 8),
+            matWhite,
+          );
+          earLInside.position.set(0, 0.2, 0.05);
+          earL.add(earLInside);
+
+          const earR = new THREE.Mesh(earGeo, matGray);
+          earR.position.set(-0.35, 0.45, 0.1);
+          earR.rotation.set(-0.1, 0, 0.4);
+          const earRInside = new THREE.Mesh(
+            new THREE.ConeGeometry(0.1, 0.35, 8),
+            matWhite,
+          );
+          earRInside.position.set(0, 0.2, 0.05);
+          earR.add(earRInside);
+
+          this.parts.headGroup.add(earL);
+          this.parts.headGroup.add(earR);
+
+          // 3. 짧고 하얀 양말을 신은 다리
+          this.legs = {};
+          const makeLeg = (isFront, isLeft) => {
+            const legGroup = new THREE.Group();
+
+            const thigh = new THREE.Mesh(
+              new THREE.CapsuleGeometry(0.15, 0.25, 8, 8),
+              matGray,
+            );
+            thigh.position.y = -0.15;
+            legGroup.add(thigh);
+
+            const calfGroup = new THREE.Group();
+            calfGroup.position.y = -0.3;
+            const calf = new THREE.Mesh(
+              new THREE.CapsuleGeometry(0.13, 0.25, 8, 8),
+              matWhite,
+            ); // 흰 양말
+            calf.position.y = -0.15;
+            calfGroup.add(calf);
+
+            const paw = new THREE.Mesh(
+              new THREE.SphereGeometry(0.15, 16, 16),
+              matWhite,
+            );
+            paw.scale.set(1.2, 0.6, 1.2);
+            paw.position.set(0, -0.3, 0.05);
+            calfGroup.add(paw);
+
+            legGroup.add(calfGroup);
+            legGroup.calf = calfGroup;
+
+            const x = isLeft ? 0.35 : -0.35;
+            const z = isFront ? 0.35 : -0.35;
+            legGroup.position.set(x, -0.1, z);
+
+            this.parts.body.add(legGroup);
+            return legGroup;
+          };
+
+          this.parts.legFL = makeLeg(true, true);
+          this.parts.legFR = makeLeg(true, false);
+          this.parts.legBL = makeLeg(false, true);
+          this.parts.legBR = makeLeg(false, false);
+
+          // 4. 줄무늬 꼬리
+          this.parts.tailGroup = new THREE.Group();
+          this.parts.tailGroup.position.set(0, 0.2, -0.65);
+          this.parts.body.add(this.parts.tailGroup);
+
+          this.tailBones = [];
+          let currentParent = this.parts.tailGroup;
+          for (let i = 0; i < 6; i++) {
+            const tSize = 0.12 - i * 0.01;
+            const tColor = i % 2 === 0 ? matDarkGray : matGray; // 줄무늬
+            const tMesh = new THREE.Mesh(
+              new THREE.CapsuleGeometry(tSize, 0.15, 8, 8),
+              tColor,
+            );
+            tMesh.rotation.x = Math.PI / 2;
+            tMesh.position.z = -0.075;
+            tMesh.castShadow = true;
+
+            const tJoint = new THREE.Group();
+            tJoint.position.set(0, 0, i === 0 ? 0 : -0.15);
+            tJoint.add(tMesh);
+            currentParent.add(tJoint);
+            this.tailBones.push(tJoint);
+            currentParent = tJoint;
+          }
+
+          this.group.traverse((child) => {
+            if (child.isMesh) child.userData.isCat = true;
+          });
+        }
+
+        changeState(newState) {
+          this.state = newState;
+          this.stateTimer = 0;
+          // 혀 초기화
+          this.parts.tongue.scale.set(0, 0, 0);
+        }
+
+        setWalkTarget(vec3) {
+          this.targetPos = vec3.clone();
+          this.changeState("walk_to_target");
+        }
+
+        discoverFood(foodData) {
+          this.targetItem = foodData;
+          this.targetPos = foodData.targetPos; // 음식이 있는 손/그릇 위치로 이동
+          this.changeState("walk_to_target");
+          playMeow();
+        }
+
+        reactToPetting() {
+          playMeow();
+          this.parts.eyeLGroup.scale.y = 0.1;
+          this.parts.eyeRGroup.scale.y = 0.1;
+          setTimeout(() => {
+            if (this.state !== "sleep") {
+              this.parts.eyeLGroup.scale.y = 1;
+              this.parts.eyeRGroup.scale.y = 1;
+            }
+          }, 1000);
+
+          if (["sleep", "loaf", "groom"].includes(this.state)) {
+            this.changeState("idle");
+          } else if (
+            ![
+              "walk_to_target",
+              "eat",
+              "poop",
+              "bury",
+              "play_butterfly",
+            ].includes(this.state)
+          ) {
+            this.changeState("sit");
+          }
+        }
+
+        update(delta, currentTime) {
+          this.timeCounter += delta;
+          this.stateTimer += delta;
+
+          const isNight = dayTime > 19 || dayTime < 6;
+
+          if (["idle", "sit"].includes(this.state)) {
+            this.poopTimer += delta;
+            if (isNight && this.state !== "sleep" && this.stateTimer > 5) {
+              this.changeState("sleep");
+            }
+          }
+
+          // 1. 몸통 Y축(높이) 및 경사 계산 (공중부양 방지)
+          const terrainY = getTerrainHeight(
+            this.group.position.x,
+            this.group.position.z,
+          );
+          const targetCatY = terrainY + 0.05;
+          this.group.position.y = THREE.MathUtils.lerp(
+            this.group.position.y,
+            targetCatY,
+            delta * 10,
+          );
+
+          if (this.state.includes("walk")) {
+            const forward = new THREE.Vector3(0, 0, 1).applyEuler(
+              new THREE.Euler(0, this.group.rotation.y, 0),
+            );
+            const fY = getTerrainHeight(
+              this.group.position.x + forward.x,
+              this.group.position.z + forward.z,
+            );
+            const bY = getTerrainHeight(
+              this.group.position.x - forward.x,
+              this.group.position.z - forward.z,
+            );
+            let targetPitch = Math.atan2(bY - fY, 2.0);
+            // 언덕 오르내릴 때 자연스러운 경사 적용. 과도한 꺾임 방지
+            targetPitch = THREE.MathUtils.clamp(targetPitch, -0.3, 0.3);
+            this.group.rotation.x = THREE.MathUtils.lerp(
+              this.group.rotation.x,
+              targetPitch,
+              delta * 4,
+            );
+          } else {
+            // 가만히 있을 때는 몸을 수평으로 유지 (엑소시스트 방지)
+            this.group.rotation.x = THREE.MathUtils.lerp(
+              this.group.rotation.x,
+              0,
+              delta * 4,
+            );
+          }
+          this.group.rotation.z = THREE.MathUtils.lerp(
+            this.group.rotation.z,
+            0,
+            delta * 5,
+          ); // Roll 완전 고정
+
+          // 2. 머리(시선) 90도/180도 꺾임 방지 (엑소시스트 완치)
+          if (
+            [
+              "sleep",
+              "groom",
+              "eat",
+              "poop",
+              "bury",
+              "play_butterfly",
+            ].includes(this.state)
+          ) {
+            this.lookWeight = THREE.MathUtils.lerp(
+              this.lookWeight,
+              0,
+              delta * 3,
+            );
+          } else {
+            this.lookWeight = THREE.MathUtils.lerp(
+              this.lookWeight,
+              1,
+              delta * 3,
+            );
+          }
+
+          let headYaw = 0,
+            headPitch = 0;
+          if (this.lookTarget && this.lookWeight > 0.01) {
+            const dirToTarget = this.lookTarget
+              .clone()
+              .sub(this.parts.headGroup.getWorldPosition(new THREE.Vector3()))
+              .normalize();
+            const bodyForward = new THREE.Vector3(0, 0, 1).applyQuaternion(
+              this.group.quaternion,
+            );
+            const dot = dirToTarget.dot(bodyForward);
+
+            if (dot > 0.0) {
+              // 전방 180도 내에 있을 때만 쳐다봄
+              const localTarget = this.parts.body.worldToLocal(
+                this.lookTarget.clone(),
+              );
+              headYaw = Math.atan2(localTarget.x, localTarget.z);
+              headPitch = -Math.atan2(
+                localTarget.y - 0.4,
+                Math.sqrt(localTarget.x ** 2 + localTarget.z ** 2),
+              );
+
+              headYaw = THREE.MathUtils.clamp(
+                headYaw,
+                -Math.PI / 4,
+                Math.PI / 4,
+              );
+              headPitch = THREE.MathUtils.clamp(
+                headPitch,
+                -Math.PI / 6,
+                Math.PI / 6,
+              );
+            }
+          }
+
+          this.parts.headGroup.rotation.y = THREE.MathUtils.lerp(
+            this.parts.headGroup.rotation.y,
+            headYaw * this.lookWeight,
+            delta * 5,
+          );
+          this.parts.headGroup.rotation.x = THREE.MathUtils.lerp(
+            this.parts.headGroup.rotation.x,
+            headPitch * this.lookWeight,
+            delta * 5,
+          );
+
+          // 고개가 꺾인 채로 굳는 현상 방지 (Z축 회전 초기화)
+          if (this.state !== "sleep") {
+            this.parts.headGroup.rotation.z = THREE.MathUtils.lerp(
+              this.parts.headGroup.rotation.z,
+              0,
+              delta * 5,
+            );
+          }
+
+          // 3. 꼬리 및 눈 깜빡임
+          const tailSpeed =
+            this.state.includes("walk") || this.state === "play_butterfly"
+              ? 12
+              : isPurring
+                ? 5
+                : this.state === "sleep"
+                  ? 0.5
+                  : 2;
+          const tailAmp =
+            this.state.includes("walk") || this.state === "play_butterfly"
+              ? 0.3
+              : isPurring
+                ? 0.5
+                : this.state === "sleep"
+                  ? 0.05
+                  : 0.2;
+          this.tailBones.forEach((bone, index) => {
+            const offset = index * 0.3;
+            bone.rotation.x =
+              Math.sin(currentTime * tailSpeed - offset) * tailAmp;
+            bone.rotation.y =
+              Math.cos(currentTime * (tailSpeed * 0.7) - offset) *
+              (tailAmp * 0.5);
+          });
+
+          if (this.state !== "sleep" && Math.random() < 0.005) {
+            this.parts.eyeLGroup.scale.y = 0.1;
+            this.parts.eyeRGroup.scale.y = 0.1;
+            setTimeout(() => {
+              if (this.state !== "sleep") {
+                this.parts.eyeLGroup.scale.y = 1;
+                this.parts.eyeRGroup.scale.y = 1;
+              }
+            }, 150);
+          }
+
+          this.processStateMachine(delta, currentTime, isNight);
+        }
+
+        processStateMachine(delta, time, isNight) {
+          if (this.poopTimer > 50 && this.state === "idle") {
+            this.poopTimer = 0;
+            const rx =
+              this.group.position.x +
+              (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 5);
+            const rz =
+              this.group.position.z +
+              (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 5);
+            this.targetPos = new THREE.Vector3(
+              rx,
+              getTerrainHeight(rx, rz),
+              rz,
+            );
+            this.changeState("walk_to_poop");
+            return;
+          }
+
+          if (
+            ![
+              "sleep",
+              "groom",
+              "loaf",
+              "sit",
+              "poop",
+              "bury",
+              "eat",
+              "play_butterfly",
+            ].includes(this.state)
+          ) {
+            this.resetPosture(delta);
+          }
+
+          switch (this.state) {
+            case "idle":
+              if (this.stateTimer > 4 + Math.random() * 6 && !isNight) {
+                const r = Math.random();
+                if (r < 0.3) {
+                  const tx = this.group.position.x + (Math.random() - 0.5) * 15;
+                  const tz = this.group.position.z + (Math.random() - 0.5) * 15;
+                  this.targetPos = new THREE.Vector3(
+                    tx,
+                    getTerrainHeight(tx, tz),
+                    tz,
+                  );
+                  this.changeState("walk_to_target");
+                } else if (r < 0.5) this.changeState("sit");
+                else if (r < 0.7) this.changeState("loaf");
+                else this.changeState("groom"); // 발라당(Roll) 모션 완전히 삭제 -> 그루밍(핥기)으로 대체
+              }
+              break;
+
+            case "sit":
+              this.animateSit(delta);
+              if (this.stateTimer > 4 + Math.random() * 4)
+                this.changeState("idle");
+              break;
+
+            case "loaf":
+              this.animateLoaf(delta);
+              if (this.stateTimer > 10 + Math.random() * 10)
+                this.changeState("idle");
+              break;
+
+            case "sleep":
+              this.animateSleep(delta);
+              if (!isNight && this.stateTimer > 10) {
+                this.parts.eyeLGroup.scale.y = 1;
+                this.parts.eyeRGroup.scale.y = 1;
+                this.changeState("idle");
+              }
+              break;
+
+            case "groom":
+              this.animateGroom(delta, time);
+              if (this.stateTimer > 6 + Math.random() * 4)
+                this.changeState("idle");
+              break;
+
+            case "play_butterfly":
+              this.animatePlayButterfly(delta, time);
+              if (this.stateTimer > 4 || !this.targetItem) {
+                this.changeState("idle");
+                this.targetItem = null;
+              }
+              break;
+
+            case "walk_to_target":
+            case "walk_to_poop":
+              this.animateWalk(delta, time);
+
+              // 타겟이 츄르인지 사료인지에 따라 정지 거리(stopDist)를 다르게 설정하여 입을 정확히 맞춤
+              let stopDist = 0.5;
+              if (this.state === "walk_to_target" && this.targetItem) {
+                stopDist = this.targetItem.type === "kibble" ? 1.0 : 1.5;
+              }
+
+              if (this.moveToTarget(delta, stopDist)) {
+                if (this.state === "walk_to_poop") this.changeState("poop");
+                else if (this.targetItem) {
+                  // 먹이를 향해 고개 맞추기 위해 정면으로 회전
+                  const dir = new THREE.Vector3().subVectors(
+                    this.targetItem.mesh.position,
+                    this.group.position,
+                  );
+                  this.group.rotation.y = Math.atan2(dir.x, dir.z);
+                  this.changeState("eat");
+                } else this.changeState("idle");
+                this.targetPos = null;
+              }
+              break;
+
+            case "eat":
+              this.animateEat(delta, time);
+              setPurring(true);
+
+              // 분홍색 혀 날름날름 (속도와 폭을 줄여 자연스럽게 수정)
+              this.parts.tongue.scale.set(1, 1, 1);
+              this.parts.tongue.position.z =
+                0.15 + Math.max(0, Math.sin(time * 20)) * 0.08;
+
+              // 음식 줄어드는 효과
+              if (this.targetItem && this.targetItem.mesh) {
+                const progress = 1.0 - this.stateTimer / 6.0;
+                if (this.targetItem.type === "churu") {
+                  // 츄르 패키지가 뒤에서부터 짜지듯이 줄어듦
+                  this.targetItem.foodObj.scale.z = Math.max(0.1, progress);
+                } else {
+                  // 사료알갱이만 하나씩 사라짐 (그릇 유지)
+                  const kibbles = this.targetItem.foodObj.children.filter(
+                    (c) => c.userData.isKibble,
+                  );
+                  kibbles.forEach((kibble, idx) => {
+                    const threshold = (idx + 1) / kibbles.length; // 0 ~ 1 사이의 임계값
+                    if (progress < threshold) {
+                      kibble.visible = false;
+                    }
+                  });
+                }
+              }
+
+              if (this.stateTimer > 6) {
+                // 다 먹음
+                setPurring(false);
+                if (this.targetItem) {
+                  scene.remove(this.targetItem.mesh);
+                  this.targetItem = null;
+                }
+                this.parts.tongue.scale.set(0, 0, 0);
+                this.changeState("idle");
+              }
+              break;
+
+            case "poop":
+              this.animatePoop(delta);
+              if (this.stateTimer > 3 && !this.poopMesh) this.spawnPoopMesh();
+              if (this.stateTimer > 4) this.changeState("bury");
+              break;
+
+            case "bury":
+              this.animateBury(delta, time);
+              if (this.stateTimer > 4) {
+                if (this.poopMesh) {
+                  scene.remove(this.poopMesh);
+                  this.poopMesh = null;
+                }
+                this.changeState("idle");
+              }
+              break;
+          }
+        }
+
+        // --- 부드러운 애니메이션들 ---
+        resetPosture(delta) {
+          const s = delta * 5;
+          this.parts.body.position.lerp(new THREE.Vector3(0, 0.8, 0), s);
+          this.parts.body.quaternion.slerp(new THREE.Quaternion(), s);
+
+          this.parts.headGroup.position.y = THREE.MathUtils.lerp(
+            this.parts.headGroup.position.y,
+            0.4,
+            s,
+          ); // 머리 높이 복구
+
+          const legs = [
+            this.parts.legFL,
+            this.parts.legFR,
+            this.parts.legBL,
+            this.parts.legBR,
+          ];
+          legs.forEach((leg) => {
+            leg.rotation.x = THREE.MathUtils.lerp(leg.rotation.x, 0, s);
+            leg.rotation.y = THREE.MathUtils.lerp(leg.rotation.y, 0, s);
+            leg.rotation.z = THREE.MathUtils.lerp(leg.rotation.z, 0, s);
+            leg.calf.rotation.x = THREE.MathUtils.lerp(
+              leg.calf.rotation.x,
+              0,
+              s,
+            );
+          });
+        }
+
+        animateWalk(delta, time) {
+          const s = delta * 5;
+          const walkCycle = time * 12;
+          this.parts.body.position.lerp(
+            new THREE.Vector3(
+              0,
+              0.8 + Math.abs(Math.sin(walkCycle * 2)) * 0.03,
+              0,
+            ),
+            s,
+          );
+
+          const animateLeg = (leg, offset) => {
+            const phase = walkCycle + offset;
+            leg.rotation.x = Math.sin(phase) * 0.3; // 보폭을 줄여서 방정맞은 느낌 감소
+            leg.calf.rotation.x = Math.max(0, -Math.sin(phase)) * 0.4;
+          };
+          animateLeg(this.parts.legFL, 0);
+          animateLeg(this.parts.legBR, 0);
+          animateLeg(this.parts.legFR, Math.PI);
+          animateLeg(this.parts.legBL, Math.PI);
+        }
+
+        animateSit(delta) {
+          const s = delta * 5;
+          this.parts.body.position.lerp(new THREE.Vector3(0, 0.5, 0), s);
+          this.parts.body.quaternion.slerp(
+            new THREE.Quaternion().setFromEuler(
+              new THREE.Euler(-Math.PI / 6, 0, 0),
+            ),
+            s,
+          );
+
+          this.parts.legBL.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBL.rotation.x,
+            Math.PI / 2,
+            s,
+          );
+          this.parts.legBL.calf.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBL.calf.rotation.x,
+            -Math.PI / 2,
+            s,
+          );
+          this.parts.legBR.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBR.rotation.x,
+            Math.PI / 2,
+            s,
+          );
+          this.parts.legBR.calf.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBR.calf.rotation.x,
+            -Math.PI / 2,
+            s,
+          );
+
+          this.parts.legFL.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFL.rotation.x,
+            0,
+            s,
+          );
+          this.parts.legFR.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFR.rotation.x,
+            0,
+            s,
+          );
+        }
+
+        animateLoaf(delta) {
+          const s = delta * 4;
+          this.parts.body.position.lerp(new THREE.Vector3(0, 0.35, 0), s);
+          this.parts.body.quaternion.slerp(new THREE.Quaternion(), s);
+          [
+            this.parts.legFL,
+            this.parts.legFR,
+            this.parts.legBL,
+            this.parts.legBR,
+          ].forEach((leg) => {
+            leg.rotation.x = THREE.MathUtils.lerp(
+              leg.rotation.x,
+              -Math.PI / 2,
+              s,
+            );
+            leg.calf.rotation.x = THREE.MathUtils.lerp(
+              leg.calf.rotation.x,
+              Math.PI / 2.5,
+              s,
+            );
+          });
+        }
+
+        animateSleep(delta) {
+          const s = delta * 3;
+          this.parts.body.position.lerp(new THREE.Vector3(0, 0.25, 0), s);
+          this.parts.body.quaternion.slerp(
+            new THREE.Quaternion().setFromEuler(
+              new THREE.Euler(0, 0, Math.PI / 2),
+            ),
+            s,
+          );
+          this.parts.headGroup.rotation.z = THREE.MathUtils.lerp(
+            this.parts.headGroup.rotation.z,
+            -Math.PI / 3,
+            s,
+          );
+
+          this.parts.eyeLGroup.scale.y = THREE.MathUtils.lerp(
+            this.parts.eyeLGroup.scale.y,
+            0.1,
+            s,
+          );
+          this.parts.eyeRGroup.scale.y = THREE.MathUtils.lerp(
+            this.parts.eyeRGroup.scale.y,
+            0.1,
+            s,
+          );
+
+          this.parts.legFL.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFL.rotation.x,
+            0.4,
+            s,
+          );
+          this.parts.legFR.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFR.rotation.x,
+            -0.2,
+            s,
+          );
+          this.parts.legBL.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBL.rotation.x,
+            0.5,
+            s,
+          );
+        }
+
+        animateGroom(delta, time) {
+          // 발라당 대신 그루밍(핥기) 모션으로 얌전하게 대체
+          const s = delta * 5;
+          this.parts.body.position.lerp(new THREE.Vector3(0, 0.5, 0), s);
+          // 살짝만 몸을 틀어줌 (180도 뒤집힘 절대 없음)
+          this.parts.body.quaternion.slerp(
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.2, 0)),
+            s,
+          );
+
+          this.parts.legBL.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBL.rotation.x,
+            Math.PI / 1.5,
+            s,
+          );
+          this.parts.legBR.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBR.rotation.x,
+            Math.PI / 2,
+            s,
+          );
+
+          const bob = Math.sin(time * 10) * 0.1;
+          this.parts.headGroup.rotation.x = -Math.PI / 4 + bob;
+          this.parts.headGroup.rotation.y = 0.5; // 다리쪽으로 고개 돌림
+        }
+
+        animatePlayButterfly(delta, time) {
+          if (this.targetItem) {
+            const dir = new THREE.Vector3().subVectors(
+              this.targetItem.group.position,
+              this.group.position,
+            );
+            dir.y = 0;
+            dir.normalize();
+            this.group.rotation.y = THREE.MathUtils.lerp(
+              this.group.rotation.y,
+              Math.atan2(dir.x, dir.z),
+              delta * 5,
+            );
+            this.parts.headGroup.rotation.x = THREE.MathUtils.lerp(
+              this.parts.headGroup.rotation.x,
+              0.5,
+              delta * 5,
+            );
+          }
+          this.parts.body.position.lerp(
+            new THREE.Vector3(0, 0.6, 0),
+            delta * 5,
+          );
+          this.parts.body.quaternion.slerp(
+            new THREE.Quaternion().setFromEuler(
+              new THREE.Euler(-Math.PI / 6, 0, 0),
+            ),
+            delta * 5,
+          );
+
+          const punch = Math.max(0, Math.sin(time * 15)) * 1.5;
+          this.parts.legFL.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFL.rotation.x,
+            punch - 0.5,
+            delta * 10,
+          );
+          this.parts.legFL.calf.rotation.x = 0;
+        }
+
+        animateEat(delta, time) {
+          const s = delta * 5;
+          // 사료를 먹기 위해 몸을 더 낮추고 앞으로 살짝 숙임
+          this.parts.body.position.lerp(new THREE.Vector3(0, 0.45, 0), s);
+          this.parts.body.quaternion.slerp(
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(0.15, 0, 0)),
+            s,
+          );
+
+          // 앞다리를 굽혀 발이 땅속으로 파묻히지 않게 자세를 낮춤
+          this.parts.legFL.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFL.rotation.x,
+            0.4,
+            s,
+          );
+          this.parts.legFL.calf.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFL.calf.rotation.x,
+            -0.4,
+            s,
+          );
+          this.parts.legFR.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFR.rotation.x,
+            0.4,
+            s,
+          );
+          this.parts.legFR.calf.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legFR.calf.rotation.x,
+            -0.4,
+            s,
+          );
+
+          const bob = Math.abs(Math.sin(time * 15)) * 0.05; // 끄덕임 속도 완화
+
+          if (this.targetItem && this.targetItem.type === "churu") {
+            // 츄르는 사용자가 든 손 높이에 맞춰 고개를 살짝 듦 (음수 회전)
+            this.parts.headGroup.rotation.x = -Math.PI / 8 - bob;
+            this.parts.headGroup.position.y = THREE.MathUtils.lerp(
+              this.parts.headGroup.position.y,
+              0.5,
+              s,
+            );
+          } else {
+            // 사료는 바닥 그릇을 향해 고개를 완전히 푹 숙임 (양수 회전 = 코박죽)
+            this.parts.headGroup.rotation.x = Math.PI / 2.2 + bob;
+            this.parts.headGroup.position.y = THREE.MathUtils.lerp(
+              this.parts.headGroup.position.y,
+              0.1,
+              s,
+            );
+          }
+        }
+
+        animatePoop(delta) {
+          const s = delta * 4;
+          this.parts.body.position.lerp(new THREE.Vector3(0, 0.4, 0), s);
+          this.parts.body.quaternion.slerp(
+            new THREE.Quaternion().setFromEuler(
+              new THREE.Euler(-Math.PI / 6, 0, 0),
+            ),
+            s,
+          );
+
+          this.parts.legBL.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBL.rotation.x,
+            Math.PI / 2,
+            s,
+          );
+          this.parts.legBL.calf.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBL.calf.rotation.x,
+            -Math.PI / 2,
+            s,
+          );
+          this.parts.legBR.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBR.rotation.x,
+            Math.PI / 2,
+            s,
+          );
+          this.parts.legBR.calf.rotation.x = THREE.MathUtils.lerp(
+            this.parts.legBR.calf.rotation.x,
+            -Math.PI / 2,
+            s,
+          );
+          this.parts.tailGroup.rotation.x = THREE.MathUtils.lerp(
+            this.parts.tailGroup.rotation.x,
+            Math.PI / 1.2,
+            s,
+          );
+        }
+
+        spawnPoopMesh() {
+          const geo = new THREE.DodecahedronGeometry(0.12);
+          this.poopMesh = new THREE.Mesh(
+            geo,
+            new THREE.MeshLambertMaterial({ color: COLORS.tree }),
+          );
+          const back = new THREE.Vector3(0, 0, -1).applyQuaternion(
+            this.group.quaternion,
+          );
+          const p = this.group.position.clone().add(back.multiplyScalar(0.8));
+          p.y = getTerrainHeight(p.x, p.z) + 0.1;
+          this.poopMesh.position.copy(p);
+          this.poopMesh.castShadow = true;
+          scene.add(this.poopMesh);
+        }
+
+        animateBury(delta, time) {
+          if (this.stateTimer < 1.0) {
+            this.group.rotation.y += delta * Math.PI;
+            this.resetPosture(delta);
+          } else {
+            const scratch = Math.sin(time * 20) * 0.5;
+            this.parts.legFL.rotation.x = scratch + 0.3;
+            this.parts.legFR.rotation.x = -scratch + 0.3;
+            this.parts.body.position.lerp(
+              new THREE.Vector3(0, 0.7, 0),
+              delta * 5,
+            );
+            this.parts.body.quaternion.slerp(
+              new THREE.Quaternion().setFromEuler(new THREE.Euler(0.2, 0, 0)),
+              delta * 5,
+            );
+          }
+        }
+
+        moveToTarget(delta, stopDist) {
+          if (!this.targetPos) return true;
+          const dir = new THREE.Vector3().subVectors(
+            this.targetPos,
+            this.group.position,
+          );
+          dir.y = 0;
+          const dist = dir.length();
+
+          if (dist <= stopDist) {
+            return true;
+          } else {
+            dir.normalize();
+            this.group.position.addScaledVector(dir, this.walkSpeed * delta);
+            const targetRotation = Math.atan2(dir.x, dir.z);
+            let diff = targetRotation - this.group.rotation.y;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            this.group.rotation.y += diff * delta * 8;
+            return false;
+          }
+        }
+      }
+
+      // --- 5. 환경 생성 ---
+      function createTree(x, z) {
+        const treeGroup = new THREE.Group();
+        const trunk = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.3, 0.4, 3, 8),
+          new THREE.MeshLambertMaterial({ color: COLORS.tree }),
+        );
+        trunk.position.y = 1.5;
+        trunk.castShadow = true;
+        treeGroup.add(trunk);
+
+        const leafMat = new THREE.MeshLambertMaterial({ color: COLORS.leaf });
+        for (let i = 0; i < 4; i++) {
+          const leaf = new THREE.Mesh(
+            new THREE.SphereGeometry(1.5 + Math.random(), 8, 8),
+            leafMat,
+          );
+          leaf.position.set(
+            (Math.random() - 0.5) * 1.5,
+            2.5 + i + Math.random(),
+            (Math.random() - 0.5) * 1.5,
+          );
+          leaf.castShadow = true;
+          treeGroup.add(leaf);
+        }
+        treeGroup.position.set(x, getTerrainHeight(x, z), z);
+        scene.add(treeGroup);
+      }
+
+      function createEnvironment() {
+        const geo = new THREE.PlaneGeometry(200, 200, 60, 60);
+        geo.rotateX(-Math.PI / 2);
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++)
+          pos.setY(i, getTerrainHeight(pos.getX(i), pos.getZ(i)));
+        geo.computeVertexNormals();
+
+        terrainMesh = new THREE.Mesh(
+          geo,
+          new THREE.MeshLambertMaterial({
+            color: COLORS.grass,
+            flatShading: true,
+          }),
+        );
+        terrainMesh.receiveShadow = true;
+        scene.add(terrainMesh);
+
+        for (let i = 0; i < 30; i++) {
+          let tx = (Math.random() - 0.5) * 150;
+          let tz = (Math.random() - 0.5) * 150;
+          if (Math.abs(tx) > 10 || Math.abs(tz) > 10) createTree(tx, tz);
+        }
+
+        skyMat = new THREE.MeshBasicMaterial({
+          color: 0x87ceeb,
+          side: THREE.BackSide,
+        });
+        scene.add(
+          new THREE.Mesh(new THREE.SphereGeometry(150, 32, 15), skyMat),
+        );
+
+        sunSphere = new THREE.Mesh(
+          new THREE.SphereGeometry(3, 16, 16),
+          new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        );
+        scene.add(sunSphere);
+        moonSphere = new THREE.Mesh(
+          new THREE.SphereGeometry(2, 16, 16),
+          new THREE.MeshBasicMaterial({ color: 0xffffbb }),
+        );
+        scene.add(moonSphere);
+
+        for (let i = 0; i < 5; i++) butterflies.push(new Butterfly());
+      }
+
+      function updateEnvironment(delta) {
+        dayTime += delta * TIME_SPEED;
+        if (dayTime >= 24) dayTime -= 24;
+
+        const timeAngle = ((dayTime - 6) / 24) * Math.PI * 2;
+        const sunY = Math.sin(timeAngle);
+        const radius = 100;
+
+        sunLight.position.set(Math.cos(timeAngle) * radius, sunY * radius, 0);
+        sunSphere.position.copy(sunLight.position);
+
+        moonLight.position.set(
+          Math.cos(timeAngle + Math.PI) * radius,
+          -sunY * radius,
+          0,
+        );
+        moonSphere.position.copy(moonLight.position);
+
+        sunLight.intensity = Math.max(0, sunY * 1.5);
+        moonLight.intensity = Math.max(0, -sunY * 0.5);
+
+        const skyDay = new THREE.Color(0x87ceeb);
+        const skySunset = new THREE.Color(0xff7e40);
+        const skyNight = new THREE.Color(0x0a0a2a);
+        let currentSkyColor = new THREE.Color();
+
+        if (sunY > 0.2) currentSkyColor.copy(skyDay);
+        else if (sunY > -0.2) {
+          const t = (sunY + 0.2) / 0.4;
+          if (dayTime > 12) {
+            currentSkyColor.lerpColors(skyNight, skySunset, t * 2);
+            if (t > 0.5)
+              currentSkyColor.lerpColors(skySunset, skyDay, (t - 0.5) * 2);
+          } else {
+            currentSkyColor.lerpColors(skyNight, skySunset, t * 2);
+            if (t > 0.5)
+              currentSkyColor.lerpColors(skySunset, skyDay, (t - 0.5) * 2);
+          }
+        } else currentSkyColor.copy(skyNight);
+
+        skyMat.color.copy(currentSkyColor);
+        scene.fog.color.copy(currentSkyColor);
+        hemiLight.groundColor.setHex(sunY > 0 ? 0x556b2f : 0x112211);
+        hemiLight.intensity = sunY > 0 ? 0.6 : 0.2;
+      }
+
+      // --- 7. 리얼 1인칭 시점 먹이주기 ---
+      function spawnFood(type) {
+        if (cat.targetItem && cat.targetItem.mesh) {
+          scene.remove(cat.targetItem.mesh);
+        }
+
+        // 카메라가 바라보는 방향 6만큼 앞쪽에 먹이 위치 설정
+        const camForward = new THREE.Vector3();
+        camera.getWorldDirection(camForward);
+        camForward.y = 0;
+        camForward.normalize();
+        const targetPos = camera.position
+          .clone()
+          .add(camForward.multiplyScalar(6));
+        targetPos.y = getTerrainHeight(targetPos.x, targetPos.z);
+
+        let mesh = new THREE.Group();
+        let foodObj;
+
+        if (type === "kibble") {
+          foodObj = new THREE.Group();
+          const bowl = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.5, 0.4, 0.2, 16),
+            new THREE.MeshLambertMaterial({ color: COLORS.white }),
+          );
+          bowl.userData.isBowl = true; // 그릇 식별용 태그
+          foodObj.add(bowl);
+
+          const kibbleMat = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
+          for (let i = 0; i < 15; i++) {
+            const k = new THREE.Mesh(
+              new THREE.SphereGeometry(0.08, 4, 4),
+              kibbleMat,
+            );
+            k.position.set(
+              (Math.random() - 0.5) * 0.6,
+              0.1,
+              (Math.random() - 0.5) * 0.6,
+            );
+            k.userData.isKibble = true; // 사료 알갱이 식별용 태그
+            foodObj.add(k);
+          }
+          mesh.add(foodObj);
+          mesh.position.copy(targetPos);
+          mesh.position.y += 0.1;
+        } else {
+          // Churu (츄르 1인칭 손)
+
+          // 손목/팔 (카메라 밖에서 길게 뻗어나옴)
+          const handMat = new THREE.MeshLambertMaterial({ color: COLORS.skin });
+          const arm = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.2, 0.25, 4.0, 16),
+            handMat,
+          );
+          arm.rotation.x = Math.PI / 2;
+          arm.position.z = 2.5; // 카메라 쪽으로 연결
+          mesh.add(arm);
+
+          // 손바닥
+          const palm = new THREE.Mesh(
+            new THREE.BoxGeometry(0.4, 0.2, 0.5),
+            handMat,
+          );
+          palm.position.set(0, -0.05, 0.6);
+          mesh.add(palm);
+
+          // 손가락 (츄르를 움켜쥔 모양)
+          const fingers = new THREE.Mesh(
+            new THREE.BoxGeometry(0.45, 0.25, 0.3),
+            handMat,
+          );
+          fingers.position.set(0, 0.05, 0.45);
+          mesh.add(fingers);
+
+          // 츄르 스틱 (원통형이 아닌 납작한 봉지 형태)
+          foodObj = new THREE.Mesh(
+            new THREE.BoxGeometry(0.12, 0.015, 0.7),
+            new THREE.MeshLambertMaterial({ color: COLORS.churuOrange }),
+          );
+          foodObj.position.set(0, 0, 0.2); // 손가락 사이로 나옴
+
+          // 츄르 끝부분 하얀색 내용물
+          const churuTip = new THREE.Mesh(
+            new THREE.SphereGeometry(0.03, 8, 8),
+            new THREE.MeshLambertMaterial({ color: 0xeebfa1 }),
+          );
+          churuTip.position.set(0, 0, -0.35);
+          foodObj.add(churuTip);
+
+          mesh.add(foodObj);
+
+          mesh.position.copy(targetPos);
+          mesh.position.y += 1.0; // 고양이 입 높이
+
+          // 1인칭 시점이므로 항상 카메라를 정확히 바라봄
+          mesh.lookAt(camera.position);
+        }
+
+        scene.add(mesh);
+        cat.discoverFood({
+          mesh: mesh,
+          type: type,
+          targetPos: targetPos,
+          foodObj: foodObj,
+        });
+      }
+
+      function init() {
+        const container = document.getElementById("canvas-container");
+
+        scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0x87ceeb, 20, 100);
+
+        camera = new THREE.PerspectiveCamera(
+          50,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          200,
+        );
+        camera.position.set(0, 15, 30); // 시작부터 멀찍이 편안한 뷰
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        hemiLight = new THREE.HemisphereLight(0xffffff, 0x556b2f, 0.6);
+        scene.add(hemiLight);
+
+        sunLight = new THREE.DirectionalLight(0xffffee, 1.5);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 10;
+        sunLight.shadow.camera.far = 200;
+        const d = 40;
+        sunLight.shadow.camera.left = -d;
+        sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d;
+        sunLight.shadow.camera.bottom = -d;
+        scene.add(sunLight);
+
+        moonLight = new THREE.DirectionalLight(0xaaccff, 0.0);
+        scene.add(moonLight);
+
+        createEnvironment();
+
+        cat = new CatModel();
+        scene.add(cat.group);
+
+        raycaster = new THREE.Raycaster();
+        mouse = new THREE.Vector2();
+
+        window.addEventListener("resize", () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("pointerdown", onMouseClick);
+
+        // 화면 확대/축소 이벤트 (마우스 휠)
+        window.addEventListener("wheel", (e) => {
+          targetZoom += e.deltaY * 0.02;
+          targetZoom = THREE.MathUtils.clamp(targetZoom, 5, 40); // 줌 범위 제한
+        });
+
+        // 터치/핀치 줌 이벤트
+        window.addEventListener(
+          "touchmove",
+          (e) => {
+            if (e.touches.length === 2) {
+              const dx = e.touches[0].clientX - e.touches[1].clientX;
+              const dy = e.touches[0].clientY - e.touches[1].clientY;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              if (initialPinchDistance !== null) {
+                const deltaPinch = initialPinchDistance - dist;
+                targetZoom += deltaPinch * 0.05;
+                targetZoom = THREE.MathUtils.clamp(targetZoom, 5, 40);
+              }
+              initialPinchDistance = dist;
+              e.preventDefault(); // 기본 스크롤 방지
+            }
+          },
+          { passive: false },
+        );
+
+        window.addEventListener(
+          "touchstart",
+          (e) => {
+            if (e.touches.length === 2) {
+              const dx = e.touches[0].clientX - e.touches[1].clientX;
+              const dy = e.touches[0].clientY - e.touches[1].clientY;
+              initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
+            } else if (e.touches.length > 0 && e.target.tagName !== "BUTTON") {
+              updateRaycaster(e.touches[0].clientX, e.touches[0].clientY);
+              handleClickAction();
+            }
+          },
+          { passive: false },
+        );
+
+        window.addEventListener("touchend", (e) => {
+          if (e.touches.length < 2) {
+            initialPinchDistance = null;
+          }
+        });
+
+        // 우클릭 메뉴 방지 및 카메라 회전 이벤트 추가
+        window.addEventListener("contextmenu", (e) => e.preventDefault());
+
+        window.addEventListener("mousedown", (e) => {
+          if (e.button === 2) {
+            // 우클릭
+            isRightDragging = true;
+            previousMousePosition = { x: e.clientX, y: e.clientY };
+          }
+        });
+
+        window.addEventListener("mouseup", (e) => {
+          if (e.button === 2) {
+            isRightDragging = false;
+          }
+        });
+
+        window.addEventListener("mouseleave", () => {
+          isRightDragging = false;
+        });
+
+        document.getElementById("start-btn").addEventListener("click", () => {
+          initAudio();
+          document.getElementById("ui-layer").classList.add("hidden");
+          document.getElementById("instructions").classList.add("visible");
+          document.getElementById("action-panel").classList.add("visible");
+          setTimeout(
+            () =>
+              document
+                .getElementById("instructions")
+                .classList.remove("visible"),
+            8000,
+          );
+        });
+
+        animate();
+      }
+
+      function updateRaycaster(ex, ey) {
+        mouse.x = (ex / window.innerWidth) * 2 - 1;
+        mouse.y = -(ey / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+      }
+
+      function onMouseMove(event) {
+        // 마우스 우클릭 드래그 시 카메라 궤도 각도 업데이트
+        if (isRightDragging) {
+          const deltaX = event.clientX - previousMousePosition.x;
+          const deltaY = event.clientY - previousMousePosition.y;
+
+          orbitAngleX -= deltaX * 0.01;
+          orbitAngleY -= deltaY * 0.01;
+
+          // 위아래 회전 각도 제한 (바닥 아래로 가거나 뒤집히지 않게 제한)
+          orbitAngleY = THREE.MathUtils.clamp(
+            orbitAngleY,
+            0.1,
+            Math.PI / 2 - 0.05,
+          );
+
+          previousMousePosition = { x: event.clientX, y: event.clientY };
+        }
+
+        updateRaycaster(event.clientX, event.clientY);
+
+        const floorIntersects = raycaster.intersectObject(terrainMesh);
+        if (floorIntersects.length > 0)
+          cat.lookTarget.copy(floorIntersects[0].point);
+
+        const catIntersects = raycaster.intersectObject(cat.group, true);
+        if (
+          catIntersects.length > 0 &&
+          catIntersects[0].object.userData.isCat
+        ) {
+          document.body.style.cursor = "grab";
+          setPurring(true);
+        } else {
+          document.body.style.cursor = "default";
+          if (cat.state !== "eat") setPurring(false);
+        }
+      }
+
+      function onMouseClick(event) {
+        // 좌클릭(0)일 때만 이동/상호작용 처리 (우클릭은 무시하여 카메라 회전과 분리)
+        if (event.button !== 0 || event.target.tagName === "BUTTON") return;
+        handleClickAction();
+      }
+
+      function handleClickAction() {
+        const intersects = raycaster.intersectObjects(scene.children, true);
+        if (intersects.length > 0) {
+          let clickedCat = intersects.find((i) => i.object.userData.isCat);
+          if (clickedCat) {
+            cat.reactToPetting();
+          } else {
+            let clickedFloor = intersects.find((i) => i.object === terrainMesh);
+            if (clickedFloor) cat.setWalkTarget(clickedFloor.point);
+          }
+        }
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        const time = clock.getElapsedTime();
+
+        updateEnvironment(delta);
+        if (cat) cat.update(delta, time);
+        butterflies.forEach((b) => b.update(delta, time));
+
+        // 카메라 줌 목표치에 부드럽게 보간
+        currentZoom = THREE.MathUtils.lerp(currentZoom, targetZoom, delta * 5);
+
+        if (cat && cat.group) {
+          const targetCamPos = cat.group.position.clone();
+
+          // 회전 각도에 따른 카메라 오프셋 계산 (구면 좌표계 적용)
+          const catRotY = cat.group.rotation.y;
+          const totalAngleX = catRotY + orbitAngleX; // 고양이 방향을 기준으로 카메라가 돎
+
+          const offset = new THREE.Vector3();
+          offset.x =
+            currentZoom * Math.sin(orbitAngleY) * Math.sin(totalAngleX);
+          offset.z =
+            currentZoom * Math.sin(orbitAngleY) * Math.cos(totalAngleX);
+          offset.y = currentZoom * Math.cos(orbitAngleY);
+
+          targetCamPos.add(offset);
+
+          // 지형을 파고들지 않게 높이 보정
+          const camTerrainY =
+            getTerrainHeight(targetCamPos.x, targetCamPos.z) + 1.0;
+          if (targetCamPos.y < camTerrainY) targetCamPos.y = camTerrainY;
+
+          camera.position.lerp(targetCamPos, delta * 4.0); // 회전 시 빠릿하게 따라오도록 lerp 속도 약간 증가
+
+          const lookPos = cat.group.position.clone();
+          lookPos.y += 1.0;
+          camera.lookAt(lookPos);
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      window.onload = init;
+    </script>
+  </body>
+</html>

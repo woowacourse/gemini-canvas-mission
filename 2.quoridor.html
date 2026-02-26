@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quoridor AI: Pure Grandmaster</title>
+    <style>
+        /* CSS: Pure styling for the Quoridor experience */
+        :root {
+            --bg-color: #121212;
+            --surface-color: #1e1e1e;
+            --surface-hover: #2a2a2a;
+            --border-color: #333;
+            --accent-indigo: #4f46e5;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: screen;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        .layout {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            max-width: 1000px;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        @media (min-width: 1024px) {
+            .layout { flex-direction: row; }
+        }
+
+        /* Game Board Area */
+        .game-area {
+            flex: 1;
+            background-color: var(--surface-color);
+            padding: 24px;
+            border-radius: 24px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .title-group h1 {
+            font-size: 24px;
+            font-weight: 900;
+            color: var(--accent-amber);
+            letter-spacing: -0.05em;
+        }
+
+        .title-group p {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .turn-indicator {
+            padding: 8px 24px;
+            border-radius: 9999px;
+            font-weight: bold;
+            font-size: 14px;
+            background-color: var(--accent-indigo);
+            transition: all 0.3s ease;
+        }
+
+        .turn-indicator.ai-turn {
+            background-color: var(--accent-red);
+        }
+
+        /* Mode Selection */
+        .mode-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .btn-mode {
+            background-color: var(--surface-color);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn-mode:hover { background-color: var(--surface-hover); }
+        .btn-mode.active {
+            border-color: var(--accent-indigo);
+            background-color: var(--accent-indigo);
+            transform: scale(1.05);
+        }
+
+        .btn-mode .icon { font-size: 20px; }
+        .btn-mode .label { font-size: 11px; font-weight: bold; }
+
+        /* Canvas */
+        .canvas-container {
+            background-color: #000;
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            justify-content: center;
+            border: 2px solid var(--border-color);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        canvas {
+            border-radius: 8px;
+            cursor: crosshair;
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* Wall Counters */
+        .counters {
+            display: flex;
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .counter-card {
+            flex: 1;
+            background-color: var(--surface-color);
+            padding: 16px;
+            border-radius: 16px;
+            text-align: center;
+            border-left: 4px solid var(--accent-indigo);
+        }
+
+        .counter-card.ai { border-left-color: var(--accent-red); }
+        .counter-card .label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 4px; }
+        .counter-card .value { font-size: 24px; font-weight: 900; }
+
+        /* Sidebar Control */
+        .sidebar {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        @media (min-width: 1024px) {
+            .sidebar { width: 300px; }
+        }
+
+        .card {
+            background-color: var(--surface-color);
+            padding: 24px;
+            border-radius: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        .card h2 { font-size: 18px; font-weight: 900; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+
+        .difficulty-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .btn-diff {
+            padding: 12px;
+            border-radius: 12px;
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-diff:hover { background-color: var(--surface-hover); }
+        .btn-diff.active {
+            background-color: var(--accent-amber);
+            border-color: var(--accent-amber);
+            color: #000;
+        }
+
+        .desc-box {
+            margin-top: 16px;
+            padding: 12px;
+            background-color: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .btn-reset {
+            margin-top: 24px;
+            width: 100%;
+            padding: 12px;
+            background: none;
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+            border-radius: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-reset:hover {
+            background-color: var(--accent-red);
+            color: #fff;
+        }
+
+        /* Modal */
+        #modal {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0,0,0,0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background-color: var(--surface-color);
+            padding: 40px;
+            border-radius: 32px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            border: 1px solid var(--border-color);
+        }
+
+        .modal-content h2 { font-size: 32px; font-weight: 900; margin-bottom: 16px; }
+        .modal-content p { color: var(--text-secondary); margin-bottom: 32px; }
+        .modal-content button {
+            width: 100%;
+            padding: 16px;
+            background-color: var(--accent-indigo);
+            border: none;
+            border-radius: 16px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        /* Animation for loading dots */
+        .loading::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+        @keyframes dots {
+            0% { content: ''; }
+            33% { content: '.'; }
+            66% { content: '..'; }
+            100% { content: '...'; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="layout">
+        <!-- Game Area -->
+        <div class="game-area">
+            <div class="header">
+                <div class="title-group">
+                    <h1>QUORIDOR GRANDMASTER</h1>
+                    <p id="turnStatus">Turn: Player</p>
+                </div>
+                <div id="turnIndicator" class="turn-indicator">내 차례</div>
+            </div>
+            
+            <div class="mode-grid">
+                <button onclick="setInteractionMode('move')" id="mode-move" class="btn-mode active">
+                    <span class="icon">♟️</span>
+                    <span class="label">말 이동</span>
+                </button>
+                <button onclick="setInteractionMode('h-wall')" id="mode-h-wall" class="btn-mode">
+                    <span class="icon" style="color:var(--accent-amber)">〓</span>
+                    <span class="label">가로 벽</span>
+                </button>
+                <button onclick="setInteractionMode('v-wall')" id="mode-v-wall" class="btn-mode">
+                    <span class="icon" style="color:var(--accent-amber)">||</span>
+                    <span class="label">세로 벽</span>
+                </button>
+            </div>
+
+            <div class="canvas-container">
+                <canvas id="gameBoard"></canvas>
+            </div>
+
+            <div class="counters">
+                <div class="counter-card">
+                    <div class="label">My Walls</div>
+                    <div id="p1Walls" class="value">10</div>
+                </div>
+                <div class="counter-card ai">
+                    <div class="label">AI Walls</div>
+                    <div id="p2Walls" class="value">10</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="card">
+                <h2>전략 엔진 설정</h2>
+                <div class="difficulty-group">
+                    <button onclick="setDifficulty('easy')" id="btn-easy" class="btn-diff">초급 (Local)</button>
+                    <button onclick="setDifficulty('medium')" id="btn-medium" class="btn-diff">중급 (Local)</button>
+                    <button onclick="setDifficulty('hard')" id="btn-hard" class="btn-diff">고급 (Grandmaster AI)</button>
+                </div>
+                <div class="desc-box">
+                    <p id="diffDesc"></p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>게임 도움말</h2>
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.8;">
+                    • 상단 모드 버튼으로 행동을 정한 뒤 보드를 클릭하세요.<br>
+                    • 벽 설치 시 마우스 오버로 위치를 미리 볼 수 있습니다.<br>
+                    • 상대방과 마주치면 뛰어넘어 한 칸 더 갈 수 있습니다.<br>
+                    • 길을 완전히 막는 벽은 설치할 수 없습니다.
+                </div>
+                <button onclick="resetGame()" class="btn-reset">게임 초기화</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal">
+        <div class="modal-content">
+            <div id="winnerIcon" style="font-size: 64px; margin-bottom: 16px;">🏆</div>
+            <h2 id="modalTitle"></h2>
+            <p id="modalMsg"></p>
+            <button onclick="resetGame()">PLAY AGAIN</button>
+        </div>
+    </div>
+
+<script>
+/**
+ * Quoridor Logic & AI Grandmaster Implementation
+ */
+
+const apiKey = "";
+const BOARD_SIZE = 9;
+const INITIAL_WALLS = 10;
+const CELL_SIZE = 46;
+const WALL_THICKNESS = 12;
+const CANVAS_SIZE = BOARD_SIZE * CELL_SIZE + (BOARD_SIZE - 1) * WALL_THICKNESS;
+
+const canvas = document.getElementById('gameBoard');
+const ctx = canvas.getContext('2d');
+canvas.width = CANVAS_SIZE;
+canvas.height = CANVAS_SIZE;
+
+const DIFFICULTIES = {
+    easy: { depth: 1, randomness: 0.4, desc: "초급: AI가 기초적인 이동 위주로 플레이하며 자주 실수합니다." },
+    medium: { depth: 2, randomness: 0.1, desc: "중급: AI가 표준적인 최단 경로와 기본적인 방어 벽을 사용합니다." },
+    hard: { isGemini: true, desc: "고급: 프로 쿼리도 기사의 전략을 학습한 Gemini가 상대를 압도하는 전술을 펼칩니다." }
+};
+
+let state = {
+    p1: { r: 8, c: 4, walls: INITIAL_WALLS },
+    p2: { r: 0, c: 4, walls: INITIAL_WALLS },
+    hWalls: Array(BOARD_SIZE - 1).fill().map(() => Array(BOARD_SIZE - 1).fill(false)),
+    vWalls: Array(BOARD_SIZE - 1).fill().map(() => Array(BOARD_SIZE - 1).fill(false)),
+    turn: 1, 
+    difficulty: 'medium',
+    interactionMode: 'move', 
+    hoverPos: null, 
+    gameOver: false
+};
+
+// --- CORE UTILS ---
+
+function isBlocked(r1, c1, r2, c2, hWalls, vWalls) {
+    if (r1 === r2) { 
+        const minC = Math.min(c1, c2);
+        if (vWalls[r1] && vWalls[r1][minC]) return true;
+        if (r1 > 0 && vWalls[r1-1] && vWalls[r1-1][minC]) return true;
+    } else { 
+        const minR = Math.min(r1, r2);
+        if (hWalls[minR] && hWalls[minR][c1]) return true;
+        if (c1 > 0 && hWalls[minR] && hWalls[minR][c1-1]) return true;
+    }
+    return false;
+}
+
+function getValidNeighbors(r, c, hWalls, vWalls, otherPawn) {
+    const moves = [];
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    for (let [dr, dc] of dirs) {
+        let nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
+        
+        if (!isBlocked(r, c, nr, nc, hWalls, vWalls)) {
+            if (nr === otherPawn.r && nc === otherPawn.c) {
+                let jr = nr + dr, jc = nc + dc;
+                if (jr >= 0 && jr < BOARD_SIZE && jc >= 0 && jc < BOARD_SIZE && !isBlocked(nr, nc, jr, jc, hWalls, vWalls)) {
+                    moves.push({ r: jr, c: jc });
+                } else {
+                    const sides = dr !== 0 ? [[0, -1], [0, 1]] : [[-1, 0], [1, 0]];
+                    for (let [sr, sc] of sides) {
+                        let snr = nr + sr, snc = nc + sc;
+                        if (snr >= 0 && snr < BOARD_SIZE && snc >= 0 && snc < BOARD_SIZE && !isBlocked(nr, nc, snr, snc, hWalls, vWalls)) {
+                            moves.push({ r: snr, c: snc });
+                        }
+                    }
+                }
+            } else moves.push({ r: nr, c: nc });
+        }
+    }
+    return moves;
+}
+
+function getShortestPath(r, c, targetRow, hWalls, vWalls, otherPawn) {
+    const queue = [{ r, c, d: 0 }];
+    const visited = new Set([`${r},${c}`]);
+    let head = 0;
+    while (head < queue.length) {
+        const curr = queue[head++];
+        if (curr.r === targetRow) return curr.d;
+        const neighbors = getValidNeighbors(curr.r, curr.c, hWalls, vWalls, otherPawn);
+        for (let i = 0; i < neighbors.length; i++) {
+            const n = neighbors[i];
+            const key = `${n.r},${n.c}`;
+            if (!visited.has(key)) {
+                visited.add(key);
+                queue.push({ r: n.r, c: n.c, d: curr.d + 1 });
+            }
+        }
+    }
+    return Infinity;
+}
+
+function isPathPossible(hWalls, vWalls, p1, p2) {
+    return getShortestPath(p1.r, p1.c, 0, hWalls, vWalls, p2) !== Infinity &&
+           getShortestPath(p2.r, p2.c, 8, hWalls, vWalls, p1) !== Infinity;
+}
+
+// --- AI LOGIC ---
+
+function evaluate(s) {
+    const p1Dist = getShortestPath(s.p1.r, s.p1.c, 0, s.hWalls, s.vWalls, s.p2);
+    const p2Dist = getShortestPath(s.p2.r, s.p2.c, 8, s.hWalls, s.vWalls, s.p1);
+    if (p2Dist === 0) return 100000;
+    if (p1Dist === 0) return -100000;
+    return (p1Dist * 120) - (p2Dist * 200) + (s.p2.r * 30);
+}
+
+function minimax(s, depth, alpha, beta, isMax) {
+    if (depth === 0 || s.gameOver) return evaluate(s);
+    const actions = getPossibleActions(s, isMax ? 2 : 1);
+    if (isMax) {
+        let maxE = -Infinity;
+        for (const a of actions) {
+            maxE = Math.max(maxE, minimax(applyMove(s, a), depth - 1, alpha, beta, false));
+            alpha = Math.max(alpha, maxE);
+            if (beta <= alpha) break;
+        }
+        return maxE;
+    } else {
+        let minE = Infinity;
+        for (const a of actions) {
+            minE = Math.min(minE, minimax(applyMove(s, a), depth - 1, alpha, beta, true));
+            beta = Math.min(beta, minE);
+            if (beta <= alpha) break;
+        }
+        return minE;
+    }
+}
+
+function getPossibleActions(s, pIdx) {
+    const actions = [];
+    const p = pIdx === 1 ? s.p1 : s.p2;
+    const opp = pIdx === 1 ? s.p2 : s.p1;
+    for (const n of getValidNeighbors(p.r, p.c, s.hWalls, s.vWalls, opp)) actions.push({ type: 'move', r: n.r, c: n.c });
+    if (p.walls > 0) {
+        for (let r = 0; r < BOARD_SIZE - 1; r++) {
+            for (let c = 0; c < BOARD_SIZE - 1; c++) {
+                if (Math.abs(r - opp.r) <= 2 && Math.abs(c - opp.c) <= 2) {
+                    if (canPlaceWall(s.hWalls, s.vWalls, r, c, 'h', s.p1, s.p2)) actions.push({ type: 'wall', r, c, wallType: 'h' });
+                    if (canPlaceWall(s.hWalls, s.vWalls, r, c, 'v', s.p1, s.p2)) actions.push({ type: 'wall', r, c, wallType: 'v' });
+                }
+            }
+        }
+    }
+    return actions;
+}
+
+function applyMove(s, a) {
+    const next = { ...s, p1: { ...s.p1 }, p2: { ...s.p2 }, hWalls: s.hWalls.map(row => [...row]), vWalls: s.vWalls.map(row => [...row]) };
+    if (a.type === 'move') { if (next.turn === 1) { next.p1.r = a.r; next.p1.c = a.c; } else { next.p2.r = a.r; next.p2.c = a.c; } }
+    else { if (a.wallType === 'h') next.hWalls[a.r][a.c] = true; else next.vWalls[a.r][a.c] = true; if (next.turn === 1) next.p1.walls--; else next.p2.walls--; }
+    if (next.p1.r === 0 || next.p2.r === 8) next.gameOver = true;
+    next.turn = next.turn === 1 ? 2 : 1;
+    return next;
+}
+
+// --- PRO GEMINI GRANDMASTER AI ---
+
+async function fetchGeminiAction(state, legalActions) {
+    const systemPrompt = `당신은 쿼리도(Quoridor) 게임의 프로 기사 'Gemini Grandmaster'입니다.
+    - JSON 형식으로만 응답: {"selectedIndex": number}`;
+
+    const userQuery = `프로 기사 분석 데이터:
+    - AI(You): 위치(${state.p2.r}, ${state.p2.c}), 남은 벽(${state.p2.walls}), 결승선 거리(${getShortestPath(state.p2.r, state.p2.c, 8, state.hWalls, state.vWalls, state.p1)})
+    - Player(Opp): 위치(${state.p1.r}, ${state.p1.c}), 남은 벽(${state.p1.walls}), 결승선 거리(${getShortestPath(state.p1.r, state.p1.c, 0, state.hWalls, state.vWalls, state.p2)})
+    
+    유효한 모든 수 인덱스:
+    ${JSON.stringify(legalActions.map((a, i) => ({ idx: i, action: a })))}`;
+
+    const payload = {
+        contents: [{ parts: [{ text: userQuery }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { 
+            responseMimeType: "application/json", 
+            responseSchema: { 
+                type: "OBJECT", 
+                properties: { selectedIndex: { type: "NUMBER" } },
+                required: ["selectedIndex"]
+            } 
+        }
+    };
+
+    let delay = 1000;
+    for (let i = 0; i < 5; i++) {
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error('API Error');
+            const data = await response.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+                const res = JSON.parse(text);
+                if (res.selectedIndex >= 0 && res.selectedIndex < legalActions.length) return legalActions[res.selectedIndex];
+            }
+        } catch (e) {
+            await new Promise(r => setTimeout(r, delay));
+            delay *= 2;
+        }
+    }
+    // Fallback
+    let bestS = -Infinity, bestA = legalActions[0];
+    for(let a of legalActions) {
+        const s = minimax(applyMove(state, a), 3, -Infinity, Infinity, false);
+        if(s > bestS) { bestS = s; bestA = a; }
+    }
+    return bestA;
+}
+
+async function aiTurn() {
+    if (state.gameOver) return;
+    const turnIndicator = document.getElementById('turnIndicator');
+    const diff = DIFFICULTIES[state.difficulty || 'medium'];
+    
+    turnIndicator.innerText = diff.isGemini ? "GRANDMASTER 분석 중..." : "AI 분석 중...";
+    turnIndicator.classList.add('ai-turn');
+    if (diff.isGemini) turnIndicator.classList.add('loading');
+
+    const actions = getPossibleActions(state, 2);
+    let bestA = null;
+
+    if (diff.isGemini) {
+        bestA = await fetchGeminiAction(state, actions);
+    } else {
+        // Delay for local AI to reduce pressure
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        if (Math.random() < diff.randomness) {
+            bestA = actions[Math.floor(Math.random() * actions.length)];
+        } else {
+            let bestS = -Infinity;
+            for (let a of actions) {
+                const s = minimax(applyMove(state, a), diff.depth, -Infinity, Infinity, false);
+                if (s > bestS) { bestS = s; bestA = a; }
+            }
+        }
+    }
+    
+    if (bestA) state = applyMove(state, bestA);
+    checkGameOver();
+    render();
+    
+    setTimeout(() => {
+        turnIndicator.innerText = "내 차례";
+        turnIndicator.classList.remove('ai-turn', 'loading');
+    }, 200);
+}
+
+// --- INTERACTION ---
+
+function setInteractionMode(mode) {
+    state.interactionMode = mode;
+    document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active'));
+    document.getElementById(`mode-${mode}`).classList.add('active');
+    render();
+}
+
+function canPlaceWall(hWalls, vWalls, r, c, type, p1, p2) {
+    if (r < 0 || r >= BOARD_SIZE - 1 || c < 0 || c >= BOARD_SIZE - 1) return false;
+    if (hWalls[r][c] || vWalls[r][c]) return false;
+    const nH = hWalls.map(row => [...row]), nV = vWalls.map(row => [...row]);
+    if (type === 'h') { if (c > 0 && nH[r][c-1]) return false; if (c < BOARD_SIZE - 2 && nH[r][c+1]) return false; nH[r][c] = true; }
+    else { if (r > 0 && nV[r-1][c]) return false; if (r < BOARD_SIZE - 2 && nV[r+1][c]) return false; nV[r][c] = true; }
+    return isPathPossible(nH, nV, p1, p2);
+}
+
+canvas.addEventListener('mousemove', (e) => {
+    if (state.turn !== 1 || state.gameOver) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const step = CELL_SIZE + WALL_THICKNESS;
+    const c = Math.floor(x / step), r = Math.floor(y / step);
+    if (state.interactionMode === 'h-wall' || state.interactionMode === 'v-wall') {
+        const type = state.interactionMode === 'h-wall' ? 'h' : 'v';
+        if (canPlaceWall(state.hWalls, state.vWalls, r, c, type, state.p1, state.p2)) state.hoverPos = { r, c, type };
+        else state.hoverPos = null;
+    } else state.hoverPos = null;
+    render();
+});
+
+canvas.addEventListener('mousedown', (e) => {
+    if (state.turn !== 1 || state.gameOver) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const step = CELL_SIZE + WALL_THICKNESS;
+    const c = Math.floor(x / step), r = Math.floor(y / step);
+    if (state.interactionMode === 'move') {
+        const valids = getValidNeighbors(state.p1.r, state.p1.c, state.hWalls, state.vWalls, state.p2);
+        if (valids.some(m => m.r === r && m.c === c)) { state.p1.r = r; state.p1.c = c; endPlayerTurn(); }
+    } else if (state.p1.walls > 0 && state.hoverPos) {
+        const { r, c, type } = state.hoverPos;
+        if (type === 'h') state.hWalls[r][c] = true; else state.vWalls[r][c] = true;
+        state.p1.walls--; state.hoverPos = null; endPlayerTurn();
+    }
+});
+
+function endPlayerTurn() {
+    if (state.p1.r === 0) state.gameOver = true;
+    render();
+    checkGameOver();
+    if (!state.gameOver) { state.turn = 2; setTimeout(() => aiTurn(), 300); }
+}
+
+function render() {
+    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    
+    const validMoves = state.turn === 1 && state.interactionMode === 'move' ? getValidNeighbors(state.p1.r, state.p1.c, state.hWalls, state.vWalls, state.p2) : [];
+
+    // Draw Grid
+    for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            const x = c * (CELL_SIZE + WALL_THICKNESS), y = r * (CELL_SIZE + WALL_THICKNESS);
+            ctx.fillStyle = '#222';
+            if (validMoves.some(m => m.r === r && m.c === c)) ctx.fillStyle = 'rgba(79, 70, 229, 0.4)';
+            drawRound(ctx, x, y, CELL_SIZE, CELL_SIZE, 8, true);
+        }
+    }
+
+    // Hover preview
+    if (state.hoverPos) {
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.4)';
+        const { r, c, type } = state.hoverPos;
+        const x = c * (CELL_SIZE + WALL_THICKNESS), y = r * (CELL_SIZE + WALL_THICKNESS);
+        if (type === 'h') drawRound(ctx, x, y + CELL_SIZE + 2, CELL_SIZE * 2 + WALL_THICKNESS, WALL_THICKNESS - 4, 4, true);
+        else drawRound(ctx, x + CELL_SIZE + 2, y, WALL_THICKNESS - 4, CELL_SIZE * 2 + WALL_THICKNESS, 4, true);
+    }
+
+    // Walls
+    ctx.fillStyle = '#f59e0b';
+    for (let r = 0; r < BOARD_SIZE - 1; r++) {
+        for (let c = 0; c < BOARD_SIZE - 1; c++) {
+            const x = c * (CELL_SIZE + WALL_THICKNESS), y = r * (CELL_SIZE + WALL_THICKNESS);
+            if (state.hWalls[r][c]) drawRound(ctx, x, y + CELL_SIZE + 2, CELL_SIZE * 2 + WALL_THICKNESS, WALL_THICKNESS - 4, 4, true);
+            if (state.vWalls[r][c]) drawRound(ctx, x + CELL_SIZE + 2, y, WALL_THICKNESS - 4, CELL_SIZE * 2 + WALL_THICKNESS, 4, true);
+        }
+    }
+
+    // Pawns
+    drawP(state.p1.r, state.p1.c, '#4f46e5', 'YOU');
+    drawP(state.p2.r, state.p2.c, '#ef4444', 'AI');
+    
+    document.getElementById('p1Walls').innerText = state.p1.walls;
+    document.getElementById('p2Walls').innerText = state.p2.walls;
+    document.getElementById('turnStatus').innerText = `Turn: ${state.turn === 1 ? 'Player' : 'AI'}`;
+}
+
+function drawP(r, c, col, txt) {
+    const x = c * (CELL_SIZE + WALL_THICKNESS) + CELL_SIZE/2, y = r * (CELL_SIZE + WALL_THICKNESS) + CELL_SIZE/2;
+    ctx.beginPath(); ctx.arc(x, y, CELL_SIZE * 0.4, 0, Math.PI*2);
+    ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = 'white'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(txt, x, y+4);
+}
+
+function drawRound(ctx, x, y, w, h, r, f) {
+    ctx.beginPath(); ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r); ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r);
+    if (f) ctx.fill(); else ctx.stroke();
+}
+
+function checkGameOver() {
+    if (state.p1.r === 0) showModal("VICTORY", "당신이 AI를 제치고 승리했습니다!", "🏆");
+    else if (state.p2.r === 8) showModal("DEFEAT", "AI의 전술에 패배했습니다.", "🤖");
+}
+
+function showModal(title, msg, icon) {
+    document.getElementById('modalTitle').innerText = title;
+    document.getElementById('modalMsg').innerText = msg;
+    document.getElementById('winnerIcon').innerText = icon;
+    document.getElementById('modal').style.display = 'flex';
+}
+
+function setDifficulty(d) {
+    state.difficulty = d;
+    document.querySelectorAll('.btn-diff').forEach(b => b.classList.remove('active'));
+    document.getElementById(`btn-${d}`).classList.add('active');
+    document.getElementById('diffDesc').innerText = DIFFICULTIES[d].desc;
+}
+
+function resetGame() {
+    state = { ...state, p1: {r:8,c:4,walls:10}, p2: {r:0,c:4,walls:10}, hWalls: Array(8).fill().map(()=>Array(8).fill(false)), vWalls: Array(8).fill().map(()=>Array(8).fill(false)), turn: 1, hoverPos: null, gameOver: false };
+    document.getElementById('modal').style.display = 'none';
+    setInteractionMode('move');
+}
+
+// Start
+setDifficulty('medium');
+render();
+</script>
+</body>
+</html>

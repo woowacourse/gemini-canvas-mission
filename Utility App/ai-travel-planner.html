@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 맞춤형 여행 플래너</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS (OpenStreetMap Library) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        body { font-family: 'Pretendard', sans-serif; }
+        .leaflet-container { border-radius: 1.5rem; z-index: 10; }
+        #map { height: 550px; width: 100%; }
+        #searchMap { height: 350px; width: 100%; }
+
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border-left-color: #3b82f6;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .day-tab.active { background-color: #3b82f6; color: white; border-color: #3b82f6; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(8px);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 2% auto;
+            padding: 24px;
+            border-radius: 2rem;
+            width: 95%;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .search-result-item { transition: all 0.2s ease; border: 1px solid #e2e8f0; border-radius: 0.75rem; }
+        .search-result-item:hover { background-color: #f8fafc; border-color: #3b82f6; }
+        .search-result-item.selected { background-color: #eff6ff; border-color: #3b82f6; }
+
+        /* Custom Marker Styles */
+        .number-marker {
+            background-color: #3b82f6;
+            color: white;
+            border-radius: 50%;
+            border: 2px solid white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .home-marker {
+            background-color: #1e293b;
+            color: white;
+            border-radius: 50%;
+            border: 2px solid white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .place-card { transition: transform 0.2s ease; cursor: pointer; }
+        .place-card:hover { transform: translateY(-4px); }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen pb-20">
+
+<!-- Accommodation Modal -->
+<div id="searchModal" class="modal">
+    <div class="modal-content shadow-2xl">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h3 class="text-2xl font-bold text-slate-900">🏠 숙소 검색</h3>
+                <p class="text-slate-500 text-sm">OpenStreetMap의 위치 데이터를 검색합니다.</p>
+            </div>
+            <button id="closeModal" class="text-slate-400 hover:text-slate-600 p-2">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+        <div class="space-y-4 flex-1 flex flex-col min-h-0">
+            <div class="flex gap-2">
+                <input type="text" id="searchLocationInput" placeholder="장소, 건물명 등을 입력하세요" class="flex-1 p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm text-lg">
+                <button id="searchLocBtn" class="bg-blue-600 text-white px-8 rounded-xl font-bold hover:bg-blue-700 transition">검색</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-6 flex-1 min-h-0">
+                <div class="md:col-span-3">
+                    <div id="searchMap" class="h-full border border-slate-100 shadow-inner"></div>
+                </div>
+
+                <div class="md:col-span-2 flex flex-col min-h-0">
+                    <span class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">검색 결과</span>
+                    <div id="searchResultsList" class="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                        <p class="text-center text-slate-400 py-20 text-sm">검색어를 입력해주세요.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row justify-between items-center pt-6 border-t border-slate-100 gap-4">
+                <div class="bg-slate-50 px-5 py-3 rounded-2xl border border-slate-100 flex items-center gap-3 w-full sm:w-auto overflow-hidden">
+                    <span id="selectedAddrText" class="text-sm text-slate-700 font-semibold truncate italic">선택된 장소 없음</span>
+                </div>
+                <button id="confirmLocBtn" class="w-full sm:w-auto bg-slate-900 text-white px-12 py-4 rounded-2xl font-bold hover:bg-black transition disabled:opacity-20 shadow-xl" disabled>이 위치를 숙소로 결정</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main UI -->
+<div class="max-w-6xl mx-auto px-4 py-12">
+    <header class="text-center mb-12">
+        <h1 class="text-5xl font-extrabold text-slate-900 mb-3 tracking-tighter uppercase">AI TRAVEL PLANNER</h1>
+        <!-- '구글 맵 연동' 문구를 삭제한 헤더 설명 -->
+        <p class="text-slate-500 text-lg font-medium">당신의 취향을 반영한 최적의 여행 일정을 설계하세요</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        <div class="lg:col-span-1 space-y-8">
+            <div class="bg-white p-8 rounded-[2.5rem] shadow-2xl shadow-slate-200/60 border border-slate-100">
+                <h2 class="text-2xl font-bold mb-8 text-slate-800">📅 여행 정보 설정</h2>
+
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-400 mb-2 uppercase">목적지</label>
+                        <input type="text" id="destination" placeholder="예: 제주도, 오사카" class="w-full p-4 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition bg-slate-50/50 text-lg">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-400 mb-2 uppercase">🏠 숙소 설정</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="accommodation" readonly placeholder="지도로 검색" class="flex-1 p-4 bg-slate-100 rounded-2xl border border-slate-200 text-slate-500 outline-none text-sm truncate font-medium">
+                            <button id="openModalBtn" class="bg-blue-600 text-white px-5 rounded-2xl font-bold hover:bg-blue-700 transition shrink-0 shadow-lg">검색</button>
+                        </div>
+                        <input type="hidden" id="accLat"><input type="hidden" id="accLng">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-400 mb-2 uppercase">✨ 여행 스타일</label>
+                        <select id="travelStyle" class="w-full p-4 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition bg-slate-50/50 font-medium">
+                            <option value="balanced">여유롭게 (힐링 위주)</option>
+                            <option value="active">알차게 (유명 관광지 중심)</option>
+                            <option value="foodie">미식 여행 (맛집 중심)</option>
+                            <option value="shopping">쇼핑 및 핫플레이스</option>
+                            <option value="photography">인생샷 (풍경 및 사진 명소)</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 mb-2 uppercase">시작 날짜</label>
+                            <input type="date" id="startDate" class="w-full p-4 rounded-2xl border border-slate-200 outline-none bg-slate-50/50">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 mb-2 uppercase">종료 날짜</label>
+                            <input type="date" id="endDate" class="w-full p-4 rounded-2xl border border-slate-200 outline-none bg-slate-50/50">
+                        </div>
+                    </div>
+
+                    <button id="generateBtn" class="w-full bg-slate-900 hover:bg-black text-white font-bold py-5 rounded-3xl transition shadow-2xl flex justify-center items-center gap-3 mt-4 text-lg">
+                        <span>AI 맞춤 일정 생성</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="statusArea" class="hidden bg-blue-600 text-white p-6 rounded-3xl shadow-xl shadow-blue-200">
+                <div class="flex items-center gap-4">
+                    <div class="loading-spinner !border-white/30 !border-left-white"></div>
+                    <p id="statusText" class="text-sm font-bold leading-tight"></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-2 space-y-8">
+            <div class="bg-white p-4 rounded-[2.5rem] shadow-2xl shadow-slate-200/60 border border-slate-100 overflow-hidden relative">
+                <div id="map"></div>
+            </div>
+            <div id="dayTabsContainer" class="hidden flex flex-wrap gap-3"></div>
+            <div id="itineraryContainer" class="hidden space-y-8">
+                <div id="itineraryContent" class="grid gap-6"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const geminiApiKey = ""; // Environment provided
+
+    let mainMap, searchMapInstance;
+    let markers = [];
+    let polylines = [];
+    let searchMarker;
+    let currentItineraryData = null;
+    let selectedPlaceData = null;
+
+    // Initialize Maps
+    function initMaps() {
+        mainMap = L.map('map').setView([37.5665, 126.9780], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(mainMap);
+
+        searchMapInstance = L.map('searchMap').setView([37.5665, 126.9780], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(searchMapInstance);
+
+        searchMarker = L.marker([0, 0]).addTo(searchMapInstance);
+        searchMarker.setOpacity(0);
+    }
+
+    // Modal Logic
+    const modal = document.getElementById('searchModal');
+    const openModalBtn = document.getElementById('openModalBtn');
+    const closeModal = document.getElementById('closeModal');
+    const searchLocBtn = document.getElementById('searchLocBtn');
+    const searchInput = document.getElementById('searchLocationInput');
+    const confirmLocBtn = document.getElementById('confirmLocBtn');
+    const selectedAddrText = document.getElementById('selectedAddrText');
+    const searchResultsList = document.getElementById('searchResultsList');
+
+    openModalBtn.onclick = () => {
+        modal.style.display = "block";
+        setTimeout(() => searchMapInstance.invalidateSize(), 100);
+    };
+    closeModal.onclick = () => modal.style.display = "none";
+
+    async function searchPlaces() {
+        const query = searchInput.value;
+        if (!query) return;
+        searchResultsList.innerHTML = '<div class="flex justify-center py-20"><div class="loading-spinner"></div></div>';
+        try {
+            const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&addressdetails=1`);
+            const data = await response.json();
+            renderResults(data);
+        } catch (err) {
+            searchResultsList.innerHTML = '<p class="text-center py-20 text-red-400">검색 중 오류가 발생했습니다.</p>';
+        }
+    }
+
+    function renderResults(results) {
+        searchResultsList.innerHTML = '';
+        if (results.length === 0) {
+            searchResultsList.innerHTML = '<p class="text-center py-20 text-slate-400">결과가 없습니다.</p>';
+            return;
+        }
+        results.forEach(res => {
+            const item = document.createElement('div');
+            item.className = "search-result-item bg-white p-5 cursor-pointer shadow-sm mb-3 border border-slate-100";
+            item.innerHTML = `
+                    <div class="font-bold text-slate-900 text-base">${res.display_name.split(',')[0]}</div>
+                    <div class="text-xs text-slate-500 mt-1.5 leading-relaxed">${res.display_name}</div>
+                `;
+            item.onclick = () => {
+                document.querySelectorAll('.search-result-item').forEach(el => el.classList.remove('selected'));
+                item.classList.add('selected');
+                selectedPlaceData = {
+                    name: res.display_name.split(',')[0],
+                    lat: parseFloat(res.lat),
+                    lng: parseFloat(res.lon),
+                    full: res.display_name
+                };
+                selectedAddrText.innerText = selectedPlaceData.name;
+                confirmLocBtn.disabled = false;
+                searchMapInstance.setView([selectedPlaceData.lat, selectedPlaceData.lng], 16);
+                searchMarker.setLatLng([selectedPlaceData.lat, selectedPlaceData.lng]).setOpacity(1);
+            };
+            searchResultsList.appendChild(item);
+        });
+    }
+
+    searchLocBtn.onclick = searchPlaces;
+    searchInput.onkeypress = (e) => { if(e.key === 'Enter') searchPlaces(); };
+
+    confirmLocBtn.onclick = () => {
+        if (selectedPlaceData) {
+            document.getElementById('accommodation').value = selectedPlaceData.name;
+            document.getElementById('accLat').value = selectedPlaceData.lat;
+            document.getElementById('accLng').value = selectedPlaceData.lng;
+            modal.style.display = "none";
+        }
+    };
+
+    // Generation
+    const generateBtn = document.getElementById('generateBtn');
+    const statusArea = document.getElementById('statusArea');
+    const statusText = document.getElementById('statusText');
+    const dayTabsContainer = document.getElementById('dayTabsContainer');
+    const itineraryContainer = document.getElementById('itineraryContainer');
+    const itineraryContent = document.getElementById('itineraryContent');
+
+    generateBtn.onclick = async () => {
+        const dest = document.getElementById('destination').value;
+        const accName = document.getElementById('accommodation').value;
+        const style = document.getElementById('travelStyle').value;
+        const lat = document.getElementById('accLat').value;
+        const lng = document.getElementById('accLng').value;
+
+        if (!dest || !accName) { alert("목적지와 숙소를 입력해주세요."); return; }
+
+        statusArea.classList.remove('hidden');
+        statusText.innerText = "AI가 당신의 스타일을 반영한 일정을 생성하고 있습니다...";
+        generateBtn.disabled = true;
+
+        try {
+            currentItineraryData = await fetchAIPlan(dest, accName, style, lat, lng);
+            renderDayTabs(currentItineraryData);
+            showDay(1);
+        } catch (err) {
+            statusText.innerText = "일정 생성 중 오류가 발생했습니다.";
+        } finally {
+            generateBtn.disabled = false;
+            statusArea.classList.add('hidden');
+        }
+    };
+
+    async function fetchAIPlan(dest, acc, style, lat, lng) {
+        const prompt = `Plan a 3-day travel to ${dest}. Stay at "${acc}" (Lat: ${lat}, Lng: ${lng}).
+            Style: ${style}. Each day must have 3 relevant spots. Return JSON only.
+            Format: { "days": [{ "day": 1, "locations": [{ "order": 1, "name": "장소", "lat": number, "lng": number, "desc": "설명" }] }] }`;
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { responseMimeType: "application/json" }
+            })
+        });
+        const result = await response.json();
+        return JSON.parse(result.candidates[0].content.parts[0].text);
+    }
+
+    function renderDayTabs(data) {
+        dayTabsContainer.innerHTML = '';
+        dayTabsContainer.classList.remove('hidden');
+        data.days.forEach(day => {
+            const b = document.createElement('button');
+            b.className = "day-tab px-8 py-3 rounded-2xl border border-slate-200 bg-white text-slate-700 font-bold hover:bg-slate-50 transition";
+            b.innerText = `${day.day}일차`;
+            b.onclick = () => showDay(day.day);
+            b.id = `tab-${day.day}`;
+            dayTabsContainer.appendChild(b);
+        });
+    }
+
+    function getGoogleMapsLink(name, lat, lng) {
+        if (lat && lng) {
+            return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+        }
+        return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`;
+    }
+
+    function showDay(num) {
+        document.querySelectorAll('.day-tab').forEach(t => t.classList.remove('active'));
+        const activeTab = document.getElementById(`tab-${num}`);
+        if(activeTab) activeTab.classList.add('active');
+
+        const dayData = currentItineraryData.days.find(d => d.day === num);
+
+        markers.forEach(m => mainMap.removeLayer(m));
+        polylines.forEach(p => mainMap.removeLayer(p));
+        markers = []; polylines = [];
+
+        const points = [];
+        const accName = document.getElementById('accommodation').value;
+        const accLat = parseFloat(document.getElementById('accLat').value);
+        const accLng = parseFloat(document.getElementById('accLng').value);
+        const accPos = [accLat, accLng];
+        points.push(accPos);
+
+        const homeIcon = L.divIcon({
+            className: 'home-marker',
+            html: '🏠',
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
+        });
+        const homeLink = getGoogleMapsLink(accName, accLat, accLng);
+        const accMarker = L.marker(accPos, { icon: homeIcon }).addTo(mainMap)
+            .bindPopup(`<b>🏠 숙소: ${accName}</b><br><a href="${homeLink}" target="_blank" class="text-blue-600 underline font-bold mt-2 inline-block">Google Maps에서 보기</a>`);
+        markers.push(accMarker);
+
+        itineraryContent.innerHTML = '';
+        itineraryContainer.classList.remove('hidden');
+
+        dayData.locations.forEach(loc => {
+            const pos = [loc.lat, loc.lng];
+            points.push(pos);
+            const gMapsLink = getGoogleMapsLink(loc.name, loc.lat, loc.lng);
+
+            const numIcon = L.divIcon({
+                className: 'number-marker',
+                html: loc.order,
+                iconSize: [30, 30],
+                iconAnchor: [15, 15]
+            });
+            const m = L.marker(pos, { icon: numIcon }).addTo(mainMap)
+                .bindPopup(`<b>${loc.order}. ${loc.name}</b><br><a href="${gMapsLink}" target="_blank" class="text-blue-600 underline font-bold mt-2 inline-block">Google Maps에서 보기</a>`);
+            markers.push(m);
+
+            const card = document.createElement('div');
+            card.className = "place-card bg-white p-8 rounded-[2rem] border border-slate-100 shadow-xl relative overflow-hidden group";
+            card.onclick = () => window.open(gMapsLink, '_blank');
+            card.innerHTML = `
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <span class="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold">${loc.order}</span>
+                            <h4 class="font-extrabold text-2xl text-slate-800">${loc.name}</h4>
+                        </div>
+                        <div class="text-blue-500 opacity-0 group-hover:opacity-100 transition">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                        </div>
+                    </div>
+                    <p class="text-slate-500 leading-relaxed mb-4">${loc.desc}</p>
+                    <span class="text-xs font-bold text-blue-600 uppercase tracking-widest">Click to view on Google Maps →</span>
+                `;
+            itineraryContent.appendChild(card);
+        });
+
+        points.push(accPos);
+        const poly = L.polyline(points, { color: '#3b82f6', weight: 4, dashArray: '10, 10' }).addTo(mainMap);
+        polylines.push(poly);
+
+        const group = new L.featureGroup(markers);
+        mainMap.fitBounds(group.getBounds().pad(0.15));
+    }
+
+    window.onload = initMaps;
+</script>
+</body>
+</html>

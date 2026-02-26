@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>추억놀이 동네 모임</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Tailwind의 기본 테마 색상을 커스텀 CSS 변수로 덮어씌워 색상을 한 번에 제어합니다.
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        orange: {
+                            50: 'rgb(var(--color-primary-50) / <alpha-value>)',
+                            100: 'rgb(var(--color-primary-100) / <alpha-value>)',
+                            200: 'rgb(var(--color-primary-200) / <alpha-value>)',
+                            300: 'rgb(var(--color-primary-300) / <alpha-value>)',
+                            400: 'rgb(var(--color-primary-400) / <alpha-value>)',
+                            500: 'rgb(var(--color-primary-500) / <alpha-value>)',
+                            600: 'rgb(var(--color-primary-600) / <alpha-value>)',
+                            700: 'rgb(var(--color-primary-700) / <alpha-value>)',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, addDoc, getDoc, onSnapshot, updateDoc, deleteDoc, arrayUnion, arrayRemove, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Global Variables ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'memory-games-app';
+
+        // --- App State ---
+        let user = null;
+        let myBirthYear = null;
+        let myNickname = null;
+        let rooms = [];
+        let currentRoomId = null;
+        let roomsUnsubscribe = null;
+        let isEditing = false;
+
+        const GAMES = [
+            { id: 'hide', name: '숨바꼭질', icon: '🙈' },
+            { id: 'cops', name: '경찰과 도둑', icon: '👮' },
+            { id: 'flower', name: '무궁화 꽃이 피었습니다', icon: '🌺' }
+        ];
+
+        // --- DOM Elements ---
+        const loginScreen = document.getElementById('login-screen');
+        const mainScreen = document.getElementById('main-screen');
+        const roomDetailScreen = document.getElementById('room-detail-screen');
+        const roomListContainer = document.getElementById('room-list');
+        const loginBtn = document.getElementById('login-btn');
+        const birthYearInput = document.getElementById('birth-year-input');
+        const nicknameInput = document.getElementById('nickname-input');
+        const createRoomBtn = document.getElementById('create-room-btn');
+        
+        const roomModal = document.getElementById('room-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const cancelModalBtn = document.getElementById('cancel-modal');
+        const roomForm = document.getElementById('room-form');
+
+        const backToListBtn = document.getElementById('back-to-list-btn');
+        const withdrawRoomBtn = document.getElementById('withdraw-room-btn');
+        const creatorControls = document.getElementById('creator-controls');
+        const editRoomBtn = document.getElementById('edit-room-btn');
+        const deleteRoomBtn = document.getElementById('delete-room-btn');
+
+        const confirmModal = document.getElementById('confirm-modal');
+        const cancelConfirmBtn = document.getElementById('cancel-confirm-btn');
+        const okConfirmBtn = document.getElementById('ok-confirm-btn');
+
+        // --- Authentication (RULE 3) ---
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth Error:", error);
+                showMessage("인증에 실패했습니다.");
+            }
+        }
+
+        onAuthStateChanged(auth, (u) => {
+            user = u;
+            if (user) {
+                const savedBirth = localStorage.getItem('myBirthYear');
+                const savedNick = localStorage.getItem('myNickname');
+                if (savedBirth && savedNick) {
+                    myBirthYear = parseInt(savedBirth);
+                    myNickname = savedNick;
+                    showScreen('main');
+                    listenToRooms();
+                } else {
+                    showScreen('login');
+                }
+            }
+        });
+
+        // --- Firestore logic ---
+        function listenToRooms() {
+            if (!user) return;
+            if (roomsUnsubscribe) roomsUnsubscribe();
+
+            const roomsCol = collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
+            
+            roomsUnsubscribe = onSnapshot(roomsCol, (snapshot) => {
+                rooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // JS 메모리 내 정렬 (RULE 2)
+                rooms.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                
+                renderRoomList();
+                
+                // 현재 입장 중인 방이 있는 경우 상태 체크
+                if (currentRoomId) {
+                    const currentRoom = rooms.find(r => r.id === currentRoomId);
+                    if (currentRoom) {
+                        const isParticipating = currentRoom.players.some(p => p.uid === user.uid);
+                        if (isParticipating) {
+                            renderRoomDetail(currentRoom);
+                        } else {
+                            // 참여자 명단에서 제외된 경우
+                            currentRoomId = null;
+                            showScreen('main');
+                            showMessage("모임에서 제외되었습니다.");
+                        }
+                    } else {
+                        // 방이 삭제된 경우 (폭파)
+                        currentRoomId = null;
+                        if (!roomDetailScreen.classList.contains('hidden')) {
+                            showScreen('main');
+                            showMessage("모임이 삭제되어 목록으로 이동합니다.");
+                        }
+                    }
+                }
+            }, (error) => {
+                console.error("Firestore Error:", error);
+            });
+        }
+
+        async function saveRoom(roomData) {
+            if (!user) return;
+            const roomsCol = collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
+            try {
+                if (isEditing && currentRoomId) {
+                    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+                    await updateDoc(roomRef, roomData);
+                    
+                    // 즉시 렌더링 반영 (Optimistic UI)
+                    const updatedLocalRoom = { ...rooms.find(r => r.id === currentRoomId), ...roomData };
+                    renderRoomDetail(updatedLocalRoom);
+                    
+                    showMessage("모임 정보가 수정되었습니다.");
+                } else {
+                    const newRoom = {
+                        ...roomData,
+                        createdAt: new Date().toISOString(),
+                        creatorId: user.uid,
+                        players: [{ uid: user.uid, birthYear: myBirthYear, nickname: myNickname }]
+                    };
+                    const docRef = await addDoc(roomsCol, newRoom);
+                    currentRoomId = docRef.id;
+                    
+                    // 생성 즉시 화면에 정보 그려주기
+                    renderRoomDetail({ id: docRef.id, ...newRoom });
+                    showScreen('detail');
+                    
+                    showMessage("새로운 모임을 만들었습니다!");
+                }
+                roomModal.classList.add('hidden');
+            } catch (e) {
+                console.error(e);
+                showMessage("저장 실패");
+            }
+        }
+
+        async function deleteRoom() {
+            if (!currentRoomId || !user) return;
+            
+            // 현재 활성화된 방의 ID를 확실하게 가져옵니다.
+            const targetId = currentRoomId;
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', targetId);
+            
+            try {
+                const snap = await getDoc(roomRef);
+                if (!snap.exists()) {
+                    currentRoomId = null;
+                    showMessage("이미 삭제된 모임입니다.");
+                    showScreen('main');
+                    return;
+                }
+                const data = snap.data();
+                if (data.creatorId !== user.uid) {
+                    showMessage("방장만 모임을 삭제할 수 있습니다.");
+                    return;
+                }
+
+                // 인원수 상관없이 즉시 삭제 (모임 폭파)
+                await deleteDoc(roomRef);
+                
+                // 삭제 직후 로컬 상태를 바로 비워주어 다른 방 클릭 시 꼬이지 않게 방지합니다.
+                currentRoomId = null;
+                showScreen('main');
+                showMessage("모임이 성공적으로 삭제되었습니다.");
+            } catch (e) {
+                console.error("Delete Error:", e);
+                showMessage("모임 삭제 중 오류가 발생했습니다.");
+            }
+        }
+
+        async function joinRoom(roomId) {
+            if (!user) return;
+            const room = rooms.find(r => r.id === roomId);
+            if (!room) return;
+
+            if (room.players.some(p => p.uid === user.uid)) {
+                currentRoomId = roomId;
+                renderRoomDetail(room);
+                showScreen('detail');
+                return;
+            }
+
+            if (room.players.length >= room.maxPlayers) {
+                return showMessage("인원이 가득 찼습니다.");
+            }
+            if (myBirthYear < room.minBirthYear || myBirthYear > room.maxBirthYear) {
+                return showMessage(`참가 범위가 아닙니다 (${room.minBirthYear}~${room.maxBirthYear})`);
+            }
+
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+            
+            // UI를 즉시 업데이트하여 다른 방의 이전 정보가 보이는 현상을 방지합니다. (Optimistic UI)
+            currentRoomId = roomId;
+            const optimisticRoom = {
+                ...room,
+                players: [...room.players, { uid: user.uid, birthYear: myBirthYear, nickname: myNickname }]
+            };
+            renderRoomDetail(optimisticRoom);
+            showScreen('detail');
+
+            try {
+                await updateDoc(roomRef, {
+                    players: arrayUnion({ uid: user.uid, birthYear: myBirthYear, nickname: myNickname })
+                });
+            } catch (e) {
+                currentRoomId = null;
+                showScreen('main');
+                showMessage("참가 실패");
+            }
+        }
+
+        async function withdrawRoom() {
+            if (!currentRoomId || !user) return;
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+            const room = rooms.find(r => r.id === currentRoomId);
+            if (!room) return;
+            
+            try {
+                const playerToRemove = room.players.find(p => p.uid === user.uid);
+                // 일반 참가자 퇴장 시, 마지막 인원이면 방 자동 삭제
+                if (room.players.length <= 1) {
+                    await deleteDoc(roomRef);
+                } else {
+                    await updateDoc(roomRef, {
+                        players: arrayRemove(playerToRemove)
+                    });
+                }
+                currentRoomId = null;
+                showScreen('main');
+                showMessage("모임에서 나갔습니다.");
+            } catch (e) {
+                showMessage("처리 실패");
+            }
+        }
+
+        // --- UI Rendering ---
+        function showScreen(screen) {
+            loginScreen.classList.add('hidden');
+            mainScreen.classList.add('hidden');
+            roomDetailScreen.classList.add('hidden');
+
+            if (screen === 'login') loginScreen.classList.remove('hidden');
+            if (screen === 'main') mainScreen.classList.remove('hidden');
+            if (screen === 'detail') roomDetailScreen.classList.remove('hidden');
+        }
+
+        function renderRoomList() {
+            roomListContainer.innerHTML = '';
+            if (rooms.length === 0) {
+                roomListContainer.innerHTML = `
+                    <div class="col-span-full text-center py-16">
+                        <div class="text-5xl mb-4 opacity-20">🍃</div>
+                        <p class="text-gray-400 font-medium text-sm">현재 모집 중인 놀이가 없어요.</p>
+                    </div>`;
+                return;
+            }
+
+            rooms.forEach(room => {
+                const gameInfo = GAMES.find(g => g.id === room.gameId) || GAMES[0];
+                const isParticipating = room.players.some(p => p.uid === user.uid);
+                const card = document.createElement('div');
+                card.className = `relative bg-white p-6 rounded-[2rem] shadow-sm border ${isParticipating ? 'border-orange-400 ring-4 ring-orange-50' : 'border-orange-50/50'} hover:shadow-xl transition-all cursor-pointer group`;
+                card.innerHTML = `
+                    ${isParticipating ? '<div class="absolute -top-3 left-6 bg-orange-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-sm">참가 중</div>' : ''}
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center text-3xl group-hover:rotate-12 transition-transform">
+                            ${gameInfo.icon}
+                        </div>
+                        <span class="bg-orange-100 text-orange-600 text-xs font-black px-3 py-1.5 rounded-full">
+                            ${room.players.length}/${room.maxPlayers} 명
+                        </span>
+                    </div>
+                    <h3 class="font-black text-xl text-gray-800 mb-1 truncate">${room.title}</h3>
+                    <div class="space-y-1 mb-4">
+                        <p class="text-[11px] text-gray-400 font-bold flex items-center gap-1">📅 ${room.meetingDate || '날짜 미정'} ${room.meetingTime || ''}</p>
+                        <p class="text-[11px] text-gray-400 font-bold flex items-center gap-1 truncate">📍 ${room.location || '장소 미정'}</p>
+                    </div>
+                    <div class="flex items-center text-[10px] text-orange-400 bg-orange-50/30 p-2 rounded-xl border border-orange-50">
+                        <span class="font-black truncate">🎂 ${room.minBirthYear}~${room.maxBirthYear}년생</span>
+                    </div>
+                `;
+                card.onclick = () => joinRoom(room.id);
+                roomListContainer.appendChild(card);
+            });
+        }
+
+        function renderRoomDetail(room) {
+            if (!room || !user) return;
+            
+            const gameInfo = GAMES.find(g => g.id === room.gameId) || GAMES[0];
+            
+            document.getElementById('detail-title').innerText = room.title || "제목 없음";
+            document.getElementById('detail-game-name').innerText = `${gameInfo.icon} ${gameInfo.name}`;
+            document.getElementById('detail-date').innerText = `${room.meetingDate || '날짜 미정'} ${room.meetingTime || ''}`;
+            document.getElementById('detail-location').innerText = room.location || '장소 미정';
+            document.getElementById('detail-condition').innerText = `${room.minBirthYear} ~ ${room.maxBirthYear}년생 참여 가능`;
+            
+            const isCreator = room.creatorId === user.uid;
+
+            if (isCreator) {
+                creatorControls.classList.remove('hidden');
+                withdrawRoomBtn.classList.add('hidden');
+            } else {
+                creatorControls.classList.add('hidden');
+                withdrawRoomBtn.classList.remove('hidden');
+            }
+
+            const playerList = document.getElementById('player-list');
+            playerList.innerHTML = '';
+            
+            if (room.players) {
+                room.players.forEach((p, idx) => {
+                    const isMe = p.uid === user.uid;
+                    const li = document.createElement('div');
+                    li.className = `flex items-center justify-between p-4 rounded-2xl mb-2.5 ${isMe ? 'bg-orange-50 border border-orange-100' : 'bg-gray-50'}`;
+                    li.innerHTML = `
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 ${isMe ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'} rounded-full flex items-center justify-center font-black text-sm">${idx + 1}</div>
+                            <div>
+                                <div class="font-black text-gray-800 text-sm">${isMe ? '나 (' + (p.nickname || '익명') + ')' : (p.nickname || '동네 친구')}</div>
+                                <div class="text-[11px] text-gray-400 font-bold">${p.birthYear}년생</div>
+                            </div>
+                        </div>
+                        ${p.uid === room.creatorId ? '<span class="text-[10px] bg-orange-200 text-orange-700 font-black px-2 py-1 rounded-lg">방장</span>' : ''}
+                    `;
+                    playerList.appendChild(li);
+                });
+
+                const statusMsg = document.getElementById('room-status-msg');
+                const diff = (room.maxPlayers || 0) - room.players.length;
+                if (diff <= 0) {
+                    statusMsg.innerText = "멤버가 모두 모였습니다! 🎉";
+                    statusMsg.className = "text-center text-green-600 font-black p-4 bg-green-50 rounded-2xl mt-6";
+                } else {
+                    statusMsg.innerText = `${diff}명이 더 오면 시작할 수 있어요!`;
+                    statusMsg.className = "text-center text-orange-500 font-black p-4 bg-orange-50 rounded-2xl mt-6 text-sm";
+                }
+            }
+        }
+
+        function openModal(room = null) {
+            isEditing = !!room;
+            modalTitle.innerText = isEditing ? "모임 수정하기" : "새로운 모임 만들기";
+            
+            // 오늘 날짜를 구해서 date input의 min 속성에 설정 (과거 날짜 선택 방지)
+            const today = new Date().toISOString().split('T')[0];
+            roomForm.meetingDate.min = today;
+
+            if (isEditing) {
+                roomForm.title.value = room.title;
+                roomForm.gameId.value = room.gameId;
+                roomForm.meetingDate.value = room.meetingDate || "";
+                roomForm.meetingTime.value = room.meetingTime || "";
+                roomForm.location.value = room.location || "";
+                roomForm.maxPlayers.value = room.maxPlayers;
+                roomForm.minBirthYear.value = room.minBirthYear;
+                roomForm.maxBirthYear.value = room.maxBirthYear;
+            } else {
+                roomForm.reset();
+                roomForm.maxPlayers.value = 4;
+                roomForm.minBirthYear.value = 1990;
+                roomForm.maxBirthYear.value = 2010;
+            }
+            roomModal.classList.remove('hidden');
+        }
+
+        function showMessage(msg) {
+            const existing = document.querySelector('.toast-msg');
+            if (existing) existing.remove();
+            const toast = document.createElement('div');
+            toast.className = "toast-msg fixed bottom-10 left-1/2 -translate-x-1/2 bg-gray-900/90 backdrop-blur text-white px-8 py-4 rounded-2xl shadow-2xl z-[100] animate-toast font-black text-sm text-center min-w-[280px]";
+            toast.innerText = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-4');
+                setTimeout(() => toast.remove(), 500);
+            }, 2500);
+        }
+
+        // --- Event Listeners ---
+        loginBtn.onclick = () => {
+            const birthVal = birthYearInput.value;
+            const nickVal = nicknameInput.value.trim();
+            if (!birthVal || birthVal < 1950 || birthVal > 2025) return showMessage("연도를 정확히 입력해주세요.");
+            if (!nickVal) return showMessage("닉네임을 입력해주세요.");
+            
+            myBirthYear = parseInt(birthVal);
+            myNickname = nickVal;
+            localStorage.setItem('myBirthYear', myBirthYear);
+            localStorage.setItem('myNickname', myNickname);
+            showScreen('main');
+            listenToRooms();
+        };
+
+        createRoomBtn.onclick = () => openModal();
+        cancelModalBtn.onclick = () => roomModal.classList.add('hidden');
+        
+        roomForm.onsubmit = (e) => {
+            e.preventDefault();
+            const formData = new FormData(roomForm);
+            saveRoom({
+                title: formData.get('title'),
+                gameId: formData.get('gameId'),
+                meetingDate: formData.get('meetingDate'),
+                meetingTime: formData.get('meetingTime'),
+                location: formData.get('location'),
+                maxPlayers: parseInt(formData.get('maxPlayers')),
+                minBirthYear: parseInt(formData.get('minBirthYear')),
+                maxBirthYear: parseInt(formData.get('maxBirthYear'))
+            });
+        };
+
+        backToListBtn.onclick = () => {
+            currentRoomId = null;
+            showScreen('main');
+        };
+        
+        withdrawRoomBtn.onclick = withdrawRoom;
+        
+        deleteRoomBtn.onclick = () => {
+            confirmModal.classList.remove('hidden');
+        };
+
+        cancelConfirmBtn.onclick = () => {
+            confirmModal.classList.add('hidden');
+        };
+
+        okConfirmBtn.onclick = () => {
+            confirmModal.classList.add('hidden');
+            deleteRoom();
+        };
+        
+        editRoomBtn.onclick = () => {
+            const currentRoom = rooms.find(r => r.id === currentRoomId);
+            if(currentRoom) openModal(currentRoom);
+        };
+
+        // 테마 변경 토글 기능
+        const themeToggleBtn = document.getElementById('theme-toggle-btn');
+        if (themeToggleBtn) {
+            themeToggleBtn.onclick = () => {
+                document.body.classList.toggle('theme-aqua');
+                const isAqua = document.body.classList.contains('theme-aqua');
+                themeToggleBtn.innerHTML = isAqua ? '🎨 아쿠아 (#0cefd3)' : '🎨 민트 (#2ac1bc)';
+            };
+        }
+
+        window.onload = initAuth;
+    </script>
+    <style>
+        :root {
+            /* 기본 버전: 2ac1bc (민트/청록) */
+            --color-primary-50: 240 251 251;
+            --color-primary-100: 217 246 245;
+            --color-primary-200: 183 237 237;
+            --color-primary-300: 135 225 222;
+            --color-primary-400: 81 205 203;
+            --color-primary-500: 42 193 188;
+            --color-primary-600: 30 158 155;
+            --color-primary-700: 27 127 126;
+        }
+        body.theme-aqua {
+            /* 토글 버전: 0cefd3 (아쿠아 블루) */
+            --color-primary-50: 234 255 251;
+            --color-primary-100: 203 255 245;
+            --color-primary-200: 157 252 237;
+            --color-primary-300: 94 245 223;
+            --color-primary-400: 38 234 211;
+            --color-primary-500: 12 239 211;
+            --color-primary-600: 7 191 180;
+            --color-primary-700: 10 153 146;
+        }
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        
+        /* 토스트 메시지용 애니메이션 (X축 중앙 정렬 유지) */
+        @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        .animate-toast { animation: toast-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        /* 모달 팝업용 애니메이션 (Y축만 이동하여 중앙 정렬 보존) */
+        @keyframes fade-in-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in-up { animation: fade-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        body { font-family: 'Pretendard', sans-serif; background-color: #FFFBF7; color: #333; letter-spacing: -0.02em; }
+        .hidden { display: none !important; }
+        input, select { -webkit-appearance: none; }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #FFD6BA; border-radius: 10px; }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- 1. 본인 확인 스크린 -->
+    <div id="login-screen" class="max-w-md mx-auto h-screen flex flex-col items-center justify-center p-8 text-center hidden">
+        <div class="bg-white p-10 rounded-[3.5rem] shadow-2xl shadow-orange-100/50 border border-orange-50 w-full relative">
+            <div class="absolute top-0 left-0 w-full h-2 bg-orange-500"></div>
+            <div class="mb-10 mt-4">
+                <div class="w-24 h-24 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-6"><span class="text-5xl">🧒</span></div>
+                <h1 class="text-3xl font-black text-gray-900 leading-tight">추억놀이<br>동네 모임</h1>
+                <p class="text-gray-400 mt-4 text-sm font-bold">참가 자격 확인을 위해<br>정보를 입력해주세요!</p>
+            </div>
+            <div class="space-y-4 text-left">
+                <div>
+                    <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase tracking-widest">태어난 연도</label>
+                    <input type="number" id="birth-year-input" placeholder="예: 1995" class="w-full p-4 rounded-[1.5rem] bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white transition-all text-center text-xl font-black outline-none">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase tracking-widest">닉네임</label>
+                    <input type="text" id="nickname-input" placeholder="동네에서 불릴 이름" maxlength="10" class="w-full p-4 rounded-[1.5rem] bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white transition-all text-center text-xl font-black outline-none">
+                </div>
+                <button id="login-btn" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-5 rounded-[1.5rem] shadow-xl shadow-orange-200 transition-all active:scale-95 text-lg mt-4 text-center">골목으로 입장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 메인 화면 (방 목록) -->
+    <div id="main-screen" class="max-w-2xl mx-auto p-6 hidden">
+        <header class="flex justify-between items-end mb-12 pt-6 px-2">
+            <div>
+                <h2 class="text-4xl font-black text-gray-900 tracking-tighter text-center sm:text-left">함께 놀기</h2>
+                <p class="text-orange-500 font-black mt-1 text-sm text-center sm:text-left">지금 모집 중인 우리 동네 놀이들</p>
+            </div>
+            <button id="create-room-btn" class="bg-orange-500 text-white px-6 py-3.5 rounded-2xl font-black shadow-lg hover:bg-orange-600 transition-all active:scale-95 text-sm">놀이 만들기</button>
+        </header>
+        <div id="room-list" class="grid grid-cols-1 sm:grid-cols-2 gap-6"></div>
+    </div>
+
+    <!-- 3. 대기실 (상세) -->
+    <div id="room-detail-screen" class="max-w-2xl mx-auto p-6 hidden min-h-screen flex flex-col">
+        <button id="back-to-list-btn" class="text-gray-400 hover:text-gray-800 mb-8 flex items-center gap-2 font-black transition-colors group">
+            <div class="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-100 group-hover:bg-gray-50">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7" />
+                </svg>
+            </div>
+            목록 구경하기
+        </button>
+
+        <div class="bg-white rounded-[3rem] p-10 shadow-2xl shadow-orange-50 border border-orange-50 flex-grow flex flex-col overflow-hidden relative">
+            <div class="text-center mb-8">
+                <div id="detail-game-name" class="text-7xl mb-6">🙈</div>
+                <h2 id="detail-title" class="text-2xl font-black text-gray-900 leading-snug">모임 제목</h2>
+                <div class="flex flex-col items-center gap-2 mt-4">
+                    <div class="flex items-center gap-1 text-sm font-bold text-gray-500">
+                        <span>📅</span> <span id="detail-date">날짜 미정</span>
+                    </div>
+                    <div class="flex items-center gap-1 text-sm font-bold text-gray-500">
+                        <span>📍</span> <span id="detail-location">장소</span>
+                    </div>
+                    <div class="inline-block px-4 py-1.5 bg-orange-50 text-orange-600 rounded-full text-[10px] font-black border border-orange-100" id="detail-condition">제한 없음</div>
+                </div>
+            </div>
+
+            <div class="flex-grow">
+                <h3 class="text-[11px] font-black text-gray-300 uppercase tracking-[0.2em] mb-5 ml-1">참여 멤버 명단</h3>
+                <div id="player-list"></div>
+                <div id="room-status-msg" class="text-center text-orange-500 font-black p-4 bg-orange-50 rounded-2xl mt-8 text-sm">대기 중...</div>
+            </div>
+
+            <!-- 참여자 전용 버튼 -->
+            <button id="withdraw-room-btn" class="mt-8 w-full py-4 text-red-400 hover:text-red-500 text-xs font-black bg-red-50/50 hover:bg-red-50 rounded-2xl transition-colors">
+                참가 취소하고 모임 나가기
+            </button>
+
+            <!-- 방장 전용 컨트롤 -->
+            <div id="creator-controls" class="mt-8 grid grid-cols-2 gap-3 hidden">
+                <button id="edit-room-btn" class="py-4 bg-gray-100 text-gray-600 text-xs font-black rounded-2xl hover:bg-gray-200 transition-colors">수정하기</button>
+                <button id="delete-room-btn" class="py-4 bg-red-50 text-red-500 text-xs font-black rounded-2xl hover:bg-red-100 transition-colors">모임 취소</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 모달 (생성/수정 통합) -->
+    <div id="room-modal" class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-6 z-50 hidden text-center sm:text-left">
+        <div class="bg-white w-full max-w-xl max-h-[95vh] overflow-y-auto rounded-[3rem] p-10 shadow-2xl animate-fade-in-up relative mx-auto">
+            <div class="mb-8">
+                <h2 id="modal-title" class="text-2xl font-black text-gray-900">모임 만들기</h2>
+                <p class="text-gray-400 text-sm font-bold mt-1">친구들과 만날 준비를 해보세요!</p>
+            </div>
+            <form id="room-form" class="space-y-4">
+                <div>
+                    <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase tracking-widest text-left">방 이름</label>
+                    <input type="text" name="title" required maxlength="15" placeholder="제목을 적어주세요" class="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white rounded-2xl outline-none font-black transition-all">
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="col-span-1">
+                        <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase tracking-widest text-left">놀이 종류</label>
+                        <select name="gameId" class="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white rounded-2xl outline-none font-black cursor-pointer transition-all">
+                            <option value="hide">🙈 숨바꼭질</option>
+                            <option value="cops">👮 경찰과 도둑</option>
+                            <option value="flower">🌺 무궁화</option>
+                        </select>
+                    </div>
+                    <div class="col-span-1">
+                        <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase tracking-widest text-left">모임 날짜</label>
+                        <input type="date" name="meetingDate" required class="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white rounded-2xl outline-none font-black transition-all">
+                    </div>
+                    <div class="col-span-1">
+                        <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase tracking-widest text-left">모임 시간</label>
+                        <input type="time" name="meetingTime" required class="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white rounded-2xl outline-none font-black transition-all">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase tracking-widest text-left">만날 장소</label>
+                    <input type="text" name="location" required placeholder="예: 상상공원" class="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white rounded-2xl outline-none font-black transition-all">
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase text-left">정원</label>
+                        <input type="number" name="maxPlayers" min="2" max="20" class="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white rounded-2xl outline-none font-black">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase text-left">최소 연도</label>
+                        <input type="number" name="minBirthYear" class="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white rounded-2xl outline-none font-black">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-black text-gray-400 mb-2 ml-1 uppercase text-left">최대 연도</label>
+                        <input type="number" name="maxBirthYear" class="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-orange-400 focus:bg-white rounded-2xl outline-none font-black">
+                    </div>
+                </div>
+                <div class="flex gap-4 mt-8">
+                    <button type="button" id="cancel-modal" class="flex-1 py-6 bg-gray-100 text-gray-500 font-black rounded-2xl hover:bg-gray-200 transition-all text-base">취소</button>
+                    <button type="submit" class="flex-1 py-6 bg-orange-500 text-white font-black rounded-2xl shadow-lg hover:bg-orange-600 transition-all text-base">완료</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 확인 모달 (커스텀 confirm) -->
+    <div id="confirm-modal" class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-6 z-50 hidden text-center">
+        <div class="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl animate-fade-in-up relative mx-auto">
+            <div class="text-5xl mb-4">🚨</div>
+            <h2 class="text-xl font-black text-gray-900 mb-2">모임을 취소하시겠습니까?</h2>
+            <p class="text-gray-500 text-sm font-bold mb-8">참여 중인 멤버들도 모두 퇴장 처리됩니다.</p>
+            <div class="flex gap-3">
+                <button id="cancel-confirm-btn" class="flex-1 py-4 bg-gray-100 text-gray-500 font-black rounded-2xl hover:bg-gray-200 transition-all text-sm">아니오</button>
+                <button id="ok-confirm-btn" class="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl shadow-lg hover:bg-red-600 transition-all text-sm">네, 취소합니다</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 컬러 테마 토글 버튼 -->
+    <button id="theme-toggle-btn" class="fixed bottom-6 right-6 bg-gray-800 text-white px-5 py-3 rounded-full shadow-2xl z-[100] font-black text-sm hover:scale-105 transition-transform">
+        🎨 민트 (#2ac1bc)
+    </button>
+
+</body>
+</html>

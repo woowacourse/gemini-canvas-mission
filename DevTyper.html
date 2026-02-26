@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>데브 타자 연습</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            light: '#2563eb',
+                            dark: '#60a5fa'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, query, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'dev-typer-final';
+
+        const apiKey = "";
+
+        window.state = {
+            view: 'main',
+            mode: 'word',
+            lang: 'kotlin',
+            currentLines: [],
+            currentLineIndex: 0,
+            startTime: null,
+            timerInterval: null,
+            errors: 0,
+            charCount: 0,
+            isFetching: false,
+            results: { cpm: 0, acc: 0 },
+            theme: localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        };
+
+        async function init() {
+            applyTheme();
+            const initAuth = async () => {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (e) {}
+            };
+            await initAuth();
+            onAuthStateChanged(auth, (u) => {
+                if (u) loadRankings();
+            });
+            renderView();
+        }
+
+        window.toggleTheme = function() {
+            window.state.theme = window.state.theme === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('theme', window.state.theme);
+            applyTheme();
+            renderView();
+        };
+
+        function applyTheme() {
+            if (window.state.theme === 'dark') {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        }
+
+        window.setView = function(newView, options = {}) {
+            window.state.view = newView;
+            if (options.mode) window.state.mode = options.mode;
+
+            if (newView === 'main') {
+                window.state.currentLines = [];
+            }
+
+            renderView();
+            if (newView === 'practice') startPractice();
+            if (newView === 'analysis') runAIAnalysis();
+        };
+
+        window.changeLang = function(val) {
+            window.state.lang = val;
+            window.state.currentLines = [];
+            renderView();
+        };
+
+        async function fetchContent() {
+            if (window.state.isFetching) return;
+            window.state.isFetching = true;
+
+            let count = window.state.mode === 'word' ? 10 : (window.state.mode === 'sentence' ? 5 : 10);
+            const salt = Math.random().toString(36).substring(7);
+            let prompt = "";
+
+            if (window.state.mode === 'word') {
+                prompt = `Generate exactly ${count} important coding keywords or built-in functions for ${window.state.lang}. Provide only the words, one per line. No intro, no numbering, no explanations. (Seed: ${salt})`;
+            } else if (window.state.mode === 'sentence') {
+                prompt = `Generate exactly ${count} independent, complete one-line code statements for ${window.state.lang}. Provide only the code, one per line. No intro, no markdown code blocks, no numbering. (Seed: ${salt})`;
+            } else {
+                prompt = `Generate exactly ${count} lines of a realistic code snippet for ${window.state.lang}. No markdown code blocks, no intro text. (Seed: ${salt})`;
+            }
+
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                let raw = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+                let lines = raw.split('\n')
+                    .map(l => l.trim())
+                    .filter(l => l.length > 0 && !l.toLowerCase().includes("here is") && !l.toLowerCase().includes("generate") && !l.startsWith("```"))
+                    .slice(0, count);
+
+                // 단어 연습 모드일 경우 순서를 무작위로 섞음
+                if (window.state.mode === 'word') {
+                    lines = lines.sort(() => Math.random() - 0.5);
+                }
+
+                window.state.currentLines = lines.map(l => ({
+                    text: l,
+                    indent: ""
+                }));
+            } catch (e) {
+                window.state.currentLines = [{ text: "Error fetching data.", indent: "" }];
+            } finally {
+                window.state.isFetching = false;
+            }
+        }
+
+        async function startPractice() {
+            resetStats();
+            const display = document.getElementById('text-display');
+            if (display) display.innerHTML = `<div class="animate-pulse text-gray-500 font-mono text-center mt-20 italic">AI 코드를 준비 중입니다...</div>`;
+            await fetchContent();
+            renderLines();
+            focusInput();
+        }
+
+        function focusInput() {
+            const input = document.getElementById('practice-input');
+            if (input) { input.disabled = false; input.focus(); }
+        }
+
+        function resetStats() {
+            clearInterval(window.state.timerInterval);
+            window.state.currentLineIndex = 0;
+            window.state.errors = 0;
+            window.state.charCount = 0;
+            window.state.startTime = null;
+            const cpmEl = document.getElementById('live-cpm');
+            const accEl = document.getElementById('live-acc');
+            if (cpmEl) cpmEl.innerText = "0";
+            if (accEl) accEl.innerText = "100%";
+        }
+
+        function adjustFontSize() {
+            const el = document.getElementById('active-line-text');
+            if (!el || window.state.mode === 'paragraph') return;
+
+            let fontSize = 48;
+            el.style.fontSize = fontSize + 'px';
+            el.style.whiteSpace = 'nowrap';
+
+            const containerWidth = el.parentElement.clientWidth * 0.95;
+            while (el.scrollWidth > containerWidth && fontSize > 14) {
+                fontSize -= 2;
+                el.style.fontSize = fontSize + 'px';
+            }
+        }
+
+        window.handleInput = function(e) {
+            if (!window.state.startTime && e.target.value.length > 0) {
+                window.state.startTime = Date.now();
+                startTimer();
+            }
+            const val = e.target.value;
+            const currentLine = window.state.currentLines[window.state.currentLineIndex];
+            if (!currentLine) return;
+
+            const content = document.getElementById(`active-line-text`);
+            if (content) {
+                if (currentLine.text.startsWith(val)) {
+                    content.style.color = window.state.theme === 'dark' ? '#60a5fa' : '#2563eb';
+                } else {
+                    content.style.color = '#dc2626';
+                }
+            }
+        };
+
+        window.handleKeydown = function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const input = e.target;
+                const inputValue = input.value.trim();
+
+                if (inputValue.length === 0) return;
+
+                const currentLine = window.state.currentLines[window.state.currentLineIndex];
+                if (!currentLine) return;
+
+                if (inputValue === currentLine.text) {
+                    window.state.charCount += currentLine.text.length;
+                } else {
+                    window.state.errors++;
+                }
+
+                window.state.currentLineIndex++;
+                input.value = "";
+
+                if (window.state.currentLineIndex < window.state.currentLines.length) {
+                    renderLines();
+                    focusInput();
+                } else {
+                    endGame();
+                }
+            }
+        };
+
+        function startTimer() {
+            window.state.timerInterval = setInterval(() => {
+                if (!window.state.startTime) return;
+                const sec = (Date.now() - window.state.startTime) / 1000;
+                const cpm = Math.round((window.state.charCount / sec) * 60) || 0;
+                const totalAttempted = window.state.currentLineIndex;
+                const acc = Math.round(((totalAttempted - window.state.errors) / (totalAttempted || 1)) * 100);
+
+                const cpmEl = document.getElementById('live-cpm');
+                const accEl = document.getElementById('live-acc');
+                if (cpmEl) cpmEl.innerText = cpm;
+                if (accEl) accEl.innerText = Math.max(0, acc) + "%";
+                window.state.results = { cpm, acc };
+            }, 100);
+        }
+
+        function endGame() {
+            clearInterval(window.state.timerInterval);
+            window.state.currentLines = [];
+            window.setView('result');
+        }
+
+        window.submitRank = async function() {
+            const nick = document.getElementById('res-nickname').value;
+            if (!nick) return;
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'rankings'), {
+                    nickname: nick, cpm: window.state.results.cpm, lang: window.state.lang, timestamp: Date.now()
+                });
+                window.setView('ranking');
+            } catch (e) {}
+        };
+
+        function loadRankings() {
+            onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'rankings')), (snap) => {
+                const data = [];
+                snap.forEach(d => data.push(d.data()));
+                data.sort((a,b) => b.cpm - a.cpm);
+                const list = document.getElementById('full-rank-list');
+                if (list) {
+                    list.innerHTML = data.slice(0, 15).map((d, i) => `
+                        <div class="flex justify-between items-center p-4 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-200 dark:border-white/10">
+                            <div class="flex items-center gap-4">
+                                <span class="text-gray-400 font-bold w-6 text-center">${i+1}</span>
+                                <span class="font-bold text-gray-800 dark:text-gray-100">${d.nickname}</span>
+                                <span class="text-[10px] bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded uppercase font-mono">${d.lang}</span>
+                            </div>
+                            <span class="text-xl font-black text-blue-600 dark:text-blue-400">${d.cpm}</span>
+                        </div>
+                    `).join('');
+                }
+            }, (err) => {});
+        }
+
+        async function runAIAnalysis() {
+            const resBox = document.getElementById('analysis-box');
+            if (!resBox) return;
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: `Stats: ${window.state.results.cpm} CPM. 1 brief advice in Korean.` }] }] })
+                });
+                const data = await res.json();
+                resBox.innerText = data.candidates?.[0]?.content?.parts?.[0]?.text || "분석 완료.";
+            } catch (e) { resBox.innerText = "분석 중 오류 발생."; }
+        }
+
+        function renderLines() {
+            const container = document.getElementById('text-display');
+            if (!container) return;
+
+            if (window.state.mode === 'paragraph') {
+                container.className = "flex-grow font-mono text-base overflow-y-auto mb-6 custom-scrollbar p-4";
+                container.innerHTML = window.state.currentLines.map((line, i) => {
+                    let isActive = i === window.state.currentLineIndex;
+                    let statusClass = i < window.state.currentLineIndex ? "opacity-20 line-through" : (isActive ? "text-gray-900 dark:text-white font-bold bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-600 pl-3 py-1 shadow-sm rounded-r-md" : "opacity-40");
+
+                    let html = `<div class="py-[1px] whitespace-pre transition-all ${statusClass}">
+                        <span id="${isActive ? 'active-line-text' : ''}">${line.indent}${line.text}</span>
+                    </div>`;
+
+                    if (isActive) {
+                        html += `
+                        <div class="my-3 ml-6 pr-6 animate-in slide-in-from-top-1">
+                            <input id="practice-input" type="text" autocomplete="off"
+                                class="w-full bg-white dark:bg-gray-800 border-2 border-blue-500 rounded-xl px-4 py-3 text-lg outline-none shadow-xl font-mono text-gray-900 dark:text-white"
+                                oninput="window.handleInput(event)" onkeydown="window.handleKeydown(event)" placeholder="입력 후 Enter">
+                        </div>`;
+                    }
+                    return html;
+                }).join('');
+
+                const active = document.getElementById('active-line-text');
+                if (active) active.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+                container.className = "flex-grow flex flex-col justify-center items-center mb-6 overflow-hidden";
+                const current = window.state.currentLines[window.state.currentLineIndex];
+                if (!current) return;
+                const progress = Math.round((window.state.currentLineIndex / window.state.currentLines.length) * 100);
+
+                container.innerHTML = `
+                    <div class="w-full mb-10">
+                        <div class="h-1.5 w-full bg-gray-100 dark:bg-white/5 rounded-full overflow-hidden">
+                            <div class="h-full bg-blue-600 transition-all duration-300" style="width: ${progress}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center w-full px-4 overflow-hidden">
+                        <div class="min-h-[120px] flex items-center justify-center">
+                            <div id="active-line-text" class="font-mono font-black text-gray-900 dark:text-white leading-relaxed">
+                                ${current.text}
+                            </div>
+                        </div>
+                        <div class="mt-12 max-w-2xl mx-auto">
+                            <input id="practice-input" type="text" autocomplete="off"
+                                class="w-full h-20 bg-gray-50 dark:bg-white/5 border-2 border-transparent focus:border-blue-500 dark:focus:border-blue-400 rounded-3xl px-8 text-2xl outline-none transition-all font-mono text-gray-900 dark:text-white text-center shadow-inner"
+                                oninput="window.handleInput(event)" onkeydown="window.handleKeydown(event)" placeholder="내용을 정확히 입력하세요">
+                        </div>
+                    </div>
+                `;
+                setTimeout(adjustFontSize, 10);
+            }
+        }
+
+        function renderView() {
+            const root = document.getElementById('app-root');
+            if (!root) return;
+
+            const nav = `
+                <div class="flex items-center justify-between mb-8">
+                    <div class="flex items-center gap-4">
+                        ${window.state.view !== 'main' ? `
+                            <button onclick="setView('main')" class="w-12 h-12 flex items-center justify-center bg-white dark:bg-white/5 hover:bg-blue-600 hover:text-white rounded-2xl transition-all border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white shadow-sm">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
+                            </button>
+                        ` : ''}
+                        <h1 class="text-3xl font-black tracking-tighter text-gray-900 dark:text-white">데브 타자 연습</h1>
+                    </div>
+                    <button onclick="window.toggleTheme()" class="w-12 h-12 flex items-center justify-center rounded-2xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-xl shadow-sm hover:scale-105 transition-transform">
+                        ${window.state.theme === 'dark' ? '☀️' : '🌙'}
+                    </button>
+                </div>
+            `;
+
+            if (window.state.view === 'main') {
+                root.innerHTML = nav + `
+                    <div class="grid grid-cols-1 gap-5 max-w-2xl mx-auto">
+                        <div class="card p-7 bg-gradient-to-br from-blue-50 to-transparent dark:from-blue-900/10 flex items-center gap-5">
+                            <div class="flex-grow">
+                                <p class="text-[10px] font-black uppercase text-blue-600 mb-1 tracking-widest">Select Language</p>
+                                <h3 class="text-xl font-bold text-gray-900 dark:text-white">연습 언어</h3>
+                            </div>
+                            <select onchange="window.changeLang(this.value)" class="bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-white/10 px-6 py-3 rounded-2xl text-gray-900 dark:text-white font-bold outline-none ring-blue-500/20 shadow-sm transition-all">
+                                <option value="kotlin" ${window.state.lang === 'kotlin' ? 'selected' : ''}>KOTLIN</option>
+                                <option value="javascript" ${window.state.lang === 'javascript' ? 'selected' : ''}>JAVASCRIPT</option>
+                                <option value="python" ${window.state.lang === 'python' ? 'selected' : ''}>PYTHON</option>
+                                <option value="java" ${window.state.lang === 'java' ? 'selected' : ''}>JAVA</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-1 gap-4">
+                            ${renderMenuCard('단어 연습', '10개 키워드 집중 연습', 'practice', 'word', 'text-blue-600')}
+                            ${renderMenuCard('문장 연습', '5개 완성형 명령문 연습', 'practice', 'sentence', 'text-purple-600')}
+                            ${renderMenuCard('문단 연습', '10줄 코드 흐름 연습', 'practice', 'paragraph', 'text-emerald-600')}
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mt-2">
+                            ${renderMenuCard('분석', 'AI 조언', 'analysis', '', 'text-orange-600')}
+                            ${renderMenuCard('랭킹', 'Top 15', 'ranking', '', 'text-rose-600')}
+                        </div>
+                    </div>
+                `;
+            } else if (window.state.view === 'practice') {
+                root.innerHTML = nav + `
+                    <div class="card p-10 min-h-[600px] flex flex-col shadow-2xl overflow-hidden">
+                        <div class="flex justify-between items-center mb-10 border-b border-gray-100 dark:border-white/5 pb-6">
+                            <div class="flex gap-12">
+                                <div><p class="text-[10px] text-gray-400 font-black uppercase tracking-widest">CPM</p><p id="live-cpm" class="text-4xl font-black text-gray-900 dark:text-white tabular-nums">0</p></div>
+                                <div><p class="text-[10px] text-gray-400 font-black uppercase tracking-widest">Accuracy</p><p id="live-acc" class="text-4xl font-black text-blue-600 tabular-nums">100%</p></div>
+                            </div>
+                            <div class="px-5 py-2 bg-gray-100 dark:bg-white/10 rounded-xl text-[11px] font-black text-gray-500 dark:text-gray-300 uppercase tracking-widest">${window.state.lang} · ${window.state.mode}</div>
+                        </div>
+                        <div id="text-display" class="flex-grow flex flex-col"></div>
+                    </div>
+                `;
+            } else if (window.state.view === 'result') {
+                root.innerHTML = nav + `
+                    <div class="max-w-xl mx-auto card p-12 text-center space-y-10 shadow-2xl border-2 border-blue-500/10">
+                        <h2 class="text-3xl font-black text-gray-900 dark:text-white">결과 리포트</h2>
+                        <div class="grid grid-cols-2 gap-6 py-4">
+                            <div class="p-6 bg-gray-50 dark:bg-white/5 rounded-3xl border border-gray-100 dark:border-white/5 shadow-inner">
+                                <p class="text-xs text-gray-400 font-bold mb-2">CPM</p>
+                                <p class="text-6xl font-black text-gray-900 dark:text-white">${window.state.results.cpm}</p>
+                            </div>
+                            <div class="p-6 bg-gray-50 dark:bg-white/5 rounded-3xl border border-gray-100 dark:border-white/5 shadow-inner">
+                                <p class="text-xs text-gray-400 font-bold mb-2">정확도</p>
+                                <p class="text-6xl font-black text-blue-600">${window.state.results.acc}%</p>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <input type="text" id="res-nickname" placeholder="닉네임" class="w-full bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-white/10 rounded-2xl px-6 py-4 text-gray-900 dark:text-white outline-none focus:ring-4 ring-blue-500/20 text-center font-bold">
+                            <button onclick="window.submitRank()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl font-black shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02] active:scale-95">랭킹 등록</button>
+                        </div>
+                    </div>
+                `;
+            } else if (window.state.view === 'ranking') {
+                root.innerHTML = nav + `
+                    <div class="max-w-2xl mx-auto card p-10 space-y-8 shadow-2xl">
+                        <h2 class="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-3">🏆 TOP 15 RANKING</h2>
+                        <div id="full-rank-list" class="space-y-3"></div>
+                    </div>
+                `;
+                loadRankings();
+            } else if (window.state.view === 'analysis') {
+                root.innerHTML = nav + `
+                    <div class="max-w-xl mx-auto card p-12 text-center space-y-8 shadow-2xl">
+                        <div class="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center mx-auto text-4xl">💡</div>
+                        <h2 class="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter">AI 코딩 퍼포먼스 가이드</h2>
+                        <div id="analysis-box" class="p-8 bg-orange-50/50 dark:bg-orange-900/10 border-2 border-orange-100 dark:border-orange-500/10 rounded-3xl text-orange-800 dark:text-orange-300 font-medium leading-relaxed italic shadow-inner">분석 데이터를 불러오는 중...</div>
+                    </div>
+                `;
+                runAIAnalysis();
+            }
+        }
+
+        function renderMenuCard(title, desc, view, mode, colorClass) {
+            return `
+                <div onclick="window.setView('${view}', {mode: '${mode}'})" class="card p-6 border border-gray-100 dark:border-white/5 hover:border-blue-500 dark:hover:border-blue-500 group cursor-pointer transition-all flex items-center justify-between shadow-sm hover:shadow-xl hover:-translate-y-1">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors mb-1">${title}</h3>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 font-medium leading-snug">${desc}</p>
+                    </div>
+                    <div class="${colorClass} opacity-10 group-hover:opacity-100 transition-all font-black text-2xl transform group-hover:translate-x-1">→</div>
+                </div>
+            `;
+        }
+
+        window.addEventListener('resize', adjustFontSize);
+
+        init();
+    </script>
+    <style>
+        @import url('[https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&display=swap](https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&display=swap)');
+
+        body {
+            background-color: #f8fafc;
+            color: #0f172a;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-x: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .dark body { background-color: #020617; color: #f1f5f9; }
+        .card { background-color: #ffffff; border-radius: 32px; transition: all 0.3s ease; }
+        .dark .card { background-color: #0f172a; }
+        .font-mono { font-family: 'Fira Code', monospace !important; }
+
+        select { appearance: none; cursor: pointer; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; }
+        #text-display { scroll-behavior: smooth; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-in { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+<div id="app-root" class="max-w-4xl mx-auto"></div>
+</body>
+</html>

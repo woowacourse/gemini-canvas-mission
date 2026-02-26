@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asciify</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/gifler@0.1.0/gifler.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        body {
+            background-color: #0f172a;
+            color: #f1f5f9;
+            font-family: 'Pretendard', system-ui, -apple-system, sans-serif;
+        }
+        #ascii-output {
+            font-family: 'Courier New', Courier, monospace;
+            line-height: 1;
+            white-space: pre;
+            letter-spacing: 0;
+            display: inline-block;
+            transform-origin: top center;
+        }
+        .canvas-container {
+            max-width: 100%;
+            overflow: auto;
+            background: #000;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            min-height: 400px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            border: 1px solid #1e293b;
+        }
+        .drop-zone {
+            border: 2px dashed #475569;
+            transition: all 0.2s ease-in-out;
+            background: rgba(30, 41, 59, 0.5);
+        }
+        .drop-zone.drag-over {
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.2);
+        }
+        .recording-pulse {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+<div class="max-w-7xl mx-auto">
+    <header class="mb-8 text-center">
+        <h1 class="text-5xl font-extrabold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">
+            Asciify
+        </h1>
+        <p class="text-slate-400">문자 모양 그대로 GIF를 제작하고 텍스트를 복사하세요.</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div class="lg:col-span-1 space-y-6">
+            <div class="bg-slate-800 p-6 rounded-2xl shadow-2xl border border-slate-700 space-y-4">
+                <div id="drop-area" class="drop-zone p-6 rounded-xl text-center cursor-pointer group">
+                    <svg class="w-10 h-10 mx-auto mb-2 text-slate-500 group-hover:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span class="block text-blue-400 font-bold text-sm">새 파일 업로드</span>
+                    <input type="file" id="file-input" accept="image/*,video/*" class="hidden">
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg border border-slate-700">
+                        <label class="text-xs font-medium text-slate-300">컬러 모드</label>
+                        <input type="checkbox" id="color-mode" checked class="w-4 h-4 accent-emerald-500">
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <label class="text-xs font-semibold text-slate-300">해상도 (문자 수)</label>
+                            <span id="resolution-val" class="text-[10px] font-mono text-emerald-400 bg-emerald-400/10 px-1.5 rounded">60</span>
+                        </div>
+                        <input type="range" id="resolution-slider" min="20" max="100" value="60" class="w-full h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">문자 세트</label>
+                        <select id="charset-select" class="w-full bg-slate-900 border border-slate-700 text-slate-300 rounded-lg p-2 text-xs">
+                            <option value="@#S%?*+;:,. ">표준 (@#S%...)</option>
+                            <option value="01">Matrix (01)</option>
+                            <option value="█▓▒░ ">블록 (█▓▒...)</option>
+                            <option value="ABCDEFGHIJK">알파벳</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="pt-4 space-y-2">
+                    <button id="record-btn" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2">
+                        <span id="record-icon" class="w-3 h-3 bg-white rounded-full"></span>
+                        <span id="record-text">GIF 녹화 시작</span>
+                    </button>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="copy-text-btn" class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2 text-xs">
+                            텍스트 복사
+                        </button>
+                        <button id="reset-btn" class="bg-slate-900 hover:bg-slate-800 text-red-400 border border-red-900/30 font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2 text-xs">
+                            전체 리셋
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-3 space-y-4">
+            <div class="bg-slate-800 p-2 rounded-2xl shadow-2xl border border-slate-700 relative">
+                <div id="recording-status" class="hidden absolute top-4 right-4 bg-red-600 text-white text-[10px] px-2 py-1 rounded-full font-bold recording-pulse z-10">
+                    REC 🔴
+                </div>
+                <div class="canvas-container" id="output-wrapper">
+                    <pre id="ascii-output">파일을 업로드하거나 드래그하세요.</pre>
+                </div>
+            </div>
+            <!-- Hidden canvases for processing -->
+            <canvas id="ascii-canvas" class="hidden"></canvas>
+            <canvas id="hidden-canvas" class="hidden"></canvas>
+            <video id="hidden-video" class="hidden" loop muted playsinline crossorigin="anonymous"></video>
+            <div id="gif-canvas-container">
+                <canvas id="gif-canvas" class="hidden"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const dropArea = document.getElementById('drop-area');
+    const fileInput = document.getElementById('file-input');
+    const resolutionSlider = document.getElementById('resolution-slider');
+    const resolutionVal = document.getElementById('resolution-val');
+    const charsetSelect = document.getElementById('charset-select');
+    const colorModeCheck = document.getElementById('color-mode');
+    const asciiOutput = document.getElementById('ascii-output');
+    const recordBtn = document.getElementById('record-btn');
+    const recordText = document.getElementById('record-text');
+    const copyBtn = document.getElementById('copy-text-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const recordingStatus = document.getElementById('recording-status');
+
+    const hiddenCanvas = document.getElementById('hidden-canvas');
+    const asciiCanvas = document.getElementById('ascii-canvas');
+    const hiddenVideo = document.getElementById('hidden-video');
+
+    const ctx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+    const aCtx = asciiCanvas.getContext('2d');
+
+    let currentMode = 'idle';
+    let rafId = null;
+    let staticImg = null;
+    let gifRecorder = null;
+    let isRecording = false;
+    let workerBlobUrl = null;
+    let currentGifInstance = null;
+    let currentFileUrl = null;
+    let gifSessionId = 0;
+
+    async function initWorker() {
+        try {
+            const response = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
+            const script = await response.text();
+            const blob = new Blob([script], { type: 'application/javascript' });
+            workerBlobUrl = URL.createObjectURL(blob);
+        } catch (e) {
+            console.error("Worker load failed:", e);
+        }
+    }
+    initWorker();
+
+    function stopAllProcesses() {
+        currentMode = 'idle';
+
+        // 1. Stop Video
+        hiddenVideo.pause();
+        hiddenVideo.src = "";
+        hiddenVideo.load();
+
+        // 2. Stop RAF Loop
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+
+        // 3. Stop GIF Instance
+        gifSessionId++;
+        if (currentGifInstance) {
+            try {
+                currentGifInstance.stop();
+            } catch(e) {}
+            currentGifInstance = null;
+        }
+
+        // Physical Clean
+        const container = document.getElementById('gif-canvas-container');
+        container.innerHTML = '<canvas id="gif-canvas" class="hidden"></canvas>';
+
+        // 4. Revoke Old URL
+        if (currentFileUrl) {
+            URL.revokeObjectURL(currentFileUrl);
+            currentFileUrl = null;
+        }
+
+        // 5. Clear Main Drawing Canvases
+        ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+        asciiOutput.innerHTML = "파일을 업로드하거나 드래그하세요.";
+        asciiOutput.style.fontSize = "16px";
+
+        staticImg = null;
+        isRecording = false;
+        updateRecordButtonUI();
+    }
+
+    function handleFile(file) {
+        if (!file) return;
+
+        stopAllProcesses();
+
+        currentFileUrl = URL.createObjectURL(file);
+        const isVideo = file.type.startsWith('video/');
+        const isGif = file.type === 'image/gif';
+
+        if (isVideo) {
+            currentMode = 'video';
+            hiddenVideo.src = currentFileUrl;
+            hiddenVideo.onloadedmetadata = () => {
+                hiddenVideo.play();
+                startLoop();
+            };
+        } else if (isGif) {
+            currentMode = 'animated-image';
+            const gifCanvas = document.getElementById('gif-canvas');
+
+            gifSessionId++;
+            const currentSession = gifSessionId;
+
+            try {
+                const animator = gifler(currentFileUrl).frames(gifCanvas, (c, frame) => {
+                    if (currentSession !== gifSessionId || currentMode !== 'animated-image') {
+                        return;
+                    }
+
+                    const gCtx = gifCanvas.getContext('2d');
+                    gCtx.clearRect(0, 0, gifCanvas.width, gifCanvas.height);
+                    gCtx.drawImage(frame.buffer, 0, 0);
+                    renderFrameFromSource(gifCanvas);
+                });
+
+                if (animator && typeof animator.stop === 'function') {
+                    currentGifInstance = animator;
+                } else if (animator && typeof animator.then === 'function') {
+                    animator.then(a => {
+                        if (currentSession !== gifSessionId) a.stop();
+                        else currentGifInstance = a;
+                    });
+                }
+            } catch (err) {
+                console.error("Gifler Error:", err);
+            }
+        } else {
+            currentMode = 'static-image';
+            staticImg = new Image();
+            staticImg.onload = () => {
+                if (currentMode === 'static-image') renderFrameFromSource(staticImg);
+            };
+            staticImg.src = currentFileUrl;
+        }
+    }
+
+    function startLoop() {
+        if (currentMode === 'video' && !hiddenVideo.paused) {
+            renderFrameFromSource(hiddenVideo);
+            rafId = requestAnimationFrame(startLoop);
+        }
+    }
+
+    function renderFrameFromSource(source) {
+        if (currentMode === 'idle') return;
+
+        const isVideo = source === hiddenVideo;
+        const sWidth = isVideo ? source.videoWidth : (source.width || 0);
+        const sHeight = isVideo ? source.videoHeight : (source.height || 0);
+        if (!sWidth || !sHeight) return;
+
+        const targetWidth = parseInt(resolutionSlider.value);
+        const aspectRatio = sHeight / sWidth;
+        const targetHeight = Math.floor(targetWidth * aspectRatio * 0.55);
+
+        if (hiddenCanvas.width !== targetWidth || hiddenCanvas.height !== targetHeight) {
+            hiddenCanvas.width = targetWidth;
+            hiddenCanvas.height = targetHeight;
+        }
+
+        ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
+        const pixels = ctx.getImageData(0, 0, targetWidth, targetHeight).data;
+        const charset = charsetSelect.value;
+        const useColor = colorModeCheck.checked;
+
+        let outputHTML = "";
+        let frameData = [];
+
+        for (let y = 0; y < targetHeight; y++) {
+            for (let x = 0; x < targetWidth; x++) {
+                const i = (y * targetWidth + x) * 4;
+                const r = pixels[i], g = pixels[i+1], b = pixels[i+2];
+                const brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                const charIdx = Math.floor(brightness * (charset.length - 1));
+                const char = charset[charIdx] || " ";
+
+                const colorStr = `rgb(${r},${g},${b})`;
+                if (useColor) {
+                    outputHTML += `<span style="color:${colorStr}">${char === " " ? "&nbsp;" : char}</span>`;
+                } else {
+                    outputHTML += char === " " ? "&nbsp;" : char;
+                }
+
+                if (isRecording) {
+                    frameData.push({ char, color: colorStr });
+                }
+            }
+            outputHTML += "\n";
+        }
+
+        asciiOutput.innerHTML = outputHTML;
+        asciiOutput.style.color = useColor ? "inherit" : "#10b981";
+
+        const wrapper = document.getElementById('output-wrapper');
+        const fontSize = (wrapper.clientWidth / targetWidth) * 1.15;
+        asciiOutput.style.fontSize = `${fontSize}px`;
+
+        if (isRecording && gifRecorder) {
+            captureAsciiFrame(frameData, targetWidth, targetHeight);
+        }
+    }
+
+    function captureAsciiFrame(frameData, tw, th) {
+        const charWidth = 10;
+        const charHeight = 18;
+        asciiCanvas.width = tw * charWidth;
+        asciiCanvas.height = th * charHeight;
+
+        aCtx.fillStyle = "#000";
+        aCtx.fillRect(0, 0, asciiCanvas.width, asciiCanvas.height);
+        aCtx.font = `bold ${charHeight}px Courier New, monospace`;
+        aCtx.textAlign = "center";
+        aCtx.textBaseline = "middle";
+
+        frameData.forEach((item, idx) => {
+            const x = idx % tw;
+            const y = Math.floor(idx / tw);
+            aCtx.fillStyle = colorModeCheck.checked ? item.color : "#10b981";
+            aCtx.fillText(item.char, x * charWidth + charWidth/2, y * charHeight + charHeight/2);
+        });
+
+        gifRecorder.addFrame(aCtx, {copy: true, delay: 80});
+    }
+
+    function updateRecordButtonUI() {
+        if (isRecording) {
+            recordBtn.classList.replace('bg-red-600', 'bg-slate-600');
+            recordText.textContent = "녹화 중지 및 생성...";
+            recordingStatus.classList.remove('hidden');
+        } else {
+            recordBtn.classList.replace('bg-slate-600', 'bg-red-600');
+            recordText.textContent = "GIF 녹화 시작";
+            recordingStatus.classList.add('hidden');
+        }
+    }
+
+    recordBtn.addEventListener('click', () => {
+        if (currentMode === 'idle' || !workerBlobUrl) return;
+
+        if (!isRecording) {
+            isRecording = true;
+            gifRecorder = new GIF({
+                workers: 4,
+                quality: 10,
+                width: parseInt(resolutionSlider.value) * 10,
+                height: Math.floor(parseInt(resolutionSlider.value) * (hiddenCanvas.height/hiddenCanvas.width)) * 18,
+                workerScript: workerBlobUrl
+            });
+            updateRecordButtonUI();
+        } else {
+            // gifRecorder가 정상적으로 초기화되었는지 확인
+            if (!gifRecorder) {
+                isRecording = false;
+                updateRecordButtonUI();
+                return;
+            }
+
+            isRecording = false;
+            updateRecordButtonUI();
+            recordText.textContent = "GIF 처리 중...";
+
+            gifRecorder.on('finished', function(blob) {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `asciify_art_${Date.now()}.gif`;
+                link.click();
+                recordText.textContent = "GIF 녹화 시작";
+                gifRecorder = null;
+            });
+
+            gifRecorder.render();
+        }
+    });
+
+    copyBtn.addEventListener('click', () => {
+        const text = asciiOutput.innerText;
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                const originalText = copyBtn.innerText;
+                copyBtn.innerText = "복사 완료!";
+                setTimeout(() => copyBtn.innerText = originalText, 1500);
+            }
+        } catch (err) {}
+        document.body.removeChild(textarea);
+    });
+
+    resetBtn.addEventListener('click', () => {
+        stopAllProcesses();
+        fileInput.value = "";
+    });
+
+    dropArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => {
+        dropArea.addEventListener(e, (ev) => {
+            ev.preventDefault();
+            if (e === 'dragover') dropArea.classList.add('drag-over');
+            else dropArea.classList.remove('drag-over');
+            if (e === 'drop') handleFile(ev.dataTransfer.files[0]);
+        });
+    });
+
+    resolutionSlider.addEventListener('input', () => {
+        resolutionVal.textContent = resolutionSlider.value;
+        if (currentMode === 'static-image') renderFrameFromSource(staticImg);
+    });
+
+    window.addEventListener('resize', () => {
+        if (currentMode === 'idle') return;
+        const source = currentMode === 'video' ? hiddenVideo : (currentMode === 'animated-image' ? document.getElementById('gif-canvas') : staticImg);
+        renderFrameFromSource(source);
+    });
+</script>
+</body>
+</html>

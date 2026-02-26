@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CODE DEAD 3D: Quarantine Report</title>
+    <style>
+        :root {
+            --neon-green: #00ff41;
+            --danger-red: #ff0033;
+            --bg-dark: #050505;
+            --warning-orange: #ffaa00;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            color: var(--neon-green);
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        /* 3D Scene Setup */
+        #viewport {
+            width: 100vw;
+            height: 100vh;
+            perspective: 1200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #scene {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .grid-floor {
+            position: absolute;
+            width: 4000px;
+            height: 4000px;
+            background-image:
+                    linear-gradient(to right, rgba(0, 255, 65, 0.05) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(0, 255, 65, 0.05) 1px, transparent 1px);
+            background-size: 100px 100px;
+            transform: translateY(350px) rotateX(90deg);
+        }
+
+        /* Survivor & Card */
+        #survivor-anchor {
+            position: absolute;
+            transform-style: preserve-3d;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.5s;
+        }
+
+        .survivor-visual {
+            width: 80px;
+            height: 220px;
+            background: #111;
+            border: 2px solid var(--neon-green);
+            border-radius: 40px 40px 5px 5px;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+        }
+
+        .survivor-head {
+            width: 40px;
+            height: 40px;
+            background: #222;
+            border: 2px solid var(--neon-green);
+            border-radius: 50%;
+            position: absolute;
+            top: -50px;
+            left: 20px;
+        }
+
+        .code-card {
+            position: absolute;
+            top: -60px;
+            width: 460px;
+            padding: 30px;
+            background: rgba(0, 5, 0, 0.95);
+            border: 2px solid var(--neon-green);
+            box-shadow: 0 0 40px rgba(0, 255, 65, 0.4);
+            transform: translateZ(120px);
+            z-index: 20;
+        }
+
+        .code-card code {
+            display: block;
+            white-space: pre;
+            font-size: 1.3rem;
+            color: #fff;
+            background: #000;
+            padding: 20px;
+            border-left: 4px solid var(--neon-green);
+            line-height: 1.5;
+        }
+
+        /* HUD & UI */
+        #hud {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 500;
+            line-height: 1.6;
+        }
+
+        .life-bar {
+            color: var(--danger-red);
+            font-size: 1.5rem;
+            letter-spacing: 5px;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 60px;
+            display: flex;
+            gap: 40px;
+            z-index: 500;
+        }
+
+        .btn {
+            padding: 20px 45px;
+            font-family: inherit;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            background: black;
+            border: 2px solid var(--neon-green);
+            color: var(--neon-green);
+            transition: 0.3s;
+        }
+
+        .btn:hover { background: var(--neon-green); color: black; box-shadow: 0 0 25px var(--neon-green); }
+        .btn-danger { border-color: var(--danger-red); color: var(--danger-red); }
+        .btn-danger:hover { background: var(--danger-red); color: white; box-shadow: 0 0 25px var(--danger-red); }
+
+        /* Screens */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.98);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .hidden { display: none; }
+
+        /* Result Report */
+        #report-container {
+            width: 100%;
+            max-width: 800px;
+            max-height: 60vh;
+            overflow-y: auto;
+            background: #000;
+            border: 1px solid #333;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .report-item {
+            border-bottom: 1px solid #222;
+            padding: 15px 0;
+            font-size: 0.9rem;
+        }
+
+        .report-item.wrong { border-left: 4px solid var(--danger-red); padding-left: 15px; }
+        .report-item code { color: #aaa; }
+        .report-item .reason { color: var(--warning-orange); margin-top: 10px; display: block; }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .warning-active { animation: pulse 0.3s 2; border-color: var(--warning-orange) !important; }
+
+    </style>
+</head>
+<body>
+
+<div id="hud">
+    [ SYSTEM INFO ]<br>
+    STATUS: <span id="sys-status">STANDBY</span><br>
+    PROG: <span id="prog-text">0/5</span><br>
+    LIFE: <span id="life-icons" class="life-bar">♥♥♥</span>
+</div>
+
+<div id="viewport">
+    <div id="scene">
+        <div class="grid-floor"></div>
+        <div id="survivor-anchor" class="hidden">
+            <div class="survivor-visual">
+                <div class="survivor-head"></div>
+            </div>
+            <div id="card-el" class="code-card">
+                <div style="font-size: 0.7rem; color: var(--neon-green); margin-bottom: 8px;">SUBJECT_CODE_LOG</div>
+                <code id="code-display"></code>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="controls" class="hidden">
+    <button class="btn" onclick="processJudgement(true)">[ SAFE ] SHELTER</button>
+    <button class="btn btn-danger" onclick="processJudgement(false)">[ DANGER ] ISOLATION</button>
+</div>
+
+<!-- Start Screen -->
+<div id="screen-start" class="overlay">
+    <h1 style="font-size: 3rem; margin-bottom: 10px;">QUARANTINE REPORT</h1>
+    <p style="color: #888; margin-bottom: 40px;">
+        코틀린 널 세이프티 정밀 검역 프로토콜.<br>
+        당신은 최대 2회의 실수가 허용됩니다. 3회 실수 시 시스템은 즉시 폐쇄됩니다.
+    </p>
+    <button class="btn" onclick="initGame()">PROTOCOL START</button>
+</div>
+
+<!-- Final Result Screen -->
+<div id="screen-finish" class="overlay hidden">
+    <h1 id="res-title" style="font-size: 2.5rem;">MISSION COMPLETE</h1>
+    <div id="report-container">
+        <!-- Analysis report injected here -->
+    </div>
+    <button class="btn" onclick="location.reload()">SYSTEM REBOOT</button>
+</div>
+
+<script>
+    const anchor = document.getElementById('survivor-anchor');
+    const codeDisplay = document.getElementById('code-display');
+    const controls = document.getElementById('controls');
+    const lifeIcons = document.getElementById('life-icons');
+    const progText = document.getElementById('prog-text');
+    const sysStatus = document.getElementById('sys-status');
+    const cardEl = document.getElementById('card-el');
+
+    let currentIndex = 0;
+    let lives = 3;
+    let isLocked = false;
+    let userLog = [];
+
+    const quizData = [
+        {
+            code: `val s: String? = null\nprintln(s.length)`,
+            safe: false,
+            analysis: "Nullable 타입인 's'에 null이 들어있는 상태에서 직접 접근했습니다. 이 코드는 실행 시 즉시 NullPointerException(NPE)을 발생시킵니다."
+        },
+        {
+            code: `val s: String? = null\nprintln(s?.length)`,
+            safe: true,
+            analysis: "Safe Call(?.) 연산자를 사용했습니다. 's'가 null일 경우 에러를 내지 않고 'null'을 반환하며 안전하게 종료됩니다."
+        },
+        {
+            code: `if (s != null) {\n    println(s.length)\n}`,
+            safe: true,
+            analysis: "코틀린의 'Smart Cast' 기능입니다. null 체크가 완료된 블록 내부에서는 변수를 Non-null 타입으로 취급하여 안전합니다."
+        },
+        {
+            code: `val s: String? = get()\nprintln(s!!.length)`,
+            safe: false,
+            analysis: "!! 연산자는 '이 변수는 절대 null이 아님을 보장함'을 의미합니다. 하지만 실제 null이 들어올 경우 NPE를 발생시키는 가장 위험한 방식입니다."
+        },
+        {
+            code: `val s: String? = null\nval r = s ?: "N/A"\nprintln(r.length)`,
+            safe: true,
+            analysis: "Elvis 연산자(?:)를 사용했습니다. 's'가 null일 경우 우측의 'N/A'를 할당하므로 이후 접근 시 NPE로부터 안전합니다."
+        }
+    ];
+
+    function initGame() {
+        document.getElementById('screen-start').classList.add('hidden');
+        controls.classList.remove('hidden');
+        anchor.classList.remove('hidden');
+        updateLifeUI();
+        nextSubject();
+    }
+
+    function updateLifeUI() {
+        lifeIcons.innerText = "♥".repeat(lives) + "♡".repeat(3 - lives);
+    }
+
+    function nextSubject() {
+        if (currentIndex >= quizData.length) {
+            showFinalReport(true);
+            return;
+        }
+
+        isLocked = false;
+        sysStatus.innerText = "SCANNING SUBJECT...";
+        progText.innerText = `${currentIndex}/5`;
+        codeDisplay.innerText = quizData[currentIndex].code;
+
+        // Appearance animation
+        anchor.style.transition = "none";
+        anchor.style.opacity = "0";
+        anchor.style.transform = "translate3d(0, 50px, -600px) rotateX(-20deg)";
+
+        setTimeout(() => {
+            anchor.style.transition = "all 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
+            anchor.style.opacity = "1";
+            anchor.style.transform = "translate3d(0, 0, 0) rotateX(0deg)";
+        }, 50);
+    }
+
+    function processJudgement(isSafeChoice) {
+        if (isLocked) return;
+        isLocked = true;
+
+        const currentObj = quizData[currentIndex];
+        const isCorrect = (isSafeChoice === currentObj.safe);
+
+        userLog.push({
+            index: currentIndex,
+            code: currentObj.code,
+            correct: isCorrect,
+            userChoice: isSafeChoice,
+            actualSafe: currentObj.safe,
+            analysis: currentObj.analysis
+        });
+
+        if (isCorrect) {
+            // Correct path
+            sysStatus.innerText = isSafeChoice ? "ACCESS GRANTED" : "THREAT CONTAINED";
+            const direction = isSafeChoice ? -1800 : 1800;
+
+            anchor.style.transition = "all 1s ease-in";
+            anchor.style.transform = `translate3d(${direction}px, 0, 0) rotateY(${isSafeChoice ? -60 : 60}deg)`;
+            anchor.style.opacity = "0";
+
+            setTimeout(() => {
+                currentIndex++;
+                nextSubject();
+            }, 1000);
+        } else {
+            // Wrong path: Life deduction
+            lives--;
+            updateLifeUI();
+            sysStatus.innerText = "JUDGEMENT ERROR";
+
+            // Visual Warning
+            cardEl.classList.add('warning-active');
+            anchor.style.filter = "hue-rotate(300deg) saturate(2)";
+
+            setTimeout(() => {
+                cardEl.classList.remove('warning-active');
+                anchor.style.filter = "none";
+
+                if (lives <= 0) {
+                    showFinalReport(false);
+                } else {
+                    // Move to next even if wrong, to allow continuation
+                    const direction = isSafeChoice ? -1800 : 1800;
+                    anchor.style.transition = "all 1s ease-in";
+                    anchor.style.transform = `translate3d(${direction}px, 0, 0)`;
+                    anchor.style.opacity = "0";
+
+                    setTimeout(() => {
+                        currentIndex++;
+                        nextSubject();
+                    }, 800);
+                }
+            }, 1000);
+        }
+    }
+
+    function showFinalReport(isVictory) {
+        const screen = document.getElementById('screen-finish');
+        const title = document.getElementById('res-title');
+        const reportContainer = document.getElementById('report-container');
+
+        controls.classList.add('hidden');
+        anchor.classList.add('hidden');
+        screen.classList.remove('hidden');
+
+        if (isVictory) {
+            title.innerText = "MISSION SUCCESS";
+            title.style.color = "var(--neon-green)";
+        } else {
+            title.innerText = "SYSTEM SHUTDOWN";
+            title.style.color = "var(--danger-red)";
+        }
+
+        // Generate Detailed Report
+        reportContainer.innerHTML = "";
+        userLog.forEach((log, i) => {
+            const item = document.createElement('div');
+            item.className = `report-item ${log.correct ? '' : 'wrong'}`;
+
+            const statusLabel = log.correct
+                ? `<span style="color:var(--neon-green)">[통과]</span>`
+                : `<span style="color:var(--danger-red)">[오류]</span>`;
+
+            item.innerHTML = `
+                    <div style="margin-bottom:8px;"><strong>Subject #${i+1}</strong> ${statusLabel}</div>
+                    <code>${log.code}</code>
+                    <span class="reason">
+                        <strong>분석:</strong> ${log.analysis}<br>
+                        <small style="color:#666">(당신의 선택: ${log.userChoice ? 'SAFE' : 'DANGER'} | 실제 상태: ${log.actualSafe ? 'SAFE' : 'DANGER'})</small>
+                    </span>
+                `;
+            reportContainer.appendChild(item);
+        });
+
+        // If the game ended early due to lives
+        if (!isVictory && userLog.length < quizData.length) {
+            const notice = document.createElement('div');
+            notice.style.padding = "20px";
+            notice.style.color = "#444";
+            notice.innerText = "--- 과도한 오판으로 인해 이후 데이터는 분석되지 않았습니다 ---";
+            reportContainer.appendChild(notice);
+        }
+    }
+</script>
+</body>
+</html>

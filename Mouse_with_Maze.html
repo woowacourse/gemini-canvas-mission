@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mouse with Maze: 정밀도 테스트</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&family=Pretendard:wght@400;700;900&display=swap');
+
+        :root {
+            /* 화면 높이에 따라 미로 크기를 유동적으로 조절 */
+            --cell-size: min(38px, 8.5vw, 4.4vh);
+            --neon-blue: #3b82f6;
+            --neon-green: #10b981;
+            --neon-red: #f43f5e;
+            --game-bg: #0b0f1a;
+            --panel-bg: rgba(23, 32, 53, 0.95);
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--game-bg);
+            font-family: 'Pretendard', sans-serif;
+            color: #f8fafc;
+        }
+
+        /* 배경 패턴 */
+        .bg-pattern {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(59, 130, 246, 0.08) 1.5px, transparent 1.5px),
+                linear-gradient(90deg, rgba(59, 130, 246, 0.08) 1.5px, transparent 1.5px);
+            background-size: 40px 40px;
+            z-index: -1;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 550px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+            margin: 0 auto;
+        }
+
+        .game-card {
+            width: 100%;
+            background: var(--panel-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 2.5rem;
+            padding: 1.5rem;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            max-height: 96vh;
+        }
+
+        /* 미로 테두리 점멸 애니메이션 */
+        @keyframes border-flash {
+            0%, 100% { border-color: #1e293b; box-shadow: none; }
+            50% { border-color: var(--neon-red); box-shadow: 0 0 20px var(--neon-red); }
+        }
+        .flash-red {
+            animation: border-flash 0.2s ease-in-out 2;
+        }
+
+        .maze-grid {
+            display: grid;
+            grid-template-columns: repeat(10, var(--cell-size));
+            grid-template-rows: repeat(10, var(--cell-size));
+            gap: 0;
+            border: 4px solid #1e293b;
+            background-color: #0f172a;
+            cursor: none; 
+            user-select: none;
+            position: relative;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            z-index: 1;
+            transition: border-color 0.2s;
+            padding: 2.5px;
+        }
+
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            box-sizing: border-box;
+        }
+
+        .wall {
+            background-color: #1e293b;
+            border: 0.5px solid rgba(255, 255, 255, 0.02);
+        }
+
+        .path {
+            background-color: #ffffff;
+            background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px);
+            background-size: 8px 8px;
+        }
+
+        .start {
+            position: relative;
+            z-index: 20;
+            background-color: var(--neon-green) !important;
+            background-image: none !important;
+            color: #0b0f1a !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 900;
+            border: 2px solid #065f46;
+        }
+
+        .end {
+            position: relative;
+            z-index: 20;
+            background-color: var(--neon-red) !important;
+            background-image: none !important;
+            color: #0b0f1a !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 900;
+            border: 2px solid #9f1239;
+        }
+        
+        #custom-pointer {
+            position: fixed;
+            width: 14px;
+            height: 14px;
+            background: var(--neon-blue);
+            border: 2px solid white;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 100;
+            transform: translate(-50%, -50%);
+            display: none;
+            box-shadow: 0 0 20px var(--neon-blue);
+        }
+
+        .ripple {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            border: 1px solid var(--neon-blue);
+            background-color: rgba(59, 130, 246, 0.1);
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            animation: pulse-scan 1.2s cubic-bezier(0, 0.5, 0.5, 1) forwards;
+        }
+
+        @keyframes pulse-scan {
+            0% { width: 0px; height: 0px; opacity: 1; }
+            100% { width: 50px; height: 50px; opacity: 0; }
+        }
+
+        .digital-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 슬라이더 커스텀 스타일 */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            height: 10px;
+            background: #1e293b;
+            border-radius: 5px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 32px;
+            width: 32px;
+            border-radius: 50%;
+            background: var(--neon-blue);
+            margin-top: -11px;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+            cursor: pointer;
+            border: 3px solid white;
+        }
+
+        /* 게임 헤더 레이아웃 */
+        .game-header-grid {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            width: 100%;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-pattern"></div>
+    <div id="custom-pointer"></div>
+
+    <div class="app-container">
+        <div id="app" class="game-card">
+            
+            <!-- 1. 초기 화면 -->
+            <div id="home-screen" class="flex flex-col items-center text-center py-6">
+                <!-- "Mouse with Maze" 대소문자 유지 -->
+                <h1 class="text-3xl md:text-4xl font-black mb-12 tracking-tight text-white leading-tight">
+                    Mouse with Maze
+                </h1>
+                
+                <div class="w-full bg-slate-900/50 p-8 rounded-3xl border border-blue-500/10 mb-10">
+                    <div class="flex justify-between items-center mb-6">
+                        <span class="text-xl font-extrabold text-slate-400">스테이지 개수</span>
+                        <span id="stage-display-value" class="text-6xl font-black text-blue-500 digital-font">05</span>
+                    </div>
+                    <input type="range" id="stage-range" min="3" max="10" value="5" class="mb-4">
+                    <div class="flex justify-between text-sm font-bold text-slate-500 digital-font">
+                        <span>MIN 03</span>
+                        <span>MAX 10</span>
+                    </div>
+                </div>
+
+                <div class="w-full flex flex-col gap-3">
+                    <button id="start-btn" class="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white text-xl rounded-2xl font-black transition-all active:scale-95 shadow-[0_0_20px_rgba(37,99,235,0.3)] uppercase tracking-tighter">
+                        게임 시작
+                    </button>
+                    <button id="info-btn" class="w-full py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm rounded-2xl font-bold transition-all hover:text-white active:scale-95 flex items-center justify-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                        게임 방법
+                    </button>
+                </div>
+            </div>
+
+            <!-- 2. 게임 방법 화면 -->
+            <div id="info-screen" class="hidden flex-col h-full text-white">
+                <h2 class="text-2xl font-black mb-8 text-center tracking-tight border-b border-blue-500/20 pb-4 uppercase">운용 가이드 (Manual)</h2>
+                <div class="space-y-4 mb-8">
+                    <div class="flex items-center gap-5 p-5 bg-slate-900/60 rounded-2xl border border-blue-500/10">
+                        <div class="w-10 h-10 bg-blue-600 text-white flex items-center justify-center rounded-xl font-black text-lg">01</div>
+                        <p class="text-sm text-slate-300 leading-tight"><span class="text-emerald-400 font-bold">출발</span> 지점에 포인터를 이동시키면 센서 추적이 시작됩니다.</p>
+                    </div>
+                    <div class="flex items-center gap-5 p-5 bg-slate-900/60 rounded-2xl border border-blue-500/10">
+                        <div class="w-10 h-10 bg-blue-600 text-white flex items-center justify-center rounded-xl font-black text-lg">02</div>
+                        <p class="text-sm text-slate-300 leading-tight"><span class="text-white font-bold">벽(어두운 색)</span>에 접촉 시 신호 간섭으로 인해 해당 세션이 초기화됩니다.</p>
+                    </div>
+                    <div class="flex items-center gap-5 p-5 bg-slate-900/60 rounded-2xl border border-blue-500/10">
+                        <div class="w-10 h-10 bg-blue-600 text-white flex items-center justify-center rounded-xl font-black text-lg">03</div>
+                        <p class="text-sm text-slate-300 leading-tight">정교한 핸들링으로 <span class="text-rose-500 font-bold">도착</span> 지점까지 포인터를 옮겨주세요.</p>
+                    </div>
+                </div>
+                <button id="info-back-btn" class="w-full py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-black transition-all active:scale-95 mt-auto uppercase">
+                    메인 화면으로
+                </button>
+            </div>
+
+            <!-- 3. 게임 화면 -->
+            <div id="game-screen" class="hidden flex-col h-full">
+                <div class="game-header-grid">
+                    <!-- 스테이지 UI 세로 폭 0.8배 유지 -->
+                    <div class="bg-slate-900/80 px-4 rounded-xl border border-blue-500/10 min-w-[90px]" style="padding-top: 4.8px; padding-bottom: 4.8px;">
+                        <span class="text-[9px] font-black text-blue-400 uppercase tracking-widest block leading-none pb-1 text-center">STAGE</span>
+                        <div class="text-xl font-black digital-font leading-none text-white text-center">
+                            <span id="current-stage">01</span><span class="text-slate-600 mx-0.5">/</span><span id="total-stages">05</span>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center px-6">
+                        <span class="text-[10px] font-black text-blue-400 uppercase tracking-widest block leading-none pb-1.5">TIME</span>
+                        <div id="timer" class="text-4xl font-black digital-font leading-none tracking-tighter text-white drop-shadow-[0_0_10px_rgba(59,130,246,0.3)]">00:00.0</div>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button id="pause-btn-icon" class="w-12 h-12 flex items-center justify-center bg-slate-800 hover:bg-blue-600 rounded-xl transition-all border border-blue-500/20 group">
+                            <svg id="pause-svg" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 group-hover:text-white">
+                                <rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>
+                            </svg>
+                            <svg id="play-svg" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-white hidden">
+                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="flex flex-col items-center justify-center flex-grow">
+                    <div id="maze-border" class="relative w-fit border-4 border-slate-700 rounded-xl overflow-hidden shadow-2xl transition-all duration-200">
+                        <div id="maze-container" class="maze-grid"></div>
+                        
+                        <!-- 일시정지 오버레이 -->
+                        <div id="pause-overlay" class="hidden absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center z-50">
+                            <div class="text-center mb-10">
+                                <div class="w-16 h-16 bg-blue-500/20 text-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-blue-500/30 animate-pulse">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                                </div>
+                                <p class="text-2xl font-black text-white tracking-widest uppercase">일시정지됨</p>
+                            </div>
+                            <div class="flex flex-col gap-3 w-48">
+                                <button id="resume-btn" class="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black shadow-lg transition-all active:scale-95 uppercase text-sm">
+                                    재개하기
+                                </button>
+                                <!-- 문구 수정: "분석 종료" -> "메인 화면으로" -->
+                                <button id="pause-home-btn" class="w-full py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-black transition-all active:scale-95 uppercase text-sm">
+                                    메인 화면으로
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="game-status" class="mt-8 text-center p-4 rounded-2xl bg-slate-900 border border-blue-500/20 text-blue-400 text-sm font-bold h-16 flex items-center justify-center uppercase tracking-widest shadow-inner w-full" style="max-width: calc(var(--cell-size) * 10 + 8px);">
+                        시스템 대기: 출발 지점으로 이동하십시오
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. 결과 화면 -->
+            <div id="result-screen" class="hidden flex-col items-center text-center py-4 text-white">
+                <div class="w-24 h-24 bg-emerald-500/20 text-emerald-500 rounded-3xl flex items-center justify-center mb-8 border border-emerald-500/30">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+                </div>
+                <h2 class="text-4xl font-black mb-10 tracking-tighter uppercase">미션 클리어</h2>
+                <div class="w-full bg-slate-900 border border-blue-500/20 p-10 rounded-[2.5rem] mb-10 shadow-2xl relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-50"></div>
+                    <div class="text-[14.4px] text-blue-400 font-black uppercase mb-4 tracking-[0.4em]">총 소요 시간</div>
+                    <div id="final-time" class="text-7xl font-black text-white digital-font tracking-tighter drop-shadow-[0_0_20px_rgba(59,130,246,0.5)]">00:00.0</div>
+                </div>
+                <button id="retry-btn" class="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white text-xl rounded-2xl font-black transition-all shadow-xl active:scale-95 uppercase tracking-widest">
+                    메인 화면으로
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STAGE_SIZE = 10;
+        let currentStage = 1;
+        let maxStages = 5;
+        let maze = [];
+        let startPos = {r:0, c:0};
+        let endPos = {r:9, c:9};
+        
+        let isPlaying = false;
+        let isTracking = false;
+        let isPaused = false;
+        let startTime = 0;
+        let pausedTime = 0;
+        let lastPauseStart = 0;
+        let timerInterval = null;
+        let rippleInterval = null;
+        let currentMousePos = {x: 0, y: 0};
+
+        const homeScreen = document.getElementById('home-screen');
+        const infoScreen = document.getElementById('info-screen');
+        const gameScreen = document.getElementById('game-screen');
+        const resultScreen = document.getElementById('result-screen');
+        const mazeContainer = document.getElementById('maze-container');
+        const mazeBorder = document.getElementById('maze-border');
+        const statusMsg = document.getElementById('game-status');
+        const timerDisplay = document.getElementById('timer');
+        const pauseOverlay = document.getElementById('pause-overlay');
+        const customPointer = document.getElementById('custom-pointer');
+        const stageRange = document.getElementById('stage-range');
+        const stageDisplayValue = document.getElementById('stage-display-value');
+
+        stageRange.addEventListener('input', (e) => {
+            maxStages = parseInt(e.target.value);
+            stageDisplayValue.textContent = maxStages.toString().padStart(2, '0');
+        });
+
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        document.getElementById('info-btn').addEventListener('click', () => {
+            homeScreen.classList.add('hidden');
+            infoScreen.classList.remove('hidden');
+            infoScreen.classList.add('flex');
+        });
+        document.getElementById('info-back-btn').addEventListener('click', () => {
+            infoScreen.classList.add('hidden');
+            infoScreen.classList.remove('flex');
+            homeScreen.classList.remove('hidden');
+        });
+        document.getElementById('retry-btn').addEventListener('click', resetToHome);
+        document.getElementById('pause-home-btn').addEventListener('click', resetToHome);
+        document.getElementById('resume-btn').addEventListener('click', togglePause);
+        document.getElementById('pause-btn-icon').addEventListener('click', togglePause);
+
+        document.addEventListener('mousemove', (e) => {
+            currentMousePos = { x: e.clientX, y: e.clientY };
+            
+            if (!isPlaying || isPaused) {
+                customPointer.style.display = 'none';
+                return;
+            }
+
+            const rect = mazeContainer.getBoundingClientRect();
+            const isInMaze = e.clientX >= rect.left && e.clientX <= rect.right && 
+                             e.clientY >= rect.top && e.clientY <= rect.bottom;
+
+            if (isInMaze) {
+                customPointer.style.display = 'block';
+                customPointer.style.left = `${e.clientX}px`;
+                customPointer.style.top = `${e.clientY}px`;
+                checkStrictCollision(e.clientX, e.clientY);
+            } else {
+                if (isTracking) hitWall();
+                customPointer.style.display = 'none';
+            }
+        });
+
+        function checkStrictCollision(x, y) {
+            const radius = 6; 
+            const centerEl = document.elementFromPoint(x, y);
+
+            if (!isTracking) {
+                if (centerEl && centerEl.classList.contains('start')) {
+                    startTracking();
+                }
+                return; 
+            }
+
+            const testPoints = [
+                {x: x, y: y},                   
+                {x: x - radius, y: y},          
+                {x: x + radius, y: y},          
+                {x: x, y: y - radius},          
+                {x: x, y: y + radius}           
+            ];
+
+            for (let pt of testPoints) {
+                const el = document.elementFromPoint(pt.x, pt.y);
+                if (el && el.classList.contains('wall')) {
+                    hitWall();
+                    return;
+                }
+                if (pt === testPoints[0] && el && el.classList.contains('end')) {
+                    reachEnd();
+                    return;
+                }
+            }
+        }
+
+        function startRippleLoop() {
+            if (rippleInterval) clearInterval(rippleInterval);
+            rippleInterval = setInterval(() => {
+                if (isPlaying && !isPaused && customPointer.style.display === 'block') {
+                    const ripple = document.createElement('div');
+                    ripple.className = 'ripple';
+                    customPointer.appendChild(ripple);
+                    setTimeout(() => ripple.remove(), 1200);
+                }
+            }, 1000);
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && isPlaying) togglePause();
+        });
+
+        function startGame() {
+            currentStage = 1;
+            pausedTime = 0;
+            isPaused = false;
+            
+            homeScreen.classList.add('hidden');
+            infoScreen.classList.add('hidden');
+            resultScreen.classList.add('hidden');
+            gameScreen.classList.remove('hidden');
+            pauseOverlay.classList.add('hidden');
+            
+            document.getElementById('total-stages').textContent = maxStages.toString().padStart(2, '0');
+            initStage();
+            startRippleLoop();
+        }
+
+        function initStage() {
+            isPlaying = true;
+            isTracking = false;
+            isPaused = false;
+            pauseOverlay.classList.add('hidden'); 
+            updatePauseIcons();
+            
+            document.getElementById('current-stage').textContent = currentStage.toString().padStart(2, '0');
+            statusMsg.textContent = '시스템 대기: 출발 지점으로 이동하십시오';
+            statusMsg.classList.remove('bg-blue-600', 'bg-red-600', 'text-white');
+            statusMsg.classList.add('bg-slate-900', 'text-blue-400');
+            
+            generateValidMaze();
+            renderMaze();
+            if (currentStage === 1) startTimer();
+        }
+
+        function getShortestPathDistance(start, end, mazeGrid) {
+            const queue = [[start.r, start.c, 0]];
+            const visited = Array.from({length: STAGE_SIZE}, () => Array(STAGE_SIZE).fill(false));
+            visited[start.r][start.c] = true;
+            while (queue.length > 0) {
+                const [r, c, d] = queue.shift();
+                if (r === end.r && c === end.c) return d;
+                const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+                for (const [dr, dc] of dirs) {
+                    const nr = r + dr, nc = c + dc;
+                    if (nr >= 0 && nr < STAGE_SIZE && nc >= 0 && nc < STAGE_SIZE && !visited[nr][nc] && mazeGrid[nr][nc] === 0) {
+                        visited[nr][nc] = true;
+                        queue.push([nr, nc, d + 1]);
+                    }
+                }
+            }
+            return -1;
+        }
+
+        function countPathNeighbors(r, c, mazeGrid) {
+            let count = 0;
+            const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+            for (const [dr, dc] of dirs) {
+                const nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < STAGE_SIZE && nc >= 0 && nc < STAGE_SIZE && mazeGrid[nr][nc] === 0) count++;
+            }
+            return count;
+        }
+
+        function generateValidMaze() {
+            let attempts = 0;
+            while (attempts < 2000) {
+                maze = Array.from({ length: STAGE_SIZE }, () => Array(STAGE_SIZE).fill(1));
+                function walk(r, c) {
+                    maze[r][c] = 0;
+                    const dirs = [[0, 2], [0, -2], [2, 0], [-2, 0]].sort(() => Math.random() - 0.5);
+                    for (const [dr, dc] of dirs) {
+                        const nr = r + dr, nc = c + dc;
+                        if (nr >= 0 && nr < STAGE_SIZE && nc >= 0 && nc < STAGE_SIZE && maze[nr][nc] === 1) {
+                            maze[r + dr/2][c + dc/2] = 0; walk(nr, nc);
+                        }
+                    }
+                }
+                walk(0, 0);
+                const deadEnds = [];
+                for(let r=0; r<STAGE_SIZE; r++) for(let c=0; c<STAGE_SIZE; c++) if(maze[r][c] === 0 && countPathNeighbors(r, c, maze) === 1) deadEnds.push({r,c});
+                if (deadEnds.length < 2) { attempts++; continue; }
+                const sIdx = Math.floor(Math.random() * deadEnds.length);
+                let eIdx = Math.floor(Math.random() * deadEnds.length);
+                while(sIdx === eIdx) eIdx = Math.floor(Math.random() * deadEnds.length);
+                const s = deadEnds[sIdx], e = deadEnds[eIdx];
+                const dist = getShortestPathDistance(s, e, maze);
+                if (dist >= 10) { startPos = s; endPos = e; return; }
+                attempts++;
+            }
+        }
+
+        function renderMaze() {
+            mazeContainer.innerHTML = '';
+            for (let r = 0; r < STAGE_SIZE; r++) {
+                for (let c = 0; c < STAGE_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = `cell ${maze[r][c] === 1 ? 'wall' : 'path'}`;
+                    if (r === startPos.r && c === startPos.c) {
+                        cell.classList.add('start'); cell.textContent = '출발';
+                    } else if (r === endPos.r && c === endPos.c) {
+                        cell.classList.add('end'); cell.textContent = '도착';
+                    }
+                    mazeContainer.appendChild(cell);
+                }
+            }
+        }
+
+        function startTracking() {
+            if (!isPlaying || isTracking || isPaused) return;
+            isTracking = true;
+            statusMsg.textContent = '센서 활성화: 도착 지점으로 이동하십시오';
+            statusMsg.classList.remove('bg-slate-900', 'bg-red-600', 'text-blue-400');
+            statusMsg.classList.add('bg-blue-600', 'text-white');
+        }
+
+        function hitWall() {
+            if (!isTracking || isPaused) return;
+            isTracking = false;
+            
+            // 미로 테두리 점멸 효과
+            mazeBorder.classList.add('flash-red');
+            setTimeout(() => mazeBorder.classList.remove('flash-red'), 600);
+
+            statusMsg.textContent = '신호 상실: 출발 지점으로 복귀하십시오';
+            statusMsg.classList.remove('bg-blue-600', 'bg-slate-900', 'text-blue-400');
+            statusMsg.classList.add('bg-red-600', 'text-white');
+            
+            mazeContainer.classList.add('ring-4', 'ring-red-500');
+            setTimeout(() => mazeContainer.classList.remove('ring-4', 'ring-red-500'), 500);
+        }
+
+        function reachEnd() {
+            if (!isTracking || isPaused) return;
+            isTracking = false;
+            if (currentStage < maxStages) { 
+                currentStage++; 
+                initStage(); 
+            } else { 
+                finishGame(); 
+            }
+        }
+
+        function finishGame() {
+            isPlaying = false; 
+            stopTimer();
+            if (rippleInterval) clearInterval(rippleInterval);
+            gameScreen.classList.add('hidden');
+            resultScreen.classList.remove('hidden');
+            resultScreen.classList.add('flex');
+            document.getElementById('final-time').textContent = timerDisplay.textContent;
+        }
+
+        function togglePause() {
+            if (!isPlaying) return;
+            isPaused = !isPaused;
+            updatePauseIcons();
+            if (isPaused) {
+                lastPauseStart = Date.now();
+                pauseOverlay.classList.remove('hidden');
+                statusMsg.textContent = '분석 중단됨';
+                isTracking = false;
+                customPointer.style.display = 'none';
+            } else {
+                pausedTime += (Date.now() - lastPauseStart);
+                pauseOverlay.classList.add('hidden');
+                statusMsg.textContent = '분석 재개: 출발 지점으로 이동';
+            }
+        }
+
+        function updatePauseIcons() {
+            const ps = document.getElementById('pause-svg');
+            const pl = document.getElementById('play-svg');
+            if (isPaused) { ps.classList.add('hidden'); pl.classList.remove('hidden'); } 
+            else { ps.classList.remove('hidden'); pl.classList.add('hidden'); }
+        }
+
+        function resetToHome() {
+            isPlaying = false; 
+            stopTimer();
+            if (rippleInterval) clearInterval(rippleInterval);
+            resultScreen.classList.add('hidden');
+            gameScreen.classList.add('hidden');
+            infoScreen.classList.add('hidden');
+            homeScreen.classList.remove('hidden');
+            customPointer.style.display = 'none';
+        }
+
+        function startTimer() {
+            startTime = Date.now();
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(updateTimer, 100); 
+        }
+
+        function stopTimer() { clearInterval(timerInterval); timerInterval = null; }
+
+        function updateTimer() {
+            if (isPaused) return;
+            const diff = Date.now() - startTime - pausedTime;
+            const m = Math.floor(diff / 60000).toString().padStart(2, '0');
+            const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+            const tenth = Math.floor((diff % 1000) / 100).toString();
+            timerDisplay.textContent = `${m}:${s}.${tenth}`;
+        }
+    </script>
+</body>
+</html>

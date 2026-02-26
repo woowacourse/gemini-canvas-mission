@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>고민 투표 앱</title>
+    <!-- Tailwind CSS (Typography 플러그인 추가) -->
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <!-- Marked.js (마크다운 파서 라이브러리 추가) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        /* 부드러운 화면 전환을 위한 애니메이션 */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* 로딩 스피너 */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased min-h-screen flex items-center justify-center">
+
+    <div id="app-container" class="w-full max-w-md p-6">
+        
+        <!-- 로딩 화면 (초기 Firebase 인증 상태 확인용) -->
+        <div id="loading-screen" class="bg-white p-8 rounded-2xl shadow-lg w-full text-center fade-in">
+            <div class="loader mb-4"></div>
+            <p class="text-gray-500 font-medium">로딩 중...</p>
+        </div>
+
+        <!-- 로그인 화면 -->
+        <div id="login-screen" class="bg-white p-8 rounded-2xl shadow-lg w-full hidden fade-in">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-blue-600 mb-2">A vs B</h1>
+                <p class="text-gray-500">당신의 고민을 투표로 해결하세요!</p>
+            </div>
+            
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">아이디</label>
+                    <input type="text" id="login-id" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="아이디를 입력하세요">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">비밀번호</label>
+                    <input type="password" id="login-password" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="••••••••">
+                </div>
+                
+                <!-- 에러 메시지 표시 영역 -->
+                <div id="login-error" class="text-red-500 text-sm font-medium hidden"></div>
+
+                <button type="submit" id="login-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                    로그인
+                </button>
+            </form>
+
+            <div class="mt-6 text-center">
+                <p class="text-gray-600 text-sm">계정이 없으신가요? 
+                    <button id="show-signup-btn" class="text-blue-600 font-semibold hover:underline">회원가입</button>
+                </p>
+            </div>
+        </div>
+
+        <!-- 회원가입 화면 -->
+        <div id="signup-screen" class="bg-white p-8 rounded-2xl shadow-lg w-full hidden fade-in">
+            <div class="text-center mb-8">
+                <h2 class="text-2xl font-bold text-gray-800">새 계정 만들기</h2>
+                <p class="text-gray-500 text-sm mt-1">간단한 정보 입력으로 투표에 참여하세요.</p>
+            </div>
+            
+            <form id="signup-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">아이디</label>
+                    <input type="text" id="signup-id" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="아이디를 입력하세요 (영문, 숫자)">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">비밀번호 (6자 이상)</label>
+                    <input type="password" id="signup-password" required minlength="6" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="••••••••">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">비밀번호 확인</label>
+                    <input type="password" id="signup-password-confirm" required minlength="6" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="••••••••">
+                </div>
+                
+                <!-- 에러 메시지 표시 영역 -->
+                <div id="signup-error" class="text-red-500 text-sm font-medium hidden"></div>
+
+                <button type="submit" id="signup-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 mt-2">
+                    회원가입 완료
+                </button>
+            </form>
+
+            <div class="mt-6 text-center">
+                <p class="text-gray-600 text-sm">이미 계정이 있으신가요? 
+                    <button id="show-login-btn" class="text-blue-600 font-semibold hover:underline">로그인하기</button>
+                </p>
+            </div>
+        </div>
+
+        <!-- 메인 화면 (로그인 완료 후) -->
+        <div id="home-screen" class="bg-white p-8 rounded-2xl shadow-lg w-full hidden fade-in">
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-xl font-bold text-gray-800">A vs B 투표</h2>
+                <button id="logout-btn" class="text-sm text-gray-500 hover:text-red-500 transition">로그아웃</button>
+            </div>
+            
+            <div class="text-center mb-8">
+                <p id="user-greeting" class="text-gray-600 font-medium mb-2"></p>
+                <h3 class="text-2xl font-bold text-gray-800">무엇을 하고 싶으신가요?</h3>
+            </div>
+
+            <div class="space-y-4">
+                <button id="nav-create-vote" class="w-full group relative bg-blue-50 hover:bg-blue-100 border-2 border-blue-200 hover:border-blue-400 p-6 rounded-xl text-left transition duration-200">
+                    <h4 class="text-lg font-bold text-blue-800 mb-1 group-hover:text-blue-900">📝 투표 올리기</h4>
+                    <p class="text-sm text-blue-600">결정하기 힘든 고민을 사람들에게 물어보세요.</p>
+                </button>
+                
+                <button id="nav-participate-vote" class="w-full group relative bg-green-50 hover:bg-green-100 border-2 border-green-200 hover:border-green-400 p-6 rounded-xl text-left transition duration-200">
+                    <h4 class="text-lg font-bold text-green-800 mb-1 group-hover:text-green-900">🗳️ 투표하기</h4>
+                    <p class="text-sm text-green-600">다른 사람들의 고민을 보고 투표해주세요.</p>
+                </button>
+                
+                <button id="nav-my-votes" class="w-full group relative bg-purple-50 hover:bg-purple-100 border-2 border-purple-200 hover:border-purple-400 p-6 rounded-xl text-left transition duration-200">
+                    <h4 class="text-lg font-bold text-purple-800 mb-1 group-hover:text-purple-900">🗂️ 내가 올린 투표</h4>
+                    <p class="text-sm text-purple-600">내가 작성한 투표 목록과 결과를 확인하세요.</p>
+                </button>
+            </div>
+        </div>
+
+        <!-- 투표 올리기 화면 -->
+        <div id="create-vote-screen" class="bg-white p-8 rounded-2xl shadow-lg w-full hidden fade-in">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">새 투표 올리기</h2>
+                <button id="btn-cancel-create" class="text-sm text-gray-500 hover:text-gray-700 transition">취소</button>
+            </div>
+            
+            <form id="create-vote-form" class="space-y-5">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">제목</label>
+                    <input type="text" id="vote-title" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="투표 제목을 입력하세요">
+                </div>
+                
+                <div class="flex space-x-3">
+                    <div class="w-1/2">
+                        <label class="block text-sm font-medium text-blue-600 mb-1">선택지 A</label>
+                        <input type="text" id="vote-option-a" required class="w-full px-4 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="예: 짜장면">
+                    </div>
+                    <div class="w-1/2">
+                        <label class="block text-sm font-medium text-red-600 mb-1">선택지 B</label>
+                        <input type="text" id="vote-option-b" required class="w-full px-4 py-2 border border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none transition" placeholder="예: 짬뽕">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">본문 (마크다운 지원)</label>
+                    <textarea id="vote-body" required rows="6" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition font-mono text-sm resize-none" placeholder="상세한 고민 내용을 적어주세요.&#10;**굵게**, *기울임*, # 제목 등 마크다운 문법을 사용할 수 있습니다."></textarea>
+                </div>
+
+                <!-- 에러 메시지 표시 영역 -->
+                <div id="create-error" class="text-red-500 text-sm font-medium hidden"></div>
+
+                <button type="submit" id="btn-submit-vote" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                    투표 등록하기
+                </button>
+            </form>
+        </div>
+
+        <!-- 투표 목록 화면 -->
+        <div id="vote-list-screen" class="bg-white p-8 rounded-2xl shadow-lg w-full hidden fade-in max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center mb-6">
+                <h2 id="vote-list-title" class="text-2xl font-bold text-gray-800">투표 목록</h2>
+                <button id="btn-back-to-home" class="text-sm text-gray-500 hover:text-gray-700 transition">홈으로</button>
+            </div>
+            <div id="vote-list-container" class="overflow-y-auto space-y-3 flex-1 pr-2">
+                <!-- 투표 항목들이 여기에 추가됩니다 -->
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 투표 모달창 -->
+    <div id="vote-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4 fade-in">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-md relative max-h-[90vh] flex flex-col shadow-2xl">
+            <button id="close-modal-btn" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <h3 id="modal-vote-title" class="text-xl font-bold text-gray-800 mb-2 pr-8 leading-snug"></h3>
+            
+            <!-- Tailwind Typography(prose) 적용 및 기본 텍스트 렌더링 클래스 수정 -->
+            <div id="modal-vote-body" class="mb-6 overflow-y-auto flex-1 bg-gray-50 p-4 rounded-lg prose prose-sm max-w-none text-gray-700"></div>
+
+            <div id="modal-vote-actions" class="space-y-3 mt-auto shrink-0">
+                <!-- 선택지 버튼 또는 투표 결과가 여기에 추가됩니다 -->
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, getDocs, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : {
+                apiKey: "dummy-api-key",
+                authDomain: "dummy-app.firebaseapp.com",
+                projectId: "dummy-app",
+            };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        let canvasUser = null; // Firebase 환경 권한 확인용
+        window.appUser = null; // 현재 서비스에 로그인한 사용자의 ID 보관용
+
+        const screens = {
+            loading: document.getElementById('loading-screen'),
+            login: document.getElementById('login-screen'),
+            signup: document.getElementById('signup-screen'),
+            home: document.getElementById('home-screen'),
+            createVote: document.getElementById('create-vote-screen'),
+            voteList: document.getElementById('vote-list-screen')
+        };
+
+        function showScreen(screenName) {
+            Object.values(screens).forEach(screen => screen.classList.add('hidden'));
+            screens[screenName].classList.remove('hidden');
+        }
+
+        function showError(elementId, message) {
+            const errorEl = document.getElementById(elementId);
+            errorEl.textContent = message;
+            errorEl.classList.remove('hidden');
+        }
+
+        function hideError(elementId) {
+            const errorEl = document.getElementById(elementId);
+            errorEl.classList.add('hidden');
+            errorEl.textContent = '';
+        }
+
+        function toggleButtonLoading(buttonId, isLoading, originalText) {
+            const btn = document.getElementById(buttonId);
+            if (isLoading) {
+                btn.disabled = true;
+                btn.innerHTML = '<div class="loader" style="width: 16px; height: 16px; border-width: 2px;"></div> 처리중...';
+                btn.classList.add('opacity-75', 'cursor-not-allowed');
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
+            }
+        }
+
+        document.getElementById('show-signup-btn').addEventListener('click', () => {
+            hideError('login-error');
+            document.getElementById('login-form').reset();
+            showScreen('signup');
+        });
+
+        document.getElementById('show-login-btn').addEventListener('click', () => {
+            hideError('signup-error');
+            document.getElementById('signup-form').reset();
+            showScreen('login');
+        });
+
+        // 1. 초기 인증 로직 (Firestore 접근 권한 획득)
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("인증 초기화 실패:", error);
+            }
+        };
+        initAuth();
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                canvasUser = user;
+                // 세션(메모리)에 로그인 정보가 있다면 홈 화면으로 이동
+                if (window.appUser) {
+                    showScreen('home');
+                } else {
+                    showScreen('login');
+                }
+            } else {
+                canvasUser = null;
+            }
+        });
+
+        // 2. 로그인 로직 (Firestore에서 유저 데이터 검증)
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideError('login-error');
+            if (!canvasUser) return; // DB 접근 권한 확인
+            
+            const userId = document.getElementById('login-id').value;
+            const password = document.getElementById('login-password').value;
+            
+            toggleButtonLoading('login-btn', true, '로그인');
+
+            try {
+                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                const snapshot = await getDocs(usersRef);
+
+                let matchedUser = null;
+                // 모든 유저 데이터를 불러와 입력한 아이디와 비밀번호가 일치하는지 메모리에서 검증
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.userId === userId && data.password === password) {
+                        matchedUser = data;
+                    }
+                });
+
+                if (matchedUser) {
+                    window.appUser = matchedUser.userId;
+                    document.getElementById('user-greeting').textContent = `${window.appUser}님, 환영합니다!`;
+                    showScreen('home');
+                } else {
+                    showError('login-error', "아이디 또는 비밀번호가 올바르지 않습니다.");
+                }
+            } catch (error) {
+                console.error("Login Error:", error);
+                showError('login-error', "로그인 중 오류가 발생했습니다.");
+            } finally {
+                toggleButtonLoading('login-btn', false, '로그인');
+            }
+        });
+
+        // 3. 회원가입 로직 (Firestore에 유저 데이터 저장)
+        document.getElementById('signup-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideError('signup-error');
+            if (!canvasUser) return;
+            
+            const userId = document.getElementById('signup-id').value;
+            const password = document.getElementById('signup-password').value;
+            const passwordConfirm = document.getElementById('signup-password-confirm').value;
+
+            if (password !== passwordConfirm) {
+                showError('signup-error', "비밀번호가 일치하지 않습니다.");
+                return;
+            }
+            if (password.length < 6) {
+                showError('signup-error', "비밀번호는 6자 이상이어야 합니다.");
+                return;
+            }
+
+            toggleButtonLoading('signup-btn', true, '회원가입 완료');
+
+            try {
+                const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                const snapshot = await getDocs(usersRef);
+
+                // 중복 아이디 검증
+                let isDuplicate = false;
+                snapshot.forEach(doc => {
+                    if (doc.data().userId === userId) {
+                        isDuplicate = true;
+                    }
+                });
+
+                if (isDuplicate) {
+                    showError('signup-error', "이미 존재하는 아이디입니다.");
+                    toggleButtonLoading('signup-btn', false, '회원가입 완료');
+                    return;
+                }
+
+                // DB에 아이디와 비밀번호 저장 (프로토타입 구조)
+                await addDoc(usersRef, {
+                    userId: userId,
+                    password: password,
+                    createdAt: new Date().toISOString()
+                });
+
+                // 회원가입 성공 즉시 로그인 처리
+                window.appUser = userId;
+                document.getElementById('user-greeting').textContent = `${window.appUser}님, 환영합니다!`;
+                showScreen('home');
+                document.getElementById('signup-form').reset();
+            } catch (error) {
+                console.error("Signup Error:", error);
+                showError('signup-error', "회원가입 중 오류가 발생했습니다.");
+            } finally {
+                toggleButtonLoading('signup-btn', false, '회원가입 완료');
+            }
+        });
+
+        // 4. 로그아웃 로직 (메모리 세션 초기화)
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            window.appUser = null;
+            document.getElementById('login-form').reset();
+            document.getElementById('signup-form').reset();
+            showScreen('login');
+        });
+
+        // 5. 네비게이션
+        document.getElementById('nav-create-vote').addEventListener('click', () => {
+            document.getElementById('create-vote-form').reset();
+            hideError('create-error');
+            showScreen('createVote');
+        });
+
+        document.getElementById('nav-participate-vote').addEventListener('click', () => {
+            loadVotes('all');
+        });
+
+        document.getElementById('nav-my-votes').addEventListener('click', () => {
+            loadVotes('my');
+        });
+
+        document.getElementById('btn-back-to-home').addEventListener('click', () => {
+            showScreen('home');
+        });
+
+        // 6. 투표 올리기 취소
+        document.getElementById('btn-cancel-create').addEventListener('click', (e) => {
+            e.preventDefault();
+            showScreen('home');
+        });
+
+        // 7. 투표 등록 로직 (Firestore에 투표 데이터 저장)
+        document.getElementById('create-vote-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideError('create-error');
+            if (!canvasUser || !window.appUser) return; // DB 접근 권한 및 로그인 상태 확인
+
+            const title = document.getElementById('vote-title').value.trim();
+            const optionA = document.getElementById('vote-option-a').value.trim();
+            const optionB = document.getElementById('vote-option-b').value.trim();
+            const body = document.getElementById('vote-body').value.trim();
+
+            if (!title || !optionA || !optionB || !body) {
+                showError('create-error', '모든 항목을 입력해주세요.');
+                return;
+            }
+
+            toggleButtonLoading('btn-submit-vote', true, '투표 등록하기');
+
+            try {
+                // votes 컬렉션에 데이터 저장
+                const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'votes');
+                await addDoc(votesRef, {
+                    title: title,
+                    optionA: { name: optionA, count: 0 },
+                    optionB: { name: optionB, count: 0 },
+                    body: body,
+                    createdBy: window.appUser,
+                    votedUsers: {}, // 투표한 유저 저장용 맵(Map) 초기화
+                    createdAt: new Date().toISOString()
+                });
+
+                // 저장 성공 시 폼 초기화 후 홈 화면으로 복귀
+                document.getElementById('create-vote-form').reset();
+                showScreen('home');
+                
+            } catch (error) {
+                console.error("Create Vote Error:", error);
+                showError('create-error', "투표 등록 중 오류가 발생했습니다.");
+            } finally {
+                toggleButtonLoading('btn-submit-vote', false, '투표 등록하기');
+            }
+        });
+
+        // 8. 투표 목록 및 투표하기 로직
+        let currentVoteDocId = null;
+        let currentVoteFilter = 'all';
+
+        async function loadVotes(filter = 'all') {
+            currentVoteFilter = filter;
+            showScreen('voteList');
+            const container = document.getElementById('vote-list-container');
+            const titleEl = document.getElementById('vote-list-title');
+            
+            // 필터에 따라 제목 변경
+            titleEl.textContent = filter === 'my' ? '내가 올린 투표' : '투표 목록';
+
+            container.innerHTML = '<div class="text-center py-8"><div class="loader"></div><p class="text-gray-500 mt-2 text-sm">불러오는 중...</p></div>';
+
+            try {
+                const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'votes');
+                const snapshot = await getDocs(votesRef);
+                
+                let votes = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    // '내가 올린 투표' 필터일 경우, 내가 작성한 것만 추가
+                    if (filter === 'my' && data.createdBy !== window.appUser) return;
+                    votes.push({ id: doc.id, ...data });
+                });
+
+                // 최신 생성순 정렬
+                votes.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+                container.innerHTML = '';
+                if (votes.length === 0) {
+                    container.innerHTML = '<p class="text-center text-gray-500 py-8">아직 등록된 투표가 없습니다.</p>';
+                    return;
+                }
+
+                votes.forEach(vote => {
+                    const item = document.createElement('div');
+                    item.className = 'p-5 border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-md cursor-pointer transition bg-white';
+                    item.onclick = () => openVoteModal(vote);
+                    
+                    const timeAgo = new Date(vote.createdAt).toLocaleDateString();
+                    
+                    // 내가 투표했는지 여부 확인 및 뱃지 생성
+                    const isVoted = vote.votedUsers && vote.votedUsers[window.appUser];
+                    const votedBadge = isVoted ? `<span class="ml-2 flex-shrink-0 text-[11px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded font-bold">투표 완료</span>` : '';
+                    
+                    item.innerHTML = `
+                        <div class="flex items-center mb-3">
+                            <h4 class="font-bold text-gray-800 text-lg truncate max-w-[65%]">${vote.title}</h4>
+                            ${votedBadge}
+                            <span class="ml-auto text-xs text-gray-400 whitespace-nowrap pl-2">${timeAgo}</span>
+                        </div>
+                        <div class="flex items-center space-x-2 text-sm">
+                            <span class="px-2 py-1 bg-blue-50 text-blue-700 rounded-md font-medium">${vote.optionA.name}</span>
+                            <span class="text-gray-400">vs</span>
+                            <span class="px-2 py-1 bg-red-50 text-red-700 rounded-md font-medium">${vote.optionB.name}</span>
+                        </div>
+                    `;
+                    container.appendChild(item);
+                });
+            } catch (error) {
+                console.error("Load Votes Error:", error);
+                container.innerHTML = '<p class="text-center text-red-500 py-8">목록을 불러오는데 실패했습니다.</p>';
+            }
+        }
+
+        function openVoteModal(vote) {
+            currentVoteDocId = vote.id;
+            document.getElementById('modal-vote-title').textContent = vote.title;
+            
+            // marked.js를 사용하여 마크다운 문자열을 HTML로 완벽하게 변환하여 삽입
+            document.getElementById('modal-vote-body').innerHTML = marked.parse(vote.body);
+
+            renderVoteOptions(vote);
+            document.getElementById('vote-modal').classList.remove('hidden');
+        }
+
+        // 모달 닫기 로직 (X 버튼)
+        document.getElementById('close-modal-btn').addEventListener('click', () => {
+            document.getElementById('vote-modal').classList.add('hidden');
+            currentVoteDocId = null;
+        });
+
+        // 모달 바깥 영역 클릭시 닫기
+        document.getElementById('vote-modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('vote-modal')) {
+                document.getElementById('vote-modal').classList.add('hidden');
+                currentVoteDocId = null;
+            }
+        });
+
+        function renderVoteOptions(vote) {
+            const actionsContainer = document.getElementById('modal-vote-actions');
+            actionsContainer.innerHTML = '';
+
+            const votedUsers = vote.votedUsers || {};
+            const userVote = votedUsers[window.appUser];
+            const isCreator = vote.createdBy === window.appUser; // 작성자 여부 확인
+
+            const totalVotes = vote.optionA.count + vote.optionB.count;
+
+            if (userVote || isCreator) {
+                // 이미 투표한 경우 또는 작성자인 경우: 결과 비율 및 바(Bar) 표시
+                const percentA = totalVotes === 0 ? 0 : Math.round((vote.optionA.count / totalVotes) * 100);
+                const percentB = totalVotes === 0 ? 0 : Math.round((vote.optionB.count / totalVotes) * 100);
+
+                // 작성자일 경우 추가로 보여줄 배지
+                const creatorBadge = (isCreator && !userVote) 
+                    ? `<div class="text-center mb-2"><span class="text-xs text-purple-600 bg-purple-100 border border-purple-200 px-2 py-1 rounded-full font-bold">내 투표 (참여 불가)</span></div>` 
+                    : '';
+
+                actionsContainer.innerHTML = `
+                    ${creatorBadge}
+                    <div class="text-center mb-2">
+                        <span class="text-sm font-bold text-gray-500">총 ${totalVotes}명 참여</span>
+                    </div>
+                    <div class="relative w-full bg-blue-50 border ${userVote === 'A' ? 'border-blue-500 shadow-sm' : 'border-blue-100'} p-4 rounded-xl overflow-hidden transition">
+                        <div class="absolute top-0 left-0 h-full bg-blue-200 opacity-40" style="width: ${percentA}%"></div>
+                        <div class="relative flex justify-between items-center z-10">
+                            <span class="font-bold text-blue-900">${vote.optionA.name} ${userVote === 'A' ? '<span class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded ml-1">내 선택</span>' : ''}</span>
+                            <span class="text-sm font-bold text-blue-900">${vote.optionA.count}명 (${percentA}%)</span>
+                        </div>
+                    </div>
+                    <div class="relative w-full bg-red-50 border ${userVote === 'B' ? 'border-red-500 shadow-sm' : 'border-red-100'} p-4 rounded-xl overflow-hidden transition">
+                        <div class="absolute top-0 left-0 h-full bg-red-200 opacity-40" style="width: ${percentB}%"></div>
+                        <div class="relative flex justify-between items-center z-10">
+                            <span class="font-bold text-red-900">${vote.optionB.name} ${userVote === 'B' ? '<span class="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded ml-1">내 선택</span>' : ''}</span>
+                            <span class="text-sm font-bold text-red-900">${vote.optionB.count}명 (${percentB}%)</span>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // 투표 전: 활성화된 버튼 표시
+                actionsContainer.innerHTML = `
+                    <button onclick="submitVote('A')" class="w-full bg-white hover:bg-blue-50 text-blue-700 font-bold py-4 px-4 rounded-xl transition border-2 border-blue-200 hover:border-blue-400 group relative overflow-hidden">
+                        <span class="relative z-10">A. ${vote.optionA.name}</span>
+                    </button>
+                    <button onclick="submitVote('B')" class="w-full bg-white hover:bg-red-50 text-red-700 font-bold py-4 px-4 rounded-xl transition border-2 border-red-200 hover:border-red-400 group relative overflow-hidden">
+                        <span class="relative z-10">B. ${vote.optionB.name}</span>
+                    </button>
+                `;
+            }
+        }
+
+        // 전역 함수로 등록하여 인라인 onclick에서 호출 가능하게 구성
+        window.submitVote = async (choice) => {
+            if (!currentVoteDocId || !window.appUser) return;
+            const voteRef = doc(db, 'artifacts', appId, 'public', 'data', 'votes', currentVoteDocId);
+
+            try {
+                // 정확도를 위해 최신 문서를 다시 조회
+                const voteSnap = await getDoc(voteRef);
+                if (!voteSnap.exists()) return;
+                const voteData = voteSnap.data();
+
+                // 작성자는 투표 불가 (방어 로직)
+                if (voteData.createdBy === window.appUser) return;
+
+                const votedUsers = voteData.votedUsers || {};
+                if (votedUsers[window.appUser]) return; // 이미 투표한 경우 무시
+
+                // 유저의 선택 저장
+                votedUsers[window.appUser] = choice;
+
+                const updatePayload = { votedUsers: votedUsers };
+                if (choice === 'A') {
+                    updatePayload['optionA'] = { ...voteData.optionA, count: (voteData.optionA.count || 0) + 1 };
+                } else {
+                    updatePayload['optionB'] = { ...voteData.optionB, count: (voteData.optionB.count || 0) + 1 };
+                }
+
+                // DB 업데이트
+                await updateDoc(voteRef, updatePayload);
+
+                // 모달 UI 즉시 갱신
+                const updatedVote = { ...voteData, ...updatePayload, id: currentVoteDocId };
+                renderVoteOptions(updatedVote);
+
+                // 바깥 목록 화면의 데이터도 백그라운드에서 동기화되도록 다시 로드 (현재 필터 상태 유지)
+                loadVotes(currentVoteFilter);
+
+            } catch (error) {
+                console.error("Vote Update Error:", error);
+            }
+        };
+
+    </script>
+</body>
+</html>

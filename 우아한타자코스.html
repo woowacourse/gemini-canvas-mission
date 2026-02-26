@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우아한타자코스 - AI 한글 타이핑</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #fcfcfc;
+            user-select: none;
+            overflow-x: hidden;
+            color: #334155;
+        }
+
+        .timer-bar {
+            height: 6px;
+            transition: width 0.1s linear, background-color 0.3s;
+        }
+
+        .shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        .input-success {
+            color: #059669 !important;
+            border-color: #059669 !important;
+            background-color: #f0fdf4 !important;
+        }
+
+        #user-input:focus {
+            box-shadow: 0 0 0 4px rgba(71, 85, 105, 0.1);
+        }
+
+        .loading-spinner {
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-top: 2px solid #ffffff;
+            border-radius: 50%;
+            width: 14px;
+            height: 14px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .logo-text {
+            letter-spacing: -0.05em;
+            background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <div id="game-container" class="w-full max-w-2xl bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] overflow-hidden border border-slate-100">
+        <!-- Header -->
+        <div class="bg-slate-900 p-8 text-white flex justify-between items-center">
+            <div>
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em] mb-1">Score</p>
+                <p id="score-display" class="text-4xl font-black text-white leading-none">0</p>
+            </div>
+            <div id="ai-status" class="hidden text-[11px] text-slate-300 bg-white/10 border border-white/10 px-4 py-2 rounded-full items-center gap-2 backdrop-blur-sm">
+                <span class="loading-spinner"></span> AI 문장 생성 중
+            </div>
+            <div class="text-right">
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em] mb-1">Lives</p>
+                <div id="lives-display" class="text-2xl mt-1 tracking-tighter leading-none grayscale-[0.2]">❤️❤️❤️</div>
+            </div>
+        </div>
+
+        <!-- Timer -->
+        <div class="w-full bg-slate-50">
+            <div id="timer-bar" class="timer-bar bg-slate-700 w-full"></div>
+        </div>
+
+        <div class="p-10 md:p-14">
+            
+            <!-- Start Screen -->
+            <div id="start-screen" class="fade-in">
+                <div class="text-center mb-10">
+                    <h1 class="text-5xl font-black logo-text mb-4">우아한타자코스</h1>
+                    <p class="text-slate-400 font-medium">사용자가 원하는 주제로 즐기는 AI 타이핑 연습</p>
+                </div>
+                
+                <div class="bg-slate-50 border border-slate-100 p-8 rounded-[2rem] mb-10">
+                    <label for="topic-input" class="block text-xs font-bold text-slate-500 uppercase mb-4 tracking-widest ml-1">연습 주제 설정</label>
+                    <input type="text" id="topic-input" 
+                        class="w-full px-6 py-5 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-slate-800 text-xl transition-all shadow-sm"
+                        placeholder="예: 스포츠, 과학, 일상, 학교..." autocomplete="off">
+                    <p class="text-slate-400 text-xs mt-4 ml-1 flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        주제를 입력하고 <span class="font-bold text-slate-600">Enter</span>를 눌러 시작하세요.
+                    </p>
+                </div>
+
+                <button id="start-btn" class="w-full bg-slate-900 hover:bg-black text-white font-bold py-6 rounded-2xl shadow-xl transition-all active:scale-[0.97] text-xl tracking-tight">
+                    연습 시작하기
+                </button>
+            </div>
+
+            <!-- Play Screen -->
+            <div id="play-screen" class="hidden fade-in">
+                <div class="flex justify-between items-end mb-8">
+                    <div id="status-msg" class="text-slate-400 font-semibold text-sm">문장을 정확히 입력하면 자동으로 넘어갑니다.</div>
+                    <div id="timer-text" class="text-3xl font-mono font-black text-slate-800">30.0</div>
+                </div>
+
+                <div class="bg-slate-50 border border-slate-100 p-10 rounded-[2.5rem] mb-10 text-center min-h-[180px] flex flex-col items-center justify-center relative">
+                    <p id="target-sentence" class="text-2xl md:text-3xl font-bold text-slate-800 break-keep leading-[1.6]">
+                        문장을 준비하고 있습니다...
+                    </p>
+                </div>
+
+                <input type="text" id="user-input" 
+                    class="w-full p-6 text-2xl border-2 border-slate-200 rounded-2xl focus:border-slate-800 focus:outline-none transition-all text-center shadow-sm disabled:bg-slate-50"
+                    placeholder="타이핑을 시작하세요" autocomplete="off" spellcheck="false">
+                
+                <p class="text-center text-slate-300 text-xs mt-10 font-medium">
+                    종료를 원하시면 <span class="px-2 py-1 bg-slate-50 rounded border border-slate-200 font-bold mx-1 text-slate-500">ESC</span>를 누르세요.
+                </p>
+            </div>
+
+            <!-- Game Over Screen -->
+            <div id="game-over-screen" class="hidden text-center py-6 fade-in">
+                <div class="mb-12">
+                    <h2 class="text-3xl md:text-4xl font-black text-slate-800 mb-8 leading-tight">게임이 종료되었습니다!<br>점수를 확인하세요</h2>
+                    <div class="inline-block bg-slate-50 border border-slate-100 rounded-[3rem] px-20 py-12 shadow-sm">
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-2">Final Score</p>
+                        <p class="text-8xl font-black text-slate-900" id="final-score">0</p>
+                    </div>
+                </div>
+                <button id="restart-btn" class="bg-slate-900 hover:bg-black text-white font-bold py-5 px-16 rounded-2xl transition-all text-lg shadow-xl active:scale-95">
+                    처음으로 돌아가기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; 
+
+        let state = {
+            isPlaying: false,
+            isLocked: false,
+            isFetching: false,
+            score: 0,
+            lives: 3,
+            baseLimit: 30,
+            currentTime: 30,
+            currentSentence: "",
+            sentences: [],
+            currentTopic: "",
+            timerInterval: null
+        };
+
+        const scoreDisplay = document.getElementById('score-display');
+        const livesDisplay = document.getElementById('lives-display');
+        const timerText = document.getElementById('timer-text');
+        const timerBar = document.getElementById('timer-bar');
+        const targetSentenceEl = document.getElementById('target-sentence');
+        const userInput = document.getElementById('user-input');
+        const startBtn = document.getElementById('start-btn');
+        const statusMsg = document.getElementById('status-msg');
+        
+        const startScreen = document.getElementById('start-screen');
+        const playScreen = document.getElementById('play-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        
+        const finalScore = document.getElementById('final-score');
+        const restartBtn = document.getElementById('restart-btn');
+        const topicInput = document.getElementById('topic-input');
+        const aiStatus = document.getElementById('ai-status');
+
+        /**
+         * AI 문장 수급 로직
+         */
+        async function fetchSentences(topic = "", isBackground = false) {
+            if (state.isFetching) return;
+            state.isFetching = true;
+            aiStatus.classList.remove('hidden');
+            aiStatus.classList.add('flex');
+
+            const displayTopic = topic ? `'${topic}'` : "다양한 주제";
+            // 수식어를 제거한 순수한 프롬프트
+            const systemPrompt = `너는 타이핑 연습을 위한 문장 생성기야.
+            1. 주제: ${displayTopic}
+            2. 개수: 30개
+            3. 규칙:
+               - 모든 문장은 공백 포함 10~20자 이내의 한글로만 구성할 것.
+               - 특수문자나 숫자 사용 금지. 오직 한글 자모와 공백만 사용.
+               - 불쾌하거나 자극적인 표현 금지.
+            4. 응답 형식: 반드시 순수한 JSON 배열 형식으로만 출력. 예: ["문장일번", "문장이번", ...]`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: "문장들을 생성해줘." }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            responseSchema: {
+                                type: "ARRAY",
+                                items: { type: "STRING" }
+                            }
+                        }
+                    })
+                });
+
+                if (!response.ok) throw new Error("Network Error");
+
+                const data = await response.json();
+                const fetched = JSON.parse(data.candidates[0].content.parts[0].text);
+                
+                // 기존 리스트에 중복되지 않는 것만 추가
+                const newItems = fetched.filter(s => !state.sentences.includes(s));
+                state.sentences = [...state.sentences, ...newItems];
+
+                if (!isBackground && state.isPlaying && state.currentSentence === "") {
+                    nextRound();
+                }
+            } catch (error) {
+                console.error("AI 수급 실패:", error);
+            } finally {
+                state.isFetching = false;
+                aiStatus.classList.add('hidden');
+            }
+        }
+
+        /**
+         * 초기화 및 시작
+         */
+        function init() {
+            state.isPlaying = false;
+            state.isLocked = false;
+            state.score = 0;
+            state.lives = 3;
+            state.baseLimit = 30;
+            state.sentences = [];
+            state.currentSentence = "";
+            
+            updateUI();
+            
+            startScreen.classList.remove('hidden');
+            playScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            
+            topicInput.value = "";
+            userInput.value = "";
+            userInput.disabled = true;
+
+            setTimeout(() => topicInput.focus(), 100);
+        }
+
+        async function startClicked() {
+            if (state.isPlaying && playScreen.classList.contains('hidden')) return;
+
+            state.currentTopic = topicInput.value.trim();
+            state.isPlaying = true;
+            
+            startScreen.classList.add('hidden');
+            playScreen.classList.remove('hidden');
+            
+            targetSentenceEl.textContent = "문장을 준비하고 있습니다...";
+            await fetchSentences(state.currentTopic);
+        }
+
+        function nextRound() {
+            if (!state.isPlaying) return;
+
+            state.isLocked = false;
+            userInput.value = "";
+            userInput.classList.remove('input-success');
+            userInput.disabled = false;
+
+            // 문장 보충 (5개 미만 시 백그라운드 호출)
+            if (state.sentences.length < 5 && !state.isFetching) {
+                fetchSentences(state.currentTopic, true);
+            }
+
+            if (state.sentences.length === 0) {
+                targetSentenceEl.textContent = "AI 문장 로딩 중...";
+                userInput.disabled = true;
+                return;
+            }
+
+            // 문장 추출 (중복 방지)
+            state.currentSentence = state.sentences.shift();
+            targetSentenceEl.textContent = state.currentSentence;
+            
+            state.currentTime = state.baseLimit;
+            updateTimerUI();
+            
+            // 한글 IME 버그 방지를 위한 지연 포커스
+            setTimeout(() => {
+                if(state.isPlaying) userInput.focus();
+            }, 35);
+
+            runTimer();
+        }
+
+        function runTimer() {
+            clearInterval(state.timerInterval);
+            const startTimestamp = Date.now();
+            const totalDuration = state.currentTime * 1000;
+
+            state.timerInterval = setInterval(() => {
+                if (state.isLocked) return;
+
+                const elapsed = Date.now() - startTimestamp;
+                const remaining = Math.max(0, totalDuration - elapsed);
+                
+                state.currentTime = remaining / 1000;
+                updateTimerUI();
+
+                if (remaining <= 0) {
+                    handleFailure();
+                }
+            }, 50);
+        }
+
+        function updateTimerUI() {
+            timerText.textContent = state.currentTime.toFixed(1);
+            const ratio = (state.currentTime / state.baseLimit) * 100;
+            timerBar.style.width = `${ratio}%`;
+            
+            if (ratio < 25) {
+                timerBar.className = "timer-bar bg-rose-500 w-full";
+            } else if (ratio < 50) {
+                timerBar.className = "timer-bar bg-amber-500 w-full";
+            } else {
+                timerBar.className = "timer-bar bg-slate-700 w-full";
+            }
+        }
+
+        function handleSuccess() {
+            state.isLocked = true;
+            clearInterval(state.timerInterval);
+            
+            userInput.blur(); // IME 조합 강제 종료
+            userInput.classList.add('input-success');
+            
+            state.score += 10;
+            // 타이핑 최소 시간을 3초로 설정 (기존 5초에서 변경)
+            state.baseLimit = Math.max(3, state.baseLimit - 2);
+            
+            statusMsg.textContent = "성공! 다음 문장 시간 단축 (-2s)";
+            statusMsg.className = "text-emerald-600 font-bold";
+            
+            updateUI();
+            setTimeout(nextRound, 800);
+        }
+
+        function handleFailure() {
+            state.isLocked = true;
+            clearInterval(state.timerInterval);
+            
+            userInput.blur();
+            userInput.disabled = true;
+
+            state.lives--;
+            state.baseLimit = Math.min(45, state.baseLimit + 5);
+            
+            statusMsg.textContent = "시간 초과! 다음 문장 시간 연장 (+5s)";
+            statusMsg.className = "text-rose-600 font-bold";
+            
+            targetSentenceEl.classList.add('shake');
+            setTimeout(() => targetSentenceEl.classList.remove('shake'), 500);
+
+            updateUI();
+            
+            if (state.lives <= 0) {
+                setTimeout(endGame, 500);
+            } else {
+                setTimeout(nextRound, 1200);
+            }
+        }
+
+        function updateUI() {
+            scoreDisplay.textContent = state.score;
+            livesDisplay.textContent = "❤️".repeat(state.lives) + "🖤".repeat(3 - state.lives);
+        }
+
+        function endGame() {
+            state.isPlaying = false;
+            state.isLocked = true;
+            clearInterval(state.timerInterval);
+            
+            userInput.blur();
+            userInput.disabled = true;
+            
+            playScreen.classList.add('hidden');
+            gameOverScreen.classList.remove('hidden');
+            finalScore.textContent = state.score;
+        }
+
+        // --- Event Listeners ---
+
+        userInput.addEventListener('input', () => {
+            if (!state.isPlaying || state.isLocked || userInput.disabled) return;
+            if (userInput.value === state.currentSentence) {
+                handleSuccess();
+            }
+        });
+
+        topicInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                startClicked();
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && state.isPlaying) {
+                endGame();
+            }
+            if (document.activeElement === userInput && (e.key === 'Enter' || e.key === 'Tab')) {
+                e.preventDefault();
+            }
+        });
+
+        startBtn.addEventListener('click', startClicked);
+        restartBtn.addEventListener('click', init);
+
+        init();
+    </script>
+</body>
+</html>

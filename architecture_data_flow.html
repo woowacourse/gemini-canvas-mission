@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>시스템 아키텍처 시나리오 & 데이터 플로우</title>
+    <style>
+        :root {
+            /* Color Palette */
+            --bg-color: #0f172a;
+            --panel-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --node-bg: #1e293b;
+            --node-border: #3b82f6;
+            --node-hover: #334155;
+            --edge-color: #475569;
+            --packet-color: #10b981;
+            --packet-error: #ef4444;
+            --packet-warning: #f59e0b;
+            --border-color: #334155;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header / Controls */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 2rem;
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            z-index: 10;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        select {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            outline: none;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        button {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            background-color: var(--primary);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Scenario Tabs Bar */
+        .scenario-bar {
+            background-color: var(--panel-bg);
+            padding: 0.75rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            z-index: 9;
+            /* 모바일에서 부드러운 스크롤 */
+            -webkit-overflow-scrolling: touch; 
+        }
+
+        .tab-btn {
+            padding: 0.4rem 1.2rem;
+            border-radius: 20px;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .tab-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* Main Layout */
+        main {
+            display: flex;
+            flex: 1;
+            position: relative;
+            /* 모바일에서 스크롤 허용을 위한 최소 높이 보장 */
+            min-height: 0; 
+        }
+
+        /* Canvas Area */
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        #edge-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Nodes */
+        .node {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: grab;
+            transform: translate(-50%, -50%);
+            transition: box-shadow 0.2s, background-color 0.2s, border-color 0.2s, color 0.2s;
+            z-index: 2;
+            padding: 0.5rem;
+            word-break: keep-all;
+            color: #1e293b;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            line-height: 1.2;
+            user-select: none;
+            touch-action: none; /* 모바일 드래그 시 브라우저 스크롤 방지 */
+        }
+
+        .node:active {
+            cursor: grabbing;
+        }
+
+        .node:hover {
+            z-index: 5;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .node.selected {
+            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.8);
+        }
+        
+        /* Node Animation Class */
+        .node-bump {
+            transform: translate(-50%, -50%) scale(1.2) !important;
+            transition: transform 0.2s ease-out !important;
+        }
+
+        /* Node Types */
+        .node-service {
+            width: 100px;
+            height: 60px;
+            border-radius: 8px;
+            background-color: #E3F2FD;
+            border: 2px solid #1E88E5;
+        }
+
+        .node-mq {
+            width: 130px;
+            height: 50px;
+            border-radius: 50px;
+            background-color: #F3E5F5;
+            border: 2px dashed #8E24AA;
+        }
+
+        .node-mq::after {
+            content: '>> >> >>';
+            position: absolute;
+            bottom: 2px;
+            font-size: 10px;
+            letter-spacing: 2px;
+            color: #8E24AA;
+            opacity: 0.6;
+            animation: flowRight 1.5s linear infinite;
+            white-space: nowrap;
+            overflow: hidden;
+            width: 60px;
+        }
+
+        .node-dlq {
+            width: 100px;
+            height: 50px;
+            border-radius: 8px;
+            background-color: #ffe4e6;
+            border: 2px dashed #e11d48;
+            color: #881337;
+        }
+
+        @keyframes flowRight {
+            0% { transform: translateX(-15px); opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translateX(15px); opacity: 0; }
+        }
+
+        .node-client {
+            width: 65px;
+            height: 65px;
+            border-radius: 50%;
+            background-color: #FFF9C4;
+            border: 2px solid #FBC02D;
+        }
+
+        .node-rdb {
+            width: 75px;
+            height: 85px;
+            background-color: #CFD8DC;
+            border: 2px solid #455A64;
+            border-radius: 50% / 15px;
+            padding-top: 15px;
+        }
+
+        .node-rdb::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 20px;
+            border-bottom: 2px solid #455A64;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .node-nosql {
+            width: 75px;
+            height: 85px;
+            background-color: #E8F5E9;
+            border: 2px solid #43A047;
+            border-radius: 50% / 15px;
+            box-shadow: 0 8px 0 -2px #E8F5E9, 0 8px 0 0 #43A047, 0 16px 0 -2px #E8F5E9, 0 16px 0 0 #43A047;
+            margin-bottom: 16px;
+            padding-top: 15px;
+        }
+        
+        .node-nosql::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 20px;
+            border-bottom: 2px solid #43A047;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .node-cache {
+            width: 80px;
+            height: 70px;
+            background-color: #ef4444; /* Redis 빨간색 */
+            border: 2px solid #b91c1c;
+            border-radius: 8px;
+            color: #ffffff;
+        }
+        
+        .node-cache::before {
+            content: '⚡';
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #fff;
+            border-radius: 50%;
+            padding: 2px;
+            font-size: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            color: #ca8a04;
+        }
+
+        /* 상태 변화를 위한 동적 클래스 */
+        .node.state-open { border-color: var(--packet-error) !important; background-color: #fee2e2 !important; color: #991b1b !important; border-width: 3px; }
+        .node.state-half { border-color: var(--packet-warning) !important; background-color: #fef3c7 !important; color: #92400e !important; border-width: 3px; }
+        .node.state-closed { border-color: var(--packet-color) !important; background-color: #d1fae5 !important; color: #065f46 !important; border-width: 3px; }
+
+        /* Data Packet Animation */
+        .packet {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            background-color: var(--packet-color);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 3;
+            box-shadow: 0 0 12px var(--packet-color);
+            pointer-events: none;
+            transition: left 1s ease-in-out, top 1s ease-in-out;
+        }
+
+        .packet-label {
+            position: absolute;
+            top: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            background: rgba(0,0,0,0.8);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: #fff;
+            pointer-events: none;
+        }
+
+        /* Delay Indicator */
+        .delay-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--packet-warning);
+            font-weight: bold;
+            font-size: 1.5rem;
+            animation: pulse 1s infinite;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(1.5); opacity: 0.5; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+
+        /* Side Panel */
+        #info-panel {
+            width: 380px;
+            background-color: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+            box-shadow: -4px 0 15px rgba(0,0,0,0.2);
+            /* 모바일에서 스크롤 허용 */
+            overflow-y: auto; 
+        }
+
+        .panel-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .panel-header h2 {
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .panel-content {
+            padding: 1.5rem;
+            flex: 1;
+        }
+
+        .info-card {
+            background: rgba(255,255,255,0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            border-left: 4px solid var(--primary);
+        }
+
+        .info-card h3 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+        }
+
+        .info-card p {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: var(--text-muted);
+        }
+
+        .step-indicator {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+        }
+
+        .step-item {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.6rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: color 0.3s;
+        }
+
+        .step-item.active {
+            color: var(--packet-color);
+            font-weight: bold;
+        }
+        
+        .step-item.active::before {
+            content: '▶';
+            font-size: 0.7rem;
+        }
+
+        .step-item.warning {
+            color: var(--packet-warning);
+        }
+
+        .step-item.error {
+            color: var(--packet-error);
+        }
+
+        /* 📱 반응형 웹 디자인 (Responsive Media Queries) */
+        @media (max-width: 1024px) {
+            #info-panel {
+                width: 300px; /* 태블릿 크기 대응 */
+            }
+        }
+
+        @media (max-width: 768px) {
+            body {
+                overflow: auto; /* 모바일에서는 전체 스크롤 허용 */
+            }
+            header {
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 1rem;
+            }
+            .controls {
+                width: 100%;
+                flex-wrap: wrap;
+                justify-content: space-between;
+                margin-top: 0.5rem;
+            }
+            .scenario-bar {
+                padding: 0.75rem 1rem;
+            }
+            
+            /* 좌우 레이아웃을 상하(세로) 레이아웃으로 변경 */
+            main {
+                flex-direction: column;
+            }
+            #canvas-container {
+                min-height: 55vh; /* 모바일에서 캔버스 영역 충분히 확보 */
+                border-bottom: 1px solid var(--border-color);
+            }
+            #info-panel {
+                width: 100%;
+                border-left: none;
+                flex: none; /* 플렉스 비율 해제 */
+            }
+
+            /* 노드 사이즈 동적 축소 (겹침 방지) */
+            .node { font-size: 0.65rem; padding: 0.3rem; }
+            .node-service { width: 75px; height: 50px; }
+            .node-mq { width: 100px; height: 40px; }
+            .node-mq::after { width: 45px; bottom: 0px; font-size: 8px;}
+            .node-dlq { width: 75px; height: 40px; }
+            .node-client { width: 50px; height: 50px; }
+            .node-rdb { width: 60px; height: 70px; padding-top: 10px; }
+            .node-nosql { width: 60px; height: 70px; padding-top: 10px; }
+            .node-cache { width: 65px; height: 55px; }
+            
+            /* 패킷 크기 축소 */
+            .packet { width: 10px; height: 10px; }
+            .packet-label { font-size: 0.65rem; top: -20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-area">
+            <h1>Architecture Data Flow</h1>
+        </div>
+        <div class="controls">
+            <select id="arch-select"></select>
+            <button id="btn-reset">
+                <span>초기화</span>
+            </button>
+            <button id="btn-next">
+                <span>Next Step ⏭</span>
+            </button>
+            <button id="btn-play">
+                <span id="play-icon">▶ Play All</span>
+            </button>
+        </div>
+    </header>
+    
+    <!-- Scenarios Navigation -->
+    <div class="scenario-bar" id="scenario-tabs">
+        <!-- 탭 버튼들이 동적으로 생성됩니다. -->
+    </div>
+
+    <main>
+        <div id="canvas-container">
+            <svg id="edge-svg"></svg>
+            <div id="nodes-container"></div>
+        </div>
+        <aside id="info-panel">
+            <div class="panel-header">
+                <h2 id="panel-title">아키텍처 설명</h2>
+                <p id="panel-desc" style="font-size:0.9rem; color:var(--text-muted)">컴포넌트를 클릭하거나 흐름을 재생하세요.</p>
+            </div>
+            <div class="panel-content">
+                <div id="scenario-info">
+                    <!-- 패턴별 장단점이 주입됩니다 -->
+                </div>
+                <div id="component-info">
+                    <!-- 컴포넌트 정보가 주입됩니다 -->
+                </div>
+                <div id="flow-steps" class="step-indicator">
+                    <!-- Flow steps injected here -->
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <script>
+        /**
+         * 1. Architecture & Scenarios Data Definition
+         */
+        const ARCHITECTURES = {
+            eda: {
+                title: "Event-Driven Architecture (EDA)",
+                description: "정상 노드들의 연쇄적인 이벤트 체인과 비동기 통신의 장점을 확인하세요. 특정 노드에 병목(Delay)이 발생해도 다른 체인은 블로킹 없이 끝까지 진행됩니다.",
+                nodes: [
+                    { id: 'order', type: 'service', label: 'Order\nService', x: 10, y: 50, desc: '사용자의 주문 요청을 받아 OrderCreated 이벤트를 발행합니다.' },
+                    { id: 'bus', type: 'mq', label: 'Event Bus', x: 40, y: 50, desc: '메시지 브로커. 모든 이벤트를 수신하고 라우팅합니다.' },
+                    { id: 'pay', type: 'service', label: 'Payment\nService', x: 40, y: 15, desc: '결제를 처리하고 PaymentCompleted 이벤트를 자체적으로 발행합니다.' },
+                    { id: 'noti', type: 'service', label: 'Noti\nService', x: 40, y: 85, desc: '알림 발송을 담당하며, 외부 API 연동 등으로 병목이 발생하기 쉬운 노드입니다.' },
+                    { id: 'ship', type: 'service', label: 'Shipping\nService', x: 70, y: 15, desc: '결제 완료 이벤트를 구독하여 배송을 준비하고, ShipCompleted 이벤트를 발행합니다.' },
+                    { id: 'reward', type: 'service', label: 'Reward\nService', x: 85, y: 50, desc: '배송 준비 완료 이벤트를 구독하여 고객에게 포인트를 지급합니다.' },
+                    { id: 'dlq', type: 'dlq', label: 'DLQ\n(Dead Letter)', x: 80, y: 85, desc: '처리 실패 횟수를 초과한 메시지들이 격리 보관되는 특수 큐입니다.' }
+                ],
+                edges: [
+                    { from: 'order', to: 'bus' },
+                    { from: 'bus', to: 'pay' },
+                    { from: 'bus', to: 'noti' },
+                    { from: 'pay', to: 'bus' },
+                    { from: 'bus', to: 'ship' },
+                    { from: 'ship', to: 'bus' },
+                    { from: 'bus', to: 'reward' },
+                    { from: 'noti', to: 'dlq' }
+                ],
+                scenarios: {
+                    async_chain: {
+                        title: "정상 체인 & 병목 격리",
+                        pros: "정상 노드들(결제->배송->적립)은 자체적인 체인을 통해 빠르고 유연하게 연결되며, 특정 서비스(Noti)에 병목이 생겨도 핵심 비즈니스는 블로킹 없이 무사히 완료됩니다.",
+                        cons: "여러 노드가 연쇄적으로 이벤트를 발행(Chain)하므로 시스템 전체의 흐름을 한곳에서 추적(Tracing)하기가 복잡해집니다.",
+                        flows: [
+                            [{ from: 'order', to: 'bus', label: '1. Order Created Event' }],
+                            [
+                                { from: 'bus', to: 'pay', label: '2. Route to Pay' },
+                                { from: 'bus', to: 'noti', label: '2. Route to Noti' }
+                            ],
+                            [
+                                { action: 'updateNode', node: 'noti', label: 'Noti\n(Bottleneck)', cssClass: 'state-half' },
+                                { action: 'updateNode', node: 'pay', label: 'Pay Success', cssClass: 'state-closed' }
+                            ],
+                            [{ from: 'pay', to: 'bus', label: '3. Pay Completed Event' }],
+                            [{ from: 'bus', to: 'ship', label: '4. Route to Ship' }],
+                            [{ action: 'updateNode', node: 'ship', label: 'Ship Ready', cssClass: 'state-closed' }],
+                            [{ from: 'ship', to: 'bus', label: '5. Ship Completed Event' }],
+                            [{ from: 'bus', to: 'reward', label: '6. Route to Reward' }],
+                            [{ action: 'updateNode', node: 'reward', label: 'Reward Done', cssClass: 'state-closed' }],
+                            [{ action: 'delay', ms: 1500, label: '⏱ 핵심 체인 완료. Noti는 아직 대기 중...' }],
+                            [{ action: 'updateNode', node: 'noti', label: 'Noti Success', cssClass: 'state-closed' }]
+                        ]
+                    },
+                    fault: {
+                        title: "장애 및 격리 흐름 (DLQ)",
+                        pros: "알림 서비스(Noti)가 다운되어도 결제, 배송, 적립 체인은 전혀 영향을 받지 않으며, 실패한 메시지만 DLQ에 안전하게 격리됩니다.",
+                        cons: "DLQ에 쌓인 메시지를 모니터링하고 재처리(Retry)하는 추가적인 에러 핸들링 파이프라인 구축이 필요합니다.",
+                        flows: [
+                            [{ from: 'order', to: 'bus', label: '1. Order Created Event' }],
+                            [
+                                { from: 'bus', to: 'pay', label: '2. Route to Pay' },
+                                { from: 'bus', to: 'noti', color: 'var(--packet-error)', label: '2. Route (Error)' }
+                            ],
+                            [
+                                { action: 'updateNode', node: 'noti', label: 'Noti\n(Fail!)', cssClass: 'state-open' },
+                                { action: 'updateNode', node: 'pay', label: 'Pay Success', cssClass: 'state-closed' }
+                            ],
+                            [{ from: 'pay', to: 'bus', label: '3. Pay Completed Event' }],
+                            [
+                                { from: 'bus', to: 'ship', label: '4. Route to Ship' },
+                                { from: 'noti', to: 'dlq', color: 'var(--packet-error)', label: '4. Move to DLQ' }
+                            ],
+                            [{ action: 'updateNode', node: 'ship', label: 'Ship Ready', cssClass: 'state-closed' }],
+                            [{ from: 'ship', to: 'bus', label: '5. Ship Completed Event' }],
+                            [{ from: 'bus', to: 'reward', label: '6. Route to Reward' }],
+                            [{ action: 'updateNode', node: 'reward', label: 'Reward Done', cssClass: 'state-closed' }]
+                        ]
+                    }
+                }
+            },
+            cqrs: {
+                title: "CQRS Pattern",
+                description: "명령(Write) 모델과 쿼리(Read) 모델의 분리 및 Eventual Consistency(결과적 일관성)를 시각화합니다.",
+                nodes: [
+                    { id: 'client', type: 'client', label: 'Client', x: 10, y: 50, desc: '사용자 인터페이스입니다.' },
+                    { id: 'cmdSvc', type: 'service', label: 'Command\nService', x: 35, y: 20, desc: '상태를 변경(Write)하는 요청을 처리하며, 성공 시 Event Bus로 이벤트를 발행합니다.' },
+                    { id: 'writeDb', type: 'rdb', label: 'Write DB', x: 75, y: 20, desc: '쓰기에 최적화된 RDBMS입니다.' },
+                    { id: 'bus', type: 'mq', label: 'Event Bus', x: 65, y: 50, desc: 'Command Service가 발행한 상태 변경 이벤트를 전달합니다.' },
+                    { id: 'readDb', type: 'nosql', label: 'Read DB', x: 75, y: 80, desc: '조회에 최적화된 NoSQL입니다.' },
+                    { id: 'querySvc', type: 'service', label: 'Query\nService', x: 35, y: 80, desc: '이벤트를 구독하여 Read DB를 갱신(Projection)하고, 클라이언트의 조회 요청을 처리합니다.' }
+                ],
+                edges: [
+                    { from: 'client', to: 'cmdSvc' }, 
+                    { from: 'cmdSvc', to: 'writeDb' },
+                    { from: 'cmdSvc', to: 'bus' }, 
+                    { from: 'bus', to: 'querySvc' },
+                    { from: 'querySvc', to: 'readDb' }, 
+                    { from: 'client', to: 'querySvc' }
+                ],
+                scenarios: {
+                    eventual: {
+                        title: "Eventual Consistency 흐름",
+                        pros: "명령(Write)과 조회(Read) 모델을 독립적으로 확장하여 성능을 극대화할 수 있습니다.",
+                        cons: "데이터베이스 간 동기화 지연(Eventual Consistency)으로 인해 일시적으로 불일치 데이터가 조회될 수 있습니다.",
+                        flows: [
+                            [{ from: 'client', to: 'cmdSvc', label: '1. Send Command (Write)' }],
+                            [{ from: 'cmdSvc', to: 'writeDb', label: '2. Save State' }],
+                            [{ from: 'cmdSvc', to: 'bus', label: '3. Publish Event' }],
+                            [{ action: 'delay', ms: 1500, label: '⏱ 동기화 지연 중 (Eventual Consistency)...' }],
+                            [{ from: 'bus', to: 'querySvc', label: '4. Consume Event' }],
+                            [{ from: 'querySvc', to: 'readDb', label: '5. Update Read Model (Projection)' }],
+                            [{ from: 'client', to: 'querySvc', label: '6. Query Data' }],
+                            [{ from: 'querySvc', to: 'readDb', label: '7. Fetch Data' }],
+                            [{ from: 'readDb', to: 'querySvc', label: '8. Return Data' }],
+                            [{ from: 'querySvc', to: 'client', label: '9. Response' }]
+                        ]
+                    },
+                    command_fail: {
+                        title: "Command 장애 시 (Read 가용성)",
+                        pros: "명령(Write) 시스템에 장애가 발생하더라도, 쿼리(Read) 시스템은 독립적으로 동작하여 사용자가 기존 데이터를 끊김 없이 조회할 수 있습니다.",
+                        cons: "데이터의 추가/수정/삭제 기능은 Command 시스템이 복구될 때까지 일시적으로 마비(Read-Only 모드)됩니다.",
+                        flows: [
+                            [{ from: 'client', to: 'cmdSvc', label: '1. Send Command (Write)' }],
+                            [{ action: 'updateNode', node: 'cmdSvc', label: 'Command Svc\n(DOWN)', cssClass: 'state-open' }],
+                            [{ from: 'cmdSvc', to: 'client', color: 'var(--packet-error)', label: '2. Write Failed' }],
+                            [{ action: 'delay', ms: 1500, label: '⏱ Write 실패! 하지만 Read는 정상 동작합니다.' }],
+                            [{ from: 'client', to: 'querySvc', label: '3. Query Data (Read)' }],
+                            [{ from: 'querySvc', to: 'readDb', label: '4. Fetch Data' }],
+                            [{ from: 'readDb', to: 'querySvc', label: '5. Return Data' }],
+                            [{ from: 'querySvc', to: 'client', label: '6. Read Success' }]
+                        ]
+                    },
+                    query_fail: {
+                        title: "Query 장애 시 (Write 가용성)",
+                        pros: "조회(Read) 시스템에 장애가 발생하더라도, 데이터 변경(Write) 요청은 유실 없이 Command 시스템에 정상적으로 저장됩니다.",
+                        cons: "사용자가 즉각적인 조회 결과를 확인할 수 없으며, 복구 전까지 Event Bus(MQ)에 동기화 이벤트가 누적됩니다.",
+                        flows: [
+                            [{ from: 'client', to: 'querySvc', label: '1. Query Data (Read)' }],
+                            [{ action: 'updateNode', node: 'querySvc', label: 'Query Svc\n(DOWN)', cssClass: 'state-open' }],
+                            [{ from: 'querySvc', to: 'client', color: 'var(--packet-error)', label: '2. Read Failed' }],
+                            [{ action: 'delay', ms: 1500, label: '⏱ Read 실패! 하지만 Write는 정상 동작합니다.' }],
+                            [{ from: 'client', to: 'cmdSvc', label: '3. Send Command (Write)' }],
+                            [{ from: 'cmdSvc', to: 'writeDb', label: '4. Save State' }],
+                            [{ from: 'cmdSvc', to: 'client', label: '5. Write Success' }],
+                            [{ from: 'cmdSvc', to: 'bus', label: '6. Publish Event' }],
+                            [{ from: 'bus', to: 'querySvc', color: 'var(--packet-error)', label: '7. Sync Pending (MQ 대기)' }]
+                        ]
+                    }
+                }
+            },
+            saga: {
+                title: "SAGA Pattern (Orchestration)",
+                description: "분산 트랜잭션의 정상 흐름과, 장애 시 보상 트랜잭션(롤백)이 어떻게 동작하는지 비교해보세요.",
+                nodes: [
+                    { id: 'api', type: 'service', label: 'Order API', x: 10, y: 50, desc: '클라이언트의 주문 요청 진입점입니다.' },
+                    { id: 'orch', type: 'service', label: 'Orchestrator', x: 40, y: 50, desc: '트랜잭션 흐름을 제어하고 롤백을 관리합니다.' },
+                    { id: 'pay', type: 'service', label: 'Payment\nService', x: 80, y: 20, desc: '결제를 처리하는 서비스입니다.' },
+                    { id: 'inv', type: 'service', label: 'Inventory\nService', x: 80, y: 80, desc: '재고를 차감하는 서비스입니다.' }
+                ],
+                edges: [
+                    { from: 'api', to: 'orch' }, { from: 'orch', to: 'pay' }, { from: 'orch', to: 'inv' }
+                ],
+                scenarios: {
+                    success: {
+                        title: "정상 완료 흐름",
+                        pros: "마이크로서비스 환경에서 각 서비스의 독립성을 해치지 않으면서 전체 트랜잭션을 구현할 수 있습니다.",
+                        cons: "오케스트레이터의 비즈니스 로직이 비대해질 수 있으며, 단일 장애점(SPOF) 위험이 있습니다.",
+                        flows: [
+                            [{ from: 'api', to: 'orch', label: '1. Create Order' }],
+                            [{ from: 'orch', to: 'pay', label: '2. Process Payment' }],
+                            [{ from: 'pay', to: 'orch', label: '3. Payment Success' }],
+                            [{ from: 'orch', to: 'inv', label: '4. Reserve Items' }],
+                            [{ from: 'inv', to: 'orch', label: '5. Items Reserved' }],
+                            [{ from: 'orch', to: 'api', label: '6. Order Completed' }]
+                        ]
+                    },
+                    rollback: {
+                        title: "실패 및 보상 트랜잭션 흐름",
+                        pros: "중간에 장애가 발생하더라도 보상 트랜잭션을 호출하여 전체 데이터의 정합성을 안전하게 복구합니다.",
+                        cons: "모든 트랜잭션 단계마다 취소(보상)를 위한 API 로직을 개발자가 별도로 구현해야 합니다.",
+                        flows: [
+                            [{ from: 'api', to: 'orch', label: '1. Create Order' }],
+                            [{ from: 'orch', to: 'pay', label: '2. Process Payment' }],
+                            [{ from: 'pay', to: 'orch', label: '3. Payment Success' }],
+                            [{ from: 'orch', to: 'inv', label: '4. Reserve Items' }],
+                            [{ action: 'updateNode', node: 'inv', label: 'Inventory\n(Out of Stock)', cssClass: 'state-open' }],
+                            [{ from: 'inv', to: 'orch', color: 'var(--packet-error)', label: '5. Fail (재고 부족)' }],
+                            [{ from: 'orch', to: 'pay', color: 'var(--packet-error)', label: '6. Cancel Payment (보상)' }],
+                            [{ from: 'pay', to: 'orch', color: 'var(--packet-error)', label: '7. Refunded' }],
+                            [{ from: 'orch', to: 'api', color: 'var(--packet-error)', label: '8. Order Failed' }]
+                        ]
+                    }
+                }
+            },
+            circuit: {
+                title: "Circuit Breaker Pattern",
+                description: "타겟 서비스의 장애를 감지하고 상태(CLOSED -> OPEN -> HALF-OPEN)를 변경하며 시스템을 보호합니다.",
+                nodes: [
+                    { id: 'client', type: 'client', label: 'Client', x: 10, y: 50, desc: '요청 클라이언트입니다.' },
+                    { id: 'gateway', type: 'service', label: 'API Gateway', x: 35, y: 50, desc: '요청을 타겟 서비스로 라우팅합니다.' },
+                    { id: 'cb', type: 'service', label: 'Circuit\nBreaker\n(CLOSED)', cssClass: 'state-closed', x: 65, y: 50, desc: '에러율을 모니터링하여 상태를 변경합니다.' },
+                    { id: 'target', type: 'service', label: 'Target\nService', x: 90, y: 50, desc: '응답 지연/에러가 발생하는 타겟입니다.' }
+                ],
+                edges: [
+                    { from: 'client', to: 'gateway' }, { from: 'gateway', to: 'cb' }, { from: 'cb', to: 'target' }
+                ],
+                scenarios: {
+                    lifecycle: {
+                        title: "서킷 브레이커 전체 라이프사이클",
+                        pros: "장애 발생 서비스에 대한 무의미한 호출을 차단하여 연쇄 장애를 방지하고 시스템 리소스를 보호합니다.",
+                        cons: "서킷이 OPEN 상태일 때는 타겟 서비스가 정상화되었더라도 일정 시간 강제로 실패(Fast Fail) 처리됩니다.",
+                        flows: [
+                            // 1. Normal
+                            [{ from: 'client', to: 'gateway', label: '1. Request' }],
+                            [{ from: 'gateway', to: 'cb', label: '2. Route Call' }],
+                            [{ from: 'cb', to: 'target', label: '3. Forward Call' }],
+                            // 2. Timeout & Open
+                            [{ action: 'delay', ms: 1000, label: '⏱ Target 응답 지연 중...' }],
+                            [{ from: 'target', to: 'cb', color: 'var(--packet-error)', label: '4. Timeout / Error' }],
+                            [{ action: 'updateNode', node: 'cb', label: 'Circuit\nBreaker\n(OPEN)', cssClass: 'state-open' }],
+                            // 3. Fast Fail
+                            [{ from: 'client', to: 'gateway', label: '5. Next Request' }],
+                            [{ from: 'gateway', to: 'cb', label: '6. Route Call' }],
+                            [{ from: 'cb', to: 'gateway', color: 'var(--packet-error)', label: '7. Fast Fail (Fallback 반환)' }],
+                            // 4. Half Open Test
+                            [{ action: 'delay', ms: 1500, label: '⏱ 복구 대기 (Sleep Window)...' }],
+                            [{ action: 'updateNode', node: 'cb', label: 'Circuit\nBreaker\n(HALF-OPEN)', cssClass: 'state-half' }],
+                            [{ from: 'client', to: 'gateway', label: '8. Test Request' }],
+                            [{ from: 'gateway', to: 'cb', label: '9. Route Call' }],
+                            [{ from: 'cb', to: 'target', label: '10. Test Call' }],
+                            [{ from: 'target', to: 'cb', label: '11. Success Response' }],
+                            [{ action: 'updateNode', node: 'cb', label: 'Circuit\nBreaker\n(CLOSED)', cssClass: 'state-closed' }]
+                        ]
+                    }
+                }
+            },
+            redis: {
+                title: "Redis Caching Strategies",
+                description: "읽기/쓰기 전략에 따라 Redis Cache와 DB 간의 데이터 동기화 흐름이 어떻게 달라지는지 비교해보세요.",
+                nodes: [
+                    { id: 'client', type: 'client', label: 'Client', x: 10, y: 50, desc: '데이터를 요청/저장하는 클라이언트입니다.' },
+                    { id: 'server', type: 'service', label: 'Backend\nServer', x: 35, y: 50, desc: '애플리케이션 계층. 캐시와 DB를 제어합니다.' },
+                    { id: 'redis', type: 'cache', label: 'Redis\nCache', x: 70, y: 20, desc: '고성능 인메모리 데이터 스토어. 앞단에 배치됩니다.' },
+                    { id: 'db', type: 'rdb', label: 'Database', x: 70, y: 80, desc: '원본 데이터를 저장하는 영구 데이터베이스입니다.' }
+                ],
+                edges: [
+                    { from: 'client', to: 'server' }, { from: 'server', to: 'redis' },
+                    { from: 'server', to: 'db' }, { from: 'redis', to: 'db' },
+                    { from: 'db', to: 'redis' }
+                ],
+                scenarios: {
+                    lookAside: {
+                        title: "읽기: 지연 로딩 (Look Aside)",
+                        pros: "레디스(캐시)에 장애가 발생하더라도 원본 DB를 통해 시스템이 정상적으로 서비스를 지속할 수 있습니다.",
+                        cons: "캐시 미스 발생 시 DB를 거쳐오므로 지연시간이 길어지며, 단기간에 캐시 미스가 몰리면 DB 부하가 급증(Cache Stampede)합니다.",
+                        flows: [
+                            [{ from: 'client', to: 'server', label: '1. Request Data' }],
+                            [{ from: 'server', to: 'redis', label: '2. Check Cache' }],
+                            [{ from: 'redis', to: 'server', color: 'var(--packet-warning)', label: '3. Cache Miss!' }],
+                            [{ from: 'server', to: 'db', label: '4. Query RDB' }],
+                            [{ from: 'db', to: 'server', label: '5. Read from DB' }],
+                            [
+                                { from: 'server', to: 'client', label: '6. Response' },
+                                { from: 'server', to: 'redis', label: '6. Set Cache (지연 로딩)' }
+                            ]
+                        ]
+                    },
+                    readThrough: {
+                        title: "읽기: Read-Through",
+                        pros: "애플리케이션 코드가 단순해집니다. DB에서 데이터를 읽어와 동기화하는 작업을 캐시 저장소(라이브러리 등)가 직접 처리합니다.",
+                        cons: "데이터 조회를 캐시에 전적으로 의존하므로, 레디스에 장애가 발생하면 시스템 전체의 장애로 직결될 위험이 있습니다.",
+                        flows: [
+                            [{ from: 'client', to: 'server', label: '1. Request Data' }],
+                            [{ from: 'server', to: 'redis', label: '2. Read via Cache' }],
+                            [{ from: 'redis', to: 'db', label: '3. DB Provider Fetch' }],
+                            [{ from: 'db', to: 'redis', label: '4. Return to Cache' }],
+                            [{ from: 'redis', to: 'server', label: '5. Cache Response' }],
+                            [{ from: 'server', to: 'client', label: '6. Response' }]
+                        ]
+                    },
+                    writeThrough: {
+                        title: "쓰기: Write-Through",
+                        pros: "항상 캐시와 데이터베이스 간의 데이터 일관성이 완벽하게 유지되므로, 최신 상태의 캐시를 보장합니다.",
+                        cons: "데이터가 변경될 때마다 캐시와 DB 두 곳 모두에 쓰기 작업을 수행해야 하므로 쓰기 작업의 지연시간(Latency)이 깁니다.",
+                        flows: [
+                            [{ from: 'client', to: 'server', label: '1. Update Data' }],
+                            [
+                                { from: 'server', to: 'db', label: '2. Write to DB' },
+                                { from: 'server', to: 'redis', label: '2. Write to Cache' }
+                            ],
+                            [
+                                { from: 'db', to: 'server', label: '3. DB Ack' },
+                                { from: 'redis', to: 'server', label: '3. Cache Ack' }
+                            ],
+                            [{ from: 'server', to: 'client', label: '4. Response' }]
+                        ]
+                    },
+                    writeBack: {
+                        title: "쓰기: Write-Back (Behind)",
+                        pros: "캐시 메모리상에만 먼저 데이터를 쓰기 때문에 쓰기 성능과 응답속도가 압도적으로 빠르며, DB 쓰기 부하를 대폭 줄입니다.",
+                        cons: "데이터베이스에 동기화되기 전 일정 시간(지연 시간) 안에 레디스 장애가 발생하면 데이터가 영구적으로 유실될 수 있습니다.",
+                        flows: [
+                            [{ from: 'client', to: 'server', label: '1. Update Data' }],
+                            [{ from: 'server', to: 'redis', label: '2. Write to Cache Only' }],
+                            [{ from: 'redis', to: 'server', label: '3. Fast Ack' }],
+                            [{ from: 'server', to: 'client', label: '4. Fast Response' }],
+                            [{ action: 'delay', ms: 1500, label: '⏱ 일정 시간 지연 (주기적 업데이트 대기)...' }],
+                            [{ from: 'redis', to: 'db', label: '5. Async Batch Update' }]
+                        ]
+                    },
+                    migration: {
+                        title: "쓰기: 마이그레이션 패턴",
+                        pros: "일시적으로 폭발적인 요청(예: 수강신청, 타임세일)이 발생하는 기간에 병목 구간인 DB를 완벽히 보호하고 높은 처리량을 달성합니다.",
+                        cons: "이벤트 기간 동안 데이터가 휘발성 메모리(Redis)에 주로 의존하므로, 백업/스냅샷 등 데이터 유실 방지책이 강제됩니다.",
+                        flows: [
+                            [{ from: 'client', to: 'server', label: '1. Heavy Traffic Writes' }],
+                            [{ from: 'server', to: 'redis', color: 'var(--packet-warning)', label: '2. Memory Store Only' }],
+                            [{ from: 'redis', to: 'server', label: '3. Quick Ack' }],
+                            [{ from: 'server', to: 'client', label: '4. Success' }],
+                            [{ action: 'delay', ms: 1500, label: '⏱ 이벤트 종료 시점까지 대기...' }],
+                            [{ from: 'redis', to: 'db', label: '5. 특정 시점 DB 영속화' }]
+                        ]
+                    },
+                    writeAround: {
+                        title: "쓰기: Write-Around",
+                        pros: "모든 쓰기가 원본 DB에 직접 수행되므로 데이터 저장이 확실하며, 자주 읽히지 않는 데이터로 인한 캐시 메모리 낭비를 방지합니다.",
+                        cons: "캐시 동기화 전(CDC 반영 전)에 읽기 요청이 오면 과거 데이터가 조회되거나 캐시 미스가 발생하여 로드가 증가할 수 있습니다.",
+                        flows: [
+                            [{ from: 'client', to: 'server', label: '1. Update Data' }],
+                            [{ from: 'server', to: 'db', label: '2. Direct Write to DB' }],
+                            [{ from: 'db', to: 'server', label: '3. DB Ack' }],
+                            [{ from: 'server', to: 'client', label: '4. Response' }],
+                            [{ from: 'db', to: 'redis', label: '5. CDC Replication (비동기)' }]
+                        ]
+                    }
+                }
+            }
+        };
+
+        /**
+         * 2. Core Application Logic
+         */
+        class ArchitectureViewer {
+            constructor(data) {
+                this.data = data;
+                this.state = {
+                    currentArchId: null,
+                    currentScenarioId: null,
+                    currentStep: 0,
+                    isPlaying: false,
+                    nodesOriginalState: {},
+                    activePackets: [],
+                    dragState: {
+                        isDragging: false,
+                        el: null,
+                        nodeData: null,
+                        offsetX: 0,
+                        offsetY: 0,
+                        hasMoved: false
+                    }
+                };
+                
+                this.dom = this.cacheDOM();
+                this.bindEvents();
+                this.init();
+            }
+
+            cacheDOM() {
+                return {
+                    canvasContainer: document.getElementById('canvas-container'),
+                    nodesContainer: document.getElementById('nodes-container'),
+                    edgeSvg: document.getElementById('edge-svg'),
+                    scenarioInfo: document.getElementById('scenario-info'),
+                    infoPanel: document.getElementById('component-info'),
+                    flowStepsPanel: document.getElementById('flow-steps'),
+                    selectArch: document.getElementById('arch-select'),
+                    scenarioTabs: document.getElementById('scenario-tabs'),
+                    btnReset: document.getElementById('btn-reset'),
+                    btnNext: document.getElementById('btn-next'),
+                    btnPlay: document.getElementById('btn-play'),
+                    playIcon: document.getElementById('play-icon'),
+                    panelTitle: document.getElementById('panel-title'),
+                    panelDesc: document.getElementById('panel-desc')
+                };
+            }
+
+            bindEvents() {
+                this.dom.selectArch.addEventListener('change', (e) => this.loadArchitecture(e.target.value));
+                this.dom.btnReset.addEventListener('click', () => this.resetFlow());
+                this.dom.btnNext.addEventListener('click', () => this.playNextStep());
+                this.dom.btnPlay.addEventListener('click', () => this.togglePlay());
+                window.addEventListener('resize', this.debounce(() => this.drawEdges(), 150));
+                
+                // Mouse Drag & Drop events
+                window.addEventListener('mousemove', (e) => this.onMouseMove(e));
+                window.addEventListener('mouseup', (e) => this.onDragEnd(e));
+                
+                // Touch Drag & Drop events (Mobile)
+                window.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
+                window.addEventListener('touchend', (e) => this.onDragEnd(e));
+            }
+
+            debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), wait);
+                };
+            }
+
+            init() {
+                this.dom.selectArch.innerHTML = ''; 
+                for (const [key, arch] of Object.entries(this.data)) {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.innerText = arch.title;
+                    this.dom.selectArch.appendChild(option);
+                }
+                const initialArch = Object.keys(this.data)[0];
+                this.loadArchitecture(initialArch);
+            }
+
+            loadArchitecture(archId) {
+                this.stopPlay();
+                this.state.currentArchId = archId;
+                const arch = this.data[archId];
+                
+                this.dom.panelTitle.innerText = arch.title;
+                this.dom.panelDesc.innerText = arch.description;
+                this.dom.scenarioInfo.innerHTML = '';
+                this.dom.infoPanel.innerHTML = '<div class="info-card"><h3>가이드</h3><p>다이어그램의 컴포넌트(노드)를 클릭하면 세부 역할이 이곳에 표시됩니다.</p></div>';
+                
+                // 해당 아키텍처의 노드 원본 상태 백업 (리셋 용도)
+                this.state.nodesOriginalState = {};
+                arch.nodes.forEach(n => {
+                    this.state.nodesOriginalState[n.id] = { label: n.label, cssClass: n.cssClass || '' };
+                });
+
+                // 첫 번째 시나리오 자동 로드
+                const firstScenarioId = Object.keys(arch.scenarios)[0];
+                this.renderScenarioTabs(arch.scenarios, firstScenarioId);
+                this.loadScenario(firstScenarioId);
+            }
+
+            renderScenarioTabs(scenarios, activeScenarioId) {
+                this.dom.scenarioTabs.innerHTML = '';
+                for (const [sId, scenario] of Object.entries(scenarios)) {
+                    const btn = document.createElement('button');
+                    btn.className = `tab-btn ${sId === activeScenarioId ? 'active' : ''}`;
+                    btn.innerText = scenario.title;
+                    btn.onclick = () => {
+                        Array.from(this.dom.scenarioTabs.children).forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.loadScenario(sId);
+                    };
+                    this.dom.scenarioTabs.appendChild(btn);
+                }
+            }
+
+            loadScenario(scenarioId) {
+                this.stopPlay();
+                this.state.currentScenarioId = scenarioId;
+                this.state.currentStep = 0;
+                
+                const arch = this.data[this.state.currentArchId];
+                const scenario = arch.scenarios[scenarioId];
+                
+                // 패턴 장단점 렌더링
+                this.dom.scenarioInfo.innerHTML = `
+                    <div class="info-card" style="border-left-color: #f59e0b;">
+                        <h3>패턴 장단점</h3>
+                        <p style="margin-bottom: 0.5rem;"><strong>👍 장점:</strong> ${scenario.pros}</p>
+                        <p><strong>👎 단점:</strong> ${scenario.cons}</p>
+                    </div>
+                `;
+                
+                this.renderFlowSteps(scenario.flows);
+                this.resetNodesToOriginal();
+                setTimeout(() => this.drawEdges(), 50);
+            }
+
+            resetNodesToOriginal() {
+                const arch = this.data[this.state.currentArchId];
+                this.drawNodes(arch.nodes);
+            }
+
+            drawNodes(nodes) {
+                this.dom.nodesContainer.innerHTML = '';
+                nodes.forEach(node => {
+                    const el = document.createElement('div');
+                    const typeClass = node.type ? `node-${node.type}` : '';
+                    const customClass = this.state.nodesOriginalState[node.id].cssClass;
+                    
+                    el.className = `node ${typeClass} ${customClass}`;
+                    el.id = `node-${node.id}`;
+                    el.style.left = `${node.x}%`;
+                    el.style.top = `${node.y}%`;
+                    el.innerText = this.state.nodesOriginalState[node.id].label;
+
+                    // Mouse Events
+                    el.addEventListener('mousedown', (e) => this.onNodeMouseDown(e, node, el));
+                    // Touch Events (Mobile)
+                    el.addEventListener('touchstart', (e) => this.onNodeTouchStart(e, node, el), { passive: false });
+                    
+                    // Unified Click/Tap handler
+                    el.addEventListener('click', () => {
+                        if (this.state.dragState.hasMoved) return; // 드래그 중인 경우 클릭 무시
+                        this.selectNode(node);
+                    });
+                    
+                    this.dom.nodesContainer.appendChild(el);
+                });
+            }
+
+            /* --- Drag & Drop Logic (Mouse + Touch) --- */
+            onDragStart(clientX, clientY, nodeData, el) {
+                this.state.dragState.isDragging = true;
+                this.state.dragState.el = el;
+                this.state.dragState.nodeData = nodeData;
+                this.state.dragState.hasMoved = false;
+
+                const nodeRect = el.getBoundingClientRect();
+                this.state.dragState.offsetX = clientX - (nodeRect.left + nodeRect.width / 2);
+                this.state.dragState.offsetY = clientY - (nodeRect.top + nodeRect.height / 2);
+                
+                el.style.zIndex = 10;
+            }
+
+            onNodeMouseDown(e, nodeData, el) {
+                if (e.button !== 0) return; // 좌클릭만
+                e.preventDefault();
+                this.onDragStart(e.clientX, e.clientY, nodeData, el);
+            }
+
+            onNodeTouchStart(e, nodeData, el) {
+                if (e.touches.length > 1) return; // 멀티터치 무시
+                e.preventDefault(); // 스크롤 방지
+                const touch = e.touches[0];
+                this.onDragStart(touch.clientX, touch.clientY, nodeData, el);
+            }
+
+            onDragMove(clientX, clientY) {
+                if (!this.state.dragState.isDragging) return;
+                this.state.dragState.hasMoved = true;
+
+                const rect = this.dom.canvasContainer.getBoundingClientRect();
+                let px = clientX - this.state.dragState.offsetX - rect.left;
+                let py = clientY - this.state.dragState.offsetY - rect.top;
+
+                // 퍼센트 좌표로 변환하여 리사이즈 대응
+                let pctX = Math.max(0, Math.min(100, (px / rect.width) * 100));
+                let pctY = Math.max(0, Math.min(100, (py / rect.height) * 100));
+
+                this.state.dragState.el.style.left = `${pctX}%`;
+                this.state.dragState.el.style.top = `${pctY}%`;
+
+                this.state.dragState.nodeData.x = pctX;
+                this.state.dragState.nodeData.y = pctY;
+
+                this.drawEdges();
+                this.updateActivePackets();
+            }
+
+            onMouseMove(e) {
+                this.onDragMove(e.clientX, e.clientY);
+            }
+
+            onTouchMove(e) {
+                if (!this.state.dragState.isDragging) return;
+                e.preventDefault(); // 모바일 화면 스크롤 방지
+                const touch = e.touches[0];
+                this.onDragMove(touch.clientX, touch.clientY);
+            }
+
+            onDragEnd(e) {
+                if (!this.state.dragState.isDragging) return;
+                this.state.dragState.el.style.zIndex = 2;
+                this.state.dragState.isDragging = false;
+                this.state.dragState.el = null;
+            }
+            /* ----------------------------------------- */
+
+            updateActivePackets() {
+                const containerRect = this.dom.canvasContainer.getBoundingClientRect();
+                this.state.activePackets.forEach(p => {
+                    const toEl = document.getElementById(`node-${p.toId}`);
+                    if (toEl) {
+                        const toRect = toEl.getBoundingClientRect();
+                        const endX = toRect.left + toRect.width / 2 - containerRect.left;
+                        const endY = toRect.top + toRect.height / 2 - containerRect.top;
+                        p.el.style.left = `${endX}px`;
+                        p.el.style.top = `${endY}px`;
+                    }
+                });
+            }
+
+            drawEdges() {
+                const arch = this.data[this.state.currentArchId];
+                if (!arch) return;
+
+                this.dom.edgeSvg.innerHTML = ''; 
+                const svgRect = this.dom.edgeSvg.getBoundingClientRect();
+
+                arch.edges.forEach(edge => {
+                    const fromEl = document.getElementById(`node-${edge.from}`);
+                    const toEl = document.getElementById(`node-${edge.to}`);
+                    
+                    if(!fromEl || !toEl) return;
+
+                    const fromRect = fromEl.getBoundingClientRect();
+                    const toRect = toEl.getBoundingClientRect();
+
+                    const x1 = fromRect.left + fromRect.width / 2 - svgRect.left;
+                    const y1 = fromRect.top + fromRect.height / 2 - svgRect.top;
+                    const x2 = toRect.left + toRect.width / 2 - svgRect.left;
+                    const y2 = toRect.top + toRect.height / 2 - svgRect.top;
+
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("x1", x1);
+                    line.setAttribute("y1", y1);
+                    line.setAttribute("x2", x2);
+                    line.setAttribute("y2", y2);
+                    line.setAttribute("stroke", "var(--edge-color)");
+                    line.setAttribute("stroke-width", "2");
+                    line.setAttribute("stroke-dasharray", "5,5"); 
+                    
+                    this.dom.edgeSvg.appendChild(line);
+                });
+            }
+
+            renderFlowSteps(flows) {
+                this.dom.flowStepsPanel.innerHTML = '<h3>데이터 플로우</h3>';
+                flows.forEach((stepGroup, idx) => {
+                    const action = stepGroup[0];
+                    const label = action.label || `Step ${idx+1}`;
+                    const el = document.createElement('div');
+                    el.className = 'step-item';
+                    
+                    if(action.color === 'var(--packet-error)' || action.cssClass === 'state-open') el.classList.add('error');
+                    if(action.action === 'delay' || action.cssClass === 'state-half') el.classList.add('warning');
+
+                    el.id = `step-ui-${idx}`;
+                    el.innerText = label;
+                    this.dom.flowStepsPanel.appendChild(el);
+                });
+            }
+
+            selectNode(nodeData) {
+                document.querySelectorAll('.node').forEach(n => n.classList.remove('selected'));
+                const el = document.getElementById(`node-${nodeData.id}`);
+                if(el) el.classList.add('selected');
+
+                this.dom.infoPanel.innerHTML = `
+                    <div class="info-card">
+                        <h3>${nodeData.label.replace('\n', ' ')}</h3>
+                        <p>${nodeData.desc}</p>
+                    </div>
+                `;
+            }
+
+            highlightStepUI(stepIdx) {
+                document.querySelectorAll('.step-item').forEach((el, idx) => {
+                    if(idx === stepIdx) el.classList.add('active');
+                    else el.classList.remove('active');
+                });
+            }
+
+            async playNextStep() {
+                if (this.state.isPlaying) return; 
+                
+                const arch = this.data[this.state.currentArchId];
+                const scenario = arch.scenarios[this.state.currentScenarioId];
+                
+                if (this.state.currentStep >= scenario.flows.length) {
+                    this.resetFlow(); 
+                    return;
+                }
+
+                const stepGroup = scenario.flows[this.state.currentStep];
+                this.highlightStepUI(this.state.currentStep);
+                
+                const promises = stepGroup.map(action => this.executeAction(action));
+                
+                this.state.currentStep++;
+                await Promise.all(promises);
+            }
+
+            executeAction(action) {
+                return new Promise(resolve => {
+                    if (action.action === 'updateNode') {
+                        const el = document.getElementById(`node-${action.node}`);
+                        if (el) {
+                            el.innerText = action.label;
+                            const arch = this.data[this.state.currentArchId];
+                            const nodeData = arch.nodes.find(n => n.id === action.node);
+                            const typeClass = nodeData && nodeData.type ? `node-${nodeData.type}` : '';
+                            el.className = `node ${typeClass} ${action.cssClass || ''}`;
+                            
+                            // 애니메이션을 인라인이 아닌 독립 클래스로 호출 (충돌 방지)
+                            el.classList.add('node-bump');
+                            setTimeout(() => {
+                                el.classList.remove('node-bump');
+                                resolve();
+                            }, 500);
+                        } else {
+                            resolve();
+                        }
+                    } else if (action.action === 'delay') {
+                        const delayEl = document.createElement('div');
+                        delayEl.className = 'delay-indicator';
+                        delayEl.innerText = '⏳';
+                        this.dom.canvasContainer.appendChild(delayEl);
+                        
+                        setTimeout(() => {
+                            if(this.dom.canvasContainer.contains(delayEl)) {
+                                this.dom.canvasContainer.removeChild(delayEl);
+                            }
+                            resolve();
+                        }, action.ms || 1000);
+                    } else if (action.from && action.to) {
+                        this.animatePacket(action.from, action.to, action.label, action.color).then(resolve);
+                    } else {
+                        resolve();
+                    }
+                });
+            }
+
+            animatePacket(fromId, toId, labelText, customColor) {
+                return new Promise(resolve => {
+                    const fromEl = document.getElementById(`node-${fromId}`);
+                    const toEl = document.getElementById(`node-${toId}`);
+                    
+                    if (!fromEl || !toEl) {
+                        resolve();
+                        return;
+                    }
+
+                    const packet = document.createElement('div');
+                    packet.className = 'packet';
+                    if (customColor) packet.style.backgroundColor = customColor;
+                    
+                    if (labelText) {
+                        const label = document.createElement('div');
+                        label.className = 'packet-label';
+                        label.innerText = labelText;
+                        if(customColor === 'var(--packet-error)') label.style.background = '#991b1b';
+                        packet.appendChild(label);
+                    }
+
+                    this.dom.canvasContainer.appendChild(packet);
+
+                    const packetInfo = { el: packet, fromId, toId };
+                    this.state.activePackets.push(packetInfo);
+
+                    const containerRect = this.dom.canvasContainer.getBoundingClientRect();
+                    const fromRect = fromEl.getBoundingClientRect();
+                    const toRect = toEl.getBoundingClientRect();
+
+                    const startX = fromRect.left + fromRect.width / 2 - containerRect.left;
+                    const startY = fromRect.top + fromRect.height / 2 - containerRect.top;
+                    
+                    const endX = toRect.left + toRect.width / 2 - containerRect.left;
+                    const endY = toRect.top + toRect.height / 2 - containerRect.top;
+
+                    packet.style.left = `${startX}px`;
+                    packet.style.top = `${startY}px`;
+
+                    packet.offsetWidth; // Force Reflow
+
+                    packet.style.left = `${endX}px`;
+                    packet.style.top = `${endY}px`;
+
+                    setTimeout(() => {
+                        if(this.dom.canvasContainer.contains(packet)) {
+                            this.dom.canvasContainer.removeChild(packet);
+                        }
+                        this.state.activePackets = this.state.activePackets.filter(p => p !== packetInfo);
+                        resolve();
+                    }, 1000); 
+                });
+            }
+
+            togglePlay() {
+                if (this.state.isPlaying) {
+                    this.stopPlay();
+                } else {
+                    this.startPlay();
+                }
+            }
+
+            async startPlay() {
+                const arch = this.data[this.state.currentArchId];
+                const scenario = arch.scenarios[this.state.currentScenarioId];
+                
+                if (this.state.currentStep >= scenario.flows.length) {
+                    this.resetFlow();
+                }
+                
+                this.state.isPlaying = true;
+                this.dom.playIcon.innerText = '⏸ Pause';
+                
+                while (this.state.isPlaying && this.state.currentStep < scenario.flows.length) {
+                    const stepGroup = scenario.flows[this.state.currentStep];
+                    this.highlightStepUI(this.state.currentStep);
+                    
+                    const promises = stepGroup.map(action => this.executeAction(action));
+                    this.state.currentStep++;
+                    
+                    await Promise.all(promises);
+                    
+                    if(this.state.isPlaying) {
+                        await new Promise(r => setTimeout(r, 400));
+                    }
+                }
+                
+                if (this.state.currentStep >= scenario.flows.length) {
+                    this.stopPlay();
+                    this.dom.playIcon.innerText = '↺ Replay';
+                }
+            }
+
+            stopPlay() {
+                this.state.isPlaying = false;
+                this.dom.playIcon.innerText = '▶ Play All';
+            }
+
+            resetPlayState() {
+                this.stopPlay();
+                this.state.currentStep = 0;
+                this.state.activePackets = [];
+                document.querySelectorAll('.packet').forEach(p => p.remove());
+                document.querySelectorAll('.delay-indicator').forEach(p => p.remove());
+                document.querySelectorAll('.step-item').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.node').forEach(n => n.classList.remove('selected'));
+                this.resetNodesToOriginal();
+            }
+
+            resetFlow() {
+                this.resetPlayState();
+            }
+        }
+
+        // 애플리케이션 부트스트래핑
+        window.addEventListener('DOMContentLoaded', () => {
+            window.architectureApp = new ArchitectureViewer(ARCHITECTURES);
+        });
+
+    </script>
+</body>
+</html>

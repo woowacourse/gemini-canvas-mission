@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backend CS Tutor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .fade-in { animation: fadeIn 0.5s ease-out; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+<!-- Header -->
+<header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+  <div class="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+    <div class="flex items-center gap-2 cursor-pointer" id="logo-btn">
+      <div class="bg-indigo-600 p-2 rounded-lg">
+        <i data-lucide="brain-circuit" class="text-white w-6 h-6"></i>
+      </div>
+      <h1 class="font-bold text-xl tracking-tight text-slate-800">Backend CS Tutor</h1>
+    </div>
+    <button id="reset-nav-btn" class="hidden text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors">
+      다른 주제 공부하기
+    </button>
+  </div>
+</header>
+
+<main id="app-container" class="max-w-4xl mx-auto p-4 md:p-8">
+  <!-- Content will be injected here by JavaScript -->
+</main>
+
+<footer class="max-w-4xl mx-auto p-8 text-center text-slate-400 text-sm mt-12">
+  <p>© 2024 Backend CS Tutor - Deep Learning for Future Engineers</p>
+</footer>
+
+<script>
+  const apiKey = ""; // API key is provided by the environment
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'backend-cs-tutor';
+
+  const TOPICS = [
+    { id: 'db_index', title: 'DB 인덱스와 성능', icon: 'database', category: 'Database' },
+    { id: 'rest_http', title: 'HTTP와 REST API', icon: 'network', category: 'Network' },
+    { id: 'caching', title: '캐싱 전략과 메모리', icon: 'layers', category: 'System Architecture' },
+    { id: 'concurrency', title: '동시성 제어 (Locking)', icon: 'cpu', category: 'OS' },
+  ];
+
+  // App State
+  let state = {
+    step: 'landing', // landing, lesson, feedback
+    selectedTopic: null,
+    lessonContent: '',
+    question: '',
+    userAnswer: '',
+    feedback: null,
+    loading: false,
+    error: null
+  };
+
+  // --- Core Logic ---
+
+  const setState = (newState) => {
+    state = { ...state, ...newState };
+    render();
+  };
+
+  const callGemini = async (prompt, systemInstruction) => {
+    let delay = 1000;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemInstruction }] }
+                  }),
+                }
+        );
+        if (!response.ok) throw new Error('API request failed');
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('Empty response');
+        return text;
+      } catch (err) {
+        if (i === 4) throw err;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2;
+      }
+    }
+  };
+
+  const extractJson = (text) => {
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) return JSON.parse(jsonMatch[0]);
+      return JSON.parse(text);
+    } catch (e) {
+      console.error("JSON parsing error:", e, "Original text:", text);
+      throw new Error("Invalid response format");
+    }
+  };
+
+  const startTopic = async (topicId) => {
+    const topic = TOPICS.find(t => t.id === topicId);
+    setState({ selectedTopic: topic, loading: true, error: null, step: 'lesson', userAnswer: '' });
+
+    const systemPrompt = `You are an expert Backend Mentor. Explain the topic in Korean concisely. Provide a deep CS question in Korean. Respond ONLY with a valid JSON object: { "lesson": "...", "question": "..." }`;
+
+    try {
+      const resultText = await callGemini(`Topic: ${topic.title}`, systemPrompt);
+      const result = extractJson(resultText);
+      setState({ lessonContent: result.lesson, question: result.question, loading: false });
+    } catch (err) {
+      setState({ error: "학습 내용을 불러오지 못했습니다. 다시 시도해 주세요.", loading: false });
+    }
+  };
+
+  const submitAnswer = async () => {
+    const answer = document.getElementById('user-answer-input')?.value || "";
+    if (!answer.trim()) return;
+
+    setState({ loading: true, step: 'feedback', userAnswer: answer });
+
+    const systemPrompt = `You are a strict Backend Interviewer. Evaluate answer in Korean. Respond ONLY with valid JSON: { "score": number, "isCorrect": boolean, "analysis": "...", "improvement": "..." }`;
+    const userPrompt = `Question: ${state.question}\nStudent Answer: ${answer}`;
+
+    try {
+      const resultText = await callGemini(userPrompt, systemPrompt);
+      const result = extractJson(resultText);
+      setState({ feedback: result, loading: false });
+    } catch (err) {
+      setState({ error: "분석 중 오류가 발생했습니다.", loading: false });
+    }
+  };
+
+  const reset = () => {
+    setState({
+      step: 'landing',
+      selectedTopic: null,
+      lessonContent: '',
+      question: '',
+      userAnswer: '',
+      feedback: null,
+      loading: false,
+      error: null
+    });
+  };
+
+  // --- UI Rendering ---
+
+  const render = () => {
+    const container = document.getElementById('app-container');
+    const resetNavBtn = document.getElementById('reset-nav-btn');
+
+    // Toggle reset button in header
+    if (state.selectedTopic) resetNavBtn.classList.remove('hidden');
+    else resetNavBtn.classList.add('hidden');
+
+    let html = '';
+
+    // Error Message
+    if (state.error) {
+      html += `
+                    <div class="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl flex items-center gap-3 fade-in">
+                        <i data-lucide="x-circle" class="w-5 h-5 flex-shrink-0"></i>
+                        <p class="text-sm">${state.error}</p>
+                        <button onclick="reset()" class="ml-auto underline font-bold">홈으로</button>
+                    </div>
+                `;
+    }
+
+    if (state.step === 'landing') {
+      html += `
+                    <div class="space-y-8 fade-in">
+                        <div class="text-center space-y-3">
+                            <h2 class="text-3xl font-extrabold text-slate-900">어떤 백엔드 지식을 정복해볼까요?</h2>
+                            <p class="text-slate-500">핵심 기술과 그 근간이 되는 CS 지식을 연결해 드립니다.</p>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            ${TOPICS.map(topic => `
+                                <button onclick="startTopic('${topic.id}')" class="group p-6 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-300 transition-all text-left flex items-start gap-4">
+                                    <div class="p-3 bg-slate-100 rounded-xl group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                                        <i data-lucide="${topic.icon}" class="w-5 h-5"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">${topic.category}</span>
+                                        <h3 class="text-lg font-bold text-slate-800 mt-1">${topic.title}</h3>
+                                        <p class="text-sm text-slate-500 mt-2 flex items-center gap-1">시작하기 <i data-lucide="chevron-right" class="w-4 h-4"></i></p>
+                                    </div>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+    } else if (state.loading && state.step === 'lesson') {
+      html += `
+                    <div class="py-24 flex flex-col items-center gap-4 fade-in">
+                        <i data-lucide="loader-2" class="w-10 h-10 text-indigo-500 animate-spin"></i>
+                        <p class="text-slate-500 animate-pulse">AI 멘토가 강의 내용을 준비 중입니다...</p>
+                    </div>
+                `;
+    } else {
+      // Lesson or Feedback area
+      html += `
+                    <div class="space-y-6 fade-in">
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold uppercase">${state.selectedTopic.category}</span>
+                            <h2 class="text-xl font-bold text-slate-800">${state.selectedTopic.title}</h2>
+                        </div>
+
+                        <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
+                            <div class="flex items-center gap-2 mb-4 text-indigo-600">
+                                <i data-lucide="book-open" class="w-5 h-5"></i>
+                                <h3 class="font-bold">백엔드 핵심 개념</h3>
+                            </div>
+                            <div class="prose prose-slate max-w-none">
+                                <p class="whitespace-pre-wrap leading-relaxed text-slate-700">${state.lessonContent}</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-indigo-900 text-white p-6 md:p-8 rounded-3xl shadow-xl">
+                            <div class="flex items-center gap-2 mb-4 text-indigo-300">
+                                <i data-lucide="message-square" class="w-5 h-5"></i>
+                                <h3 class="font-bold">심화 질문: CS Fundamental</h3>
+                            </div>
+                            <p class="text-lg md:text-xl font-medium mb-6">${state.question}</p>
+
+                            ${state.step === 'lesson' ? `
+                                <div class="space-y-4">
+                                    <textarea id="user-answer-input" placeholder="이 질문에 대한 당신의 생각을 적어보세요..." class="w-full h-32 p-4 bg-indigo-800/50 border border-indigo-700 rounded-2xl text-white placeholder-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all">${state.userAnswer}</textarea>
+                                    <button onclick="submitAnswer()" class="w-full py-4 bg-white text-indigo-900 font-bold rounded-2xl hover:bg-indigo-50 flex items-center justify-center gap-2 transition-all shadow-lg">
+                                        <i data-lucide="send" class="w-5 h-5"></i> 답변 제출하고 피드백 받기
+                                    </button>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+
+      if (state.step === 'feedback') {
+        if (state.loading) {
+          html += `
+                            <div class="mt-6 bg-white p-12 rounded-3xl border border-slate-200 flex flex-col items-center gap-4 fade-in">
+                                <i data-lucide="loader-2" class="w-8 h-8 text-indigo-500 animate-spin"></i>
+                                <p class="text-slate-500">당신의 답변을 분석 중입니다...</p>
+                            </div>
+                        `;
+        } else if (state.feedback) {
+          html += `
+                            <div class="mt-6 space-y-6 fade-in">
+                                <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
+                                    <div class="flex items-center justify-between mb-6">
+                                        <div class="flex items-center gap-2">
+                                            <i data-lucide="award" class="w-6 h-6 text-yellow-500"></i>
+                                            <h3 class="font-bold text-xl text-slate-800">분석 결과</h3>
+                                        </div>
+                                        <div class="px-4 py-2 rounded-full font-bold text-lg ${state.feedback.isCorrect ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">
+                                            ${state.feedback.score}점
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div class="space-y-3">
+                                            <h4 class="font-bold text-slate-700 flex items-center gap-2">
+                                                <i data-lucide="${state.feedback.isCorrect ? 'check-circle-2' : 'x-circle'}" class="w-4 h-4 ${state.feedback.isCorrect ? 'text-green-500' : 'text-orange-500'}"></i>
+                                                AI의 상세 분석
+                                            </h4>
+                                            <p class="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">${state.feedback.analysis}</p>
+                                        </div>
+                                        <div class="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                            <h4 class="font-bold text-indigo-700">학습 가이드</h4>
+                                            <p class="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">${state.feedback.improvement}</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-8 flex gap-3">
+                                        <button onclick="setState({step: 'lesson', feedback: null})" class="flex-1 py-3 border border-slate-200 rounded-xl font-medium text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2">
+                                            <i data-lucide="refresh-cw" class="w-4 h-4"></i> 다시 답변하기
+                                        </button>
+                                        <button onclick="reset()" class="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors">
+                                            주제 목록으로
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+        }
+      }
+    }
+
+    container.innerHTML = html;
+    lucide.createIcons(); // Initialize icons after rendering HTML
+  };
+
+  // --- Event Listeners ---
+  document.getElementById('logo-btn').onclick = reset;
+  document.getElementById('reset-nav-btn').onclick = reset;
+
+  // Initialize App
+  window.onload = () => {
+    render();
+  };
+</script>
+</body>
+</html>

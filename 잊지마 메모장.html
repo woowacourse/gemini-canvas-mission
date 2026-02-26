@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 스마트 메모장</title>
+    <!-- Tailwind CSS for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .line-through-fade { text-decoration: line-through; opacity: 0.5; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen overflow-hidden flex">
+
+<!-- Sidebar -->
+<aside class="w-64 md:w-80 border-r border-slate-200 bg-white flex flex-col shadow-sm">
+    <div class="p-4 border-b border-slate-100">
+        <div class="flex items-center justify-between mb-4">
+            <h1 class="text-xl font-bold text-indigo-600 flex items-center gap-2">
+                <i data-lucide="bell" class="w-5 h-5"></i> 잊지마 메모장
+            </h1>
+            <button onclick="toggleSettings(true)" class="p-2 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors">
+                <i data-lucide="settings" class="w-5 h-5"></i>
+            </button>
+        </div>
+        <div class="relative mb-4">
+            <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
+            <input id="search-input" type="text" placeholder="메모 검색..."
+                   class="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div class="flex gap-1 p-1 bg-slate-100 rounded-xl">
+            <button onclick="setFilter('all')" id="filter-all" class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all bg-white text-indigo-600 shadow-sm">전체</button>
+            <button onclick="setFilter('task')" id="filter-task" class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-slate-500">할일</button>
+            <button onclick="setFilter('memo')" id="filter-memo" class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-slate-500">기록</button>
+        </div>
+    </div>
+
+    <div id="memo-list" class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+        <!-- Memo items will be injected here -->
+    </div>
+
+    <div class="p-4 border-t border-slate-100">
+        <button onclick="createNewMemo()" class="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white rounded-xl font-medium shadow-md shadow-indigo-100 hover:bg-indigo-700 transition-colors">
+            <i data-lucide="plus" class="w-5 h-5"></i> 새 메모 작성
+        </button>
+    </div>
+</aside>
+
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col relative bg-white">
+    <!-- Editor Header -->
+    <div id="editor-header" class="h-16 border-b border-slate-100 px-6 flex items-center justify-between hidden">
+        <div class="flex items-center gap-4 flex-1">
+            <button id="toggle-complete-btn" class="p-1.5 rounded-lg transition-colors bg-slate-100 text-slate-400">
+                <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+            </button>
+            <input id="editor-title" type="text"
+                   class="text-lg font-bold bg-transparent border-none focus:ring-0 p-0 w-full"
+                   placeholder="제목을 입력하세요">
+        </div>
+        <div class="flex items-center gap-2 ml-4">
+            <button id="ai-analyze-btn" onclick="handleSmartAnalyze()"
+                    class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-all">
+                <i data-lucide="sparkles" class="w-4 h-4"></i>
+                <span>AI 분석 & 리마인드</span>
+            </button>
+            <button id="delete-memo-btn" class="p-2 text-slate-300 hover:text-red-500 transition-colors">
+                <i data-lucide="trash-2" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Editor Body -->
+    <div id="editor-body" class="flex-1 p-8 overflow-y-auto hidden">
+        <div class="max-w-3xl mx-auto space-y-6">
+            <!-- Status Banner (AI Suggestion or Completion) -->
+            <div id="status-banner" class="hidden"></div>
+
+            <div class="flex items-center gap-6 pb-4 border-b border-slate-50">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-400 uppercase">분류:</span>
+                    <select id="memo-type-select" class="text-xs bg-slate-100 border-none rounded-md py-1 focus:ring-0">
+                        <option value="task">할 일 (Task)</option>
+                        <option value="memo">기록 (Memo)</option>
+                    </select>
+                </div>
+            </div>
+
+            <textarea id="editor-content"
+                      class="w-full min-h-[400px] bg-transparent border-none focus:ring-0 leading-relaxed resize-none text-lg text-slate-700"
+                      placeholder="내용을 입력하면 AI가 자동으로 할 일인지 단순 기록인지 분류해줍니다."></textarea>
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="flex-1 flex flex-col items-center justify-center text-slate-300 gap-4">
+        <i data-lucide="list-todo" class="w-16 h-16 opacity-20"></i>
+        <p class="text-lg font-medium font-bold">선택된 메모가 없습니다</p>
+    </div>
+
+    <!-- Status Toasts Container -->
+    <div id="toast-container" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[300] space-y-2"></div>
+</main>
+
+<!-- Settings Modal -->
+<div id="settings-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[210] p-4">
+    <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+        <div class="p-6 border-b border-slate-100 flex items-center justify-between font-bold">
+            <h3 class="flex items-center gap-2"><i data-lucide="smartphone" class="w-5 h-5 text-indigo-600"></i> 모바일 알림 설정</h3>
+            <button onclick="toggleSettings(false)"><i data-lucide="x" class="w-6 h-6"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+            <p class="text-xs text-slate-500">Pushover 앱을 스마트폰에 설치하고 발급받은 키를 입력하면 실제 알람을 받을 수 있습니다.</p>
+            <input id="push-user-key" type="password" placeholder="Pushover User Key" class="w-full px-4 py-3 bg-slate-50 border rounded-xl text-sm">
+            <input id="push-api-token" type="password" placeholder="Pushover API Token" class="w-full px-4 py-3 bg-slate-50 border rounded-xl text-sm">
+            <div class="flex items-center justify-between p-4 bg-indigo-50 rounded-2xl">
+                <span class="font-semibold text-indigo-900 text-sm">실제 알림 활성화</span>
+                <button id="push-toggle-btn" class="w-12 h-6 rounded-full transition-colors relative bg-slate-300">
+                    <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"></div>
+                </button>
+            </div>
+            <button onclick="saveSettings()" class="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100">설정 완료</button>
+        </div>
+    </div>
+</div>
+
+<!-- Alarm Trigger Modal -->
+<div id="alarm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-[250] p-4">
+    <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+        <div class="bg-indigo-600 p-8 flex flex-col items-center text-white text-center">
+            <i data-lucide="bell" class="w-12 h-12 mb-4 animate-bounce"></i>
+            <h2 class="text-2xl font-bold">리마인드 알림!</h2>
+        </div>
+        <div class="p-8 text-center md:text-left">
+            <div class="bg-slate-50 border rounded-2xl p-5 mb-6">
+                <h3 id="alarm-title" class="font-bold mb-2 text-slate-900">제목</h3>
+                <p id="alarm-content" class="text-slate-600 text-sm italic leading-relaxed line-clamp-3">내용</p>
+            </div>
+            <div class="flex gap-3">
+                <button id="alarm-complete-btn" class="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg transition-colors">확인 및 완료</button>
+                <button onclick="closeAlarm()" class="flex-1 py-4 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- State Management ---
+    let memos = [
+        { id: '1', title: '치과 예약 확인', content: '다음주 화요일 오후 2시 강남역 근처 치과 예약. 스케일링 하기.', type: 'task', reminderTime: '2026-03-02 14:00', isCompleted: false, alarmDismissed: false },
+        { id: '2', title: '독서 기록', content: '어제보다 나은 내일은 오늘의 노력에서 시작된다.', type: 'memo', reminderTime: null, isCompleted: false, alarmDismissed: false }
+    ];
+    let activeMemoId = null;
+    let filterType = 'all';
+    let pushoverConfig = { userKey: '', apiToken: '', isEnabled: false };
+    const apiKey = ""; // Gemini API Key (자동 제공)
+
+    // --- Core Functions ---
+
+    function init() {
+        lucide.createIcons();
+        renderMemoList();
+
+        // Search Input listener
+        document.getElementById('search-input').addEventListener('input', renderMemoList);
+
+        // Start Alarm engine
+        setInterval(checkAlarms, 10000);
+    }
+
+    function renderMemoList() {
+        const listEl = document.getElementById('memo-list');
+        const query = document.getElementById('search-input').value.toLowerCase();
+
+        listEl.innerHTML = '';
+
+        const filtered = memos.filter(m => {
+            const matchSearch = m.title.toLowerCase().includes(query) || m.content.toLowerCase().includes(query);
+            if (filterType === 'task') return matchSearch && m.type === 'task' && !m.isCompleted;
+            if (filterType === 'memo') return matchSearch && m.type === 'memo';
+            return matchSearch;
+        });
+
+        filtered.forEach(memo => {
+            const item = document.createElement('button');
+            item.className = `w-full flex items-center gap-3 text-left p-3 rounded-xl transition-all border ${activeMemoId === memo.id ? 'bg-indigo-50 border-indigo-100 shadow-sm' : 'hover:bg-slate-50 border-transparent'}`;
+            item.onclick = () => selectMemo(memo.id);
+
+            const icon = memo.isCompleted ? 'check-square' : (memo.type === 'task' ? 'square' : 'file-text');
+            const iconColor = memo.isCompleted ? 'text-indigo-500' : (memo.type === 'task' ? 'text-slate-300' : 'text-amber-400');
+
+            item.innerHTML = `
+                    <div class="shrink-0 ${iconColor}">
+                        <i data-lucide="${icon}" class="w-5 h-5"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h3 class="font-semibold truncate text-sm ${memo.isCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}">${memo.title || '제목 없음'}</h3>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <span class="text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase ${memo.type === 'task' ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-600'}">${memo.type}</span>
+                            ${memo.reminderTime ? `<i data-lucide="${memo.isCompleted ? 'bell-off' : 'clock'}" class="w-3 h-3 ${memo.isCompleted ? 'text-slate-300' : 'text-orange-400'}"></i>` : ''}
+                        </div>
+                    </div>
+                `;
+            listEl.appendChild(item);
+        });
+        lucide.createIcons();
+    }
+
+    function selectMemo(id) {
+        activeMemoId = id;
+        renderMemoList();
+
+        const memo = memos.find(m => m.id === id);
+        if (!memo) return;
+
+        // UI Reveal
+        document.getElementById('empty-state').classList.add('hidden');
+        document.getElementById('editor-header').classList.remove('hidden');
+        document.getElementById('editor-body').classList.remove('hidden');
+
+        // Set Values
+        const titleInput = document.getElementById('editor-title');
+        const contentInput = document.getElementById('editor-content');
+        const typeSelect = document.getElementById('memo-type-select');
+        const completeBtn = document.getElementById('toggle-complete-btn');
+
+        titleInput.value = memo.title;
+        contentInput.value = memo.content;
+        typeSelect.value = memo.type;
+
+        titleInput.oninput = (e) => { memo.title = e.target.value; renderMemoList(); };
+        contentInput.oninput = (e) => { memo.content = e.target.value; renderMemoList(); };
+        typeSelect.onchange = (e) => { memo.type = e.target.value; renderMemoList(); renderStatusBanner(memo); };
+
+        completeBtn.onclick = () => toggleComplete(memo);
+        document.getElementById('delete-memo-btn').onclick = () => deleteMemo(memo.id);
+
+        // Completed State Style
+        if (memo.isCompleted) {
+            titleInput.classList.add('text-slate-400', 'line-through');
+            contentInput.classList.add('text-slate-300', 'italic');
+            contentInput.disabled = true;
+            typeSelect.disabled = true;
+            completeBtn.classList.replace('text-slate-400', 'text-emerald-600');
+            completeBtn.classList.replace('bg-slate-100', 'bg-emerald-100');
+        } else {
+            titleInput.classList.remove('text-slate-400', 'line-through');
+            contentInput.classList.remove('text-slate-300', 'italic');
+            contentInput.disabled = false;
+            typeSelect.disabled = false;
+            completeBtn.classList.replace('text-emerald-600', 'text-slate-400');
+            completeBtn.classList.replace('bg-emerald-100', 'bg-slate-100');
+        }
+
+        renderStatusBanner(memo);
+    }
+
+    function renderStatusBanner(memo) {
+        const banner = document.getElementById('status-banner');
+        if (memo.isCompleted) {
+            banner.className = "bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex gap-4 items-center";
+            banner.innerHTML = `<i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-500"></i>
+                                   <div><p class="text-emerald-800 font-bold text-sm italic">완료된 항목입니다.</p>
+                                   ${memo.reminderTime ? `<p class="text-emerald-600 text-xs mt-0.5">설정되었던 알림이 자동으로 취소되었습니다.</p>` : ''}</div>`;
+            banner.classList.remove('hidden');
+        } else if (memo.suggestionReason) {
+            banner.className = "bg-slate-50 border border-slate-200 rounded-2xl p-4 flex gap-4 items-start";
+            banner.innerHTML = `<i data-lucide="sparkles" class="w-5 h-5 text-indigo-500 mt-0.5"></i>
+                                   <div class="text-sm"><p class="text-slate-600 mb-2">${memo.suggestionReason}</p>
+                                   ${memo.reminderTime ? `<div class="inline-flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm">
+                                   <i data-lucide="clock" class="w-3.5 h-3.5 text-indigo-600"></i><span class="font-bold text-indigo-600">${memo.reminderTime} 알림 설정됨</span></div>` : ''}</div>`;
+            banner.classList.remove('hidden');
+        } else {
+            banner.classList.add('hidden');
+        }
+        lucide.createIcons();
+    }
+
+    function toggleComplete(memo) {
+        memo.isCompleted = !memo.isCompleted;
+        memo.alarmDismissed = memo.isCompleted;
+        showToast(memo.isCompleted ? '완료되었습니다!' : '다시 할 일로 변경되었습니다.', memo.isCompleted ? 'success' : 'info');
+        selectMemo(memo.id);
+    }
+
+    function createNewMemo() {
+        const id = Date.now().toString();
+        const newMemo = { id, title: '', content: '', type: 'memo', reminderTime: null, isCompleted: false, alarmDismissed: false };
+        memos.unshift(newMemo);
+        selectMemo(id);
+    }
+
+    function deleteMemo(id) {
+        memos = memos.filter(m => m.id !== id);
+        activeMemoId = null;
+        document.getElementById('editor-header').classList.add('hidden');
+        document.getElementById('editor-body').classList.add('hidden');
+        document.getElementById('empty-state').classList.remove('hidden');
+        renderMemoList();
+        showToast('메모가 삭제되었습니다.');
+    }
+
+    function setFilter(type) {
+        filterType = type;
+        ['all', 'task', 'memo'].forEach(t => {
+            const el = document.getElementById(`filter-${t}`);
+            if (t === type) {
+                el.className = "flex-1 py-1.5 text-xs font-bold rounded-lg transition-all bg-white text-indigo-600 shadow-sm";
+            } else {
+                el.className = "flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-slate-500 hover:text-slate-700";
+            }
+        });
+        renderMemoList();
+    }
+
+    // --- AI Logic ---
+
+    async function handleSmartAnalyze() {
+        const memo = memos.find(m => m.id === activeMemoId);
+        if (!memo || !memo.content.trim()) {
+            showToast('분석할 내용을 입력해주세요.', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('ai-analyze-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="sparkles" class="w-4 h-4 animate-pulse"></i> <span>분석 중...</span>`;
+        lucide.createIcons();
+
+        try {
+            const systemPrompt = `당신은 비서입니다. JSON으로만 응답: { "type": "task" | "memo", "suggestedTime": "YYYY-MM-DD HH:mm" | null, "reason": "설명" }. 현재 시각: ${new Date().toLocaleString('ko-KR')}`;
+
+            const result = await fetchWithRetry(memo.content, systemPrompt);
+
+            memo.type = result.type;
+            memo.reminderTime = result.suggestedTime;
+            memo.suggestionReason = result.reason;
+            memo.alarmDismissed = false;
+
+            showToast(`AI 분석 완료: ${result.type === 'task' ? '할 일' : '메모'}로 분류되었습니다.`, 'success');
+            selectMemo(memo.id);
+        } catch (e) {
+            showToast('AI 분석에 실패했습니다.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="sparkles" class="w-4 h-4"></i> <span>AI 분석 & 리마인드</span>`;
+            lucide.createIcons();
+        }
+    }
+
+    async function fetchWithRetry(content, systemPrompt, retries = 0) {
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: content }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: { responseMimeType: "application/json" }
+                })
+            });
+
+            if (!response.ok) throw new Error('API Request Failed');
+            const data = await response.json();
+            return JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text);
+        } catch (error) {
+            if (retries < 5) {
+                await new Promise(res => setTimeout(res, Math.pow(2, retries) * 1000));
+                return fetchWithRetry(content, systemPrompt, retries + 1);
+            }
+            throw error;
+        }
+    }
+
+    // --- Alarm & Settings ---
+
+    function checkAlarms() {
+        const now = new Date();
+        const nowStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+        memos.forEach(memo => {
+            if (memo.isCompleted || !memo.reminderTime || memo.alarmDismissed) return;
+
+            if (memo.reminderTime <= nowStr) {
+                // Trigger Alarm
+                showAlarm(memo);
+                if (pushoverConfig.isEnabled) {
+                    sendPushoverNotification(memo.title || '리마인드 알림', memo.content);
+                }
+                memo.alarmDismissed = true;
+                renderMemoList();
+            }
+        });
+    }
+
+    function showAlarm(memo) {
+        const modal = document.getElementById('alarm-modal');
+        document.getElementById('alarm-title').innerText = memo.title || '제목 없음';
+        document.getElementById('alarm-content').innerText = memo.content;
+
+        document.getElementById('alarm-complete-btn').onclick = () => {
+            toggleComplete(memo);
+            closeAlarm();
+        };
+
+        modal.classList.replace('hidden', 'flex');
+        lucide.createIcons();
+    }
+
+    function closeAlarm() {
+        document.getElementById('alarm-modal').classList.replace('flex', 'hidden');
+    }
+
+    async function sendPushoverNotification(title, message) {
+        try {
+            await fetch('https://api.pushover.net/1/messages.json', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    token: pushoverConfig.apiToken,
+                    user: pushoverConfig.userKey,
+                    title: `[잊지마 메모장] ${title}`,
+                    message: message,
+                    priority: 1
+                })
+            });
+        } catch (e) { console.error('Pushover fail', e); }
+    }
+
+    function toggleSettings(show) {
+        const modal = document.getElementById('settings-modal');
+        if (show) {
+            document.getElementById('push-user-key').value = pushoverConfig.userKey;
+            document.getElementById('push-api-token').value = pushoverConfig.apiToken;
+            updatePushButton();
+            modal.classList.replace('hidden', 'flex');
+        } else {
+            modal.classList.replace('flex', 'hidden');
+        }
+        lucide.createIcons();
+    }
+
+    function saveSettings() {
+        pushoverConfig.userKey = document.getElementById('push-user-key').value;
+        pushoverConfig.apiToken = document.getElementById('push-api-token').value;
+        toggleSettings(false);
+        showToast('설정이 저장되었습니다.', 'success');
+    }
+
+    document.getElementById('push-toggle-btn').onclick = () => {
+        pushoverConfig.isEnabled = !pushoverConfig.isEnabled;
+        updatePushButton();
+    };
+
+    function updatePushButton() {
+        const btn = document.getElementById('push-toggle-btn');
+        const dot = btn.querySelector('div');
+        if (pushoverConfig.isEnabled) {
+            btn.classList.replace('bg-slate-300', 'bg-indigo-600');
+            dot.classList.replace('left-1', 'left-7');
+        } else {
+            btn.classList.replace('bg-indigo-600', 'bg-slate-300');
+            dot.classList.replace('left-7', 'left-1');
+        }
+    }
+
+    function showToast(text, type = 'info') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        const bgColor = type === 'error' ? 'bg-red-600' : (type === 'success' ? 'bg-emerald-600' : 'bg-slate-800');
+
+        toast.className = `${bgColor} text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-bounce shadow-lg transition-all duration-300 transform translate-y-4 opacity-0`;
+        toast.innerHTML = `<span class="font-medium text-sm">${text}</span>`;
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.remove('translate-y-4', 'opacity-0');
+        }, 10);
+
+        setTimeout(() => {
+            toast.classList.add('opacity-0', 'translate-y-4');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    // Initialize on load
+    window.onload = init;
+</script>
+</body>
+</html>

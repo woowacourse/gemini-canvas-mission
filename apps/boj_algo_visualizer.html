@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOJ Algorithm Visualizer</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <script>
+    // 백준 스타일 테마 컬러 설정
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            boj: {
+              blue: '#0076C0',     // 백준 로고/메인 하늘색
+              light: '#E6F1F9',    // 연한 하늘색 배경
+              dark: '#005999',     // 짙은 하늘색 (Hover용)
+              bg: '#FAFAFA',       // 전체 배경색
+              border: '#E5E8EB'    // 기본 테두리 색상
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 커스텀 스크롤바 (Java 코드 블록용) */
+    pre::-webkit-scrollbar {
+      height: 8px;
+      width: 8px;
+    }
+    pre::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 4px;
+    }
+    pre::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    pre::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="bg-boj-bg text-gray-800 font-sans min-h-screen selection:bg-boj-blue selection:text-white flex flex-col h-screen overflow-hidden">
+
+  <!-- Navbar -->
+  <nav class="bg-white border-b border-boj-border flex-shrink-0 z-50 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="bg-boj-blue p-2 rounded text-white flex items-center justify-center">
+          <i class="fa-solid fa-code"></i>
+        </div>
+        <h1 class="text-xl font-bold text-gray-900 tracking-tight">BOJ Algo <span class="text-boj-blue">Visualizer</span></h1>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Code Input Area -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 w-full flex-shrink-0">
+    <form id="searchForm" class="relative">
+      <textarea
+        id="searchInput"
+        rows="3"
+        placeholder="분석하고 시각화할 Java 코드를 여기에 붙여넣으세요..."
+        class="w-full bg-white border border-gray-300 rounded-xl p-4 pr-36 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-boj-blue focus:border-transparent shadow-sm font-mono resize-none"
+      ></textarea>
+      <button 
+        type="submit"
+        id="searchBtn"
+        class="absolute right-3 bottom-3 bg-boj-blue hover:bg-boj-dark text-white rounded-lg px-4 py-2 flex items-center justify-center transition-colors disabled:opacity-50 font-bold text-sm shadow-md"
+      >
+        <i id="searchIcon" class="fa-solid fa-wand-magic-sparkles mr-2"></i>
+        <i id="loadingIcon" class="fa-solid fa-spinner fa-spin mr-2 hidden"></i>
+        분석 시작
+      </button>
+    </form>
+  </div>
+
+  <!-- Error Message -->
+  <div id="errorBox" class="max-w-7xl mx-auto px-4 mt-4 hidden flex-shrink-0 w-full">
+    <div class="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center text-red-600 shadow-sm">
+      <i class="fa-solid fa-circle-exclamation mr-3"></i>
+      <p id="errorText" class="text-sm"></p>
+    </div>
+  </div>
+
+  <!-- Main Content Area -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 min-h-0 flex flex-col md:flex-row gap-6 w-full">
+    
+    <!-- Left Area: Visualization Stage -->
+    <div class="flex-1 flex flex-col bg-white rounded-xl border border-boj-border overflow-hidden relative shadow-md">
+      
+      <!-- Header of Stage -->
+      <div class="px-6 py-4 border-b border-boj-border flex justify-between items-center bg-gray-50">
+        <div>
+          <h2 id="vizTitle" class="text-lg font-bold text-gray-900">수 정렬하기 (BOJ 2750)</h2>
+          <div class="flex space-x-4 mt-1">
+            <span class="text-xs text-boj-blue font-semibold"><i class="fa-solid fa-microchip mr-1"></i> <span id="vizAlgo">버블 정렬 (Bubble Sort)</span></span>
+            <span class="text-xs text-gray-500"><i class="fa-regular fa-clock mr-1"></i> Time: <span id="vizTime">O(N^2)</span></span>
+          </div>
+        </div>
+        <div class="px-3 py-1 rounded-full bg-white text-xs font-mono text-gray-500 border border-gray-200 shadow-sm">
+          Step <span id="vizStepCount">1 / 5</span>
+        </div>
+      </div>
+
+      <!-- Visualization Canvas -->
+      <div id="canvasArea" class="flex-1 relative overflow-auto flex items-center justify-center p-8 bg-white">
+        <!-- Canvas Content Injected by JS -->
+      </div>
+
+      <!-- Loading State Overlay -->
+      <div id="loadingOverlay" class="absolute inset-0 bg-white/90 z-10 flex flex-col items-center justify-center hidden">
+        <i class="fa-solid fa-spinner fa-spin text-4xl text-boj-blue mb-4"></i>
+        <p class="font-medium text-gray-600 animate-pulse">AI가 코드를 분석하고 Java 로직을 생성 중입니다...</p>
+      </div>
+
+      <!-- Playback Controls -->
+      <div class="h-20 border-t border-boj-border bg-gray-50 px-6 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <button id="btnPrev" class="w-10 h-10 rounded-full hover:bg-gray-200 text-gray-600 flex items-center justify-center disabled:opacity-50 transition-colors">
+            <i class="fa-solid fa-backward-step"></i>
+          </button>
+          
+          <button id="btnPlay" class="w-12 h-12 rounded-full bg-boj-blue hover:bg-boj-dark text-white flex items-center justify-center shadow-md disabled:opacity-50 transition-transform active:scale-95">
+            <i id="playIcon" class="fa-solid fa-play ml-1"></i>
+          </button>
+
+          <button id="btnNext" class="w-10 h-10 rounded-full hover:bg-gray-200 text-gray-600 flex items-center justify-center disabled:opacity-50 transition-colors">
+            <i class="fa-solid fa-forward-step"></i>
+          </button>
+
+          <!-- Speed Control -->
+          <div class="ml-2 border-l border-gray-300 pl-4">
+            <select id="speedSelect" class="bg-white border border-gray-300 text-gray-700 text-sm rounded-md focus:ring-boj-blue focus:border-boj-blue p-1.5 cursor-pointer shadow-sm">
+              <option value="0.5">0.5x (느리게)</option>
+              <option value="1.0" selected>1.0x (보통)</option>
+              <option value="2.0">2.0x (빠르게)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex-1 mx-8 flex items-center">
+          <input 
+            type="range" 
+            id="stepSlider"
+            min="0" 
+            max="4" 
+            value="0" 
+            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-boj-blue hover:accent-boj-dark transition-all"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Area: Context & Code Panel -->
+    <div class="w-full md:w-96 flex flex-col space-y-6">
+      
+      <!-- Explanation Card -->
+      <div class="bg-white rounded-xl border border-boj-border p-6 shadow-md flex flex-col min-h-[200px]">
+        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 flex items-center border-b border-gray-100 pb-2">
+          <i class="fa-regular fa-comment-dots text-boj-blue mr-2"></i>
+          현재 단계 설명
+        </h3>
+        <div class="flex-1 overflow-y-auto">
+          <p id="explanationText" class="text-gray-700 leading-relaxed text-sm whitespace-pre-line">
+            초기 배열 상태입니다. 버블 정렬은 인접한 두 원소를 비교하며 정렬합니다.
+          </p>
+        </div>
+      </div>
+
+      <!-- Debugging Variables Card (NEW) -->
+      <div class="bg-white rounded-xl border border-boj-border p-4 shadow-md flex flex-col max-h-[250px]">
+        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center border-b border-gray-100 pb-2">
+          <i class="fa-solid fa-table-list text-boj-blue mr-2"></i>
+          디버깅 변수 상태 (Watch)
+        </h3>
+        <div class="overflow-y-auto flex-1 border border-gray-200 rounded-md">
+          <table class="w-full text-sm text-left text-gray-500">
+            <thead class="text-xs text-gray-700 bg-gray-100 uppercase sticky top-0">
+              <tr>
+                <th scope="col" class="px-4 py-2 border-b border-gray-200">변수명</th>
+                <th scope="col" class="px-4 py-2 border-b border-gray-200">값</th>
+              </tr>
+            </thead>
+            <tbody id="variablesTableBody" class="divide-y divide-gray-100">
+              <!-- JS Injected -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Code Snippet Card (Java) -->
+      <div class="bg-white rounded-xl border border-boj-border p-6 shadow-md flex-1 flex flex-col">
+        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 flex items-center border-b border-gray-100 pb-2">
+          <i class="fa-brands fa-java text-boj-blue mr-2 text-lg"></i>
+          Java 핵심 로직
+        </h3>
+        <div class="flex-1 bg-gray-50 rounded-lg p-4 overflow-auto border border-gray-200 font-mono text-sm relative">
+          <pre><code id="codeSnippetText" class="text-gray-800">for (int i = 0; i < N - 1; i++) {
+  for (int j = 0; j < N - 1 - i; j++) {
+    // 비교 시작
+  }
+}</code></pre>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    // --- Gemini API Configuration ---
+    const apiKey = ""; // Runtime provides the key
+
+    // --- Default Mock Data (Java Version: Bubble Sort) ---
+    const defaultData = {
+      title: "수 정렬하기 (BOJ 2750)",
+      algorithm: "버블 정렬 (Bubble Sort)",
+      timeComplexity: "O(N^2)",
+      spaceComplexity: "O(N)",
+      visualizationType: "array",
+      steps: [
+        {
+          stepNumber: 1,
+          explanation: "[초기 상태]\n정렬되지 않은 5개의 숫자가 배열에 담겨있습니다.\n버블 정렬은 이웃한 두 원소를 짝지어 비교하며, 가장 큰 수를 맨 뒤로 밀어내는(Bubble) 과정을 반복합니다.",
+          codeSnippet: "int[] arr = {5, 2, 3, 4, 1};\nint N = arr.length;\n\n// 외부 루프 시작 (총 N-1회전)",
+          data: ["5", "2", "3", "4", "1"],
+          highlights: [],
+          pointers: "{}",
+          variables: [
+            { name: "N", value: "5" },
+            { name: "i", value: "0" }
+          ]
+        },
+        {
+          stepNumber: 2,
+          explanation: "[1회전 - 첫 번째 비교]\n인덱스 0(j)과 1(j+1)의 원소를 비교합니다.\n앞의 원소(5)가 뒤의 원소(2)보다 큽니다.",
+          codeSnippet: "int j = 0;\nif (arr[j] > arr[j + 1]) { // 5 > 2\n    // 스왑 조건 만족\n}",
+          data: ["5", "2", "3", "4", "1"],
+          highlights: ["0", "1"],
+          pointers: "{\"j\":\"0\", \"j+1\":\"1\"}",
+          variables: [
+            { name: "N", value: "5" },
+            { name: "i", value: "0" },
+            { name: "j", value: "0" }
+          ]
+        },
+        {
+          stepNumber: 3,
+          explanation: "[1회전 - 스왑 수행]\n조건을 만족했으므로 5와 2의 자리를 교환합니다(Swap).\n큰 숫자인 5가 한 칸 뒤로 밀려났습니다.",
+          codeSnippet: "int temp = arr[j]; // temp = 5\narr[j] = arr[j + 1]; // arr[0] = 2\narr[j + 1] = temp; // arr[1] = 5",
+          data: ["2", "5", "3", "4", "1"],
+          highlights: ["0", "1"],
+          pointers: "{\"j\":\"0\", \"j+1\":\"1\"}",
+          variables: [
+            { name: "N", value: "5" },
+            { name: "i", value: "0" },
+            { name: "j", value: "0" },
+            { name: "temp", value: "5" }
+          ]
+        },
+        {
+          stepNumber: 4,
+          explanation: "[1회전 - 두 번째 비교]\n포인터 j를 1 증가시킵니다.\n인덱스 1과 2의 원소(5와 3)를 비교합니다. 5가 3보다 크므로 다시 자리를 바꿉니다.",
+          codeSnippet: "j++; // j = 1\nif (arr[j] > arr[j + 1]) { // 5 > 3\n    swap(arr, j, j + 1);\n}",
+          data: ["2", "3", "5", "4", "1"],
+          highlights: ["1", "2"],
+          pointers: "{\"j\":\"1\", \"j+1\":\"2\"}",
+          variables: [
+            { name: "N", value: "5" },
+            { name: "i", value: "0" },
+            { name: "j", value: "1" }
+          ]
+        },
+        {
+          stepNumber: 5,
+          explanation: "[1회전 완료]\n이러한 방식으로 배열 끝까지 비교 및 교환을 반복하면, 배열에서 가장 큰 수인 '5'가 맨 마지막 위치로 확정됩니다.",
+          codeSnippet: "// 내부 루프 종료\n// 제일 큰 원소(5)가 배열 맨 끝(인덱스 4)에 자리잡음",
+          data: ["2", "3", "1", "4", "5"],
+          highlights: ["4"],
+          pointers: "{}",
+          variables: [
+            { name: "N", value: "5" },
+            { name: "i", value: "0" }
+          ]
+        }
+      ]
+    };
+
+    // --- State Variables ---
+    let vizData = defaultData;
+    let currentStepIndex = 0;
+    let isPlaying = false;
+    let isLoading = false;
+    let playInterval = null;
+
+    // --- DOM Elements ---
+    const elements = {
+      searchForm: document.getElementById('searchForm'),
+      searchInput: document.getElementById('searchInput'),
+      searchBtn: document.getElementById('searchBtn'),
+      searchIcon: document.getElementById('searchIcon'),
+      loadingIcon: document.getElementById('loadingIcon'),
+      errorBox: document.getElementById('errorBox'),
+      errorText: document.getElementById('errorText'),
+      
+      vizTitle: document.getElementById('vizTitle'),
+      vizAlgo: document.getElementById('vizAlgo'),
+      vizTime: document.getElementById('vizTime'),
+      vizStepCount: document.getElementById('vizStepCount'),
+      
+      canvasArea: document.getElementById('canvasArea'),
+      loadingOverlay: document.getElementById('loadingOverlay'),
+      
+      btnPrev: document.getElementById('btnPrev'),
+      btnPlay: document.getElementById('btnPlay'),
+      btnNext: document.getElementById('btnNext'),
+      playIcon: document.getElementById('playIcon'),
+      stepSlider: document.getElementById('stepSlider'),
+      speedSelect: document.getElementById('speedSelect'),
+      
+      explanationText: document.getElementById('explanationText'),
+      codeSnippetText: document.getElementById('codeSnippetText'),
+      variablesTableBody: document.getElementById('variablesTableBody'),
+    };
+
+    // --- Core Logic ---
+
+    // UI 업데이트 (현재 스텝 기준)
+    function renderUI() {
+      if (!vizData || !vizData.steps || vizData.steps.length === 0) return;
+      
+      const currentStep = vizData.steps[currentStepIndex];
+      const totalSteps = vizData.steps.length;
+
+      // Header info update
+      elements.vizTitle.textContent = vizData.title;
+      elements.vizAlgo.textContent = vizData.algorithm;
+      elements.vizTime.textContent = vizData.timeComplexity;
+      elements.vizStepCount.textContent = `${currentStepIndex + 1} / ${totalSteps}`;
+
+      // Explanation & Code
+      elements.explanationText.textContent = currentStep.explanation;
+      elements.codeSnippetText.textContent = currentStep.codeSnippet;
+
+      // Variables Table (디버깅 변수 상태 업데이트)
+      elements.variablesTableBody.innerHTML = '';
+      if (currentStep.variables && currentStep.variables.length > 0) {
+        currentStep.variables.forEach(v => {
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-gray-50';
+          
+          const tdName = document.createElement('td');
+          tdName.className = 'px-4 py-2 font-mono text-boj-blue font-bold whitespace-nowrap';
+          tdName.textContent = v.name;
+          
+          const tdVal = document.createElement('td');
+          tdVal.className = 'px-4 py-2 font-mono text-gray-800 break-all';
+          tdVal.textContent = v.value;
+          
+          tr.appendChild(tdName);
+          tr.appendChild(tdVal);
+          elements.variablesTableBody.appendChild(tr);
+        });
+      } else {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 2;
+        td.className = 'px-4 py-4 text-center text-gray-400 text-xs';
+        td.textContent = '현재 단계에 기록된 지역 변수가 없습니다.';
+        tr.appendChild(td);
+        elements.variablesTableBody.appendChild(tr);
+      }
+
+      // Slider update
+      elements.stepSlider.max = totalSteps - 1;
+      elements.stepSlider.value = currentStepIndex;
+
+      // Buttons State
+      elements.btnPrev.disabled = currentStepIndex === 0;
+      elements.btnNext.disabled = currentStepIndex === totalSteps - 1;
+
+      // Play Icon
+      if (isPlaying) {
+        elements.playIcon.className = 'fa-solid fa-pause';
+        elements.playIcon.classList.remove('ml-1'); // center pause icon
+      } else {
+        elements.playIcon.className = 'fa-solid fa-play ml-1';
+      }
+
+      // Render Canvas
+      elements.canvasArea.innerHTML = '';
+      if (vizData.visualizationType === 'grid') {
+        elements.canvasArea.appendChild(createGridElement(currentStep));
+      } else {
+        elements.canvasArea.appendChild(createArrayElement(currentStep));
+      }
+    }
+
+    // 배열 시각화 DOM 생성
+    function createArrayElement(step) {
+      const container = document.createElement('div');
+      container.className = 'flex items-end justify-center space-x-2 sm:space-x-4 h-32 relative w-full';
+      
+      let pointers = {};
+      try { pointers = step.pointers ? JSON.parse(step.pointers) : {}; } catch(e){}
+
+      step.data.forEach((item, index) => {
+        const isHighlighted = step.highlights.includes(index.toString());
+        const activePointers = Object.keys(pointers).filter(k => pointers[k] === index.toString());
+
+        const col = document.createElement('div');
+        col.className = 'flex flex-col items-center';
+
+        // Pointers
+        const ptrDiv = document.createElement('div');
+        ptrDiv.className = 'h-8 mb-2 flex flex-col items-center justify-end text-xs font-mono font-bold text-boj-blue';
+        activePointers.forEach(p => {
+          const pEl = document.createElement('div');
+          pEl.className = 'animate-bounce';
+          pEl.textContent = '↓ ' + p;
+          ptrDiv.appendChild(pEl);
+        });
+
+        // Box Element
+        const box = document.createElement('div');
+        const baseClasses = 'w-12 h-16 sm:w-16 sm:h-20 rounded-lg flex items-center justify-center text-xl sm:text-2xl font-bold transition-all duration-300 transform border-2 shadow-sm';
+        const activeClasses = 'bg-boj-blue text-white scale-110 shadow-lg shadow-boj-blue/30 border-boj-blue';
+        const inactiveClasses = 'bg-white text-gray-800 border-gray-300';
+        
+        box.className = `${baseClasses} ${isHighlighted ? activeClasses : inactiveClasses}`;
+        box.textContent = item;
+
+        // Index Label
+        const idxDiv = document.createElement('div');
+        idxDiv.className = 'mt-2 text-xs text-gray-400 font-mono';
+        idxDiv.textContent = `idx: ${index}`;
+
+        col.appendChild(ptrDiv);
+        col.appendChild(box);
+        col.appendChild(idxDiv);
+        container.appendChild(col);
+      });
+
+      return container;
+    }
+
+    // 격자(Grid) 시각화 DOM 생성
+    function createGridElement(step) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'flex flex-col space-y-1';
+      
+      let pointers = {};
+      try { pointers = step.pointers ? JSON.parse(step.pointers) : {}; } catch(e){}
+      
+      const gridMatrix = step.data.map(rowStr => rowStr.split(','));
+
+      gridMatrix.forEach((row, rIndex) => {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'flex space-x-1';
+        
+        row.forEach((cell, cIndex) => {
+          const coord = `${rIndex},${cIndex}`;
+          const isHighlighted = step.highlights.includes(coord);
+          const activePointers = Object.keys(pointers).filter(k => pointers[k] === coord);
+
+          const cellWrapper = document.createElement('div');
+          cellWrapper.className = 'relative group';
+
+          const box = document.createElement('div');
+          let bgClass = 'bg-white text-gray-800';
+          if (isHighlighted) bgClass = 'bg-[#00A3A6] text-white scale-105 shadow-md z-10 border-[#00A3A6]'; // 청록색 하이라이트
+          else if (cell === '0' || cell === '벽') bgClass = 'bg-gray-200 text-gray-400';
+
+          box.className = `w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-sm font-semibold rounded-md transition-all duration-300 border border-gray-300 ${bgClass}`;
+          box.textContent = cell;
+          cellWrapper.appendChild(box);
+
+          if (activePointers.length > 0) {
+            const tooltip = document.createElement('div');
+            tooltip.className = 'absolute -top-2 -right-2 bg-red-500 text-white text-[10px] px-1 rounded-full animate-pulse z-20';
+            tooltip.textContent = activePointers.join(',');
+            cellWrapper.appendChild(tooltip);
+          }
+
+          rowDiv.appendChild(cellWrapper);
+        });
+        wrapper.appendChild(rowDiv);
+      });
+
+      return wrapper;
+    }
+
+    // 재생 제어
+    function startInterval() {
+      clearInterval(playInterval);
+      const speedMultiplier = parseFloat(elements.speedSelect.value);
+      const intervalTime = 2500 / speedMultiplier; // 기본 속도를 2.5초로 늦춤 (이해하기 쉽도록)
+
+      playInterval = setInterval(() => {
+        if (currentStepIndex < vizData.steps.length - 1) {
+          currentStepIndex++;
+          renderUI();
+        } else {
+          pausePlayback();
+        }
+      }, intervalTime);
+    }
+
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      if (isPlaying && currentStepIndex === vizData.steps.length - 1) {
+        currentStepIndex = 0; // 끝이면 처음부터 다시 재생
+      }
+      renderUI();
+
+      if (isPlaying) {
+        startInterval();
+      } else {
+        clearInterval(playInterval);
+      }
+    }
+
+    function pausePlayback() {
+      isPlaying = false;
+      clearInterval(playInterval);
+      renderUI();
+    }
+
+    // --- API Call ---
+    async function fetchProblemData(query) {
+      if (!query.trim()) throw new Error("분석할 코드를 입력해주세요.");
+
+      const prompt = `
+        당신은 알고리즘 시각화 전문가이며, Java 언어 전문가입니다.
+        사용자가 아래의 Java 코드를 입력했습니다.
+        이 코드를 분석하여, 알고리즘의 동작 과정을 단계별로 시각화하기 위한 JSON 데이터를 생성해주세요.
+        
+        [입력된 Java 코드]
+        ${query}
+        
+        [매우 중요한 지침 - 응답 속도 최적화 및 세분화]
+        1. 단계를 쪼개어 설명하되, AI 응답 속도 최적화를 위해 전체 단계(steps)는 **최대 15개 이하로 엄격히 제한**하세요.
+        2. 배열의 크기가 크거나 반복문(루프)이 길 경우, 초기 몇 단계의 구체적인 비교/교환 과정만 보여주고 중간 과정은 생략한 뒤, 바로 최종 결과 단계로 넘어가세요. (예: "이후 과정은 동일하게 반복되어... 정렬 완료")
+        3. 설명(explanation)은 핵심 원리 위주로 간결하게 작성해주세요.
+        4. IDE의 디버거처럼 현재 단계에서의 주요 지역 변수(local variables) 상태를 variables 배열에 담아주세요.
+
+        중요 조건: codeSnippet 속성에 들어갈 코드는 반드시 'Java' 언어로 작성되어야 합니다!
+        반드시 아래 JSON 스키마에 맞추어 응답해야 합니다.
+      `;
+
+      const schema = {
+        type: "OBJECT",
+        properties: {
+          title: { type: "STRING", description: "문제 제목 (예: BOJ 1260 - DFS와 BFS)" },
+          algorithm: { type: "STRING", description: "알고리즘 이름 (예: 너비 우선 탐색)" },
+          timeComplexity: { type: "STRING" },
+          spaceComplexity: { type: "STRING" },
+          visualizationType: { type: "STRING", description: "반드시 'array' 또는 'grid' 중 하나여야 합니다." },
+          steps: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                stepNumber: { type: "INTEGER" },
+                explanation: { type: "STRING", description: "이 단계에서 일어나는 일에 대한 설명" },
+                codeSnippet: { type: "STRING", description: "현재 실행 중인 Java 코드 스니펫 (주석 포함 가능)" },
+                data: {
+                  type: "ARRAY",
+                  items: { type: "STRING" },
+                  description: "visualizationType이 'array'면 ['1','2','3'] 형태. 'grid'면 행을 쉼표로 구분한 문자열 배열 (예: ['1,0,1', '0,1,0'])"
+                },
+                highlights: {
+                  type: "ARRAY",
+                  items: { type: "STRING" },
+                  description: "강조할 인덱스 (예: array면 '0', '1'. grid면 '0,0', '1,1')"
+                },
+                pointers: {
+                  type: "STRING",
+                  description: "포인터 위치를 나타내는 JSON 문자열. (예: '{\"i\":\"0\", \"j\":\"1\"}', grid의 경우 '{\"cur\":\"0,0\"}')"
+                },
+                variables: {
+                  type: "ARRAY",
+                  description: "디버깅 창(Watch)처럼 현재 활성화된 지역 변수와 값을 나타내는 표 데이터",
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      name: { type: "STRING", description: "변수명 (예: i, temp, current)" },
+                      value: { type: "STRING", description: "변수값 (예: 0, '5', true)" }
+                    },
+                    required: ["name", "value"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        required: ["title", "algorithm", "visualizationType", "steps"]
+      };
+
+      const payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: "Respond in Korean strictly following the provided JSON schema. Ensure code snippets are in Java. Return ONLY raw JSON without any markdown formatting like ```json." }] },
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: schema
+        }
+      };
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      
+      const delays = [1000, 2000, 4000, 8000, 16000];
+      for (let attempt = 0; attempt < 6; attempt++) {
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(`API Error ${response.status}: ${errData.error?.message || 'Unknown error'}`);
+          }
+          
+          const result = await response.json();
+          const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!text) throw new Error("API 응답에서 텍스트를 찾을 수 없습니다.");
+          
+          // AI 응답에 포함될 수 있는 마크다운(```json 등)을 안전하게 제거 후 파싱 (정규식 에러 해결)
+          const cleanText = text.replace(new RegExp('\`\`\`(?:json)?', 'gi'), '').trim();
+          return JSON.parse(cleanText);
+        } catch (err) {
+          console.warn(`[API Attempt ${attempt + 1} Failed]`, err.message);
+          if (attempt === 5) throw err;
+          await new Promise(res => setTimeout(res, delays[attempt]));
+        }
+      }
+    }
+
+    // --- Event Listeners ---
+    elements.searchForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const query = elements.searchInput.value;
+      if (!query.trim()) return;
+
+      // Loading State
+      isLoading = true;
+      pausePlayback();
+      elements.errorBox.classList.add('hidden');
+      elements.searchBtn.disabled = true;
+      elements.searchIcon.classList.add('hidden');
+      elements.loadingIcon.classList.remove('hidden');
+      elements.loadingOverlay.classList.remove('hidden');
+
+      try {
+        const result = await fetchProblemData(query);
+        if (result && result.steps && result.steps.length > 0) {
+          vizData = result;
+          currentStepIndex = 0;
+          renderUI();
+        } else {
+          throw new Error("올바른 시각화 데이터를 생성하지 못했습니다.");
+        }
+      } catch (err) {
+        console.error(err);
+        elements.errorText.textContent = err.message || "문제 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+        elements.errorBox.classList.remove('hidden');
+      } finally {
+        isLoading = false;
+        elements.searchBtn.disabled = false;
+        elements.searchIcon.classList.remove('hidden');
+        elements.loadingIcon.classList.add('hidden');
+        elements.loadingOverlay.classList.add('hidden');
+      }
+    });
+
+    elements.btnPlay.addEventListener('click', togglePlay);
+    
+    elements.btnPrev.addEventListener('click', () => {
+      pausePlayback();
+      if (currentStepIndex > 0) {
+        currentStepIndex--;
+        renderUI();
+      }
+    });
+
+    elements.btnNext.addEventListener('click', () => {
+      pausePlayback();
+      if (currentStepIndex < vizData.steps.length - 1) {
+        currentStepIndex++;
+        renderUI();
+      }
+    });
+
+    elements.stepSlider.addEventListener('input', (e) => {
+      pausePlayback();
+      currentStepIndex = parseInt(e.target.value, 10);
+      renderUI();
+    });
+
+    elements.speedSelect.addEventListener('change', () => {
+      if (isPlaying) {
+        startInterval(); // 재생 중 속도를 변경하면 인터벌 재시작
+      }
+    });
+
+    // Initial Render
+    renderUI();
+
+  </script>
+</body>
+</html>

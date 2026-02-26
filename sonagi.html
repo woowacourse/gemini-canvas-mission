@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>한글 소나기 - 타자 연습 게임</title>
+    <link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0b14;
+            --panel-bg: rgba(22, 22, 37, 0.95);
+            --text-color: #ffffff;
+            --accent-color: #00d2ff;
+            --danger-color: #ff4d4d;
+            --success-color: #4caf50;
+            --gold-color: #ffd700;
+        }
+
+        * { box-sizing: border-box; font-family: 'Do Hyeon', sans-serif; }
+
+        body {
+            margin: 0; padding: 0;
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh; background-color: var(--bg-color);
+            overflow: hidden; color: var(--text-color);
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%; max-width: 800px;
+            aspect-ratio: 4 / 3;
+            box-shadow: 0 0 60px rgba(0, 210, 255, 0.15);
+            border-radius: 16px;
+            overflow: hidden; background: #161625;
+        }
+
+        canvas { display: block; width: 100%; height: 100%; }
+
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%;
+            padding: 2% 4%; display: flex; justify-content: space-between;
+            pointer-events: none; z-index: 10;
+        }
+
+        .stat-card {
+            background: var(--panel-bg); padding: 8px 15px;
+            border-radius: 10px; border-bottom: 3px solid var(--accent-color);
+            min-width: 120px; backdrop-filter: blur(5px);
+            margin-bottom: 8px;
+        }
+
+        .stat-label { font-size: 0.75rem; color: #888; text-transform: uppercase; }
+        .stat-value { font-size: 1.2rem; display: block; }
+
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 20, 0.98);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 100; transition: opacity 0.4s;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .hidden { display: none !important; opacity: 0; }
+        .overlay h1 { font-size: 3.5rem; margin-bottom: 5px; color: var(--accent-color); text-shadow: 0 0 20px rgba(0,210,255,0.5); }
+        .overlay p { font-size: 1.2rem; margin-bottom: 20px; color: #aaa; }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 30px;
+        }
+
+        .setting-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            text-align: left;
+        }
+
+        .setting-group label {
+            font-size: 0.9rem;
+            color: var(--accent-color);
+            margin-left: 5px;
+        }
+
+        select {
+            background: #252540;
+            color: white;
+            border: 2px solid #333;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .btn-container {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .btn-primary {
+            padding: 12px 30px; font-size: 1.5rem;
+            background: var(--accent-color); color: #fff;
+            border: none; border-radius: 50px; cursor: pointer;
+            transition: 0.2s; box-shadow: 0 5px 15px rgba(0, 210, 255, 0.3);
+        }
+
+        .btn-secondary {
+            padding: 12px 30px; font-size: 1.5rem;
+            background: #444; color: #fff;
+            border: none; border-radius: 50px; cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-primary:hover, .btn-secondary:hover { transform: translateY(-3px); opacity: 0.9; }
+
+        #input-area {
+            position: absolute; bottom: 8%; left: 50%;
+            transform: translateX(-50%); z-index: 50;
+        }
+
+        #word-input {
+            width: 320px; padding: 12px 20px; font-size: 1.5rem;
+            border: 3px solid #333; border-radius: 40px;
+            background: rgba(0, 0, 0, 0.85); color: #fff;
+            text-align: center; outline: none; transition: 0.2s;
+        }
+
+        #word-input.match-found { border-color: var(--success-color); box-shadow: 0 0 15px rgba(76, 175, 80, 0.4); }
+
+        @keyframes shake {
+            0%, 100% { transform: translate(0, 0); }
+            25% { transform: translate(-4px, 4px); }
+            50% { transform: translate(4px, -4px); }
+            75% { transform: translate(-4px, -4px); }
+        }
+        .shake { animation: shake 0.2s ease-in-out 2; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-layer">
+            <div class="stat-group">
+                <div class="stat-card" style="border-color: var(--gold-color);">
+                    <span class="stat-label">최고 점수</span>
+                    <span id="best-score" class="stat-value">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">점수 / 레벨</span>
+                    <span class="stat-value"><span id="score">0</span> / <span id="level">1</span></span>
+                </div>
+            </div>
+            <div class="stat-group" style="display: flex; flex-direction: column; align-items: flex-end;">
+                <div class="stat-card" style="border-color: var(--danger-color);">
+                    <span class="stat-label">남은 생명</span>
+                    <span id="life-display" class="stat-value">❤❤❤❤❤</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">CPM / 정확도</span>
+                    <span class="stat-value"><span id="cpm">0</span> / <span id="accuracy">0</span>%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Start Screen -->
+        <div id="screen-start" class="overlay">
+            <h1>한글 소나기</h1>
+            <p>모드와 카테고리를 선택하세요</p>
+            
+            <div class="settings-grid">
+                <div class="setting-group">
+                    <label>언어 설정 (Language)</label>
+                    <select id="select-lang">
+                        <option value="ko" selected>한글 (Korean)</option>
+                        <option value="en">영어 (English)</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label>카테고리 (Category)</label>
+                    <select id="select-category">
+                        <option value="it" selected>IT 용어</option>
+                        <option value="basic">기본 단어</option>
+                        <option value="animal">동물</option>
+                        <option value="fruit">과일/음식</option>
+                        <option value="idiom">사자성어</option>
+                        <option value="pure">순우리말</option>
+                    </select>
+                </div>
+            </div>
+
+            <button class="btn-primary" id="btn-start" style="padding: 15px 60px; font-size: 1.8rem;">게임 시작</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="screen-gameover" class="overlay hidden">
+            <h1 style="color: var(--danger-color);">GAME OVER</h1>
+            <p id="final-stat" style="font-size: 1.5rem; color: white;">점수: 0 | 레벨: 1</p>
+            <p id="secondary-stat" style="font-size: 1.1rem; color: #888; margin-top: -10px;">타수: 0 CPM | 정확도: 0%</p>
+            
+            <div class="btn-container">
+                <button class="btn-primary" id="btn-continue">이어서 하기 (생명+3)</button>
+                <button class="btn-secondary" id="btn-restart">처음부터 다시하기</button>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="input-area">
+            <input type="text" id="word-input" placeholder="엔터를 눌러 시작" autocomplete="off">
+        </div>
+    </div>
+
+    <script type="module">
+        const DATASETS = {
+            ko: {
+                it: ["클라우드", "데이터베이스", "서버", "클라이언트", "인터페이스", "컴파일러", "디버깅", "암호화", "프로토콜", "가상화", "스토리지", "방화벽", "백엔드", "프론트엔드", "풀스택", "머신러닝", "딥러닝", "사물인터넷", "빅데이터", "알고리즘", "네트워크", "프로그래밍", "애플리케이션", "자바스크립트", "파이썬", "리액트"],
+                basic: ["사과", "바다", "하늘", "구름", "무지개", "코끼리", "컴퓨터", "대한민국", "우주선", "인공지능", "알고리즘", "도깨비", "타자왕", "소나기", "여름방학", "키보드", "마우스", "모니터", "스피커", "고구마", "치킨", "피자", "떡볶이", "우체국", "도서관"],
+                animal: ["호랑이", "사자", "기린", "얼룩말", "펭귄", "독수리", "거북이", "돌고래", "다람쥐", "판다", "캥거루", "고양이", "강아지", "송아지", "망아지", "너구리", "올빼미", "고슴도치", "두루미", "코알라"],
+                fruit: ["수박", "참외", "복숭아", "딸기", "포도", "바나나", "파인애플", "망고", "키위", "토마토", "삼겹살", "비빔밥", "불고기", "김치찌개", "된장찌개", "짜장면", "짬뽕", "탕수육", "스테이크", "파스타"],
+                idiom: ["사필귀정", "고진감래", "이심전심", "일취월장", "설상가상", "금상첨화", "유구무언", "과유불급", "동문서답", "막상막하", "배은망덕", "속수무책", "온고지신", "외유내강", "전화위복", "천고마비", "함흥차사", "호연지기", "화룡점정", "환골탈태"],
+                pure: ["미리내", "가람", "온새미로", "시나브로", "윤슬", "아라", "너울", "도담도담", "라온", "그린나래", "꽃가람", "달보드레", "아띠", "꼬두람이", "늘봄", "든해", "소담하다", "여우비", "함초롬하다", "별하"]
+            },
+            en: {
+                it: ["Cloud", "Database", "Server", "Client", "Interface", "Compiler", "Debugging", "Encryption", "Protocol", "Virtualization", "Storage", "Firewall", "Backend", "Frontend", "Fullstack", "Algorithm", "Internet", "Software", "Hardware", "Binary"],
+                basic: ["Apple", "Ocean", "Sky", "Cloud", "Rainbow", "Elephant", "Computer", "Universe", "Rain", "Summer", "Keyboard", "Mouse", "Programming", "Data", "Network", "Script", "Monitor", "Speaker", "Chicken", "Pizza", "Library", "School", "Forest", "Mountain"],
+                animal: ["Tiger", "Lion", "Giraffe", "Zebra", "Penguin", "Eagle", "Turtle", "Dolphin", "Squirrel", "Panda", "Kangaroo", "Cat", "Dog", "Rabbit", "Wolf", "Bear", "Whale", "Snake", "Monkey", "Deer"],
+                fruit: ["Watermelon", "Peach", "Strawberry", "Grape", "Banana", "Pineapple", "Mango", "Kiwi", "Tomato", "Steak", "Pasta", "Burger", "Cherry", "Lemon", "Orange", "Melon"],
+                idiom: ["Success", "Passion", "Freedom", "Justice", "Harmony", "Silence", "Wisdom", "Courage", "Believe", "Inspire", "Visions", "Imagine", "Action", "Energy", "Simple", "Growth"],
+                pure: ["Zenith", "Ethereal", "Luminous", "Serendipity", "Ephemeral", "Aurora", "Petrichor", "Ineffable", "Solitude", "Mellifluous", "Quintessential", "Sonorous", "Phosphenes", "Halcyon"]
+            }
+        };
+
+        class SoundEngine {
+            constructor() { this.ctx = null; }
+            init() { 
+                if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+            }
+            play(freq, type, duration, vol) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
+            }
+            sfx(action) {
+                switch(action) {
+                    case 'type': this.play(600, 'sine', 0.05, 0.05); break;
+                    case 'success': this.play(800, 'sine', 0.1, 0.1); break;
+                    case 'fail': 
+                        this.play(300, 'triangle', 0.15, 0.1); 
+                        setTimeout(() => this.play(200, 'triangle', 0.15, 0.08), 50);
+                        break;
+                    case 'miss': 
+                        this.play(100, 'sawtooth', 0.3, 0.15); 
+                        break;
+                    case 'over': this.play(80, 'square', 1.0, 0.2); break;
+                }
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x; this.y = y;
+                this.size = Math.random() * 4 + 2;
+                this.speedX = (Math.random() - 0.5) * 6;
+                this.speedY = (Math.random() - 0.5) * 6;
+                this.color = color;
+                this.life = 1.0;
+                this.decay = 0.02 + Math.random() * 0.02;
+            }
+            update() {
+                this.x += this.speedX; this.y += this.speedY;
+                this.life -= this.decay;
+                return this.life > 0;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Word {
+            constructor(text, x, speed, ctx) {
+                this.text = text; 
+                this.x = x; 
+                this.y = -50;
+                this.speed = speed; 
+                this.ctx = ctx;
+                this.fontSize = 22;
+                this.ctx.font = `bold ${this.fontSize}px 'Do Hyeon'`;
+                this.width = this.ctx.measureText(this.text).width;
+                this.toRemove = false; 
+            }
+            update(deltaTime) {
+                this.y += this.speed * (deltaTime / 16.67);
+                return this.y < 600; 
+            }
+            draw() {
+                this.ctx.save();
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillStyle = 'white';
+                this.ctx.shadowBlur = 10;
+                this.ctx.shadowColor = 'rgba(0,210,255,0.3)';
+                this.ctx.beginPath();
+                this.ctx.roundRect(this.x - (this.width/2 + 12), this.y - 18, this.width + 24, 36, 8);
+                this.ctx.fill();
+                this.ctx.shadowBlur = 0;
+                this.ctx.fillStyle = '#161625';
+                this.ctx.font = `bold ${this.fontSize}px 'Do Hyeon'`;
+                this.ctx.fillText(this.text, this.x, this.y);
+                this.ctx.restore();
+            }
+        }
+
+        class Game {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.input = document.getElementById('word-input');
+                this.container = document.getElementById('game-container');
+                this.sound = new SoundEngine();
+
+                this.canvas.width = 800;
+                this.canvas.height = 600;
+
+                this.state = 'START';
+                this.currentWords = [];
+                this.score = 0;
+                this.life = 5;
+                this.level = 1;
+                this.bestScore = parseInt(localStorage.getItem('rain_best_score_custom')) || 0;
+                
+                this.fallingWords = [];
+                this.particles = [];
+                this.lastFrame = 0;
+                this.spawnTimer = 0;
+                this.startTime = 0;
+                this.totalChars = 0;
+                this.totalEntries = 0;
+                this.correctEntries = 0;
+                this.isComposing = false;
+
+                this.init();
+            }
+
+            init() {
+                this.setupInputHandlers();
+                document.getElementById('btn-start').onclick = () => this.startGame(true);
+                document.getElementById('btn-restart').onclick = () => this.startGame(true);
+                document.getElementById('btn-continue').onclick = () => this.startGame(false);
+                requestAnimationFrame(t => this.loop(t));
+            }
+
+            setupInputHandlers() {
+                this.input.addEventListener('compositionstart', () => { this.isComposing = true; });
+                this.input.addEventListener('compositionend', () => { this.isComposing = false; });
+
+                this.input.addEventListener('input', () => {
+                    if (this.state !== 'PLAYING') return;
+                    this.sound.sfx('type');
+                    const val = this.input.value.trim();
+                    const hasMatch = this.fallingWords.some(w => w.text.toLowerCase().startsWith(val.toLowerCase()) && val.length > 0);
+                    this.input.classList.toggle('match-found', hasMatch);
+                });
+
+                this.input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        if (this.isComposing) return;
+                        if (this.state === 'PLAYING') {
+                            this.checkMatch(this.input.value.trim());
+                            this.input.value = '';
+                            this.input.classList.remove('match-found');
+                        }
+                    }
+                });
+            }
+
+            startGame(resetAll = true) {
+                this.sound.init();
+                const lang = document.getElementById('select-lang').value;
+                const cat = document.getElementById('select-category').value;
+                this.currentWords = DATASETS[lang][cat];
+
+                if (resetAll) {
+                    this.score = 0;
+                    this.level = 1;
+                    this.life = 5;
+                    this.totalChars = 0;
+                    this.totalEntries = 0;
+                    this.correctEntries = 0;
+                    this.startTime = Date.now();
+                } else {
+                    // Continue: Give 3 lives and keep score/level
+                    this.life = 3;
+                    // Adjust startTime to maintain CPM accurately if needed, 
+                    // but for simplicity we keep it running or reset it to current
+                }
+
+                this.fallingWords = [];
+                this.particles = [];
+                this.spawnTimer = 0;
+                this.state = 'PLAYING';
+
+                document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+                this.input.placeholder = lang === 'ko' ? "단어를 입력하세요!" : "Type the word!";
+                this.input.value = '';
+                this.input.focus();
+                
+                this.spawnWord();
+            }
+
+            spawnWord() {
+                const txt = this.currentWords[Math.floor(Math.random() * this.currentWords.length)];
+                const x = Math.random() * 600 + 100;
+                const speed = 0.8 + (this.level * 0.15);
+                this.fallingWords.push(new Word(txt, x, speed, this.ctx));
+            }
+
+            checkMatch(val) {
+                if (!val) return;
+                this.totalEntries++;
+                
+                const matchedWord = this.fallingWords.find(w => w.text.toLowerCase() === val.toLowerCase() && !w.toRemove);
+
+                if (matchedWord) {
+                    matchedWord.toRemove = true;
+                    this.createExplosion(matchedWord.x, matchedWord.y);
+                    this.sound.sfx('success');
+                    
+                    this.score += 10;
+                    this.totalChars += val.length;
+                    this.correctEntries++;
+                    
+                    this.level = Math.floor(this.score / 100) + 1;
+                } else {
+                    this.sound.sfx('fail');
+                    this.triggerShake();
+                }
+            }
+
+            createExplosion(x, y) {
+                for(let i=0; i<12; i++) this.particles.push(new Particle(x, y, '#00d2ff'));
+            }
+
+            triggerShake() {
+                this.container.classList.add('shake');
+                setTimeout(() => this.container.classList.remove('shake'), 200);
+            }
+
+            damage() {
+                this.life--;
+                this.sound.sfx('miss');
+                this.triggerShake();
+                if (this.life <= 0) this.gameOver();
+            }
+
+            gameOver() {
+                this.state = 'GAMEOVER';
+                this.sound.sfx('over');
+                
+                const elapsedMin = (Date.now() - this.startTime) / 60000;
+                const cpm = Math.round(this.totalChars / (elapsedMin || 1));
+                const acc = this.totalEntries === 0 ? 0 : Math.round((this.correctEntries / this.totalEntries) * 100);
+
+                // UI 업데이트: 최종 레벨 표시
+                document.getElementById('final-stat').innerText = `최종 점수: ${this.score} | 달성 레벨: ${this.level}`;
+                document.getElementById('secondary-stat').innerText = `타수: ${cpm} CPM | 정확도: ${acc}%`;
+                
+                document.getElementById('screen-gameover').classList.remove('hidden');
+                
+                if (this.score > this.bestScore) {
+                    this.bestScore = this.score;
+                    localStorage.setItem('rain_best_score_custom', this.bestScore);
+                }
+            }
+
+            update(deltaTime) {
+                if (this.state !== 'PLAYING') return;
+
+                this.spawnTimer += deltaTime;
+                const spawnDelay = Math.max(500, 2500 - (this.level * 150));
+                if (this.spawnTimer >= spawnDelay) {
+                    this.spawnWord();
+                    this.spawnTimer = 0;
+                }
+
+                this.fallingWords = this.fallingWords.filter(word => {
+                    if (word.toRemove) return false;
+                    const isAlive = word.update(deltaTime);
+                    if (!isAlive) {
+                        this.damage();
+                        return false;
+                    }
+                    return true;
+                });
+
+                this.particles = this.particles.filter(p => p.update());
+                this.updateHUD();
+            }
+
+            updateHUD() {
+                document.getElementById('score').innerText = this.score;
+                document.getElementById('level').innerText = this.level;
+                document.getElementById('best-score').innerText = this.bestScore;
+                document.getElementById('life-display').innerText = "❤".repeat(Math.max(0, this.life)) + "🖤".repeat(Math.max(0, 5 - this.life));
+                
+                const elapsedMin = (Date.now() - this.startTime) / 60000;
+                const cpm = (this.startTime && elapsedMin > 0.05) ? Math.round(this.totalChars / elapsedMin) : 0;
+                const acc = this.totalEntries === 0 ? 0 : Math.round((this.correctEntries / this.totalEntries) * 100);
+                document.getElementById('cpm').innerText = cpm;
+                document.getElementById('accuracy').innerText = acc;
+            }
+
+            draw() {
+                this.ctx.clearRect(0, 0, 800, 600);
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+                for(let i=0; i<800; i+=50) {
+                    this.ctx.beginPath(); this.ctx.moveTo(i, 0); this.ctx.lineTo(i, 600); this.ctx.stroke();
+                }
+                this.fallingWords.forEach(w => w.draw());
+                this.particles.forEach(p => p.draw(this.ctx));
+            }
+
+            loop(timestamp) {
+                if (!this.lastFrame) this.lastFrame = timestamp;
+                const deltaTime = timestamp - this.lastFrame;
+                this.lastFrame = timestamp;
+                this.update(Math.min(deltaTime, 100));
+                this.draw();
+                requestAnimationFrame(t => this.loop(t));
+            }
+        }
+
+        window.onload = () => new Game();
+    </script>
+</body>
+</html>

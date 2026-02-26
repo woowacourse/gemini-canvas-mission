@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevCheck - AI 맞춤형 퀴즈 러닝 플랫폼</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .line-clamp-1 {
+            display: -webkit-box;
+            -webkit-line-clamp: 1;
+            -webkit-box-orient: vertical;  
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #e2e8f0;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-white border-b border-slate-200">
+        <div class="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2 cursor-pointer" onclick="showPage('input')">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+                    <i class="fas fa-check-double"></i>
+                </div>
+                <span class="font-bold text-xl tracking-tight text-blue-600">DevCheck</span>
+            </div>
+            <div class="flex gap-6 text-sm font-medium">
+                <button onclick="showPage('input')" class="hover:text-blue-600 transition-colors">퀴즈 생성</button>
+                <button onclick="showPage('list')" class="hover:text-blue-600 transition-colors">히스토리</button>
+            </div>
+        </div>
+    </nav>
+
+    <main id="app" class="max-w-4xl mx-auto px-4 py-8">
+        <!-- Pages will be injected here -->
+    </main>
+
+    <script>
+        // State Management
+        let state = {
+            currentPage: 'input',
+            history: [], // Stores all individual attempts
+            currentQuiz: null,
+            currentStep: 0,
+            userAnswers: [],
+            selectedHistoryItem: null, // Currently viewed attempt in detail page
+            selectedLevel: 'mid',
+            showHint: false
+        };
+
+        // UI Components
+        const App = {
+            render() {
+                const container = document.getElementById('app');
+                container.innerHTML = '';
+
+                switch (state.currentPage) {
+                    case 'input':
+                        container.appendChild(this.pages.input());
+                        this.updateLevelUI();
+                        break;
+                    case 'quiz':
+                        container.appendChild(this.pages.quiz());
+                        break;
+                    case 'result':
+                        container.appendChild(this.pages.result());
+                        break;
+                    case 'list':
+                        container.appendChild(this.pages.list());
+                        break;
+                    case 'detail':
+                        container.appendChild(this.pages.detail());
+                        break;
+                }
+            },
+
+            updateLevelUI() {
+                if (state.currentPage !== 'input') return;
+                document.querySelectorAll('.level-btn').forEach(btn => {
+                    btn.classList.remove('bg-blue-600', 'text-white', 'border-blue-600');
+                });
+                const activeBtn = document.getElementById(`btn-${state.selectedLevel}`);
+                if (activeBtn) activeBtn.classList.add('bg-blue-600', 'text-white', 'border-blue-600');
+            },
+
+            pages: {
+                input() {
+                    const div = document.createElement('div');
+                    div.className = 'fade-in max-w-2xl mx-auto py-8';
+                    
+                    // Logic to get 3 most recent unique URLs from history
+                    const recentUnique = [];
+                    const seenUrls = new Set();
+                    for (const item of state.history) {
+                        if (!seenUrls.has(item.url)) {
+                            recentUnique.push(item);
+                            seenUrls.add(item.url);
+                        }
+                        if (recentUnique.length >= 3) break;
+                    }
+
+                    div.innerHTML = `
+                        <div class="text-center mb-10">
+                            <h1 class="text-3xl font-bold mb-4 text-slate-900">어떤 문서를 학습하셨나요?</h1>
+                            <p class="text-slate-500">URL을 입력하면 AI가 핵심 기술 스택을 분석하여 퀴즈를 생성합니다.</p>
+                        </div>
+                        <div class="glass-card p-8 rounded-2xl shadow-sm space-y-6 border border-slate-200 mb-10">
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">문서 URL</label>
+                                <input id="urlInput" type="url" placeholder="https://react.dev/learn..." 
+                                    class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold mb-3">학습 난이도</label>
+                                <div class="grid grid-cols-3 gap-3">
+                                    <button onclick="setLevel('basic')" id="btn-basic" class="level-btn py-3 rounded-xl border border-slate-200 transition-all font-medium">입문</button>
+                                    <button onclick="setLevel('mid')" id="btn-mid" class="level-btn py-3 rounded-xl border border-slate-200 transition-all font-medium">중급</button>
+                                    <button onclick="setLevel('hard')" id="btn-hard" class="level-btn py-3 rounded-xl border border-slate-200 transition-all font-medium">심화</button>
+                                </div>
+                            </div>
+                            <button onclick="generateQuiz()" class="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2">
+                                <span>퀴즈 생성하기</span>
+                                <i class="fas fa-magic"></i>
+                            </button>
+                        </div>
+
+                        ${recentUnique.length > 0 ? `
+                        <div class="space-y-4">
+                            <h3 class="text-sm font-bold text-slate-400 flex items-center gap-2 px-1">
+                                <i class="fas fa-history"></i> 최근 학습한 문서
+                            </h3>
+                            <div class="grid grid-cols-1 gap-3">
+                                ${recentUnique.map(item => `
+                                    <div class="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl hover:border-blue-300 transition-all cursor-pointer group shadow-sm" onclick="fillUrl('${item.url}')">
+                                        <div class="flex-1 overflow-hidden pr-4">
+                                            <p class="text-sm font-bold text-slate-700 line-clamp-1 group-hover:text-blue-600 transition-colors">${item.url}</p>
+                                            <p class="text-[11px] text-slate-400 mt-0.5">${item.date} • 최근 ${item.score}% 달성</p>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-bold uppercase">${item.level}</span>
+                                            <i class="fas fa-arrow-right text-slate-300 group-hover:text-blue-500 group-hover:translate-x-1 transition-all"></i>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+                    `;
+                    return div;
+                },
+
+                quiz() {
+                    const div = document.createElement('div');
+                    div.className = 'fade-in max-w-2xl mx-auto';
+                    const qIdx = state.currentStep;
+                    const q = state.currentQuiz.questions[qIdx];
+                    const progress = ((qIdx + 1) / state.currentQuiz.questions.length) * 100;
+                    
+                    div.innerHTML = `
+                        <div class="mb-8">
+                            <div class="flex justify-between items-center mb-4">
+                                <span class="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded">Quiz ${qIdx + 1} of ${state.currentQuiz.questions.length}</span>
+                                <span class="text-sm font-semibold text-slate-400">${Math.round(progress)}% Complete</span>
+                            </div>
+                            <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div class="progress-bar h-full bg-blue-600" style="width: ${progress}%"></div>
+                            </div>
+                        </div>
+
+                        <div class="glass-card p-8 rounded-3xl shadow-sm border border-slate-100 mb-6">
+                            <h2 class="text-2xl font-bold mb-6 text-slate-800 leading-tight">${q.question}</h2>
+                            <div class="space-y-3 mb-8">
+                                ${q.options.map((opt, optIdx) => `
+                                    <label class="flex items-center p-4 border border-slate-100 rounded-2xl cursor-pointer hover:bg-blue-50 hover:border-blue-200 transition-all group">
+                                        <input type="radio" name="quiz-opt" value="${optIdx}" ${state.userAnswers[qIdx] == optIdx ? 'checked' : ''} class="w-5 h-5 text-blue-600 mr-4 focus:ring-blue-500">
+                                        <span class="text-slate-600 font-medium group-hover:text-blue-700 transition-colors">${opt}</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+
+                            <div id="hint-container" class="border-t pt-6">
+                                ${state.showHint ? `
+                                    <div class="bg-amber-50 border border-amber-100 p-4 rounded-xl flex gap-3 animate-pulse">
+                                        <i class="fas fa-lightbulb text-amber-500 mt-1"></i>
+                                        <p class="text-sm text-amber-800 leading-relaxed font-medium">
+                                            <span class="font-bold">HINT:</span> ${q.hint}
+                                        </p>
+                                    </div>
+                                ` : `
+                                    <button onclick="toggleHint()" class="flex items-center gap-2 text-slate-400 hover:text-amber-500 transition-colors text-sm font-semibold">
+                                        <i class="fas fa-question-circle"></i>
+                                        힌트가 필요하신가요?
+                                    </button>
+                                `}
+                            </div>
+                        </div>
+
+                        <div class="flex gap-4">
+                            ${qIdx > 0 ? `<button onclick="prevQuiz()" class="px-8 py-4 border border-slate-200 rounded-xl font-bold hover:bg-white transition-all">이전</button>` : ''}
+                            <button onclick="nextQuiz()" class="flex-1 bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-black transition-all flex items-center justify-center gap-2">
+                                <span>${qIdx === state.currentQuiz.questions.length - 1 ? '결과 확인하기' : '다음 퀴즈'}</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    `;
+                    return div;
+                },
+
+                result() {
+                    const score = calculateScore(state.currentQuiz, state.userAnswers);
+                    const div = document.createElement('div');
+                    div.className = 'fade-in max-w-2xl mx-auto';
+                    div.innerHTML = `
+                        <div class="text-center mb-10">
+                            <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-blue-600 text-white text-3xl font-bold mb-4 shadow-xl shadow-blue-100">
+                                ${score}%
+                            </div>
+                            <h2 class="text-3xl font-bold mb-2">학습 결과 리포트</h2>
+                            <p class="text-slate-500">방금 학습한 내용의 이해도입니다.</p>
+                        </div>
+                        ${renderQuizFeedback(state.currentQuiz, state.userAnswers)}
+                        <div class="flex gap-4 mt-12">
+                            <button onclick="showPage('list')" class="flex-1 border border-slate-200 py-4 rounded-xl font-bold hover:bg-white transition-all">히스토리 보기</button>
+                            <button onclick="showPage('input')" class="flex-1 bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition-all">새 문서 학습</button>
+                        </div>
+                    `;
+                    return div;
+                },
+
+                list() {
+                    const div = document.createElement('div');
+                    div.className = 'fade-in';
+                    
+                    // Group history by URL
+                    const grouped = {};
+                    state.history.forEach(item => {
+                        if (!grouped[item.url]) {
+                            grouped[item.url] = {
+                                url: item.url,
+                                attempts: [],
+                                latestScore: item.score,
+                                latestDate: item.date,
+                                tags: item.tags,
+                                level: item.level
+                            };
+                        }
+                        grouped[item.url].attempts.push(item);
+                    });
+
+                    const groupedArray = Object.values(grouped).sort((a, b) => new Date(b.latestDate) - new Date(a.latestDate));
+
+                    div.innerHTML = `
+                        <div class="flex justify-between items-end mb-8">
+                            <div>
+                                <h2 class="text-3xl font-bold mb-2 text-slate-900">My Archive</h2>
+                                <p class="text-slate-500">문서별 통합 학습 리포트입니다.</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            ${groupedArray.length === 0 
+                                ? '<div class="col-span-2 text-center py-24 text-slate-400 bg-white border-2 border-dashed border-slate-100 rounded-3xl">학습 이력이 아직 없습니다.</div>' 
+                                : groupedArray.map((group, idx) => `
+                                    <div class="glass-card p-6 rounded-2xl border border-slate-100 flex flex-col justify-between hover:shadow-lg transition-all transform hover:-translate-y-1">
+                                        <div class="cursor-pointer" onclick="viewDetailFromGroup('${group.url}')">
+                                            <div class="flex justify-between items-start mb-4">
+                                                <div class="flex gap-2">
+                                                    <span class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full uppercase">${group.level}</span>
+                                                    ${group.attempts.length > 1 ? `<span class="text-[10px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full uppercase">${group.attempts.length}회 시도</span>` : ''}
+                                                </div>
+                                                <span class="text-[11px] text-slate-400">${group.latestDate.split(' ')[0]}</span>
+                                            </div>
+                                            <h3 class="font-bold mb-3 text-slate-800 line-clamp-1 hover:text-blue-600 transition-colors">${group.url}</h3>
+                                            <div class="flex items-center gap-3 mb-5">
+                                                <div class="flex items-end gap-1">
+                                                    <span class="text-xl font-bold text-slate-800">${group.latestScore}</span>
+                                                    <span class="text-xs text-slate-400 mb-1">%</span>
+                                                </div>
+                                                ${group.attempts.length > 1 ? `<div class="h-4 w-px bg-slate-200"></div><span class="text-xs text-slate-400 font-medium">평균 ${Math.round(group.attempts.reduce((a,b)=>a+b.score, 0)/group.attempts.length)}%</span>` : ''}
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center justify-between border-t border-slate-50 pt-4 mt-auto">
+                                            <div class="flex gap-1 overflow-hidden">
+                                                ${group.tags.map(t => `<span class="text-[9px] bg-slate-100 px-2 py-1 rounded-md text-slate-500 font-medium">#${t}</span>`).join('')}
+                                            </div>
+                                            <button onclick="viewDetailFromGroup('${group.url}')" class="text-xs font-bold text-blue-600 hover:text-blue-700">리포트 보기 <i class="fas fa-chevron-right ml-1"></i></button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                        </div>
+                    `;
+                    return div;
+                },
+
+                detail() {
+                    const currentAttempt = state.selectedHistoryItem;
+                    const allAttemptsForThisUrl = state.history.filter(h => h.url === currentAttempt.url);
+                    
+                    const div = document.createElement('div');
+                    div.className = 'fade-in max-w-2xl mx-auto';
+                    
+                    div.innerHTML = `
+                        <div class="mb-8">
+                            <button onclick="showPage('list')" class="text-slate-500 hover:text-blue-600 mb-6 flex items-center gap-2 font-medium group">
+                                <i class="fas fa-arrow-left group-hover:-translate-x-1 transition-transform"></i> 히스토리 목록
+                            </button>
+                            
+                            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+                                <div class="flex-1 overflow-hidden">
+                                    <h2 class="text-2xl font-bold mb-2 text-slate-900">학습 상세 리포트</h2>
+                                    <p class="text-slate-500 text-sm break-all bg-slate-50 p-3 rounded-xl border border-slate-100">${currentAttempt.url}</p>
+                                </div>
+                                <div class="text-right flex flex-row md:flex-col items-center md:items-end gap-3 shrink-0">
+                                    <div class="text-4xl font-black text-blue-600">${currentAttempt.score}<span class="text-xl">%</span></div>
+                                    <div class="text-[11px] font-bold text-slate-400 uppercase tracking-tighter">${currentAttempt.date}</div>
+                                </div>
+                            </div>
+
+                            <!-- Attempts Selector (Previous History) -->
+                            <div class="space-y-3 mb-10">
+                                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider px-1 flex items-center gap-2">
+                                    <i class="fas fa-layer-group"></i> 전체 시도 기록 (${allAttemptsForThisUrl.length})
+                                </h3>
+                                <div class="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                                    ${allAttemptsForThisUrl.map(att => `
+                                        <button onclick="viewAttempt('${att.id}')" 
+                                            class="shrink-0 flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all ${att.id === currentAttempt.id ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'bg-white border-slate-100 text-slate-600 hover:border-blue-200'}">
+                                            <div class="text-left">
+                                                <p class="text-[10px] font-bold opacity-70 mb-0.5">${att.date.split(' ')[1]}</p>
+                                                <p class="text-sm font-black">${att.score}%</p>
+                                            </div>
+                                            <div class="text-[10px] font-bold px-1.5 py-0.5 rounded ${att.id === currentAttempt.id ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-400'}">
+                                                ${att.level.toUpperCase()}
+                                            </div>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-8">
+                            <div class="bg-blue-50 p-4 rounded-2xl flex items-center justify-between border border-blue-100">
+                                <span class="text-sm font-bold text-blue-700">해당 회차 난이도: <span class="uppercase">${currentAttempt.level}</span></span>
+                                <a href="${currentAttempt.url}" target="_blank" class="text-sm text-blue-600 font-bold flex items-center gap-1.5 hover:underline">
+                                    원문 링크 <i class="fas fa-external-link-alt text-[10px]"></i>
+                                </a>
+                            </div>
+                            
+                            <div class="space-y-6">
+                                ${renderQuizFeedback(currentAttempt.fullData, currentAttempt.userAnswers)}
+                            </div>
+                        </div>
+                    `;
+                    return div;
+                }
+            }
+        };
+
+        // UI Helpers
+        function renderQuizFeedback(quiz, userAnswers) {
+            return quiz.questions.map((q, idx) => {
+                const isCorrect = parseInt(userAnswers[idx]) === q.answer;
+                return `
+                    <div class="glass-card p-8 rounded-3xl relative overflow-hidden border border-slate-100 shadow-sm">
+                        <div class="absolute top-0 left-0 w-2 h-full ${isCorrect ? 'bg-green-500' : 'bg-red-500'}"></div>
+                        <div class="flex items-start justify-between mb-6">
+                            <h3 class="text-lg font-bold flex-1 pr-4 text-slate-800">Q${idx+1}. ${q.question}</h3>
+                            ${isCorrect 
+                                ? '<span class="text-green-600 font-bold bg-green-50 px-3 py-1.5 rounded-xl text-xs flex items-center gap-1"><i class="fas fa-check-circle"></i> 정답</span>' 
+                                : '<span class="text-red-600 font-bold bg-red-50 px-3 py-1.5 rounded-xl text-xs flex items-center gap-1"><i class="fas fa-times-circle"></i> 오답</span>'}
+                        </div>
+                        
+                        <div class="mb-6 space-y-3">
+                            <div class="flex items-center gap-3 p-3 rounded-xl ${isCorrect ? 'bg-green-50/50 border border-green-100' : 'bg-red-50/50 border border-red-100'}">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase w-12 shrink-0">내 선택</span>
+                                <span class="${isCorrect ? 'text-green-700' : 'text-red-700'} font-bold text-sm">${q.options[userAnswers[idx]]}</span>
+                            </div>
+                            ${!isCorrect ? `
+                            <div class="flex items-center gap-3 p-3 rounded-xl bg-green-50/50 border border-green-100">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase w-12 shrink-0">정답</span>
+                                <span class="text-green-700 font-bold text-sm">${q.options[q.answer]}</span>
+                            </div>` : ''}
+                        </div>
+
+                        <div class="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                            <div class="flex gap-2 mb-3 items-center text-blue-700 font-bold text-xs uppercase tracking-wider">
+                                <i class="fas fa-lightbulb"></i> AI Deep Dive 해설
+                            </div>
+                            <p class="text-slate-600 text-sm leading-relaxed">${q.explanation}</p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Logic Handlers
+        function showPage(page) {
+            state.currentPage = page;
+            App.render();
+            window.scrollTo(0,0);
+        }
+
+        function setLevel(lvl) {
+            state.selectedLevel = lvl;
+            App.updateLevelUI();
+        }
+
+        function fillUrl(url) {
+            const input = document.getElementById('urlInput');
+            if (input) {
+                input.value = url;
+                input.focus();
+            }
+        }
+
+        function viewDetailFromGroup(url) {
+            // Find the most recent attempt for this specific URL
+            const latest = state.history.find(h => h.url === url);
+            state.selectedHistoryItem = latest;
+            showPage('detail');
+        }
+
+        function viewAttempt(id) {
+            const attempt = state.history.find(h => h.id === id);
+            if (attempt) {
+                state.selectedHistoryItem = attempt;
+                App.render();
+                window.scrollTo(0,0);
+            }
+        }
+
+        function toggleHint() {
+            state.showHint = true;
+            App.render();
+        }
+
+        async function generateQuiz() {
+            const urlInput = document.getElementById('urlInput');
+            const url = urlInput.value.trim();
+            if(!url) return alert("URL을 입력해주세요!");
+
+            const btn = document.querySelector('button[onclick="generateQuiz()"]');
+            const originalInner = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 분석 중...';
+            btn.disabled = true;
+
+            setTimeout(() => {
+                state.currentQuiz = {
+                    url: url,
+                    level: state.selectedLevel,
+                    questions: [
+                        {
+                            question: "이 문서의 핵심 기술적 가치는 무엇인가요?",
+                            options: ["개발 속도 향상", "코드 가독성 개선", "시스템 안정성 확보", "운영 비용 절감"],
+                            answer: 0,
+                            hint: "이 기술은 주로 초기 프로토타이핑 단계를 매우 빠르게 만들어주는 특징이 있습니다.",
+                            explanation: "원문 섹션 2에서 '빠른 프로토타이핑과 반복'을 핵심 강점으로 꼽고 있습니다."
+                        },
+                        {
+                            question: "해당 스택의 주요 디자인 패턴은?",
+                            options: ["Observer 패턴", "Singleton 패턴", "Factory 패턴", "Proxy 패턴"],
+                            answer: 1,
+                            hint: "애플리케이션 전체에서 단 하나의 공유 상태 인스턴스만을 사용하도록 강제합니다.",
+                            explanation: "전역 상태 관리를 위해 단일 인스턴스를 유지하는 Singleton 구조를 채택하고 있습니다."
+                        },
+                        {
+                            question: "최적화를 위해 가장 먼저 고려해야 할 사항은?",
+                            options: ["이미지 압축", "캐싱 전략 수립", "번들 크기 최소화", "서버 렌더링 도입"],
+                            answer: 2,
+                            hint: "자바스크립트 파일들이 너무 크면 브라우저가 파싱하는 데 시간이 오래 걸립니다.",
+                            explanation: "문서 하단 팁에서 번들 사이즈가 초기 로딩 속도에 가장 큰 영향을 준다고 설명합니다."
+                        }
+                    ],
+                    tags: ['Core', 'Patterns', 'Optimizing']
+                };
+                state.currentStep = 0;
+                state.userAnswers = Array(state.currentQuiz.questions.length).fill(null);
+                state.showHint = false;
+                showPage('quiz');
+                btn.innerHTML = originalInner;
+                btn.disabled = false;
+            }, 800);
+        }
+
+        function nextQuiz() {
+            const selected = document.querySelector('input[name="quiz-opt"]:checked');
+            if(!selected) return alert("정답을 선택해주세요!");
+            
+            state.userAnswers[state.currentStep] = selected.value;
+            
+            if(state.currentStep < state.currentQuiz.questions.length - 1) {
+                state.currentStep++;
+                state.showHint = false;
+                App.render();
+            } else {
+                submitQuiz();
+            }
+        }
+
+        function prevQuiz() {
+            if(state.currentStep > 0) {
+                state.currentStep--;
+                state.showHint = false;
+                App.render();
+            }
+        }
+
+        function submitQuiz() {
+            const score = calculateScore(state.currentQuiz, state.userAnswers);
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}.${(now.getMonth()+1).toString().padStart(2,'0')}.${now.getDate().toString().padStart(2,'0')} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+            
+            // New attempt object with unique ID
+            const newAttempt = {
+                id: 'att_' + Date.now(),
+                url: state.currentQuiz.url,
+                level: state.currentQuiz.level,
+                score: score,
+                date: dateStr,
+                tags: state.currentQuiz.tags,
+                fullData: JSON.parse(JSON.stringify(state.currentQuiz)),
+                userAnswers: [...state.userAnswers]
+            };
+
+            state.history.unshift(newAttempt);
+            showPage('result');
+        }
+
+        function calculateScore(quiz, answers) {
+            let correct = 0;
+            quiz.questions.forEach((q, i) => {
+                if(parseInt(answers[i]) === q.answer) correct++;
+            });
+            return Math.round((correct / quiz.questions.length) * 100);
+        }
+
+        window.onload = () => App.render();
+    </script>
+</body>
+</html>

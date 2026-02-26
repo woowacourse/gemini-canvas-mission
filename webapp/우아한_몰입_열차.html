@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우아한 집중 열차 | 몰입의 여정</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+
+        :root {
+            --woowa-mint: #2AC1BC;
+            --woowa-dark: #333333;
+            --woowa-gray: #F6F6F6;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: var(--woowa-gray);
+            color: var(--woowa-dark);
+            margin: 0;
+            overflow-x: hidden;
+        }
+
+        .woowa-shadow {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .station-node {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .station-node:hover circle {
+            r: 8;
+            fill: var(--woowa-mint);
+        }
+
+        .btn-primary {
+            background-color: var(--woowa-mint);
+            color: white;
+            transition: opacity 0.2s;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+
+        .btn-disabled {
+            background-color: #E2E8F0 !important;
+            color: #A0AEC0 !important;
+            cursor: not-allowed !important;
+            border-color: #E2E8F0 !important;
+        }
+
+        .map-container {
+            position: relative;
+            background: #EBFBFA;
+            border-radius: 32px;
+            padding: 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #moving-object {
+            pointer-events: none;
+            z-index: 50;
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15));
+            transition: transform 0.1s linear;
+        }
+
+        .path-line {
+            stroke-dasharray: 8;
+            animation: dash 30s linear infinite;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -200;
+            }
+        }
+
+        .ticket-card {
+            border-left: 5px solid var(--woowa-mint);
+        }
+
+        /* 슬림해진 플로팅 대시보드 */
+        .floating-dashboard {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            padding: 12px 20px;
+            z-index: 100;
+            border: 1px solid rgba(42, 193, 188, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: translateY(-200%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .floating-dashboard.active {
+            transform: translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* 지도를 가리지 않는 코너 사운드 컨트롤러 */
+        .corner-sound-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 110;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .corner-sound-panel.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .preview-box {
+            transition: all 0.3s ease;
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+        }
+
+        .preview-box.active {
+            max-height: 100px;
+            opacity: 1;
+            margin-bottom: 1rem;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn { animation: fadeIn 0.4s ease forwards; }
+
+        .locked-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.75);
+            z-index: 40;
+            display: none;
+            border-radius: 1.5rem;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: var(--woowa-mint);
+            text-align: center;
+            padding: 20px;
+            backdrop-filter: blur(3px);
+        }
+        .locked .locked-overlay { display: flex; }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 24px;
+            padding: 32px;
+            width: 90%;
+            max-width: 340px;
+            text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .sound-btn-mini {
+            @apply w-10 h-10 flex items-center justify-center rounded-full bg-white/80 border-2 border-white woowa-shadow transition-all text-lg backdrop-blur-md;
+        }
+        .sound-btn-mini.active {
+            @apply border-[#2AC1BC] text-[#2AC1BC] scale-110;
+        }
+        .sound-btn-mini.inactive {
+            @apply border-transparent text-gray-400 hover:bg-white;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        .star-spark {
+            animation: twinkle 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+<div class="max-w-6xl mx-auto">
+    <header class="flex justify-between items-end mb-8">
+        <div>
+            <h1 class="text-4xl font-bold text-[#2AC1BC] tracking-tight">우아한 <span class="text-gray-800">집중 열차</span></h1>
+            <p class="text-gray-500 mt-1">대한민국을 가로지르며 완성하는 나만의 몰입 시간</p>
+        </div>
+        <div id="clock" class="text-2xl font-mono font-medium text-gray-400 bg-white px-4 py-1 rounded-full woowa-shadow">00:00:00</div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Left Controls -->
+        <div class="lg:col-span-1 space-y-6">
+            <div id="booking-card" class="relative bg-white p-6 rounded-3xl woowa-shadow border border-gray-100 transition-opacity">
+                <div class="locked-overlay">운행 중에는 경로를<br>변경할 수 없습니다</div>
+                <h2 class="text-xl font-bold mb-5 flex items-center gap-2">
+                    <span class="bg-[#2AC1BC] text-white p-1 rounded">🎫</span> 승차권 예매
+                </h2>
+
+                <div class="space-y-4">
+                    <div class="flex gap-4 items-center">
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-gray-400 mb-1 uppercase">Starting</label>
+                            <select id="start-station" class="w-full p-3 bg-gray-50 border-b-2 border-gray-100 rounded-t-lg outline-none focus:border-[#2AC1BC] appearance-none">
+                                <option value="">출발역 선택</option>
+                            </select>
+                        </div>
+                        <div class="text-gray-300 mt-5">➔</div>
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-gray-400 mb-1 uppercase">Destination</label>
+                            <select id="end-station" class="w-full p-3 bg-gray-50 border-b-2 border-gray-100 rounded-t-lg outline-none focus:border-[#2AC1BC] appearance-none">
+                                <option value="">도착역 선택</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="leg-preview" class="preview-box bg-[#EBFBFA] p-4 rounded-2xl border border-[#2AC1BC]/20 text-center">
+                        <p class="text-sm text-gray-500 mb-1">이번 구간 예상 소요 시간</p>
+                        <p class="text-2xl font-bold text-[#2AC1BC]"><span id="preview-time">0</span>분</p>
+                    </div>
+
+                    <button id="add-leg-btn" class="w-full py-4 bg-gray-50 text-[#2AC1BC] font-bold rounded-xl border-2 border-dashed border-[#2AC1BC] hover:bg-[#EBFBFA] transition-all">
+                        경로 추가 (집중 예약)
+                    </button>
+                </div>
+            </div>
+
+            <div id="path-card" class="relative bg-white p-6 rounded-3xl woowa-shadow border border-gray-100">
+                <div class="locked-overlay">운행 중에는 노선을<br>변경할 수 없습니다</div>
+                <h2 class="text-lg font-bold mb-4 flex justify-between items-center">
+                    <span>나의 몰입 노선</span>
+                    <span id="total-time-display" class="text-[#2AC1BC]">0분</span>
+                </h2>
+                <div id="path-list" class="space-y-3 min-h-[120px] max-h-[300px] overflow-y-auto pr-2">
+                    <p class="text-gray-400 text-sm text-center py-10">노선을 추가하여 집중을 시작하세요.</p>
+                </div>
+
+                <button id="start-focus-btn" class="w-full mt-6 py-5 btn-primary font-bold rounded-2xl text-xl woowa-shadow hidden transform transition-transform hover:scale-[1.02] active:scale-[0.98]">
+                    집중 운행 시작 🚀
+                </button>
+            </div>
+        </div>
+
+        <!-- Right Map Area -->
+        <div class="lg:col-span-2 space-y-6">
+            <div class="map-container woowa-shadow min-h-[650px]">
+                <!-- Floating Timer Dashboard (Compact) -->
+                <div id="focus-dashboard" class="floating-dashboard woowa-shadow">
+                    <div class="flex items-center gap-6">
+                        <div class="flex flex-col">
+                            <span id="timer-display" class="text-3xl font-mono font-bold text-[#2AC1BC]">00:00</span>
+                            <span id="current-leg-info" class="text-xs font-bold text-gray-500 uppercase tracking-tight">ON-TRACK</span>
+                        </div>
+                        <div class="h-8 w-[1px] bg-gray-200"></div>
+                        <div id="progress-bar-bg" class="w-32 md:w-48 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div id="progress-bar" class="bg-[#2AC1BC] h-full w-0 rounded-full transition-all duration-1000"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button id="pause-focus-btn" class="p-3 bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-all flex items-center justify-center w-12 h-12">
+                            <span id="pause-btn-icon">⏸</span>
+                        </button>
+                        <button id="stop-focus-btn" class="p-3 bg-red-50 text-red-500 rounded-full hover:bg-red-100 transition-all border border-red-200 flex items-center justify-center w-12 h-12">
+                            <span>⏹</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Corner Sound Panel -->
+                <div id="corner-sound-panel" class="corner-sound-panel">
+                    <button data-sound="train" class="sound-btn-mini active" title="기차 소리">🚂</button>
+                    <button data-sound="white" class="sound-btn-mini inactive" title="백색 소음">☁️</button>
+                    <button data-sound="mute" class="sound-btn-mini inactive" title="음소거">🔇</button>
+                </div>
+
+                <div id="trip-status" class="absolute top-6 z-10 bg-white/90 px-6 py-2 rounded-full font-bold text-gray-700 woowa-shadow border border-[#2AC1BC]/20">
+                    지도에서 역을 선택하거나 좌측에서 예매하세요
+                </div>
+
+                <svg id="korea-map" viewBox="0 0 400 600" class="w-full max-w-[450px] h-auto drop-shadow-2xl">
+                    <path id="korea-outline" d="M145,55 C160,45 190,40 210,42 C230,45 250,55 265,70 C280,85 290,110 295,130 C300,150 315,180 325,210 C335,240 340,280 338,310 C335,340 320,380 310,410 C300,440 295,480 285,510 C275,540 240,560 210,565 C180,570 140,560 110,540 C80,520 60,480 55,440 C50,400 65,340 60,300 C55,260 50,220 52,180 C55,140 70,100 100,75 C120,60 135,60 145,55 Z" fill="#FFFFFF" stroke="#2AC1BC" stroke-width="3" />
+                    <circle cx="160" cy="585" r="15" fill="#FFFFFF" stroke="#2AC1BC" stroke-width="2" />
+                    <circle cx="360" cy="180" r="4" fill="#FFFFFF" stroke="#2AC1BC" stroke-width="1" />
+                    <circle cx="380" cy="185" r="2" fill="#FFFFFF" stroke="#2AC1BC" stroke-width="1" />
+                    <path id="active-path" fill="none" stroke="#2AC1BC" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" class="path-line" d=""></path>
+                    <g id="stations-layer"></g>
+
+                    <!-- 노트북 행성 캐릭터 -->
+                    <g id="moving-object" transform="translate(-100, -100)">
+                        <path class="star-spark" d="M-28,-22 L-23,-15 L-15,-10 L-23,-5 L-28,2 L-33,-5 L-41,-10 L-33,-15 Z" fill="#2AC1BC" stroke="black" stroke-width="2" />
+                        <circle cx="0" cy="0" r="22" fill="white" stroke="black" stroke-width="3" />
+                        <ellipse cx="0" cy="3" rx="35" ry="11" fill="none" stroke="black" stroke-width="3" transform="rotate(-15)" />
+                        <circle cx="-8" cy="-3" r="2.2" fill="black" />
+                        <circle cx="8" cy="-3" r="2.2" fill="black" />
+                        <circle cx="0" cy="5" r="1.5" fill="black" />
+                        <path d="M-20,12 L20,12 L26,38 L-26,38 Z" fill="white" stroke="black" stroke-width="3" />
+                        <line x1="-16" y1="26" x2="16" y2="26" stroke="black" stroke-width="2" />
+                        <path d="M-15,10 Q-22,25 -18,30" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" />
+                        <path d="M15,10 Q(22,25 18,30" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" />
+                    </g>
+                </svg>
+            </div>
+
+            <div class="bg-white p-6 rounded-3xl woowa-shadow border border-gray-100">
+                <h2 class="text-lg font-bold mb-4">최근 몰입 완료 기록</h2>
+                <div id="history-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <p class="col-span-2 text-gray-400 text-sm italic py-4">아직 완료된 여정이 없습니다.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 커스텀 초기화 모달 -->
+<div id="reset-modal" class="modal-backdrop">
+    <div class="modal-content woowa-shadow">
+        <h3 class="text-xl font-bold mb-2">운행을 종료할까요?</h3>
+        <p class="text-gray-500 mb-8 text-sm leading-relaxed">진행 중인 집중 기록과 예약 노선이<br>모두 초기화됩니다.</p>
+        <div class="flex gap-3">
+            <button id="modal-cancel-btn" class="flex-1 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl hover:bg-gray-200 transition-colors">취소</button>
+            <button id="modal-confirm-btn" class="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-colors">초기화</button>
+        </div>
+    </div>
+</div>
+
+<div id="audio-hint" class="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-3 rounded-2xl text-sm font-medium woowa-shadow animate-bounce cursor-pointer z-50">
+    🔊 사운드 활성화 (클릭)
+</div>
+
+<script>
+    const STATIONS = [
+        { id: 'seoul', name: '서울', x: 135, y: 130 },
+        { id: 'gangneung', name: '강릉', x: 260, y: 110 },
+        { id: 'daejeon', name: '대전', x: 165, y: 260 },
+        { id: 'daegu', name: '대구', x: 250, y: 350 },
+        { id: 'gwangju', name: '광주', x: 110, y: 420 },
+        { id: 'busan', name: '부산', x: 285, y: 460 },
+        { id: 'ulsan', name: '울산', x: 300, y: 410 },
+        { id: 'mokpo', name: '목포', x: 75, y: 480 },
+        { id: 'jeju', name: '제주', x: 160, y: 585 }
+    ];
+
+    const TRAVEL_TIMES = {
+        'seoul-daejeon': 60, 'seoul-daegu': 100, 'seoul-busan': 150, 'seoul-gwangju': 110, 'seoul-mokpo': 140, 'seoul-gangneung': 110, 'seoul-ulsan': 130, 'seoul-jeju': 210,
+        'daejeon-seoul': 60, 'daejeon-daegu': 45, 'daejeon-busan': 90, 'daejeon-gwangju': 45, 'daejeon-mokpo': 85, 'daejeon-gangneung': 150, 'daejeon-ulsan': 75, 'daejeon-jeju': 160,
+        'daegu-seoul': 100, 'daegu-daejeon': 45, 'daegu-busan': 45, 'daegu-gwangju': 120, 'daegu-mokpo': 160, 'daegu-gangneung': 180, 'daegu-ulsan': 25, 'daegu-jeju': 130,
+        'busan-seoul': 150, 'busan-daejeon': 90, 'busan-daegu': 45, 'busan-gwangju': 180, 'busan-mokpo': 210, 'busan-gangneung': 240, 'busan-ulsan': 25, 'busan-jeju': 110,
+        'gwangju-seoul': 110, 'gwangju-daejeon': 45, 'gwangju-daegu': 120, 'gwangju-busan': 180, 'gwangju-mokpo': 35, 'gwangju-gangneung': 220, 'gwangju-ulsan': 150, 'gwangju-jeju': 90,
+        'mokpo-seoul': 140, 'mokpo-daejeon': 85, 'mokpo-daegu': 160, 'mokpo-busan': 210, 'mokpo-gwangju': 35, 'mokpo-gangneung': 250, 'mokpo-ulsan': 190, 'mokpo-jeju': 60,
+        'ulsan-seoul': 130, 'ulsan-daejeon': 75, 'ulsan-daegu': 25, 'ulsan-busan': 25, 'ulsan-gwangju': 150, 'ulsan-mokpo': 190, 'ulsan-gangneung': 200, 'ulsan-jeju': 100,
+        'gangneung-seoul': 110, 'gangneung-daejeon': 150, 'gangneung-daegu': 180, 'gangneung-busan': 240, 'gangneung-gwangju': 220, 'gangneung-mokpo': 250, 'gangneung-ulsan': 200, 'gangneung-jeju': 240,
+        'jeju-seoul': 210, 'jeju-daejeon': 160, 'jeju-daegu': 130, 'jeju-busan': 110, 'jeju-gwangju': 90, 'jeju-mokpo': 60, 'jeju-ulsan': 100, 'jeju-gangneung': 240
+    };
+
+    const DEFAULT_TIME = 30;
+
+    let selectedPath = [];
+    let isFocusing = false;
+    let isPaused = false;
+    let timerInterval = null;
+    let totalSecondsRemaining = 0;
+    let initialTotalSeconds = 0;
+    let history = [];
+    let selectedSound = 'train';
+
+    const AudioCtrl = (() => {
+        let ctx = null;
+        let ambientSource = null;
+        let ambientGain = null;
+
+        const init = () => { if(!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); };
+
+        const createNoiseBuffer = () => {
+            const bufferSize = 2 * ctx.sampleRate,
+                buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate),
+                output = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+            return buffer;
+        };
+
+        const playTone = (freq, type, duration, volume = 0.1) => {
+            init();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, ctx.currentTime);
+            gain.gain.setValueAtTime(volume, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + duration);
+        };
+
+        const startAmbient = (type) => {
+            init();
+            stopAmbient();
+            if (type === 'mute') return;
+
+            ambientGain = ctx.createGain();
+            ambientGain.gain.setValueAtTime(0, ctx.currentTime);
+            ambientGain.gain.linearRampToValueAtTime(isPaused ? 0 : 0.4, ctx.currentTime + 1);
+
+            const source = ctx.createBufferSource();
+            source.buffer = createNoiseBuffer();
+            source.loop = true;
+
+            const filter = ctx.createBiquadFilter();
+
+            if (type === 'train') {
+                // 기차 소리: 저주파 로우패스 (웅웅거리는 소리)
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(120, ctx.currentTime);
+                const createClack = () => {
+                    if (!isFocusing || isPaused || selectedSound !== 'train') return;
+                    const now = ctx.currentTime;
+                    ambientGain.gain.setTargetAtTime(0.6, now, 0.05);
+                    ambientGain.gain.setTargetAtTime(0.4, now + 0.15, 0.1);
+                    setTimeout(createClack, 1800);
+                };
+                createClack();
+            } else {
+                // 백색 소음: 부드러운 중고역대 로우패스 (치- 하는 소리)
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(1500, ctx.currentTime);
+            }
+
+            source.connect(filter);
+            filter.connect(ambientGain);
+            ambientGain.connect(ctx.destination);
+            source.start();
+            ambientSource = source;
+        };
+
+        const stopAmbient = () => {
+            if (ambientGain) {
+                ambientGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+                const oldSource = ambientSource;
+                setTimeout(() => { if (oldSource) oldSource.stop(); }, 500);
+            }
+        };
+
+        const setVolume = (v) => { if (ambientGain) ambientGain.gain.setTargetAtTime(v, ctx.currentTime, 0.1); };
+
+        return {
+            playDeparture: () => { init(); playTone(440, 'sine', 1, 0.2); setTimeout(() => playTone(554, 'sine', 1, 0.2), 200); },
+            playArrival: () => { init(); [523, 659, 783, 1046].forEach((f, i) => setTimeout(() => playTone(f, 'square', 0.6, 0.05), i * 150)); },
+            startAmbient,
+            stopAmbient,
+            setVolume,
+            resume: () => { if(ctx && ctx.state === 'suspended') ctx.resume(); }
+        };
+    })();
+
+    const startSelect = document.getElementById('start-station');
+    const endSelect = document.getElementById('end-station');
+    const activePathLine = document.getElementById('active-path');
+    const movingObject = document.getElementById('moving-object');
+    const pathListEl = document.getElementById('path-list');
+    const totalTimeDisplay = document.getElementById('total-time-display');
+    const startFocusBtn = document.getElementById('start-focus-btn');
+    const timerDisplay = document.getElementById('timer-display');
+    const progressBar = document.getElementById('progress-bar');
+    const focusDashboard = document.getElementById('focus-dashboard');
+    const cornerSoundPanel = document.getElementById('corner-sound-panel');
+    const tripStatus = document.getElementById('trip-status');
+    const bookingCard = document.getElementById('booking-card');
+    const pathCard = document.getElementById('path-card');
+    const resetModal = document.getElementById('reset-modal');
+
+    function init() {
+        STATIONS.forEach(s => {
+            startSelect.add(new Option(s.name, s.id));
+            endSelect.add(new Option(s.name, s.id));
+            const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            group.setAttribute('class', 'station-node');
+            group.onclick = () => handleStationClick(s.id);
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            circle.setAttribute('cx', s.x); circle.setAttribute('cy', s.y); circle.setAttribute('r', 5);
+            circle.setAttribute('fill', '#CBD5E0'); circle.setAttribute('stroke', 'white'); circle.setAttribute('stroke-width', '2');
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            text.setAttribute('x', s.x + 8); text.setAttribute('y', s.y + 4); text.setAttribute('font-size', '11');
+            text.setAttribute('font-weight', '700'); text.setAttribute('fill', '#4A5568'); text.textContent = s.name;
+            group.appendChild(circle); group.appendChild(text);
+            document.getElementById('stations-layer').appendChild(group);
+        });
+
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').textContent = now.toLocaleTimeString('ko-KR', { hour12: false });
+        }, 1000);
+
+        document.getElementById('add-leg-btn').onclick = addLeg;
+        startFocusBtn.onclick = startFocus;
+        document.getElementById('stop-focus-btn').onclick = () => resetModal.style.display = 'flex';
+        document.getElementById('modal-cancel-btn').onclick = () => resetModal.style.display = 'none';
+        document.getElementById('modal-confirm-btn').onclick = () => { resetModal.style.display = 'none'; resetToMain(); };
+        document.getElementById('pause-focus-btn').onclick = togglePause;
+        startSelect.onchange = updateLegPreview;
+        endSelect.onchange = updateLegPreview;
+
+        document.querySelectorAll('.sound-btn-mini').forEach(btn => {
+            btn.onclick = (e) => {
+                document.querySelectorAll('.sound-btn-mini').forEach(b => b.classList.replace('active', 'inactive'));
+                btn.classList.replace('inactive', 'active');
+                selectedSound = btn.dataset.sound;
+                if (isFocusing) AudioCtrl.startAmbient(selectedSound);
+            };
+        });
+
+        document.body.onclick = () => { AudioCtrl.resume(); document.getElementById('audio-hint').classList.add('hidden'); };
+    }
+
+    function togglePause() {
+        if (!isFocusing) return;
+        isPaused = !isPaused;
+        const btnIcon = document.getElementById('pause-btn-icon');
+        if (isPaused) {
+            btnIcon.textContent = "▶";
+            AudioCtrl.setVolume(0);
+        } else {
+            btnIcon.textContent = "⏸";
+            AudioCtrl.setVolume(0.4);
+        }
+    }
+
+    function updateLegPreview() {
+        if (isFocusing) return;
+        const fromId = startSelect.value;
+        const toId = endSelect.value;
+        if (fromId && toId && fromId !== toId) {
+            document.getElementById('preview-time').textContent = TRAVEL_TIMES[`${fromId}-${toId}`] || DEFAULT_TIME;
+            document.getElementById('leg-preview').classList.add('active');
+        } else { document.getElementById('leg-preview').classList.remove('active'); }
+    }
+
+    function handleStationClick(id) {
+        if (isFocusing) return;
+        if (!startSelect.value) { startSelect.value = id; }
+        else if (startSelect.value !== id) { endSelect.value = id; }
+        updateLegPreview();
+    }
+
+    function addLeg() {
+        if (isFocusing) return;
+        const fromId = startSelect.value, toId = endSelect.value;
+        if (!fromId || !toId || fromId === toId) return;
+        const fromS = STATIONS.find(s => s.id === fromId), toS = STATIONS.find(s => s.id === toId);
+        selectedPath.push({ from: fromS, to: toS, duration: TRAVEL_TIMES[`${fromId}-${toId}`] || DEFAULT_TIME });
+        startSelect.value = toId; endSelect.value = "";
+        renderPath(); updateLegPreview();
+    }
+
+    function renderPath() {
+        pathListEl.innerHTML = "";
+        let total = 0, pathD = "";
+        if (selectedPath.length === 0) {
+            pathListEl.innerHTML = `<p class="text-gray-400 text-sm text-center py-10">노선을 추가하여 집중을 시작하세요.</p>`;
+            activePathLine.setAttribute('d', ""); startFocusBtn.classList.add('hidden');
+            totalTimeDisplay.textContent = "0분"; return;
+        }
+        selectedPath.forEach((leg, i) => {
+            total += leg.duration;
+            if (i === 0) pathD += `M ${leg.from.x} ${leg.from.y} `;
+            pathD += `L ${leg.to.x} ${leg.to.y} `;
+            const item = document.createElement('div');
+            item.className = "ticket-card bg-gray-50 p-3 rounded-xl flex justify-between items-center animate-fadeIn";
+            item.innerHTML = `<div class="text-sm"><span class="font-bold">${leg.from.name}</span> <span class="text-gray-300 mx-1">➔</span> <span class="font-bold">${leg.to.name}</span></div>
+                    <div class="flex items-center gap-2"><span class="text-xs font-bold text-[#2AC1BC] bg-white px-2 py-1 rounded-lg">${leg.duration}분</span>
+                    ${!isFocusing ? `<button onclick="removeLeg(${i})" class="text-gray-300 hover:text-red-400 px-1">✕</button>` : ''}</div>`;
+            pathListEl.appendChild(item);
+        });
+        activePathLine.setAttribute('d', pathD); totalTimeDisplay.textContent = `${total}분`;
+        startFocusBtn.classList.remove('hidden');
+    }
+
+    window.removeLeg = (index) => { if (isFocusing) return; selectedPath.splice(index, 1); renderPath(); };
+
+    function toggleUIControls(lock) {
+        if (lock) { bookingCard.classList.add('locked'); pathCard.classList.add('locked'); }
+        else { bookingCard.classList.remove('locked'); pathCard.classList.remove('locked'); }
+        startSelect.disabled = endSelect.disabled = lock;
+        document.getElementById('add-leg-btn').classList.toggle('btn-disabled', lock);
+    }
+
+    function startFocus() {
+        if (selectedPath.length === 0) return;
+        isFocusing = true; isPaused = false;
+        initialTotalSeconds = selectedPath.reduce((acc, leg) => acc + leg.duration, 0) * 60;
+        totalSecondsRemaining = initialTotalSeconds;
+        toggleUIControls(true); renderPath();
+        tripStatus.style.display = 'none';
+        focusDashboard.classList.add('active');
+        cornerSoundPanel.classList.add('active');
+
+        AudioCtrl.playDeparture();
+        AudioCtrl.startAmbient(selectedSound);
+
+        if(timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(updateTimer, 1000);
+        updateTimerUI(); moveObject(0);
+    }
+
+    function updateTimer() {
+        if (isPaused) return;
+        if (totalSecondsRemaining <= 0) { completeFocus(); return; }
+        totalSecondsRemaining--; updateTimerUI();
+        moveObject(1 - (totalSecondsRemaining / initialTotalSeconds));
+    }
+
+    function updateTimerUI() {
+        const m = Math.floor(totalSecondsRemaining / 60), s = totalSecondsRemaining % 60;
+        timerDisplay.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        progressBar.style.width = `${((initialTotalSeconds - totalSecondsRemaining) / initialTotalSeconds) * 100}%`;
+        let acc = 0, elapsed = (initialTotalSeconds - totalSecondsRemaining) / 60, current = selectedPath[0];
+        for(let leg of selectedPath) { acc += leg.duration; if (elapsed <= acc) { current = leg; break; } }
+        document.getElementById('current-leg-info').textContent = `${current.from.name} ➔ ${current.to.name}`;
+    }
+
+    function moveObject(progress) {
+        const pathLength = activePathLine.getTotalLength();
+        if (pathLength === 0) return;
+        const point = activePathLine.getPointAtLength(progress * pathLength);
+        movingObject.setAttribute('transform', `translate(${point.x}, ${point.y})`);
+    }
+
+    function resetToMain() {
+        if (timerInterval) clearInterval(timerInterval);
+        isFocusing = isPaused = false;
+        AudioCtrl.stopAmbient();
+        focusDashboard.classList.remove('active');
+        cornerSoundPanel.classList.remove('active');
+        tripStatus.style.display = 'block';
+        movingObject.setAttribute('transform', 'translate(-100, -100)');
+        timerDisplay.textContent = "00:00";
+        progressBar.style.width = "0%";
+        toggleUIControls(false);
+        selectedPath = [];
+        startSelect.value = endSelect.value = "";
+        renderPath(); updateLegPreview();
+    }
+
+    function completeFocus() {
+        if (timerInterval) clearInterval(timerInterval);
+        AudioCtrl.stopAmbient();
+        AudioCtrl.playArrival();
+        const duration = Math.round(initialTotalSeconds / 60);
+        const name = selectedPath.map(p => p.from.name).join('➔') + '➔' + selectedPath[selectedPath.length-1].to.name;
+        history.unshift({ name, duration, date: new Date().toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) });
+        renderHistory();
+        setTimeout(() => { alert(`🎉 목적지에 도착했습니다!\n${duration}분간의 소중한 집중 시간을 지켜내셨습니다.`); resetToMain(); }, 100);
+    }
+
+    function renderHistory() {
+        const container = document.getElementById('history-list');
+        container.innerHTML = history.length ? "" : `<p class="col-span-2 text-gray-400 text-sm italic py-4">아직 완료된 여정이 없습니다.</p>`;
+        history.slice(0, 6).forEach(item => {
+            const el = document.createElement('div');
+            el.className = "flex justify-between items-center p-4 bg-white rounded-2xl border border-gray-100 woowa-shadow animate-fadeIn";
+            el.innerHTML = `<div class="flex flex-col"><span class="font-bold text-gray-800 text-sm truncate max-w-[150px]">${item.name}</span><span class="text-[10px] text-gray-400">${item.date}</span></div>
+                    <div class="text-right"><span class="text-[#2AC1BC] font-bold text-lg">${item.duration}</span> <span class="text-gray-400 text-xs font-bold">MIN</span></div>`;
+            container.appendChild(el);
+        });
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>

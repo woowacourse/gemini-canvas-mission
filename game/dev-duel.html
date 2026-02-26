@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Dev Duel: IQ Fighter - Power Expansion Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      background-color: #020617;
+      overflow: hidden;
+      font-family: 'Press Start 2P', cursive;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+    }
+    .ui-layer {
+      pointer-events: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+    #startOverlay {
+      pointer-events: auto;
+      background: radial-gradient(circle, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 1) 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .key-box {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid #3b82f6;
+      padding: 6px 10px;
+      border-radius: 6px;
+      color: white;
+      font-size: 8px;
+      margin: 2px;
+      display: inline-block;
+      box-shadow: 0 4px 0 #1d4ed8;
+    }
+    .ultimate-ready {
+      animation: pulse-gold 1s infinite alternate;
+    }
+    @keyframes pulse-gold {
+      from { filter: drop-shadow(0 0 5px #fbbf24); }
+      to { filter: drop-shadow(0 0 25px #fbbf24); }
+    }
+  </style>
+</head>
+<body>
+
+<div id="startOverlay" class="absolute inset-0 transition-opacity duration-1000">
+  <div class="mb-12 text-center">
+    <h1 class="text-5xl text-blue-500 mb-4 drop-shadow-[0_0_30px_rgba(59,130,246,0.8)]">IQ FIGHTER</h1>
+    <p class="text-[9px] text-cyan-300 tracking-[0.4em] font-bold uppercase">Health & Energy Expansion</p>
+  </div>
+
+  <button id="startBtn" class="group relative bg-blue-600 hover:bg-blue-500 text-white px-16 py-7 rounded-2xl border-b-8 border-blue-900 active:translate-y-2 active:border-b-0 transition-all text-2xl mb-12 shadow-[0_20px_50px_rgba(37,99,235,0.4)]">
+    <span class="relative group-hover:scale-110 block transition-transform">SYSTEM BOOT</span>
+  </button>
+
+  <div class="max-w-3xl bg-slate-900/90 p-8 rounded-[40px] border-2 border-blue-500/40 text-center shadow-2xl backdrop-blur-2xl grid grid-cols-3 gap-6">
+    <div class="text-left space-y-4">
+      <p class="text-[8px] text-cyan-400 font-black uppercase mb-4 tracking-tighter">Movement</p>
+      <div><span class="key-box">← →</span> <span class="text-[7px] text-white">MOVE</span></div>
+      <div><span class="key-box">SPACE</span> <span class="text-[7px] text-white">JUMP</span></div>
+      <div><span class="key-box">SHIFT</span> <span class="text-[7px] text-cyan-300">DASH</span></div>
+    </div>
+    <div class="text-left space-y-4 border-x border-slate-800 px-6">
+      <p class="text-[8px] text-rose-400 font-black uppercase mb-4 tracking-tighter">Combat</p>
+      <div><span class="key-box">A</span> <span class="text-[7px] text-white">DRILL</span></div>
+      <div><span class="key-box">S</span> <span class="text-[7px] text-white">HAMMER</span></div>
+      <div><span class="key-box">↓</span> <span class="text-[7px] text-white">GUARD</span></div>
+    </div>
+    <div class="text-left space-y-4 pl-6">
+      <p class="text-[8px] text-amber-400 font-black uppercase mb-4 tracking-tighter">Special</p>
+      <div><span class="key-box">D</span> <span class="text-[7px] text-white">ARROW (30E)</span></div>
+      <div><span class="key-box">F</span> <span class="text-[7px] text-amber-400 font-bold underline">ULTI (100E)</span></div>
+    </div>
+  </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div class="ui-layer p-8">
+  <!-- Main Stats UI -->
+  <div class="flex justify-between items-start max-w-7xl mx-auto w-full">
+    <div class="w-[38%]">
+      <div class="flex justify-between mb-2">
+        <span class="text-[9px] text-blue-400 font-black tracking-widest uppercase">IQ_ENGINE_v4</span>
+        <span id="pHealthText" class="text-[11px] text-white font-black tracking-tighter">100%</span>
+      </div>
+      <!-- Health Bar -->
+      <div class="h-4 bg-slate-950 border-2 border-blue-500/40 rounded-full p-0.5 shadow-lg relative overflow-hidden mb-2">
+        <div id="playerHealth" class="h-full bg-gradient-to-r from-blue-700 via-cyan-400 to-blue-500 rounded-full transition-all duration-300" style="width: 100%"></div>
+        <div class="absolute inset-0 bg-white/10 h-1/2"></div>
+      </div>
+      <!-- Energy Gauge -->
+      <div class="flex justify-between items-center mb-1">
+        <span class="text-[7px] text-cyan-500/70 uppercase">Tactical Energy</span>
+        <span id="pEnergyText" class="text-[7px] text-white/50">0%</span>
+      </div>
+      <div id="pEnergyBarContainer" class="h-2 bg-slate-950 border border-cyan-500/20 rounded-full p-0.5 relative">
+        <div id="playerEnergy" class="h-full bg-cyan-400 transition-all duration-300 shadow-[0_0_10px_rgba(34,211,238,0.5)]" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <div class="text-center px-8 -mt-4">
+      <div id="gameTimer" class="text-6xl text-white font-black drop-shadow-[0_0_30px_rgba(255,255,255,0.4)]">99</div>
+      <div class="text-[8px] text-slate-500 mt-2 tracking-[0.2em]">RUNTIME</div>
+    </div>
+
+    <div class="w-[38%] text-right">
+      <div class="flex justify-between mb-2">
+        <span id="eHealthText" class="text-[11px] text-white font-black tracking-tighter">100%</span>
+        <span class="text-[9px] text-rose-500 font-black tracking-widest uppercase">LEGACY_VIRUS</span>
+      </div>
+      <div class="h-4 bg-slate-950 border-2 border-rose-500/40 rounded-full p-0.5 shadow-lg relative overflow-hidden mb-2">
+        <div id="enemyHealth" class="h-full bg-gradient-to-l from-rose-700 via-pink-400 to-rose-500 rounded-full transition-all duration-300" style="width: 100%"></div>
+      </div>
+      <div class="h-2 bg-slate-950 border border-rose-500/20 rounded-full p-0.5">
+        <div id="enemyEnergy" class="h-full bg-rose-500 transition-all duration-300" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="comboContainer" class="mt-32 text-center opacity-0 transition-all duration-300 transform scale-50">
+    <div id="comboCount" class="text-9xl text-yellow-400 italic font-black drop-shadow-[0_15px_30px_rgba(234,179,8,0.6)]">0</div>
+    <div id="comboMessage" class="text-[16px] text-white tracking-[0.5em] mt-4 uppercase font-black">REFACTORING!</div>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const startOverlay = document.getElementById('startOverlay');
+  const startBtn = document.getElementById('startBtn');
+  const playerHealthBar = document.getElementById('playerHealth');
+  const enemyHealthBar = document.getElementById('enemyHealth');
+  const playerEnergyBar = document.getElementById('playerEnergy');
+  const enemyEnergyBar = document.getElementById('enemyEnergy');
+  const timerDisplay = document.getElementById('gameTimer');
+  const comboContainer = document.getElementById('comboContainer');
+  const comboCountDisplay = document.getElementById('comboCount');
+  const comboMsg = document.getElementById('comboMessage');
+
+  let gameActive = false;
+  let timer = 99;
+  const gravity = 1.1;
+  let particles = [];
+  let projectiles = [];
+  let damageTexts = [];
+  let combo = 0;
+  let comboTimer = null;
+  let drillRotation = 0;
+  let cameraShake = 0;
+  let hitStopTimer = 0;
+  let parallaxOffset = 0;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  class Sprite {
+    constructor({ position, isPlayer }) {
+      this.position = position;
+      this.velocity = { x: 0, y: 0 };
+      this.width = 75;
+      this.height = 150;
+      this.isPlayer = isPlayer;
+      // --- 개선된 체력 수치 ---
+      this.health = 3000;
+      this.maxHealth = 3000;
+      this.energy = 0;
+      this.maxEnergy = 100;
+
+      this.isAttacking = false;
+      this.attackType = 'none';
+      this.attackFrame = 0;
+      this.hasDealtDamage = false;
+
+      this.isJumping = false;
+      this.isGuarding = false;
+      this.isDashing = false;
+      this.dashCooldown = 0;
+      this.facing = isPlayer ? 1 : -1;
+
+      this.isKnockedDown = false;
+      this.knockdownTimer = 0;
+      this.invulnerableTimer = 0;
+      this.knockbackVelocity = 0;
+
+      this.ghosts = [];
+
+      this.attackBox = {
+        position: { x: this.position.x, y: this.position.y },
+        width: 180,
+        height: 120
+      };
+    }
+
+    draw() {
+      this.ghosts.forEach((g, i) => {
+        ctx.save();
+        ctx.globalAlpha = i / this.ghosts.length * 0.25;
+        ctx.translate(g.x + this.width / 2, g.y + this.height / 2);
+        if (this.facing === -1) ctx.scale(-1, 1);
+        this.draw3DBox(-this.width/2, -this.height/2, this.width, this.height, this.isPlayer ? '#0ea5e9' : '#e11d48', 'transparent');
+        ctx.restore();
+      });
+
+      if (this.invulnerableTimer > 0 && Math.floor(Date.now() / 80) % 2 === 0) return;
+
+      ctx.save();
+      ctx.translate(this.position.x + this.width / 2, this.position.y + this.height / 2);
+
+      if (this.isKnockedDown) {
+        ctx.rotate(this.facing === 1 ? -Math.PI / 2.3 : Math.PI / 2.3);
+        ctx.translate(0, 25);
+      } else {
+        if (this.facing === -1) ctx.scale(-1, 1);
+        if (this.isDashing) ctx.rotate(0.12);
+      }
+
+      const drawX = -this.width / 2;
+      const drawY = -this.height / 2;
+
+      if (this.isPlayer) {
+        // 3D IQ Warrior
+        this.draw3DBox(drawX + 10, drawY + 120, 25, 30, '#0f172a', '#334155');
+        this.draw3DBox(drawX + 40, drawY + 120, 25, 30, '#0f172a', '#334155');
+        this.draw3DBox(drawX + 5, drawY + 75, 65, 50, '#1e293b', '#475569');
+        this.draw3DBox(drawX, drawY + 30, this.width, 50, '#1d4ed8', '#3b82f6');
+        if (this.energy >= 100) {
+          ctx.shadowBlur = 20; ctx.shadowColor = '#fbbf24';
+          ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3;
+          ctx.strokeRect(drawX, drawY + 35, this.width, 50);
+          ctx.shadowBlur = 0;
+        }
+        this.draw3DBox(drawX + 15, drawY - 25, 45, 60, '#fde68a', '#fef3c7');
+        ctx.fillStyle = '#0f172a'; ctx.fillRect(drawX + 10, drawY + 5, 55, 18);
+        ctx.fillStyle = '#06b6d4'; ctx.shadowBlur = 10; ctx.shadowColor = '#06b6d4';
+        ctx.fillRect(drawX + 15, drawY + 9, 45, 8); ctx.shadowBlur = 0;
+      } else {
+        // 3D Bug Monster
+        const isBugOverclock = (this.health < this.maxHealth * 0.4);
+        this.draw3DBox(drawX, drawY + 10, this.width, 140, isBugOverclock ? '#450a0a' : '#4c0519', '#9f1239');
+        ctx.fillStyle = '#fff';
+        const eyeY = drawY + 30;
+        ctx.beginPath(); ctx.arc(drawX + 25, eyeY, 12, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#f43f5e'; ctx.beginPath(); ctx.arc(drawX + 27, eyeY, 6, 0, Math.PI*2); ctx.fill();
+      }
+
+      if (this.isAttacking && !this.isKnockedDown) {
+        const progress = this.attackFrame / 30;
+        if (this.attackType === 'light') {
+          ctx.save(); drillRotation += 1.8; ctx.translate(this.width/2 + 5, 0); ctx.rotate(drillRotation);
+          const g = ctx.createRadialGradient(0,0,5,0,0,60); g.addColorStop(0,'#f8fafc'); g.addColorStop(1,'#475569');
+          ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(75, 0); ctx.lineTo(-15, -45); ctx.lineTo(-15, 45); ctx.closePath(); ctx.fill(); ctx.restore();
+        } else if (this.attackType === 'heavy') {
+          ctx.save(); const hA = -2.4 + (Math.sin(progress * Math.PI) * 4.5); ctx.translate(-10, -25); ctx.rotate(hA);
+          this.draw3DBox(0, -8, 140, 16, '#451a03', '#78350f');
+          ctx.shadowBlur = 30; ctx.shadowColor = '#fbbf24';
+          this.draw3DBox(130, -60, 100, 120, '#b45309', '#fbbf24'); ctx.shadowBlur = 0; ctx.restore();
+        } else if (this.attackType === 'ultimate') {
+          ctx.save(); ctx.beginPath(); ctx.arc(0, 0, progress * 500, 0, Math.PI * 2);
+          ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 15; ctx.stroke(); ctx.restore();
+        }
+      }
+
+      if (this.isGuarding) {
+        ctx.strokeStyle = this.isPlayer ? '#06b6d4' : '#f43f5e';
+        ctx.lineWidth = 10; ctx.setLineDash([20, 10]);
+        ctx.strokeRect(drawX - 25, drawY - 25, this.width + 50, this.height + 50);
+        ctx.setLineDash([]);
+      }
+
+      ctx.restore();
+    }
+
+    draw3DBox(x, y, w, h, base, light) {
+      ctx.fillStyle = base; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = light; ctx.fillRect(x, y, w, h * 0.18); ctx.fillRect(x, y, w * 0.14, h);
+    }
+
+    update() {
+      if (this.knockdownTimer > 0) {
+        this.knockdownTimer--;
+        if (this.knockdownTimer === 0) {
+          this.isKnockedDown = false;
+          this.invulnerableTimer = 40;
+        }
+      }
+      if (this.invulnerableTimer > 0) this.invulnerableTimer--;
+      if (this.dashCooldown > 0) this.dashCooldown--;
+
+      if (this.isDashing || this.attackType === 'ultimate') {
+        this.ghosts.push({ x: this.position.x, y: this.position.y });
+        if (this.ghosts.length > 5) this.ghosts.shift();
+      } else {
+        if (this.ghosts.length > 0) this.ghosts.shift();
+      }
+
+      this.draw();
+
+      let boxW = this.attackType === 'light' ? 190 : this.attackType === 'heavy' ? 260 : this.attackType === 'ultimate' ? 600 : 0;
+      this.attackBox.width = boxW;
+      this.attackBox.position.x = this.facing === 1 ? this.position.x + this.width : this.position.x - boxW;
+      this.attackBox.position.y = this.position.y;
+
+      if (!this.isKnockedDown) {
+        if (this.isDashing) {
+          this.position.x += this.facing * 28;
+          parallaxOffset -= this.facing * 5;
+        } else {
+          this.position.x += this.velocity.x;
+          parallaxOffset -= this.velocity.x * 0.2;
+        }
+      }
+
+      this.position.x += this.knockbackVelocity;
+      this.knockbackVelocity *= 0.82;
+      this.position.y += this.velocity.y;
+
+      if (this.position.y + this.height + this.velocity.y >= canvas.height - 120) {
+        this.velocity.y = 0;
+        this.position.y = canvas.height - 120 - this.height;
+        this.isJumping = false;
+      } else {
+        this.velocity.y += gravity;
+      }
+
+      if (this.position.x < 0) this.position.x = 0;
+      if (this.position.x + this.width > canvas.width) this.position.x = canvas.width - this.width;
+
+      if (this.attackFrame > 0) this.attackFrame--;
+      else { this.isAttacking = false; this.hasDealtDamage = false; }
+
+      if (this.attackFrame === 0 && this.isDashing) this.isDashing = false;
+    }
+
+    attack(type) {
+      if (this.isAttacking || this.isGuarding || this.isKnockedDown) return;
+
+      if (type === 'special' && this.energy < 30) return createDamageText(this.position.x, this.position.y, "NO ENERGY", "#94a3b8");
+      if (type === 'ultimate' && this.energy < 100) return createDamageText(this.position.x, this.position.y, "NOT READY", "#fbbf24");
+
+      this.isAttacking = true; this.attackType = type; this.hasDealtDamage = false;
+      this.attackFrame = (type === 'light') ? 18 : (type === 'heavy') ? 42 : (type === 'ultimate') ? 60 : 25;
+
+      if (type === 'special') {
+        this.energy -= 30;
+        projectiles.push({
+          x: this.facing === 1 ? this.position.x + this.width : this.position.x,
+          y: this.position.y + 80, vx: this.facing * 28, owner: this.isPlayer ? 'player' : 'enemy', active: true
+        });
+      } else if (type === 'ultimate') {
+        this.energy = 0;
+        cameraShake = 40;
+      }
+      updateGauges();
+    }
+
+    dash() {
+      if (this.dashCooldown > 0 || this.isKnockedDown || this.isGuarding) return;
+      this.isDashing = true;
+      this.dashCooldown = 45;
+      this.attackFrame = 12;
+    }
+
+    takeKnockdown(force) {
+      if (this.invulnerableTimer > 0 || this.isGuarding) return;
+      this.isKnockedDown = true;
+      this.isAttacking = false;
+      this.knockdownTimer = 65;
+      this.knockbackVelocity = force;
+      this.velocity.y = -13;
+      cameraShake = 25;
+    }
+  }
+
+  const player = new Sprite({ position: { x: 300, y: 0 }, isPlayer: true });
+  const enemy = new Sprite({ position: { x: canvas.width - 500, y: 0 }, isPlayer: false });
+
+  const keys = { left: false, right: false, down: false };
+
+  window.addEventListener('keydown', (e) => {
+    if (!gameActive) return;
+    if (e.code === 'ArrowLeft') { keys.left = true; if(!player.isKnockedDown) player.facing = -1; }
+    if (e.code === 'ArrowRight') { keys.right = true; if(!player.isKnockedDown) player.facing = 1; }
+    if (e.code === 'ArrowDown') { player.isGuarding = true; }
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { player.dash(); }
+    if (e.code === 'Space' && !player.isJumping && !player.isKnockedDown) { player.velocity.y = -28; player.isJumping = true; }
+    if (e.code === 'KeyA') player.attack('light');
+    if (e.code === 'KeyS') player.attack('heavy');
+    if (e.code === 'KeyD') player.attack('special');
+    if (e.code === 'KeyF') player.attack('ultimate');
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowLeft') keys.left = false;
+    if (e.code === 'ArrowRight') keys.right = false;
+    if (e.code === 'ArrowDown') player.isGuarding = false;
+  });
+
+  function updateGauges() {
+    playerHealthBar.style.width = (player.health / player.maxHealth * 100) + '%';
+    enemyHealthBar.style.width = (enemy.health / enemy.maxHealth * 100) + '%';
+    playerEnergyBar.style.width = player.energy + '%';
+    enemyEnergyBar.style.width = enemy.energy + '%';
+
+    const pBar = document.getElementById('pEnergyBarContainer');
+    if (player.energy >= 100) pBar.classList.add('ultimate-ready');
+    else pBar.classList.remove('ultimate-ready');
+
+    document.getElementById('pHealthText').innerText = Math.ceil(player.health / player.maxHealth * 100) + '%';
+    document.getElementById('eHealthText').innerText = Math.ceil(enemy.health / enemy.maxHealth * 100) + '%';
+    document.getElementById('pEnergyText').innerText = Math.floor(player.energy) + '%';
+  }
+
+  function handleDamage(attacker, defender, amount, force, isArrow = false) {
+    if (attacker.hasDealtDamage || defender.invulnerableTimer > 0) return;
+
+    let finalDmg = defender.isGuarding ? amount * 0.05 : amount;
+    defender.health -= finalDmg;
+    attacker.hasDealtDamage = true;
+    hitStopTimer = (finalDmg > 100) ? 6 : 2;
+
+    // --- 개선된 에너지 획득량 ---
+    attacker.energy = Math.min(attacker.maxEnergy, attacker.energy + (isArrow ? 10 : 25));
+    updateGauges();
+
+    if (!defender.isGuarding && (attacker.attackType === 'heavy' || attacker.attackType === 'ultimate' || force > 20)) {
+      defender.takeKnockdown(attacker.facing * (attacker.attackType === 'ultimate' ? 35 : 22));
+      if (attacker.isPlayer) {
+        comboMsg.innerText = attacker.attackType === 'ultimate' ? "MEGA CLEAN UP!" : "FATAL BREAK!";
+        comboMsg.style.color = "#fbbf24";
+      }
+    } else {
+      defender.knockbackVelocity = attacker.facing * 10;
+      cameraShake = finalDmg > 60 ? 15 : 6;
+    }
+
+    createFX(defender.position.x + 40, defender.position.y + 80, defender.isPlayer ? '#0ea5e9' : '#f43f5e', finalDmg > 100);
+    createDamageText(defender.position.x + 40, defender.position.y - 20, `-${Math.ceil(finalDmg)}`, defender.isGuarding ? '#64748b' : '#fff');
+
+    if (attacker.isPlayer) {
+      combo++; clearTimeout(comboTimer);
+      comboContainer.style.opacity = 1; comboContainer.style.transform = 'scale(1)';
+      comboCountDisplay.innerText = combo;
+      comboTimer = setTimeout(() => { combo = 0; comboContainer.style.opacity = 0; }, 1800);
+    }
+    if (defender.health <= 0) gameOver(attacker.isPlayer ? "MISSION_COMPLETE" : "DEBUG_FAILED");
+  }
+
+  function createFX(x, y, col, big = false) {
+    const count = big ? 40 : 20;
+    for (let i = 0; i < count; i++) {
+      particles.push({ x, y, vx: (Math.random()-0.5)*25, vy: (Math.random()-0.5)*25, size: Math.random()*12+3, life: 1, color: col });
+    }
+  }
+
+  function createDamageText(x, y, text, color) {
+    damageTexts.push({ x, y, text, color, life: 1.0, vy: -5 });
+  }
+
+  function animate() {
+    if (!gameActive) return;
+    if (hitStopTimer > 0) { hitStopTimer--; requestAnimationFrame(animate); return; }
+
+    requestAnimationFrame(animate);
+    ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Parallax BG
+    ctx.save();
+    ctx.font = '10px monospace'; ctx.fillStyle = '#1e293b';
+    for(let i=0; i<15; i++) {
+      let x = (parallaxOffset * (0.5 + i*0.1) + i*200) % canvas.width;
+      if (x < 0) x += canvas.width;
+      ctx.fillText('01011100 00110101 11100010 10101010', x, i * 60);
+    }
+    ctx.restore();
+
+    // Neon Tron Ground
+    ctx.save();
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, canvas.height - 120, canvas.width, 120);
+    ctx.strokeStyle = '#3b82f6'; ctx.globalAlpha = 0.4;
+    for(let i=-canvas.width; i<canvas.width*2; i+=100) {
+      ctx.beginPath(); ctx.moveTo(canvas.width/2, canvas.height-120); ctx.lineTo(i + parallaxOffset, canvas.height); ctx.stroke();
+    }
+    ctx.restore();
+
+    player.velocity.x = 0;
+    if (keys.left && !player.isGuarding && !player.isKnockedDown) player.velocity.x = -11;
+    if (keys.right && !player.isGuarding && !player.isKnockedDown) player.velocity.x = 11;
+
+    player.update(); enemy.update();
+
+    // AI Update
+    if (!enemy.isKnockedDown) {
+      const dist = player.position.x - enemy.position.x;
+      enemy.facing = dist > 0 ? 1 : -1;
+      const isOverclock = enemy.health < enemy.maxHealth * 0.4;
+      const aiSpeed = isOverclock ? 6.5 : 4.5;
+
+      if (Math.abs(dist) > 280) enemy.velocity.x = dist > 0 ? aiSpeed : -aiSpeed;
+      else {
+        enemy.velocity.x = 0;
+        if (Math.random() < (isOverclock ? 0.06 : 0.03) && !enemy.isAttacking)
+          enemy.attack(['light', 'heavy'][Math.floor(Math.random()*2)]);
+      }
+      enemy.energy = Math.min(100, enemy.energy + 0.15);
+      if (enemy.energy >= 30 && Math.random() < 0.015) enemy.attack('special');
+      updateGauges();
+    }
+
+    projectiles.forEach(p => {
+      p.x += p.vx;
+      ctx.shadowBlur = 20; ctx.shadowColor = p.owner === 'player' ? '#06b6d4' : '#f43f5e';
+      ctx.fillStyle = p.owner === 'player' ? '#06b6d4' : '#f43f5e'; ctx.fillRect(p.x, p.y, 80, 5);
+      ctx.shadowBlur = 0;
+      const t = p.owner === 'player' ? enemy : player;
+      if (p.x > t.position.x && p.x < t.position.x + t.width && p.y > t.position.y && p.y < t.position.y + t.height) {
+        handleDamage(p.owner === 'player' ? player : enemy, t, 120, 25, true); p.active = false;
+      }
+      if (p.x < -200 || p.x > canvas.width + 200) p.active = false;
+    });
+    projectiles = projectiles.filter(p => p.active);
+
+    if (player.isAttacking && player.attackType !== 'special' && checkCollision(player, enemy)) {
+      let dmg = player.attackType === 'light' ? 80 : player.attackType === 'ultimate' ? 800 : 350;
+      handleDamage(player, enemy, dmg, 0);
+    }
+    if (enemy.isAttacking && enemy.attackType !== 'special' && checkCollision(enemy, player)) handleDamage(enemy, player, enemy.attackType === 'light' ? 80 : 350, 0);
+
+    damageTexts.forEach(t => { t.y += t.vy; t.life -= 0.02; ctx.globalAlpha = Math.max(0, t.life); ctx.fillStyle = t.color; ctx.font = 'bold 24px sans-serif'; ctx.fillText(t.text, t.x, t.y); });
+    damageTexts = damageTexts.filter(t => t.life > 0);
+    particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life -= 0.025; ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); });
+    particles = particles.filter(p => p.life > 0);
+    ctx.globalAlpha = 1;
+    if (cameraShake > 0) cameraShake *= 0.85;
+  }
+
+  function checkCollision(r1, r2) {
+    return r1.attackBox.position.x + r1.attackBox.width >= r2.position.x && r1.attackBox.position.x <= r2.position.x + r2.width &&
+        r1.attackBox.position.y + r1.attackBox.height >= r2.position.y && r1.attackBox.position.y <= r2.position.y + r2.height;
+  }
+
+  function gameOver(res) {
+    gameActive = false; startOverlay.style.display = 'flex';
+    startOverlay.querySelector('h1').innerText = res;
+    startOverlay.querySelector('h1').className = "text-6xl mb-6 font-black " + (res === "MISSION_COMPLETE" ? "text-emerald-400" : "text-rose-500");
+    startBtn.innerText = "RE-DEPLOY";
+  }
+
+  startBtn.onclick = () => {
+    player.health = player.maxHealth; enemy.health = enemy.maxHealth;
+    player.energy = 0; enemy.energy = 0;
+    player.position = { x: 300, y: 0 }; enemy.position = { x: canvas.width - 500, y: 0 };
+    updateGauges();
+    timer = 99; projectiles = []; damageTexts = []; particles = [];
+    player.isKnockedDown = false; enemy.isKnockedDown = false;
+    gameActive = true; startOverlay.style.display = 'none';
+    animate();
+  };
+
+  setInterval(() => { if (gameActive && timer > 0) { timer--; timerDisplay.innerText = timer; if (timer === 0) gameOver(player.health > enemy.health ? "MISSION_COMPLETE" : "TIME UP"); } }, 1000);
+</script>
+</body>
+</html>

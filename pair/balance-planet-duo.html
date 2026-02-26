@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>위태위태 행성 쌓기 - 2인용</title>
+  <!-- 물리 엔진 (Matter.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <!-- 스타일링 (Tailwind CSS) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 웹 폰트 적용 */
+    @import url('https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&display=swap');
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #0f172a;
+      font-family: 'Gaegu', cursive;
+      user-select: none; /* 드래그 시 텍스트 선택 방지 */
+    }
+    canvas { display: block; }
+
+    /* UI 오버레이 화면 (시작 및 종료 화면) */
+    .overlay-screen {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.96);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    /* UI 카드 스타일 */
+    .ui-card {
+      background: #1e293b;
+      padding: 2.5rem;
+      border-radius: 2.5rem;
+      border: 5px solid #ffffff;
+      box-shadow: 0 0 40px rgba(255,255,255,0.15);
+      text-align: center;
+      width: 90%;
+      max-width: 500px;
+    }
+
+    /* 입력 폼 스타일 */
+    .input-group {
+      margin-bottom: 1.8rem;
+      text-align: left;
+    }
+    .input-group label {
+      display: block;
+      color: #cbd5e1;
+      margin-bottom: 0.6rem;
+      font-size: 1.5rem;
+      font-weight: bold;
+    }
+    .input-group input {
+      width: 100%;
+      padding: 1rem 1.4rem;
+      border-radius: 1.2rem;
+      border: 3px solid #ffffff;
+      background: #0f172a;
+      color: white;
+      font-size: 2rem;
+      font-family: 'Gaegu';
+      transition: all 0.3s;
+    }
+    .input-group input:focus {
+      background: #1e293b;
+      outline: none;
+    }
+
+    /* 인게임 상단 UI */
+    .game-ui {
+      position: absolute;
+      top: 20px;
+      left: 0;
+      right: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .scoreboard {
+      display: flex;
+      justify-content: space-between;
+      width: 95%;
+      max-width: 900px;
+      pointer-events: none;
+    }
+
+    /* 플레이어 상태 박스 */
+    .player-box {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(12px);
+      padding: 15px 25px;
+      border-radius: 25px;
+      border: 3px solid rgba(255,255,255,0.2);
+      width: 260px;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    /* 현재 턴인 플레이어 강조 */
+    .active-p1 { border-color: #3b82f6; box-shadow: 0 0 20px #3b82f6; background: rgba(59, 130, 246, 0.3); }
+    .active-p2 { border-color: #ef4444; box-shadow: 0 0 20px #ef4444; background: rgba(239, 68, 68, 0.3); }
+
+    #modal { display: none; }
+
+    /* 화면 중앙 알림 메시지 */
+    .floating-msg {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 5rem;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.5s;
+      z-index: 500;
+      font-weight: bold;
+      text-shadow: 0 0 30px rgba(0,0,0,0.8);
+    }
+
+    /* 메인 버튼 스타일 */
+    .btn-boxed {
+      @apply flex items-center justify-center w-full transition-all active:scale-95;
+      background-color: transparent;
+      border: 5px solid #ffffff;
+      color: #ffffff;
+      font-size: 3.5rem;
+      font-weight: bold;
+      padding: 1rem 0;
+      border-radius: 1.2rem;
+      margin-bottom: 1.5rem;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    .btn-boxed:hover {
+      background-color: #ffffff;
+      color: #1e293b;
+    }
+
+    /* 보조 버튼 스타일 */
+    .btn-boxed-secondary {
+      @apply flex items-center justify-center w-full transition-all active:scale-95;
+      background-color: transparent;
+      border: 4px solid rgba(255, 255, 255, 0.6);
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 2.8rem;
+      font-weight: bold;
+      padding: 0.8rem 0;
+      border-radius: 1.2rem;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    .btn-boxed-secondary:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+      border-color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+
+<!-- 초기 설정 화면 -->
+<div id="start-screen" class="overlay-screen">
+  <div class="ui-card">
+    <h1 class="text-6xl font-bold text-white mb-10">행성 쌓기 대결</h1>
+    <div class="input-group">
+      <label>플레이어 1 (파랑)</label>
+      <input type="text" id="p1-name" value="탐사원1" maxlength="8">
+    </div>
+    <div class="input-group">
+      <label>플레이어 2 (빨강)</label>
+      <input type="text" id="p2-name" value="탐사원2" maxlength="8">
+    </div>
+    <button onclick="startGame()" class="btn-boxed">대결 시작</button>
+  </div>
+</div>
+
+<!-- 인게임 UI -->
+<div class="game-ui" id="in-game-ui" style="display: none;">
+  <div class="scoreboard">
+    <div id="p1-box" class="player-box active-p1">
+      <div id="p1-label" class="text-white text-3xl font-bold">플레이어 1</div>
+    </div>
+    <div class="flex flex-col items-center justify-center">
+      <div class="text-white text-5xl font-bold mb-1">SCORE <span id="score-display">0</span></div>
+      <div class="text-white/70 text-lg">하나라도 떨어지면 패배!</div>
+    </div>
+    <div id="p2-box" class="player-box">
+      <div id="p2-label" class="text-white text-3xl font-bold text-right">플레이어 2</div>
+    </div>
+  </div>
+</div>
+
+<div id="status-msg" class="floating-msg">무너짐!</div>
+
+<!-- 결과 화면 (모달) -->
+<div id="modal" class="overlay-screen">
+  <div class="ui-card">
+    <h2 id="winner-text" class="text-6xl font-bold mb-6 text-white">승리!</h2>
+    <p id="reason-text" class="text-slate-300 mb-10 text-3xl">탑이 무너졌습니다.</p>
+    <button onclick="restartGame()" class="btn-boxed">복수하러 가기</button>
+    <button onclick="goToHome()" class="btn-boxed-secondary">홈 화면으로</button>
+  </div>
+</div>
+
+<script>
+  // Matter.js 모듈 추출
+  const { Engine, Render, Runner, Bodies, Composite, Events, Body } = Matter;
+
+  let engine, render, runner, world;
+  let p1Name, p2Name;
+  let currentPlayer = 1;
+  let gameState = 'IDLE';
+  let currentPlanet = null;
+  let stonesCount = 0;
+  let platform;
+  let towerStones = new Set();
+
+  const COLORS = { p1: '#3b82f6', p2: '#ef4444' };
+  // 행성 표정 타입
+  const PLANET_TYPES = ['NORMAL', 'EXERCISE', 'FIRE', 'TALK', 'PARTY'];
+
+  // 게임 시작 함수
+  function startGame() {
+    p1Name = document.getElementById('p1-name').value || "P1";
+    p2Name = document.getElementById('p2-name').value || "P2";
+
+    document.getElementById('p1-label').innerText = p1Name;
+    document.getElementById('p2-label').innerText = p2Name;
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('in-game-ui').style.display = 'flex';
+
+    if (!engine) {
+      initEngine();
+    }
+    resetGameSession();
+  }
+
+  // 물리 엔진 초기화
+  function initEngine() {
+    engine = Engine.create();
+    world = engine.world;
+    world.gravity.y = 1.2; // 중력을 살짝 낮춰 더 안정적으로 만듦
+
+    render = Render.create({
+      element: document.body,
+      engine: engine,
+      options: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        wireframes: false,
+        background: '#0f172a'
+      }
+    });
+
+    Render.run(render);
+    runner = Runner.create();
+    Runner.run(runner, engine);
+
+    // 이벤트 리스너 등록
+    window.addEventListener('mousemove', handleMouseMove);
+    // 터치 디바이스 지원 (모바일/태블릿)
+    window.addEventListener('touchmove', (e) => {
+      if(e.touches.length > 0) handleMouseMove(e.touches[0]);
+    }, { passive: false });
+
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('touchstart', handleMouseDown, { passive: false });
+
+    window.addEventListener('resize', handleResize);
+
+    // 충돌 감지 (아파하는 표정 처리)
+    Events.on(engine, 'collisionStart', (event) => {
+      event.pairs.forEach(pair => {
+        if (pair.bodyA.label === 'planet') triggerHurtExpression(pair.bodyA);
+        if (pair.bodyB.label === 'planet') triggerHurtExpression(pair.bodyB);
+      });
+    });
+
+    Events.on(engine, 'afterUpdate', checkPhysics);
+    Events.on(render, 'afterRender', drawPlanetCharacters);
+  }
+
+  // 초기 맵 (지지대) 세팅
+  function setupWorld() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    // 지지대 생성
+    platform = Bodies.rectangle(w/2, h - 120, 500, 40, {
+      isStatic: true,
+      chamfer: { radius: 10 },
+      friction: 1.0, // 지지대 마찰력 최대
+      render: { fillStyle: '#334155', strokeStyle: '#ffffff', lineWidth: 4 }
+    });
+
+    Composite.add(world, platform);
+  }
+
+  // 부딪혔을 때 표정 변경
+  function triggerHurtExpression(body) {
+    if (!body.plugin || body.plugin.isHurting) return;
+    body.plugin.isHurting = true;
+    body.plugin.prevType = body.plugin.charType;
+    body.plugin.charType = 'SCREAM';
+    setTimeout(() => {
+      if (body.plugin) {
+        body.plugin.charType = body.plugin.prevType || 'NORMAL';
+        body.plugin.isHurting = false;
+      }
+    }, 600);
+  }
+
+  // 게임 세션 초기화
+  function resetGameSession() {
+    gameState = 'IDLE';
+    Composite.clear(world, false);
+    setupWorld();
+
+    towerStones.clear();
+    stonesCount = 0;
+    currentPlayer = 1;
+    currentPlanet = null;
+
+    document.getElementById('score-display').innerText = '0';
+    document.getElementById('modal').style.display = 'none';
+
+    updateUI();
+    setTimeout(createPreviewPlanet, 400);
+  }
+
+  // 떨어뜨릴 행성 준비
+  function createPreviewPlanet() {
+    if (gameState === 'GAME_OVER') return;
+
+    gameState = 'AIMING';
+    const w = window.innerWidth;
+    const type = PLANET_TYPES[Math.floor(Math.random() * PLANET_TYPES.length)];
+    const sides = Math.floor(Math.random() * 5) + 3; // 3~7각형
+    const radius = 25 + Math.random() * 55; // 크기 랜덤
+
+    currentPlanet = Bodies.polygon(w / 2, 120, sides, radius, {
+      isStatic: true, // 처음엔 마우스를 따라다니도록 고정
+      friction: 0.95,     // 마찰력 대폭 증가 (서로 잘 붙음)
+      restitution: 0.05,  // 탄성 대폭 감소 (덜 튐)
+      frictionAir: 0.05,  // 공기 저항 추가 (안정화 속도 향상)
+      label: 'planet',
+      plugin: {
+        charType: type,
+        radius: radius,
+        owner: currentPlayer,
+        isSettled: false,
+        isHurting: false
+      },
+      render: {
+        fillStyle: '#ffffff',
+        strokeStyle: currentPlayer === 1 ? COLORS.p1 : COLORS.p2,
+        lineWidth: 6
+      }
+    });
+
+    Body.setAngle(currentPlanet, Math.random() * Math.PI); // 무작위 각도
+    Composite.add(world, currentPlanet);
+  }
+
+  // 마우스/터치 이동 처리
+  function handleMouseMove(e) {
+    if (gameState === 'AIMING' && currentPlanet) {
+      Body.setPosition(currentPlanet, { x: e.clientX, y: 120 });
+    }
+  }
+
+  // 마우스 클릭 / 터치 시 행성 떨어뜨림
+  function handleMouseDown(e) {
+    // UI를 클릭한 경우는 무시 (버튼이나 모달 클릭 시)
+    if (e.target.closest('.ui-card')) return;
+
+    if (gameState === 'AIMING' && currentPlanet) {
+      Body.setStatic(currentPlanet, false);
+      gameState = 'DROPPING';
+      Body.setAngularVelocity(currentPlanet, (Math.random() - 0.5) * 0.05); // 살짝 회전력 부여
+    }
+  }
+
+  // 매 프레임마다 상태 확인
+  function checkPhysics() {
+    if (gameState === 'GAME_OVER') return;
+
+    const allPlanets = Composite.allBodies(world).filter(b => b.label === 'planet' && !b.isStatic);
+
+    for (let b of allPlanets) {
+      // 바닥(화면 아래)으로 추락 감지
+      if (b.position.y > window.innerHeight - 50) {
+        handlePlanetFall(b);
+        return;
+      }
+    }
+
+    // 행성이 탑에 안착했는지 판정
+    if (gameState === 'DROPPING' && currentPlanet) {
+      // 속도가 매우 느려졌고, 어느 정도 아래로 내려왔을 때
+      if (currentPlanet.speed < 0.2 && currentPlanet.position.y > 150) {
+        if (!currentPlanet.plugin.isSettled) {
+          currentPlanet.plugin.isSettled = true;
+          towerStones.add(currentPlanet);
+          stonesCount = towerStones.size;
+          document.getElementById('score-display').innerText = stonesCount;
+          switchTurn(); // 턴 넘기기
+        }
+      }
+    }
+  }
+
+  // 행성 추락 처리
+  function handlePlanetFall(fallenBody) {
+    if (gameState === 'GAME_OVER') return;
+    showMsg("탈락!");
+    endGame("행성을 떨어뜨렸습니다!");
+  }
+
+  // 화면 중앙 메시지 표시
+  function showMsg(text) {
+    const el = document.getElementById('status-msg');
+    el.innerText = text;
+    el.style.opacity = '1';
+    setTimeout(() => { if(el.innerText === text) el.style.opacity = '0'; }, 1000);
+  }
+
+  // 턴 전환
+  function switchTurn() {
+    if (gameState === 'GAME_OVER') return;
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    updateUI();
+    gameState = 'SETTLING';
+    // 잠시 대기 후 다음 행성 생성
+    setTimeout(() => {
+      if (gameState !== 'GAME_OVER') createPreviewPlanet();
+    }, 800);
+  }
+
+  // 상단 플레이어 테두리 UI 업데이트
+  function updateUI() {
+    const p1Box = document.getElementById('p1-box');
+    const p2Box = document.getElementById('p2-box');
+
+    p1Box.className = `player-box ${currentPlayer === 1 ? 'active-p1' : ''}`;
+    p2Box.className = `player-box ${currentPlayer === 2 ? 'active-p2' : ''}`;
+  }
+
+  // 게임 종료 처리
+  function endGame(reason) {
+    gameState = 'GAME_OVER';
+
+    // 현재 플레이어가 떨어뜨린 것이므로, 승자는 상대방
+    const winnerName = currentPlayer === 1 ? p2Name : p1Name;
+    const winnerColor = currentPlayer === 1 ? COLORS.p2 : COLORS.p1;
+
+    const modal = document.getElementById('modal');
+    document.getElementById('winner-text').innerText = `${winnerName} 승리!`;
+    document.getElementById('winner-text').style.color = winnerColor;
+    document.getElementById('reason-text').innerText = reason;
+    modal.style.display = 'flex';
+  }
+
+  function restartGame() {
+    resetGameSession();
+  }
+
+  function goToHome() {
+    document.getElementById('modal').style.display = 'none';
+    document.getElementById('in-game-ui').style.display = 'none';
+    document.getElementById('start-screen').style.display = 'flex';
+    Composite.clear(world, true);
+    gameState = 'IDLE';
+  }
+
+  // 화면 크기 변경 시 캔버스 및 지지대 크기 재조정
+  function handleResize() {
+    if (render) {
+      render.canvas.width = window.innerWidth;
+      render.canvas.height = window.innerHeight;
+      if(platform) Body.setPosition(platform, { x: window.innerWidth / 2, y: window.innerHeight - 120 });
+    }
+  }
+
+  // 물리 엔진 렌더링 후 캔버스에 행성 표정 및 데코레이션 그리기
+  function drawPlanetCharacters() {
+    const context = render.context;
+    const bodies = Composite.allBodies(world).filter(b => b.label === 'planet');
+
+    bodies.forEach(body => {
+      const { x, y } = body.position;
+      const r = body.plugin.radius;
+      const type = body.plugin.charType;
+      const angle = body.angle;
+
+      context.save();
+      context.translate(x, y);
+      context.rotate(angle);
+
+      // 토성 같은 고리 장식
+      context.beginPath();
+      context.ellipse(0, 0, r * 1.6, r * 0.35, 0, 0, Math.PI * 2);
+      context.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      context.lineWidth = 5;
+      context.stroke();
+
+      context.fillStyle = '#000';
+      context.strokeStyle = '#000';
+      context.lineWidth = 3;
+
+      // 행성 표정 그리기
+      if (type === 'SCREAM') {
+        context.font = `bold ${r*0.6}px Arial`;
+        context.textAlign = 'center';
+        context.fillText('> <', 0, r*0.1);
+        context.beginPath(); context.arc(0, r*0.4, r*0.15, 0, Math.PI*2); context.fill();
+      } else if (type === 'EXERCISE') {
+        drawEyes(context, r, -0.1);
+        context.beginPath(); context.arc(0, r*0.3, r*0.1, 0, Math.PI, true); context.stroke();
+      } else if (type === 'FIRE') {
+        drawEyes(context, r, -0.1);
+        context.fillStyle = '#f97316'; context.beginPath();
+        context.moveTo(-r*0.3, r*0.4); context.lineTo(0, r*0.8); context.lineTo(r*0.3, r*0.4); context.fill();
+      } else if (type === 'PARTY') {
+        drawEyes(context, r, 0);
+        context.fillStyle = '#fbbf24'; context.beginPath();
+        context.moveTo(-r*0.3, -r*0.8); context.lineTo(0, -r*1.3); context.lineTo(r*0.3, -r*0.8); context.fill();
+      } else {
+        drawEyes(context, r, 0);
+        context.beginPath(); context.arc(0, r*0.2, r*0.1, 0, Math.PI); context.stroke();
+      }
+      context.restore();
+    });
+  }
+
+  // 눈 그리기 유틸리티 함수
+  function drawEyes(ctx, r, offset) {
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(-r * 0.25, offset * r, r * 0.08, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(r * 0.25, offset * r, r * 0.08, 0, Math.PI * 2); ctx.fill();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DB & JPA Deep Dive AI-INSTRUCT</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* 커스텀 스크롤바 숨김 처리 */
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 p-4 md:p-6 text-slate-900 dark:text-slate-100 font-sans relative overflow-hidden min-h-screen">
+
+<!-- Intelligent Notification Overlay -->
+<div id="notification-container" class="fixed top-20 right-4 z-50 w-80 transition-all duration-300"></div>
+
+<div class="max-w-6xl mx-auto space-y-6">
+
+  <!-- Header -->
+  <header class="flex justify-between items-center border-b pb-4 border-slate-200 dark:border-slate-800">
+    <div class="flex items-center gap-3">
+      <div class="p-2 bg-blue-600 rounded-lg text-white shadow-lg shadow-blue-500/20">
+        <i data-lucide="database" class="w-6 h-6"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-black">DB & JPA Deep Dive <span class="text-blue-500 text-xs font-bold ml-2 tracking-tighter">AI-INSTRUCT</span></h1>
+        <p class="text-[10px] text-slate-500 font-bold uppercase tracking-widest underline decoration-blue-500 underline-offset-4">IQ (Han Dong-hee)</p>
+      </div>
+    </div>
+    <button onclick="window.location.reload()" class="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors">
+      <i data-lucide="rotate-ccw" class="w-[18px] h-[18px]"></i>
+    </button>
+  </header>
+
+  <!-- Action Controls -->
+  <div class="space-y-4">
+    <div class="flex flex-wrap gap-2 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div class="px-2 py-1 text-[9px] font-black text-slate-400 uppercase w-full mb-1">Entity Lifecycle Actions</div>
+
+      <button onclick="handlePersist(40, 'Neo')" title="엔티티를 영속 상태로 만듭니다." class="px-3 py-2 rounded-xl text-white font-bold text-[10px] flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-md min-w-[70px] bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i><span>persist()</span>
+      </button>
+      <button onclick="handleFind(10)" title="PK로 엔티티를 조회합니다." class="px-3 py-2 rounded-xl text-white font-bold text-[10px] flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-md min-w-[70px] bg-blue-600 hover:bg-blue-700 shadow-blue-200">
+        <i data-lucide="search" class="w-3.5 h-3.5"></i><span>find(10)</span>
+      </button>
+      <button onclick="handleUpdate(10, 'IQ_v2')" title="엔티티 값을 변경합니다 (Dirty Checking)" class="px-3 py-2 rounded-xl text-white font-bold text-[10px] flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-md min-w-[70px] bg-amber-500 hover:bg-amber-600 shadow-amber-200">
+        <i data-lucide="zap" class="w-3.5 h-3.5"></i><span>update(10)</span>
+      </button>
+      <button onclick="handleRemove(20)" title="엔티티를 삭제 예약합니다." class="px-3 py-2 rounded-xl text-white font-bold text-[10px] flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-md min-w-[70px] bg-rose-600 hover:bg-rose-700 shadow-rose-200">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i><span>remove(20)</span>
+      </button>
+
+      <div class="w-[1px] bg-slate-200 dark:bg-slate-800 mx-1"></div>
+
+      <button onclick="handleClear()" title="1차 캐시를 완전히 비웁니다." class="px-3 py-2 rounded-xl text-white font-bold text-[10px] flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-md min-w-[70px] bg-slate-700 hover:bg-slate-800 shadow-slate-200">
+        <i data-lucide="eraser" class="w-3.5 h-3.5"></i><span>clear()</span>
+      </button>
+    </div>
+
+    <div class="flex flex-wrap gap-2 bg-blue-50/50 dark:bg-blue-900/10 p-3 rounded-2xl border border-blue-100 dark:border-blue-900/20 shadow-sm">
+      <div class="px-2 py-1 text-[9px] font-black text-blue-400 uppercase w-full mb-1">Persistence Management</div>
+
+      <button id="btn-flush" onclick="handleFlush()" title="쿼리를 DB로 전송합니다." class="px-3 py-2 rounded-xl text-white font-bold text-[10px] flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-md min-w-[70px] bg-slate-700 hover:bg-slate-800 shadow-slate-200 transition-all duration-300">
+        <i data-lucide="arrow-down-to-line" class="w-3.5 h-3.5"></i><span>em.flush()</span>
+      </button>
+      <button id="btn-commit" onclick="handleCommit()" title="트랜잭션을 커밋하고 Disk에 저장합니다." class="px-3 py-2 rounded-xl text-white font-bold text-[10px] flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-md min-w-[70px] bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 transition-all duration-300">
+        <i data-lucide="save" class="w-3.5 h-3.5"></i><span>tx.commit()</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Layout Grid -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- JPA Context -->
+    <div class="lg:col-span-5 space-y-4">
+      <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm relative overflow-hidden">
+
+        <div class="flex items-center gap-2 mb-4">
+          <div class="p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300">
+            <i data-lucide="cpu" class="w-[18px] h-[18px]"></i>
+          </div>
+          <div>
+            <h2 class="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Persistence Context</h2>
+            <p class="text-[10px] text-slate-400 font-bold uppercase">L1 Cache & Snapshots</p>
+          </div>
+        </div>
+
+        <div id="cache-container" class="grid grid-cols-2 gap-3 mb-6 min-h-[160px]">
+          <!-- JS Rendered -->
+        </div>
+
+        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 relative">
+          <div class="flex items-center gap-2 mb-2">
+            <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-500"></i>
+            <span class="text-[10px] text-slate-500 font-bold uppercase tracking-tight">쓰기 지연 SQL 저장소 (Action Queue)</span>
+          </div>
+          <div id="sql-queue-container" class="font-mono text-[10px] text-emerald-400 space-y-1 min-h-[50px]">
+            <!-- JS Rendered -->
+          </div>
+          <div id="flush-anim-overlay"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lg:col-span-1 flex lg:flex-col items-center justify-center py-4 lg:py-0">
+      <i id="center-arrow" data-lucide="arrow-right" class="w-8 h-8 text-slate-200 dark:text-slate-800 opacity-20"></i>
+    </div>
+
+    <!-- DB Engine -->
+    <div class="lg:col-span-6 space-y-4">
+      <div class="bg-slate-100 dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 h-full">
+
+        <div class="flex items-center gap-2 mb-4">
+          <div class="p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300">
+            <i data-lucide="database" class="w-[18px] h-[18px]"></i>
+          </div>
+          <div>
+            <h2 class="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">DB Engine</h2>
+            <p class="text-[10px] text-slate-400 font-bold uppercase">Buffer Pool & Disk Files</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+
+          <!-- Buffer Pool -->
+          <div class="space-y-2">
+            <span class="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><i data-lucide="box" class="w-3 h-3"></i> Buffer Pool (RAM)</span>
+            <div id="buffer-container" class="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 min-h-[110px] text-[10px] font-mono shadow-inner">
+              <!-- JS Rendered -->
+            </div>
+          </div>
+
+          <!-- Index -->
+          <div class="space-y-2">
+            <span class="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><i data-lucide="hash" class="w-3 h-3"></i> Primary Key Index</span>
+            <div id="index-container" class="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 min-h-[110px] text-[10px] font-mono shadow-inner flex flex-col justify-center">
+              <!-- JS Rendered -->
+            </div>
+          </div>
+
+          <!-- Disk -->
+          <div class="col-span-2 space-y-2 pt-2">
+            <div class="flex justify-between items-center">
+              <span class="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><i data-lucide="hard-drive" class="w-3 h-3"></i> Disk Storage (.ibd File)</span>
+              <span id="commit-anim-text"></span>
+            </div>
+            <div id="disk-container" class="bg-slate-200 dark:bg-slate-800 p-3 rounded-xl grid grid-cols-4 gap-3 border border-slate-300 dark:border-slate-700">
+              <!-- JS Rendered -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Console & Legend -->
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+    <div class="md:col-span-5 bg-slate-900 text-slate-400 p-4 rounded-2xl font-mono text-[11px] h-[180px] overflow-y-auto border border-slate-800 shadow-xl scrollbar-hide">
+      <div class="text-emerald-500 mb-3 font-black uppercase tracking-widest text-[10px] flex items-center gap-2">
+        <i data-lucide="activity" class="w-3 h-3"></i> Live Activity Log
+      </div>
+      <div id="logs-container">
+        <!-- JS Rendered -->
+      </div>
+    </div>
+
+    <div class="md:col-span-7 grid grid-cols-2 gap-4">
+      <div class="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+        <h3 class="text-[11px] font-black text-blue-700 dark:text-blue-400 mb-2 uppercase flex items-center gap-2"><i data-lucide="info" class="w-3.5 h-3.5"></i> Persistence Note</h3>
+        <ul class="text-[10px] space-y-2 text-blue-900 dark:text-blue-300 leading-tight">
+          <li>• <strong>em.clear()</strong>: 1차 캐시를 비우면 다음 조회 시 무조건 DB를 거치게 됩니다.</li>
+          <li>• <strong>Dirty Checking</strong>: 명시적 Update 쿼리 없이도 객체 변경 시 SQL이 생성됩니다.</li>
+        </ul>
+      </div>
+      <div class="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+        <h3 class="text-[11px] font-black text-amber-700 dark:text-amber-400 mb-2 uppercase flex items-center gap-2"><i data-lucide="layers" class="w-3.5 h-3.5"></i> DB Engine Note</h3>
+        <ul class="text-[10px] space-y-2 text-amber-900 dark:text-amber-300 leading-tight">
+          <li>• <strong>Buffer Pool</strong>: 쿼리가 실행되면 Disk보다 먼저 이 메모리에 반영됩니다.</li>
+          <li>• <strong>Commit</strong>: 메모리의 변경 사항을 Disk와 일치시키는 물리적 작업입니다.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Application Logic -->
+<script>
+  // 초기 데이터 설정
+  const INITIAL_DB_DISK = [
+    { id: 10, name: 'IQ', age: 25, indexPos: 0 },
+    { id: 20, name: 'Hani', age: 22, indexPos: 1 },
+    { id: 30, name: 'Zoro', age: 30, indexPos: 2 },
+  ];
+
+  const INITIAL_INDEX = [
+    { key: 10, pointer: 0 },
+    { key: 20, pointer: 1 },
+    { key: 30, pointer: 2 },
+  ];
+
+  // 상태 관리 객체 (React의 useState 대체)
+  const state = {
+    cache: {},
+    sqlQueue: [],
+    bufferPool: {},
+    disk: JSON.parse(JSON.stringify(INITIAL_DB_DISK)),
+    index: JSON.parse(JSON.stringify(INITIAL_INDEX)),
+    logs: [{ time: 'System', msg: 'DB & JPA Deep Dive 시뮬레이터 준비 완료' }],
+    animating: null,
+    notificationTimeout: null
+  };
+
+  // --- 렌더링 시스템 ---
+  function renderAll() {
+    renderCache();
+    renderSqlQueue();
+    renderBufferPool();
+    renderIndex();
+    renderDisk();
+    renderLogs();
+    updateAnimatingState();
+    lucide.createIcons();
+  }
+
+  // Cache 렌더링
+  function renderCache() {
+    const container = document.getElementById('cache-container');
+    const keys = Object.keys(state.cache);
+
+    if (keys.length === 0) {
+      container.innerHTML = `
+                    <div class="col-span-2 flex flex-col items-center justify-center text-slate-300 text-[11px] italic gap-2 py-8">
+                        <i data-lucide="layers" class="w-6 h-6 opacity-20"></i>
+                        비어있는 영속성 컨텍스트
+                    </div>
+                `;
+      return;
+    }
+
+    container.innerHTML = keys.map(key => {
+      const item = state.cache[key];
+      const type = item.status;
+      const data = item.data;
+
+      const colors = {
+        managed: "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20",
+        dirty: "border-amber-500 bg-amber-50 dark:bg-amber-900/20 animate-pulse",
+        removed: "border-rose-500 bg-rose-50 dark:bg-rose-900/20 opacity-50 grayscale",
+        default: "border-slate-200 bg-white dark:bg-slate-800"
+      };
+
+      let typeIcon = '';
+      if (type === 'dirty') typeIcon = `<i data-lucide="zap" class="w-[10px] h-[10px] text-amber-500 fill-current"></i>`;
+      if (type === 'removed') typeIcon = `<i data-lucide="trash-2" class="w-[10px] h-[10px] text-rose-500"></i>`;
+
+      return `
+                    <div class="p-3 rounded-xl border-2 transition-all duration-500 shadow-sm ${colors[type] || colors.default}">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-[9px] font-black text-slate-400 px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded uppercase">Member</span>
+                            ${typeIcon}
+                        </div>
+                        <div class="space-y-1 font-mono text-[11px]">
+                            <div class="flex justify-between"><span class="text-slate-400">PK:</span> <span class="font-bold">${data.id}</span></div>
+                            <div class="flex justify-between"><span class="text-slate-400">NAME:</span> <span class="font-bold text-blue-500">${data.name}</span></div>
+                        </div>
+                    </div>
+                `;
+    }).join('');
+  }
+
+  // SQL Queue 렌더링
+  function renderSqlQueue() {
+    const container = document.getElementById('sql-queue-container');
+    if (state.sqlQueue.length === 0) {
+      container.innerHTML = `<div class="text-slate-700 italic">// 쿼리 대기열 없음...</div>`;
+    } else {
+      container.innerHTML = state.sqlQueue.map(q => `<div>&gt; ${q.query}</div>`).join('');
+    }
+  }
+
+  // Buffer Pool 렌더링
+  function renderBufferPool() {
+    const container = document.getElementById('buffer-container');
+    const values = Object.values(state.bufferPool);
+
+    if (values.length === 0) {
+      container.innerHTML = `<div class="text-slate-300 italic py-8 text-center">Empty Memory</div>`;
+    } else {
+      container.innerHTML = values.map(item => `
+                    <div class="text-blue-500 flex justify-between mb-1">
+                        <span>PAGE_${item.id}</span>
+                        <span class="text-slate-400">${item.name}</span>
+                    </div>
+                `).join('');
+    }
+  }
+
+  // Index 렌더링
+  function renderIndex() {
+    const container = document.getElementById('index-container');
+    container.innerHTML = state.index.map(idx => {
+      const animateClass = state.animating === 'query' ? 'animate-pulse text-amber-500' : 'text-slate-500';
+      return `
+                    <div class="flex items-center gap-2 mb-1 ${animateClass}">
+                        <div class="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded border border-amber-200 dark:border-amber-800">${idx.key}</div>
+                        <span>-&gt;</span>
+                        <span>Ptr:${idx.pointer}</span>
+                    </div>
+                `;
+    }).join('');
+  }
+
+  // Disk 렌더링
+  function renderDisk() {
+    const container = document.getElementById('disk-container');
+    container.innerHTML = state.disk.map(d => `
+                <div class="bg-white dark:bg-slate-900 p-2 rounded-lg text-[9px] font-mono shadow-sm border dark:border-slate-700">
+                    <div class="text-slate-400 border-b dark:border-slate-800 mb-1 flex justify-between"><span>#P${d.indexPos}</span><span>ID:${d.id}</span></div>
+                    <div class="font-bold text-blue-600 dark:text-blue-400 text-center py-1">${d.name}</div>
+                </div>
+            `).join('');
+  }
+
+  // Logs 렌더링
+  function renderLogs() {
+    const container = document.getElementById('logs-container');
+    container.innerHTML = state.logs.map((l, i) => `
+                <div class="mb-1.5 flex gap-2 ${i === 0 ? "text-white font-bold" : ""}">
+                    <span class="text-slate-600 shrink-0">[${l.time}]</span>
+                    <span>${l.msg}</span>
+                </div>
+            `).join('');
+  }
+
+  // 애니메이션 상태 업데이트
+  function updateAnimatingState() {
+    const arrow = document.getElementById('center-arrow');
+    const flushOverlay = document.getElementById('flush-anim-overlay');
+    const commitText = document.getElementById('commit-anim-text');
+    const btnFlush = document.getElementById('btn-flush');
+    const btnCommit = document.getElementById('btn-commit');
+
+    if (state.animating === 'flush') {
+      arrow.className = "w-8 h-8 transition-all duration-300 text-emerald-500 scale-125 animate-pulse";
+      flushOverlay.innerHTML = `<div class="absolute inset-0 bg-emerald-500/10 animate-pulse border-2 border-emerald-500 rounded-xl pointer-events-none"></div>`;
+      btnFlush.classList.add('animate-pulse', 'ring-4', 'ring-emerald-500/30');
+    } else {
+      arrow.className = "w-8 h-8 transition-all duration-300 text-slate-200 dark:text-slate-800 opacity-20";
+      flushOverlay.innerHTML = '';
+      btnFlush.classList.remove('animate-pulse', 'ring-4', 'ring-emerald-500/30');
+    }
+
+    if (state.animating === 'commit') {
+      commitText.innerHTML = `<span class="text-[9px] text-emerald-500 animate-bounce font-black">DISK SYNC IN PROGRESS...</span>`;
+      btnCommit.classList.add('animate-pulse', 'ring-4', 'ring-indigo-500/30');
+    } else {
+      commitText.innerHTML = '';
+      btnCommit.classList.remove('animate-pulse', 'ring-4', 'ring-indigo-500/30');
+    }
+  }
+
+  // --- 공통 기능 ---
+  function addLog(msg) {
+    const time = new Date().toLocaleTimeString().split(' ')[0];
+    state.logs.unshift({ time, msg });
+    if (state.logs.length > 15) state.logs.pop();
+    renderLogs();
+  }
+
+  function showNotice(title, message, type = 'info') {
+    const container = document.getElementById('notification-container');
+
+    let icon, colorClasses, xBorder;
+    if (type === 'success') {
+      icon = 'check-circle-2';
+      colorClasses = 'bg-emerald-50 border-emerald-500 text-emerald-900';
+      xBorder = '';
+    } else if (type === 'warning') {
+      icon = 'alert-circle';
+      colorClasses = 'bg-amber-50 border-amber-500 text-amber-900';
+      xBorder = '';
+    } else if (type === 'error') {
+      icon = 'x';
+      colorClasses = 'bg-rose-50 border-rose-500 text-rose-900';
+      xBorder = 'border border-rose-500 rounded-full';
+    } else {
+      icon = 'info';
+      colorClasses = 'bg-blue-50 border-blue-500 text-blue-900';
+      xBorder = '';
+    }
+
+    // 초기 보이지 않는 상태로 추가
+    container.innerHTML = `
+                <div id="notice-box" class="p-4 rounded-2xl shadow-2xl border-l-4 flex gap-3 notification-enter ${colorClasses}">
+                    <div class="shrink-0">
+                        <i data-lucide="${icon}" class="w-5 h-5 ${xBorder}"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-xs font-black uppercase mb-1">${title}</h4>
+                        <p class="text-[11px] font-medium leading-relaxed opacity-80">${message}</p>
+                    </div>
+                    <button onclick="document.getElementById('notification-container').innerHTML=''" class="opacity-40 hover:opacity-100 self-start">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+            `;
+    lucide.createIcons();
+
+    // CSS 애니메이션 적용 (약간의 지연 필요)
+    setTimeout(() => {
+      const box = document.getElementById('notice-box');
+      if(box) box.classList.add('notification-enter-active');
+    }, 10);
+
+    if (state.notificationTimeout) clearTimeout(state.notificationTimeout);
+    state.notificationTimeout = setTimeout(() => {
+      container.innerHTML = '';
+    }, 5000);
+  }
+
+  // --- 액션 핸들러 ---
+  function handlePersist(id, name) {
+    if (state.cache[id]) {
+      showNotice("중복 영속화 시도", "이미 영속성 컨텍스트에서 관리 중인 엔티티입니다. 1차 캐시에 동일 ID가 존재하므로 em.persist() 요청은 무시됩니다.", "warning");
+      addLog(`Error: ID ${id}는 이미 영속 상태입니다.`);
+      return;
+    }
+    const newData = { id, name };
+    state.cache[id] = { data: newData, status: 'managed' };
+    state.sqlQueue.push({ type: 'INSERT', target: id, query: `INSERT INTO member VALUES (${id}, '${name}')` });
+    addLog(`em.persist(): ID ${id} 1차 캐시 저장 & SQL 저장소에 INSERT 예약`);
+    showNotice("엔티티 영속화", "엔티티가 1차 캐시에 저장되었습니다. 아직 DB로 쿼리가 전송되지 않았습니다(쓰기 지연).", "success");
+    renderAll();
+  }
+
+  function handleFind(id) {
+    if (state.cache[id]) {
+      showNotice("1차 캐시 Hit!", "데이터베이스에 접근하지 않고 1차 캐시(메모리)에서 데이터를 즉시 반환하여 성능을 최적화했습니다.", "success");
+      addLog(`1차 캐시 Hit! ID ${id}를 반환합니다. (DB 접근 없음)`);
+      return;
+    }
+
+    addLog(`1차 캐시 Miss... DB 조회를 시작합니다.`);
+    state.animating = 'query';
+    renderAll();
+
+    setTimeout(() => {
+      if (state.bufferPool[id]) {
+        addLog(`DB Buffer Pool Hit! 메모리에서 캐시로 엔티티 로드`);
+        state.cache[id] = { data: state.bufferPool[id], status: 'managed' };
+        state.animating = null;
+        showNotice("DB 메모리 조회 성공", "1차 캐시에는 없었지만 DB의 Buffer Pool(RAM)에 데이터가 있어 빠르게 가져왔습니다.", "info");
+        renderAll();
+      } else {
+        addLog(`Buffer Pool Miss... Disk I/O 발생 (Index Scan 실행)`);
+        setTimeout(() => {
+          const diskItem = state.disk.find(d => d.id === id);
+          if (diskItem) {
+            state.cache[id] = { data: diskItem, status: 'managed' };
+            state.bufferPool[id] = diskItem;
+            addLog(`Disk -> Buffer Pool -> 1차 캐시 순차 적재 완료`);
+            showNotice("디스크 I/O 발생", "메모리에 데이터가 없어 물리 디스크에서 인덱스를 통해 데이터를 찾아왔습니다. (가장 느린 작업)", "warning");
+          } else {
+            addLog(`조회 결과 없음.`);
+            showNotice("조회 실패", "데이터베이스 파일 어디에도 해당 PK를 가진 레코드가 존재하지 않습니다.", "error");
+          }
+          state.animating = null;
+          renderAll();
+        }, 800);
+      }
+    }, 800);
+  }
+
+  function handleUpdate(id, newName) {
+    if (!state.cache[id] || state.cache[id].status === 'removed') {
+      showNotice("수정 불가", "현재 1차 캐시에서 관리 중인 엔티티가 없습니다. 수정하려면 먼저 em.find() 등으로 엔티티를 영속화해야 합니다.", "error");
+      addLog(`Error: 수정 가능한 영속 엔티티가 없습니다.`);
+      return;
+    }
+    state.cache[id].data.name = newName;
+    state.cache[id].status = 'dirty';
+
+    // 기존 UPDATE 제거 후 추가
+    state.sqlQueue = state.sqlQueue.filter(q => !(q.target === id && q.type === 'UPDATE'));
+    state.sqlQueue.push({ type: 'UPDATE', target: id, query: `UPDATE member SET name = '${newName}' WHERE id = ${id}` });
+
+    addLog(`Dirty Checking: '${newName}'으로 데이터 수정 감지`);
+    showNotice("변경 감지 (Dirty Checking)", "엔티티의 값이 변경되었습니다. JPA는 트랜잭션 종료 시점에 스냅샷과 비교하여 자동으로 UPDATE SQL을 생성합니다.", "info");
+    renderAll();
+  }
+
+  function handleRemove(id) {
+    if (!state.cache[id]) {
+      showNotice("삭제 불가", "삭제할 엔티티가 영속성 컨텍스트에 없습니다. 존재하지 않는 엔티티는 삭제할 수 없습니다.", "error");
+      addLog(`Error: 삭제할 엔티티가 1차 캐시에 없습니다.`);
+      return;
+    }
+    state.cache[id].status = 'removed';
+    state.sqlQueue.push({ type: 'DELETE', target: id, query: `DELETE FROM member WHERE id = ${id}` });
+    addLog(`em.remove(): ID ${id} 삭제 예약`);
+    showNotice("삭제 예약", "엔티티가 삭제 상태(Removed)로 변경되었습니다. Flush 시점에 DELETE 쿼리가 전송됩니다.", "warning");
+    renderAll();
+  }
+
+  function handleClear() {
+    state.cache = {};
+    addLog(`em.clear(): 영속성 컨텍스트 초기화`);
+    showNotice("컨텍스트 초기화", "모든 엔티티가 준영속 상태가 되었습니다. 이후 같은 ID를 조회해도 다시 DB를 거쳐야 합니다.", "warning");
+    renderAll();
+  }
+
+  function handleFlush() {
+    if (state.sqlQueue.length === 0) {
+      showNotice("Flush 생략", "변경된 내용이 없어 전송할 SQL이 존재하지 않습니다.", "info");
+      addLog('Flush할 쿼리가 없습니다.');
+      return;
+    }
+    state.animating = 'flush';
+    addLog(`em.flush(): SQL 전송 중...`);
+    renderAll();
+
+    setTimeout(() => {
+      state.sqlQueue.forEach(sql => {
+        if (sql.type === 'INSERT' || sql.type === 'UPDATE') {
+          state.bufferPool[sql.target] = { ...state.cache[sql.target].data };
+        } else if (sql.type === 'DELETE') {
+          delete state.bufferPool[sql.target];
+        }
+      });
+      state.sqlQueue = [];
+      state.animating = null;
+      addLog(`Flush 완료`);
+      showNotice("Flush (동기화)", "SQL 저장소의 쿼리들이 DB 엔진으로 전송되었습니다. 이제 DB 메모리(Buffer Pool)는 최신 상태입니다.", "success");
+      renderAll();
+    }, 1200);
+  }
+
+  function handleCommit() {
+    addLog(`Commit 시작...`);
+    state.animating = 'commit';
+    renderAll();
+
+    setTimeout(() => {
+      const newDisk = [...state.disk];
+      Object.values(state.bufferPool).forEach(item => {
+        const idx = newDisk.findIndex(d => d.id === item.id);
+        if (idx > -1) newDisk[idx] = item;
+        else newDisk.push({ ...item, indexPos: newDisk.length });
+      });
+
+      state.disk = newDisk;
+      state.animating = null;
+      addLog(`Commit 완료`);
+      showNotice("Transaction Commit", "트랜잭션이 성공적으로 완료되었습니다. 모든 데이터가 물리 디스크에 영구히 저장되었습니다.", "success");
+      renderAll();
+    }, 1200);
+  }
+
+  // 초기 렌더링 시작
+  renderAll();
+</script>
+</body>
+</html>

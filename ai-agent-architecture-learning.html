@@ -1,0 +1,990 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Workflow Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+      @keyframes moveToRight {
+        0% {
+          left: 10%;
+          opacity: 0;
+        }
+        20% {
+          opacity: 1;
+        }
+        80% {
+          opacity: 1;
+        }
+        100% {
+          left: 90%;
+          opacity: 0;
+        }
+      }
+      @keyframes moveToLeft {
+        0% {
+          left: 90%;
+          opacity: 0;
+        }
+        20% {
+          opacity: 1;
+        }
+        80% {
+          opacity: 1;
+        }
+        100% {
+          left: 10%;
+          opacity: 0;
+        }
+      }
+      .particle-right {
+        animation: moveToRight 1.5s ease-in-out infinite;
+      }
+      .particle-left {
+        animation: moveToLeft 1.5s ease-in-out infinite;
+      }
+
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #334155;
+        border-radius: 10px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #475569;
+      }
+
+      .active-tab {
+        background-color: rgba(79, 70, 229, 0.2);
+        color: #818cf8;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      }
+    </style>
+  </head>
+  <body
+    class="h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden flex flex-col"
+  >
+    <!-- Header -->
+    <header
+      class="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-6 shrink-0 z-20"
+    >
+      <div class="flex items-center gap-2">
+        <i data-lucide="bot" class="w-5 h-5 text-indigo-400"></i>
+        <h1
+          class="text-sm font-semibold text-slate-200 tracking-wide hidden sm:block"
+        >
+          AI Agent Architecture
+        </h1>
+      </div>
+
+      <!-- Tab Switcher -->
+      <div class="flex bg-slate-950 rounded-lg p-1 border border-slate-800">
+        <button
+          id="tab-simulator"
+          onclick="switchTab('simulator')"
+          class="px-4 py-1.5 text-xs font-medium rounded-md transition-all active-tab"
+        >
+          Workflow Simulator
+        </button>
+        <button
+          id="tab-mcp"
+          onclick="switchTab('mcp')"
+          class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 text-slate-400 hover:text-slate-200"
+        >
+          <i data-lucide="plug" class="w-3.5 h-3.5"></i> MCP Playground
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Body -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- =========================================
+            VIEW 1: WORKFLOW SIMULATOR
+           ========================================= -->
+      <div id="view-simulator" class="flex flex-1 overflow-hidden">
+        <!-- Sidebar -->
+        <aside
+          class="hidden md:flex flex-col w-80 bg-slate-900 border-r border-slate-800 overflow-y-auto shrink-0"
+        >
+          <div class="p-5">
+            <h2
+              class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"
+            >
+              <i data-lucide="terminal-square" class="w-4 h-4"></i> Available
+              System Tools
+            </h2>
+            <div id="tools-list" class="space-y-4">
+              <!-- Tools will be injected here -->
+            </div>
+          </div>
+        </aside>
+
+        <!-- Chat Area -->
+        <main class="flex-1 flex flex-col bg-[#0B1120] relative">
+          <div
+            id="simulator-log"
+            class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6"
+          >
+            <!-- Default Landing Message -->
+            <div
+              id="landing-screen"
+              class="flex flex-col items-center justify-center h-full text-center py-20"
+            >
+              <div
+                class="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6 border border-indigo-500/20 shadow-inner"
+              >
+                <i
+                  data-lucide="brain-circuit"
+                  class="w-10 h-10 text-indigo-400"
+                ></i>
+              </div>
+              <h2 class="text-2xl font-bold text-slate-200 mb-4 tracking-tight">
+                에이전트 워크플로우 시각화
+              </h2>
+              <p class="text-slate-400 text-sm max-w-lg mb-10 leading-relaxed">
+                자연어로 명령을 내리면, AI 에이전트가 어떻게 의도를 파악하고
+                도구를 호출하는지 시뮬레이션 합니다.
+              </p>
+              <div
+                class="w-full max-w-lg space-y-2 text-left"
+                id="suggestions-container"
+              >
+                <p
+                  class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3 ml-1"
+                >
+                  추천 프롬프트
+                </p>
+                <!-- Suggestions injected here -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Input Bar -->
+          <div class="p-4 bg-[#0B1120] border-t border-slate-800/80">
+            <div class="flex gap-2 max-w-3xl mx-auto w-full">
+              <div class="relative flex-1">
+                <input
+                  id="sim-input"
+                  type="text"
+                  placeholder="지시사항을 입력해보세요..."
+                  class="w-full bg-slate-900 border border-slate-700 text-slate-100 rounded-2xl py-3.5 pl-5 pr-14 focus:outline-none focus:border-indigo-500 text-sm shadow-sm transition-all"
+                />
+                <button
+                  id="sim-send"
+                  onclick="handleSimSubmit()"
+                  class="absolute right-2 top-2 bottom-2 aspect-square flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors"
+                >
+                  <i data-lucide="send" class="w-4 h-4 ml-0.5"></i>
+                </button>
+              </div>
+              <button
+                id="sim-pause"
+                onclick="togglePause()"
+                class="hidden aspect-square flex items-center justify-center rounded-xl border border-slate-700 bg-slate-800 text-slate-400 transition-all hover:border-indigo-500/50"
+              >
+                <i data-lucide="pause" id="pause-icon" class="w-5 h-5"></i>
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <!-- =========================================
+            VIEW 2: MCP PLAYGROUND
+           ========================================= -->
+      <div
+        id="view-mcp"
+        class="hidden flex flex-1 flex-col md:flex-row bg-[#0B1120] overflow-hidden"
+      >
+        <!-- Config Sidebar -->
+        <aside
+          class="w-full md:w-80 bg-slate-900 border-r border-slate-800 p-5 flex flex-col overflow-y-auto"
+        >
+          <h2 class="text-lg font-bold text-slate-100 mb-2">MCP 레고 조립기</h2>
+          <p class="text-xs text-slate-400 mb-6 leading-relaxed">
+            호스트, 클라이언트와 서버를 선택해 통신을 확인하세요.
+          </p>
+
+          <div class="mb-6">
+            <label
+              class="text-xs font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-3"
+            >
+              <i data-lucide="bot" class="w-4 h-4"></i> 1. AI Model (for Host)
+            </label>
+            <div id="model-selector" class="grid gap-2"></div>
+          </div>
+
+          <div class="flex justify-center mb-6">
+            <div
+              class="bg-indigo-500/10 p-2 rounded-full border border-indigo-500/20"
+            >
+              <i data-lucide="plug" class="w-5 h-5 text-indigo-400"></i>
+            </div>
+          </div>
+
+          <div class="mb-6">
+            <label
+              class="text-xs font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-3"
+            >
+              <i data-lucide="server" class="w-4 h-4"></i> 2. MCP Server
+            </label>
+            <div id="server-selector" class="grid gap-2"></div>
+          </div>
+
+          <div class="mt-auto pt-4 border-t border-slate-800">
+            <button
+              id="mcp-play-btn"
+              onclick="handleMcpPlay()"
+              class="w-full py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm shadow-md flex items-center justify-center gap-2 transition-all"
+            >
+              <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+              <span>MCP 통신 흐름 실행</span>
+            </button>
+          </div>
+        </aside>
+
+        <!-- Diagram Main -->
+        <main class="flex-1 p-6 md:p-10 flex flex-col relative overflow-y-auto">
+          <div class="max-w-4xl mx-auto w-full flex-1 flex flex-col">
+            <div class="text-center mb-10">
+              <h3 class="text-2xl font-bold text-slate-100 mb-2">
+                통신 흐름 (Message Flow)
+              </h3>
+              <p class="text-slate-400 text-sm">
+                Model Context Protocol이 어떻게 연결되는지 확인하세요.
+              </p>
+            </div>
+
+            <div
+              class="relative bg-slate-900/50 rounded-3xl border border-slate-800 p-8 flex flex-col items-center justify-center min-h-[400px]"
+            >
+              <div
+                class="flex w-full items-center justify-between relative z-10 max-w-3xl"
+              >
+                <!-- Host Node -->
+                <div
+                  id="mcp-node-host"
+                  class="relative flex flex-col items-center p-2 opacity-80 transition-all duration-300"
+                >
+                  <div
+                    class="border border-slate-700 bg-slate-800/40 rounded-3xl p-4 flex flex-col items-center gap-3 relative shadow-lg"
+                  >
+                    <span
+                      class="absolute -top-4 left-4 bg-slate-900 px-3 py-1 text-[10px] font-bold text-slate-300 border border-slate-700 rounded-md uppercase tracking-wider flex items-center gap-1.5"
+                    >
+                      <i
+                        data-lucide="app-window"
+                        class="w-3 h-3 text-indigo-400"
+                      ></i>
+                      Host (App)
+                    </span>
+                    <div
+                      id="mcp-model-box"
+                      class="w-20 h-20 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 p-0.5 shadow-xl mt-2 overflow-hidden relative"
+                    >
+                      <div
+                        class="w-full h-full bg-slate-950 rounded-[14px] flex flex-col items-center justify-center"
+                      >
+                        <i
+                          data-lucide="bot"
+                          class="w-7 h-7 text-white z-10"
+                        ></i>
+                        <div
+                          id="ai-pulse"
+                          class="absolute inset-0 bg-indigo-500/20 hidden"
+                        ></div>
+                      </div>
+                    </div>
+                    <div
+                      id="mcp-client-box"
+                      class="bg-slate-900 border border-slate-700 rounded-xl py-2 px-4 flex flex-col items-center gap-1 w-full transition-all"
+                    >
+                      <i
+                        data-lucide="network"
+                        id="client-icon"
+                        class="w-4 h-4 text-slate-500"
+                      ></i>
+                      <span class="text-[10px] font-bold text-slate-500"
+                        >MCP Client</span
+                      >
+                    </div>
+                  </div>
+                  <span
+                    id="mcp-model-name"
+                    class="mt-4 font-semibold text-slate-200"
+                    >Model Name</span
+                  >
+                </div>
+
+                <!-- Cable -->
+                <div
+                  class="flex-1 flex flex-col items-center justify-center relative px-4 mt-8"
+                >
+                  <div
+                    class="absolute w-full h-1 bg-slate-800 top-1/2 -translate-y-1/2 rounded-full"
+                  ></div>
+                  <div
+                    class="bg-slate-900 border border-indigo-500/30 px-4 py-2 rounded-full relative z-10 flex items-center gap-2 shadow-lg"
+                  >
+                    <i
+                      data-lucide="network"
+                      class="w-4 h-4 text-indigo-400"
+                    ></i>
+                    <span
+                      class="text-xs font-bold text-indigo-300 tracking-widest"
+                      >MCP STANDARD</span
+                    >
+                  </div>
+                  <div
+                    id="mcp-particle"
+                    class="absolute top-1/2 -translate-y-1/2 hidden w-4 h-4 rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] z-10"
+                  ></div>
+                </div>
+
+                <!-- Server Node -->
+                <div
+                  id="mcp-node-server"
+                  class="relative flex flex-col items-center p-4 opacity-80 transition-all duration-300"
+                >
+                  <div
+                    id="server-box"
+                    class="w-24 h-24 rounded-2xl border-2 border-slate-600 bg-slate-900 shadow-xl flex flex-col items-center justify-center relative overflow-hidden"
+                  >
+                    <i
+                      id="server-icon"
+                      data-lucide="server"
+                      class="w-8 h-8"
+                    ></i>
+                    <div
+                      id="server-pulse"
+                      class="absolute inset-0 bg-slate-800/50 hidden"
+                    ></div>
+                  </div>
+                  <span
+                    id="mcp-server-name"
+                    class="mt-4 font-semibold text-slate-200"
+                    >Server Name</span
+                  >
+                  <span
+                    class="text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-md mt-1 border border-slate-800"
+                    >MCP Server</span
+                  >
+                </div>
+              </div>
+
+              <!-- Tools Panel -->
+              <div
+                id="mcp-tools-panel"
+                class="mt-8 w-full max-w-sm ml-auto border border-slate-700 bg-slate-900/80 rounded-xl p-4 transition-all"
+              >
+                <div class="flex items-center gap-2 mb-3">
+                  <i data-lucide="wrench" class="w-4 h-4 text-slate-400"></i>
+                  <span class="text-xs font-semibold text-slate-300"
+                    >내부 도구 명세서 (Exposed Tools)</span
+                  >
+                </div>
+                <div id="mcp-exposed-tools" class="space-y-2"></div>
+              </div>
+            </div>
+
+            <!-- Description Panel -->
+            <div class="mt-8 min-h-[160px]" id="mcp-step-panel">
+              <!-- Initial state -->
+              <div
+                class="bg-indigo-900/20 border border-indigo-500/20 rounded-2xl p-6 text-center text-indigo-200 h-full flex items-center justify-center"
+              >
+                <span>하단의 <b>'MCP 통신 흐름 실행'</b> 버튼을 누르세요.</span>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- Script Section -->
+    <script>
+      // --- Data Definitions ---
+      const TOOLS = [
+        {
+          name: "get_current_weather",
+          desc: "특정 지역의 현재 날씨와 기온을 반환합니다.",
+          icon: "cloud",
+          schema: { location: "string" },
+        },
+        {
+          name: "calculate",
+          desc: "수학 수식을 평가하여 결과를 반환합니다.",
+          icon: "calculator",
+          schema: { expression: "string" },
+        },
+        {
+          name: "search_web",
+          desc: "웹 검색을 통해 최신 뉴스를 찾아옵니다.",
+          icon: "search",
+          schema: { query: "string", limit: "number" },
+        },
+        {
+          name: "send_email",
+          desc: "이메일을 전송합니다.",
+          icon: "mail",
+          schema: { to: "string", body: "string" },
+        },
+      ];
+
+      const MODELS = [
+        {
+          id: "claude",
+          name: "Claude 3.5 Sonnet",
+          color: "from-orange-500 to-amber-600",
+          style: "단계별 신중한 추론",
+          tail: "사용자 의도를 분석해 안전한 도구를 선택합니다...",
+        },
+        {
+          id: "gpt4",
+          name: "GPT-4o",
+          color: "from-green-500 to-emerald-600",
+          style: "효율적인 빠른 해결",
+          tail: "즉시 요청을 실행하기 위한 최적의 파라미터를 식별합니다.",
+        },
+        {
+          id: "gemini",
+          name: "Gemini 1.5 Pro",
+          color: "from-blue-500 to-indigo-600",
+          style: "광범위한 컨텍스트 고려",
+          tail: "구글 생태계의 맥락과 통합 정보를 검색할 준비가 되었습니다.",
+        },
+      ];
+
+      const SERVERS = [
+        {
+          id: "github",
+          name: "GitHub MCP Server",
+          icon: "github",
+          tools: ["search_repo", "read_issue"],
+          color: "border-slate-600",
+        },
+        {
+          id: "db",
+          name: "PostgreSQL Server",
+          icon: "database",
+          tools: ["query_db", "get_schema"],
+          color: "border-blue-600",
+        },
+        {
+          id: "slack",
+          name: "Slack MCP Server",
+          icon: "message-square",
+          tools: ["list_users", "send_msg"],
+          color: "border-purple-600",
+        },
+      ];
+
+      const SUGGESTIONS = [
+        "오늘 서울 날씨 어때?",
+        "145 * 32 계산해줘",
+        "제주도 날씨 알아보고 이메일 보내줘",
+      ];
+
+      // --- App State ---
+      let currentTab = "simulator";
+      let isRunning = false;
+      let isPaused = false;
+      let activeModel = MODELS[0];
+      let activeServer = SERVERS[0];
+      let currentFlowStep = -1;
+
+      // --- Initialization ---
+      function init() {
+        // 초기화 시점에 lucide.createIcons()를 호출하지 않고,
+        // 컴포넌트들이 모두 렌더링된 후 마지막에 한 번 호출하도록 조정
+        renderTools();
+        renderSuggestions();
+        renderSelectors();
+        updateMcpNodes();
+      }
+
+      // --- UI Rendering ---
+      function renderTools() {
+        const list = document.getElementById("tools-list");
+        list.innerHTML = TOOLS.map(
+          (t) => `
+                <div class="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4">
+                    <div class="flex items-center gap-2 mb-2 text-indigo-400">
+                        <i data-lucide="${t.icon}" class="w-4 h-4"></i>
+                        <span class="font-mono text-sm font-semibold">${t.name}</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mb-3">${t.desc}</p>
+                    <div class="bg-slate-950/50 rounded p-2 text-[10px] font-mono text-slate-300">
+                        ${JSON.stringify(t.schema, null, 2)}
+                    </div>
+                </div>
+            `,
+        ).join("");
+        // lucide.createIcons() 호출 제거 (init 끝에서 통합 호출)
+      }
+
+      function renderSuggestions() {
+        const container = document.getElementById("suggestions-container");
+        container.innerHTML = `<p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3 ml-1">추천 프롬프트</p>`;
+        SUGGESTIONS.forEach((s) => {
+          const btn = document.createElement("button");
+          btn.className =
+            "w-full bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-indigo-500/50 text-slate-300 text-sm py-3 px-5 rounded-xl transition-all flex items-center justify-between group mb-2";
+          btn.innerHTML = `<span>${s}</span><i data-lucide="chevron-right" class="w-4 h-4 text-slate-600 group-hover:text-indigo-400"></i>`;
+          btn.onclick = () => runSimulator(s);
+          container.appendChild(btn);
+        });
+      }
+
+      function renderSelectors() {
+        const mCont = document.getElementById("model-selector");
+        mCont.innerHTML = MODELS.map(
+          (m) => `
+                <button onclick="selectModel('${m.id}')" id="btn-model-${m.id}" class="text-left px-4 py-3 rounded-xl border border-slate-800 text-sm transition-all ${activeModel.id === m.id ? "bg-slate-800 border-indigo-500/50 text-white" : "text-slate-400 hover:border-slate-700"}">
+                    <div class="flex items-center gap-2">
+                        <div class="w-3 h-3 rounded-full bg-gradient-to-r ${m.color}"></div>
+                        <div class="flex flex-col">
+                            <span>${m.name}</span>
+                            <span class="text-[10px] opacity-60">${m.style}</span>
+                        </div>
+                    </div>
+                </button>
+            `,
+        ).join("");
+
+        const sCont = document.getElementById("server-selector");
+        sCont.innerHTML = SERVERS.map(
+          (s) => `
+                <button onclick="selectServer('${s.id}')" id="btn-server-${s.id}" class="text-left px-4 py-3 rounded-xl border border-slate-800 text-sm transition-all ${activeServer.id === s.id ? "bg-slate-800 " + s.color + " text-white shadow-lg" : "text-slate-400 hover:border-slate-700"}">
+                    <div class="flex items-center gap-2 mb-1">
+                        <i data-lucide="${s.icon}" class="w-4 h-4"></i> ${s.name}
+                    </div>
+                    <div class="text-[10px] opacity-50 pl-6">${s.tools.join(", ")}</div>
+                </button>
+            `,
+        ).join("");
+      }
+
+      // --- Logic Functions ---
+      function switchTab(tab) {
+        currentTab = tab;
+        document
+          .getElementById("view-simulator")
+          .classList.toggle("hidden", tab !== "simulator");
+        document
+          .getElementById("view-mcp")
+          .classList.toggle("hidden", tab !== "mcp");
+        document
+          .getElementById("tab-simulator")
+          .classList.toggle("active-tab", tab === "simulator");
+        document
+          .getElementById("tab-mcp")
+          .classList.toggle("active-tab", tab === "mcp");
+
+        // UI Cleanup on tab change
+        isPaused = false;
+        updatePauseUI();
+        lucide.createIcons();
+      }
+
+      function selectModel(id) {
+        if (isRunning) return;
+        activeModel = MODELS.find((m) => m.id === id);
+        renderSelectors();
+        updateMcpNodes();
+      }
+
+      function selectServer(id) {
+        if (isRunning) return;
+        activeServer = SERVERS.find((s) => s.id === id);
+        renderSelectors();
+        updateMcpNodes();
+      }
+
+      function updateMcpNodes() {
+        document.getElementById("mcp-model-name").innerText = activeModel.name;
+        document.getElementById("mcp-model-box").className =
+          `w-20 h-20 rounded-2xl bg-gradient-to-br ${activeModel.color} p-0.5 shadow-xl mt-2 overflow-hidden relative`;
+        document.getElementById("mcp-server-name").innerText =
+          activeServer.name;
+
+        const sBox = document.getElementById("server-box");
+        sBox.className = `w-24 h-24 rounded-2xl border-2 ${activeServer.color} bg-slate-900 shadow-xl flex flex-col items-center justify-center relative overflow-hidden`;
+
+        // i 태그가 lucide에 의해 svg로 바뀌었을 수 있으므로 id 또는 querySelector([data-lucide])로 접근
+        const iconEl = document.getElementById("server-icon");
+        if (iconEl) {
+          iconEl.setAttribute("data-lucide", activeServer.icon);
+        }
+
+        const toolList = document.getElementById("mcp-exposed-tools");
+        toolList.innerHTML = activeServer.tools
+          .map(
+            (t) => `
+                <div class="text-xs font-mono px-3 py-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400">${t}()</div>
+            `,
+          )
+          .join("");
+
+        lucide.createIcons();
+      }
+
+      async function wait(ms) {
+        let start = Date.now();
+        while (Date.now() - start < ms) {
+          if (isPaused) {
+            await new Promise((r) => setTimeout(r, 100));
+          } else {
+            await new Promise((r) => setTimeout(r, 50));
+            start += 50;
+          }
+        }
+      }
+
+      function updatePauseUI() {
+        const btn = document.getElementById("sim-pause");
+        const icon = document.getElementById("pause-icon");
+        if (!icon) return;
+
+        if (isPaused) {
+          btn.classList.add(
+            "bg-amber-500/20",
+            "border-amber-500",
+            "text-amber-400",
+          );
+          icon.setAttribute("data-lucide", "play");
+        } else {
+          btn.classList.remove(
+            "bg-amber-500/20",
+            "border-amber-500",
+            "text-amber-400",
+          );
+          icon.setAttribute("data-lucide", "pause");
+        }
+        lucide.createIcons();
+      }
+
+      function togglePause() {
+        isPaused = !isPaused;
+        updatePauseUI();
+
+        // MCP Play button sync
+        const mcpBtnSpan = document.querySelector("#mcp-play-btn span");
+        if (isRunning && currentTab === "mcp" && mcpBtnSpan) {
+          mcpBtnSpan.innerText = isPaused
+            ? "시뮬레이션 재개"
+            : "시뮬레이션 일시정지";
+        }
+      }
+
+      // --- Simulator Logic ---
+      function handleSimSubmit() {
+        const input = document.getElementById("sim-input");
+        runSimulator(input.value);
+        input.value = "";
+      }
+
+      async function runSimulator(text) {
+        if (!text.trim() || isRunning) return;
+        isRunning = true;
+        isPaused = false;
+        document.getElementById("sim-pause").classList.remove("hidden");
+        document.getElementById("landing-screen").classList.add("hidden");
+        const log = document.getElementById("simulator-log");
+        log.innerHTML = "";
+
+        const steps = generateWorkflow(text);
+        for (const step of steps) {
+          await renderStep(step);
+        }
+
+        isRunning = false;
+        document.getElementById("sim-pause").classList.add("hidden");
+      }
+
+      function generateWorkflow(prompt) {
+        const hasWeather = prompt.includes("날씨");
+        const hasEmail = prompt.includes("메일") || prompt.includes("이메일");
+        const calc = prompt.match(/\d+[\s]*[\+\-\*\/][\s]*\d+/);
+        const steps = [];
+        steps.push({ type: "user", content: prompt });
+
+        if (hasWeather && hasEmail) {
+          steps.push({
+            type: "thought",
+            content:
+              "날씨 확인 후 이메일 전송이 필요합니다. 다중 도구 호출을 수행합니다.",
+          });
+          steps.push({
+            type: "call",
+            name: "get_current_weather",
+            args: { location: "서울" },
+          });
+          steps.push({
+            type: "result",
+            content: { temp: 18, condition: "맑음" },
+          });
+          steps.push({
+            type: "thought",
+            content: "날씨 정보를 확보했습니다. 메일 전송 도구를 호출합니다.",
+          });
+          steps.push({
+            type: "call",
+            name: "send_email",
+            args: {
+              to: "user@example.com",
+              body: "현재 서울의 날씨는 18도, 맑음입니다.",
+            },
+          });
+          steps.push({ type: "result", content: { status: "sent" } });
+          steps.push({
+            type: "final",
+            content: "서울 날씨를 확인하여 메일로 성공적으로 전송했습니다.",
+          });
+        } else if (hasWeather) {
+          steps.push({
+            type: "thought",
+            content:
+              "날씨 정보를 조회하기 위해 'get_current_weather' 도구를 호출합니다.",
+          });
+          steps.push({
+            type: "call",
+            name: "get_current_weather",
+            args: { location: "서울" },
+          });
+          steps.push({
+            type: "result",
+            content: { temp: 21, condition: "구름 조금" },
+          });
+          steps.push({
+            type: "final",
+            content: "현재 서울은 21도이며 구름이 조금 있는 쾌적한 날씨입니다.",
+          });
+        } else if (calc) {
+          steps.push({
+            type: "thought",
+            content: "수식 연산을 위해 'calculate' 도구를 호출합니다.",
+          });
+          steps.push({
+            type: "call",
+            name: "calculate",
+            args: { expression: calc[0] },
+          });
+          steps.push({ type: "result", content: { result: 4640 } });
+          steps.push({
+            type: "final",
+            content: `요청하신 계산 결과는 4,640입니다.`,
+          });
+        } else {
+          steps.push({
+            type: "thought",
+            content: "일반 요청으로 판단됩니다. 웹 검색을 시도합니다.",
+          });
+          steps.push({
+            type: "call",
+            name: "search_web",
+            args: { query: prompt },
+          });
+          steps.push({
+            type: "result",
+            content: { results: ["최신 트렌드 정보..."] },
+          });
+          steps.push({
+            type: "final",
+            content:
+              "검색 결과에 따르면 해당 주제는 현재 많은 관심을 받고 있습니다.",
+          });
+        }
+        return steps;
+      }
+
+      async function renderStep(step) {
+        const log = document.getElementById("simulator-log");
+        const div = document.createElement("div");
+
+        if (step.type === "user") {
+          div.className = "flex justify-end mb-6";
+          div.innerHTML = `<div class="bg-indigo-600 text-white px-5 py-3 rounded-2xl rounded-tr-sm max-w-[80%] shadow-md">${step.content}</div>`;
+        } else if (step.type === "thought") {
+          div.className = "flex gap-4 mb-6 items-start";
+          div.innerHTML = `<i data-lucide="brain-circuit" class="w-5 h-5 text-indigo-500 mt-1"></i>
+                    <div><span class="text-xs font-bold text-indigo-400 block mb-1">Reasoning</span><p class="text-sm italic text-slate-300">"${step.content}"</p></div>`;
+        } else if (step.type === "call") {
+          div.className = "flex gap-4 mb-6 items-start";
+          div.innerHTML = `<i data-lucide="wrench" class="w-5 h-5 text-amber-500 mt-1"></i>
+                    <div class="flex-1 max-w-[85%]"><span class="text-xs font-bold text-amber-400 block mb-2">Tool Call: ${step.name}</span>
+                    <div class="bg-slate-900 border border-slate-700 rounded-lg p-3 font-mono text-[11px] text-amber-100">${JSON.stringify(step.args, null, 2)}</div></div>`;
+        } else if (step.type === "result") {
+          div.className = "flex gap-4 mb-6 items-start";
+          div.innerHTML = `<i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-500 mt-1"></i>
+                    <div class="flex-1 max-w-[85%]"><span class="text-xs font-bold text-emerald-400 block mb-2">Tool Result</span>
+                    <div class="bg-slate-900 border border-emerald-900/40 rounded-lg p-3 font-mono text-[11px] text-emerald-100">${JSON.stringify(step.content, null, 2)}</div></div>`;
+        } else if (step.type === "final") {
+          div.className = "flex gap-4 mb-8 items-start";
+          div.innerHTML = `<div class="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 mt-1 shadow-lg"><i data-lucide="bot" class="w-5 h-5 text-white"></i></div>
+                    <div class="bg-slate-800 border border-slate-700 text-slate-100 px-5 py-3.5 rounded-2xl rounded-tl-sm max-w-[85%] shadow-md text-sm leading-relaxed">${step.content}</div>`;
+        }
+
+        log.appendChild(div);
+        lucide.createIcons();
+        log.scrollTop = log.scrollHeight;
+        await wait(1200);
+      }
+
+      // --- MCP Playground Logic ---
+      async function handleMcpPlay() {
+        if (isRunning && !isPaused) {
+          isPaused = true;
+          updatePauseUI();
+          const mcpBtnSpan = document.querySelector("#mcp-play-btn span");
+          if (mcpBtnSpan) mcpBtnSpan.innerText = "시뮬레이션 재개";
+          return;
+        }
+        if (isPaused) {
+          isPaused = false;
+          updatePauseUI();
+          const mcpBtnSpan = document.querySelector("#mcp-play-btn span");
+          if (mcpBtnSpan) mcpBtnSpan.innerText = "시뮬레이션 일시정지";
+          return;
+        }
+
+        isRunning = true;
+        const mcpBtn = document.getElementById("mcp-play-btn");
+        const mcpBtnSpan = mcpBtn.querySelector("span");
+        const mcpBtnIcon = mcpBtn.querySelector("[data-lucide]");
+
+        if (mcpBtnSpan) mcpBtnSpan.innerText = "시뮬레이션 일시정지";
+        if (mcpBtnIcon) mcpBtnIcon.setAttribute("data-lucide", "pause");
+        lucide.createIcons();
+
+        const panel = document.getElementById("mcp-step-panel");
+        const FLOW = [
+          {
+            title: "연결 및 초기화 (Handshake)",
+            desc: "Host 내의 MCP Client가 Server와 호환성을 확인합니다.",
+            particle: "connection",
+          },
+          {
+            title: "도구 목록 요청 (List Tools)",
+            desc: "Client가 서버에 사용 가능한 명세서를 요청해 AI에게 전달합니다.",
+            particle: "left",
+          },
+          {
+            title: "사용자 요청 추론 (Reasoning)",
+            desc: `[${activeModel.name}]: ${activeModel.tail}`,
+            particle: "reason",
+          },
+          {
+            title: "도구 호출 (Tool Call)",
+            desc: "AI 판단에 따라 특정 도구의 실행을 서버에 요청합니다.",
+            particle: "right",
+          },
+          {
+            title: "결과 반환 (Tool Result)",
+            desc: "작업 결과를 Client를 통해 최종적으로 AI에게 반환합니다.",
+            particle: "left",
+          },
+        ];
+
+        for (let i = 0; i < FLOW.length; i++) {
+          currentFlowStep = i;
+          const step = FLOW[i];
+
+          // Update UI
+          panel.innerHTML = `
+                    <div class="p-6 rounded-2xl bg-slate-800 border border-indigo-500/50 shadow-lg flex items-start gap-5 transition-all">
+                        <div class="w-12 h-12 rounded-full bg-indigo-500 text-white flex items-center justify-center font-bold text-xl shrink-0">${i + 1}</div>
+                        <div>
+                            <div class="text-xs font-semibold text-indigo-400 mb-1 tracking-wider uppercase">Step ${i + 1} of 5</div>
+                            <h4 class="font-bold text-lg text-slate-100 mb-2">${step.title}</h4>
+                            <p class="text-slate-300 text-sm">${step.desc}</p>
+                        </div>
+                    </div>
+                `;
+
+          // Update Visual Nodes
+          updateMcpVisuals(i, step.particle);
+          await wait(2500);
+        }
+
+        // Final state
+        panel.innerHTML = `
+                <div class="grid gap-3">
+                    <div class="flex items-center gap-2 mb-2 px-1"><i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400"></i><h4 class="font-bold text-slate-200">통신 완료</h4></div>
+                    ${FLOW.map(
+                      (s, idx) => `
+                        <div class="p-4 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-start gap-4">
+                            <div class="w-7 h-7 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center font-bold text-xs shrink-0">${idx + 1}</div>
+                            <div><h5 class="font-bold text-slate-200 text-sm mb-0.5">${s.title}</h5><p class="text-slate-400 text-xs">${s.desc}</p></div>
+                        </div>
+                    `,
+                    ).join("")}
+                </div>
+            `;
+
+        isRunning = false;
+        if (mcpBtnSpan) mcpBtnSpan.innerText = "MCP 통신 흐름 실행";
+        if (mcpBtnIcon) mcpBtnIcon.setAttribute("data-lucide", "play");
+        updateMcpVisuals(-1, null);
+        lucide.createIcons();
+      }
+
+      function updateMcpVisuals(idx, particleType) {
+        const hostNode = document.getElementById("mcp-node-host");
+        const serverNode = document.getElementById("mcp-node-server");
+        const clientBox = document.getElementById("mcp-client-box");
+        const aiPulse = document.getElementById("ai-pulse");
+        const particle = document.getElementById("mcp-particle");
+        const serverPulse = document.getElementById("server-pulse");
+        const toolsPanel = document.getElementById("mcp-tools-panel");
+
+        // Reset
+        hostNode.style.opacity = idx === -1 ? "0.8" : "1";
+        serverNode.style.opacity = idx === -1 ? "0.8" : "1";
+        clientBox.classList.remove(
+          "border-indigo-400",
+          "shadow-[0_0_10px_rgba(99,102,241,0.3)]",
+        );
+        aiPulse.classList.add("hidden");
+        serverPulse.classList.add("hidden");
+        particle.className =
+          "absolute top-1/2 -translate-y-1/2 hidden w-4 h-4 rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] z-10";
+        toolsPanel.classList.remove(
+          "border-emerald-500/50",
+          "border-amber-500/50",
+        );
+
+        if (idx === 0 || idx === 1 || idx === 3 || idx === 4) {
+          clientBox.classList.add(
+            "border-indigo-400",
+            "shadow-[0_0_10px_rgba(99,102,241,0.3)]",
+          );
+        }
+        if (idx === 2) aiPulse.classList.remove("hidden");
+        if (idx === 3) serverPulse.classList.remove("hidden");
+
+        if (particleType === "left") {
+          particle.classList.remove("hidden");
+          particle.classList.add("bg-emerald-400", "particle-left");
+        } else if (particleType === "right") {
+          particle.classList.remove("hidden");
+          particle.classList.add("bg-amber-400", "particle-right");
+        } else if (particleType === "connection") {
+          // Initial connection shimmer
+        }
+
+        if (idx === 1 || idx === 4)
+          toolsPanel.classList.add("border-emerald-500/50");
+        if (idx === 3) toolsPanel.classList.add("border-amber-500/50");
+      }
+
+      window.onload = init;
+    </script>
+  </body>
+</html>

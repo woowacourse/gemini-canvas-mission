@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevType - 개발자를 위한 타자 연습 게임</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 코딩용 폰트 (Fira Code) -->
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <!-- 폭죽 효과 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .code-font { font-family: 'Fira Code', monospace; }
+        
+        .char {
+            display: inline;
+            border-bottom: 2px solid transparent;
+            transition: all 0.05s;
+        }
+        
+        .char.correct { color: #10b981; } 
+        
+        .char.incorrect { 
+            color: #ef4444; 
+            background-color: rgba(239, 68, 68, 0.2);
+            text-shadow: 0 0 5px rgba(239, 68, 68, 0.3);
+        }
+        
+        .char.current {
+            border-bottom: 2px solid #3b82f6;
+            animation: blink 1s infinite;
+        }
+        
+        .char.newline { opacity: 0.5; }
+        .char.newline::before {
+            content: '↵';
+            color: #6b7280;
+            font-size: 0.9em;
+            margin-right: 2px;
+        }
+        .char.newline.correct::before { color: #10b981; }
+        .char.newline.incorrect::before { color: #ef4444; }
+
+        @keyframes blink {
+            0%, 100% { border-bottom-color: transparent; }
+            50% { border-bottom-color: #3b82f6; }
+        }
+
+        .has-errors {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.1);
+        }
+
+        #game-board.blurred {
+            filter: blur(4px);
+            pointer-events: none;
+        }
+        
+        .char.space::before {
+            content: '·';
+            color: transparent;
+        }
+        .char.current.space::before {
+            color: #4b5563;
+        }
+
+        /* 신기록 달성 시 텍스트 애니메이션 */
+        .new-record-anim {
+            animation: pulse-gold 1.5s infinite;
+        }
+        @keyframes pulse-gold {
+            0% { transform: scale(1); text-shadow: 0 0 0px rgba(234, 179, 8, 0); }
+            50% { transform: scale(1.1); text-shadow: 0 0 15px rgba(234, 179, 8, 0.6); }
+            100% { transform: scale(1); text-shadow: 0 0 0px rgba(234, 179, 8, 0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center py-12 px-4">
+
+    <header class="w-full max-w-4xl mb-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
+                &lt;DevType /&gt;
+            </h1>
+            <p class="text-gray-400 text-sm mt-1">개발자를 위한 타자 연습 게임</p>
+        </div>
+        
+        <div class="flex items-center gap-4">
+            <label for="language-select" class="text-gray-300 font-semibold">언어:</label>
+            <select id="language-select" class="bg-gray-800 border border-gray-700 text-white rounded-md px-4 py-2 focus:outline-none focus:border-blue-500 transition-colors font-semibold">
+                <option value="javascript">JavaScript</option>
+                <option value="java">Java</option>
+                <option value="kotlin">Kotlin</option>
+            </select>
+        </div>
+    </header>
+
+    <!-- 상태 표시줄 -->
+    <div class="w-full max-w-4xl bg-gray-800 rounded-t-xl p-4 flex justify-between items-center border-b border-gray-700">
+        <div class="flex gap-12">
+            <div class="flex flex-col">
+                <span class="text-gray-400 text-xs uppercase tracking-wider">현재 타수</span>
+                <span id="cpm-display" class="text-2xl font-bold text-blue-400">0</span>
+            </div>
+            <div class="flex flex-col">
+                <span class="text-gray-400 text-xs uppercase tracking-wider">진행 시간</span>
+                <span id="time-display" class="text-2xl font-bold text-gray-200">0s</span>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-8">
+            <div id="error-alert" class="hidden text-red-400 text-sm font-bold animate-pulse mr-2">
+                [!] 오타를 수정하세요
+            </div>
+            
+            <div class="flex flex-col items-center">
+                <span class="text-gray-400 text-xs uppercase tracking-wider">최고 기록</span>
+                <span id="best-cpm-display" class="text-2xl font-bold text-yellow-500 leading-tight">0</span>
+            </div>
+            
+            <button id="restart-btn" class="bg-gray-700 hover:bg-gray-600 text-white px-5 py-2.5 rounded-md transition-colors flex items-center gap-2 font-semibold">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                새 코드
+            </button>
+        </div>
+    </div>
+
+    <div class="relative w-full max-w-4xl">
+        <div id="focus-overlay" class="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm rounded-b-xl cursor-pointer">
+            <span class="text-white text-lg font-bold bg-blue-600 px-10 py-4 rounded-full shadow-2xl hover:scale-105 transition-transform">
+                클릭하여 시작하세요
+            </span>
+        </div>
+        
+        <div id="game-board" class="w-full bg-gray-900 p-8 rounded-b-xl border border-gray-700 text-gray-500 code-font text-lg leading-relaxed whitespace-pre-wrap overflow-x-auto min-h-[400px] outline-none" tabindex="0">
+        </div>
+    </div>
+
+    <!-- 결과 모달 -->
+    <div id="result-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
+        <div class="bg-gray-800 p-10 rounded-2xl border border-gray-700 max-w-md w-full text-center shadow-2xl">
+            <div id="new-record-badge" class="hidden mb-4 bg-yellow-500 text-gray-900 text-xs font-black px-3 py-1 rounded-full uppercase tracking-tighter inline-block new-record-anim">New Record!</div>
+            <h2 class="text-3xl font-bold text-white mb-2">Build Success!</h2>
+            <p class="text-gray-400 mb-8 font-medium">코드가 완벽하게 컴파일되었습니다.</p>
+            
+            <div class="grid grid-cols-2 gap-4 mb-8">
+                <div class="bg-gray-900 p-4 rounded-xl border border-gray-700">
+                    <p class="text-gray-500 text-xs uppercase mb-1">최종 타수</p>
+                    <p id="final-cpm" class="text-3xl font-black text-blue-400">0</p>
+                </div>
+                <div class="bg-gray-900 p-4 rounded-xl border border-gray-700">
+                    <p class="text-gray-500 text-xs uppercase mb-1">최고 기록</p>
+                    <p id="final-best" class="text-3xl font-black text-yellow-500">0</p>
+                </div>
+            </div>
+            
+            <button id="modal-restart-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg active:scale-95">
+                다음 코드 도전
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const codeSnippets = {
+            javascript: [
+                "function calculateTotal(items) {\n    return items.reduce((acc, item) => {\n        return acc + item.price;\n    }, 0);\n}",
+                "const fetchUserData = async (userId) => {\n    try {\n        const response = await fetch(`/api/users/${userId}`);\n        return await response.json();\n    } catch (e) {\n        console.error(e);\n    }\n};",
+                "const debounce = (fn, delay) => {\n    let timeoutId;\n    return (...args) => {\n        clearTimeout(timeoutId);\n        timeoutId = setTimeout(() => fn(...args), delay);\n    };\n};",
+                "const getUniqueItems = (arr) => {\n    return [...new Set(arr)];\n};\n\nconsole.log(getUniqueItems([1, 2, 2, 3, 4, 4]));",
+                "class User {\n    constructor(name, email) {\n        this.name = name;\n        this.email = email;\n    }\n    getProfile() {\n        return `${this.name} (${this.email})`;\n    }\n}",
+                "const fs = require('fs').promises;\nasync function readFile(path) {\n    const data = await fs.readFile(path, 'utf8');\n    return JSON.parse(data);\n}",
+                "const server = http.createServer((req, res) => {\n    res.statusCode = 200;\n    res.setHeader('Content-Type', 'text/plain');\n    res.end('Hello World');\n});",
+                "const numbers = [1, 2, 3, 4, 5];\nconst squared = numbers.filter(n => n > 2)\n    .map(n => n * n);",
+                "const proxy = new Proxy(target, {\n    get(obj, prop) {\n        return prop in obj ? obj[prop] : 'default';\n    }\n});",
+                "export const validateEmail = (email) => {\n    const re = /\\S+@\\S+\\.\\S+/;\n    return re.test(email);\n};",
+                "document.addEventListener('DOMContentLoaded', () => {\n    const app = document.getElementById('app');\n    app.innerHTML = '<h1>Welcome</h1>';\n});",
+                "const randomInt = (min, max) => {\n    return Math.floor(Math.random() * (max - min + 1)) + min;\n};",
+                "const mergeObjects = (obj1, obj2) => ({\n    ...obj1,\n    ...obj2\n});",
+                "const observer = new IntersectionObserver((entries) => {\n    entries.forEach(entry => {\n        if (entry.isIntersecting) animate();\n    });\n});",
+                "const capitalize = (str) => {\n    if (typeof str !== 'string') return '';\n    return str.charAt(0).toUpperCase() + str.slice(1);\n};",
+                "const wait = (ms) => new Promise(res => setTimeout(res, ms));\nasync function run() {\n    await wait(1000);\n    console.log('Done');\n}",
+                "const isValid = (value) => {\n    return value !== null && value !== undefined;\n};",
+                "const truncate = (str, len) => {\n    return str.length > len ? str.slice(0, len) + '...' : str;\n};",
+                "const getQueryParam = (name) => {\n    const urlParams = new URLSearchParams(window.location.search);\n    return urlParams.get(name);\n};",
+                "const items = [{id: 1, val: 10}, {id: 2, val: 20}];\nconst sum = items.map(i => i.val)\n    .reduce((a, b) => a + b, 0);"
+            ],
+            java: [
+                "public static void main(String[] args) {\n    List<String> frameworkList = new ArrayList<>();\n    frameworkList.add(\"Spring Boot\");\n    frameworkList.add(\"JPA\");\n    \n    frameworkList.forEach(System.out::println);\n}",
+                "public class UserDto {\n    private final String username;\n    private final String email;\n\n    public UserDto(String username, String email) {\n        this.username = username;\n        this.email = email;\n    }\n}",
+                "@RestController\n@RequestMapping(\"/api/v1\")\npublic class UserController {\n    @GetMapping(\"/users/{id}\")\n    public ResponseEntity<User> getUser(@PathVariable Long id) {\n        return ResponseEntity.ok(userService.findById(id));\n    }\n}",
+                "public interface UserRepository extends JpaRepository<User, Long> {\n    Optional<User> findByEmail(String email);\n}",
+                "public List<String> filterNames(List<String> names) {\n    return names.stream()\n        .filter(name -> name.startsWith(\"A\"))\n        .collect(Collectors.toList());\n}",
+                "try (BufferedReader br = new BufferedReader(new FileReader(file))) {\n    String line;\n    while ((line = br.readLine()) != null) {\n        process(line);\n    }\n} catch (IOException e) {\n    e.printStackTrace();\n}",
+                "@Service\n@RequiredArgsConstructor\npublic class AuthService {\n    private final JwtProvider jwtProvider;\n    private final UserRepository userRepository;\n}",
+                "public enum OrderStatus {\n    PENDING, PROCESSING, COMPLETED, CANCELLED;\n}",
+                "public static <T> List<T> fromArrayToList(T[] a) {\n    return Arrays.stream(a).collect(Collectors.toList());\n}",
+                "Optional<String> name = Optional.ofNullable(user.getName());\nString finalName = name.orElse(\"Unknown\");",
+                "@Data\n@NoArgsConstructor\n@AllArgsConstructor\n@Builder\npublic class Product {\n    private Long id;\n    private String name;\n}",
+                "public boolean isValidPassword(String password) {\n    return password != null && password.length() >= 8;\n}",
+                "@Scheduled(cron = \"0 0 * * * *\")\npublic void runTask() {\n    System.out.println(\"Hourly task running\");\n}",
+                "Map<String, Integer> map = new HashMap<>();\nmap.put(\"key1\", 100);\nmap.getOrDefault(\"key2\", 0);",
+                "public int calculateSum(int[] arr) {\n    return Arrays.stream(arr).sum();\n}",
+                "@Aspect\n@Component\npublic class LoggingAspect {\n    @Before(\"execution(* com.example..*(..))\")\n    public void logBefore() { /* logic */ }\n}",
+                "public String formatName(String first, String last) {\n    return String.format(\"%s %s\", first, last);\n}",
+                "List<Integer> list = IntStream.range(1, 10)\n    .boxed()\n    .collect(Collectors.toList());",
+                "public void saveUser(User user) {\n    if (user == null) throw new IllegalArgumentException();\n    repository.save(user);\n}",
+                "Thread thread = new Thread(() -> {\n    System.out.println(\"Running in parallel\");\n});\nthread.start();"
+            ],
+            kotlin: [
+                "fun main() {\n    val frameworks = listOf(\"Spring\", \"Ktor\", \"Javalin\")\n    frameworks.filter { it.startsWith(\"S\") }\n        .map { it.uppercase() }\n        .forEach { println(it) }\n}",
+                "data class User(\n    val id: Long,\n    val username: String,\n    val email: String? = null\n)\n\nval user = User(id = 1L, username = \"dev_ninja\")",
+                "suspend fun fetchPosts(): List<Post> = coroutineScope {\n    val response = httpClient.get(\"https://api.com/posts\")\n    response.body()\n}",
+                "fun calculateScore(points: Int?): Int {\n    return points?.let { it * 10 } ?: 0\n}",
+                "class UserRepository(private val db: Database) {\n    fun findById(id: String) = db.query(\"SELECT * FROM users WHERE id = $id\")\n}",
+                "val lazyValue: String by lazy {\n    println(\"computed!\")\n    \"Hello\"\n}",
+                "inline fun <reified T> List<Any>.filterIsInstance(): List<T> {\n    return filter { it is T }.map { it as T }\n}",
+                "when (val result = repository.getResult()) {\n    is Success -> println(result.data)\n    is Error -> println(result.message)\n}",
+                "fun String.isEmail(): Boolean {\n    return Patterns.EMAIL_ADDRESS.matcher(this).matches()\n}",
+                "val names = listOf(\"Alice\", \"Bob\", \"Charlie\")\nval (a, b) = names",
+                "scope.launch {\n    val data = withContext(Dispatchers.IO) {\n        apiService.getData()\n    }\n    updateUI(data)\n}",
+                "interface Base {\n    fun print()\n}\nclass BaseImpl(val x: Int) : Base {\n    override fun print() { print(x) }\n}",
+                "val numbers = (1..100).toList()\nval doubled = numbers.map { it * 2 }",
+                "fun fetchUserData(id: Int) = runCatching {\n    api.getUser(id)\n}.getOrNull()",
+                "sealed class UIState {\n    object Loading : UIState()\n    data class Content(val data: List<String>) : UIState()\n}",
+                "val message = \"\"\"\n    |Kotlin is expressive,\n    |concise and safe.\n    \"\"\".trimMargin()",
+                "fun printAll(vararg strings: String) {\n    for (s in strings) println(s)\n}",
+                "val map = mutableMapOf<String, Int>()\nmap[\"key\"] = 1\nval value = map.getOrElse(\"unknown\") { 0 }",
+                "fun checkNotNull(input: String?) {\n    requireNotNull(input) { \"Input must not be null\" }\n}",
+                "val result = with(StringBuilder()) {\n    append(\"Hello \")\n    append(\"World\")\n    toString()\n}"
+            ]
+        };
+
+        const keyMap = {
+            "Digit1": ["1", "!"], "Digit2": ["2", "@"], "Digit3": ["3", "#"], "Digit4": ["4", "$"], "Digit5": ["5", "%"],
+            "Digit6": ["6", "^"], "Digit7": ["7", "&"], "Digit8": ["8", "*"], "Digit9": ["9", "("], "Digit0": ["0", ")"],
+            "Minus": ["-", "_"], "Equal": ["=", "+"], "KeyQ": ["q", "Q"], "KeyW": ["w", "W"], "KeyE": ["e", "E"],
+            "KeyR": ["r", "R"], "KeyT": ["t", "T"], "KeyY": ["y", "Y"], "KeyU": ["u", "U"], "KeyI": ["i", "I"],
+            "KeyO": ["o", "O"], "KeyP": ["p", "P"], "BracketLeft": ["[", "{"], "BracketRight": ["]", "}"], "Backslash": ["\\", "|"],
+            "KeyA": ["a", "A"], "KeyS": ["s", "S"], "KeyD": ["d", "D"], "KeyF": ["f", "F"], "KeyG": ["g", "G"],
+            "KeyH": ["h", "H"], "KeyJ": ["j", "J"], "KeyK": ["k", "K"], "KeyL": ["l", "L"], "Semicolon": [";", ":"],
+            "Quote": ["'", "\""], "KeyZ": ["z", "Z"], "KeyX": ["x", "X"], "KeyC": ["c", "C"], "KeyV": ["v", "V"],
+            "KeyB": ["b", "B"], "KeyN": ["n", "N"], "KeyM": ["m", "M"], "Comma": [",", "<"], "Period": [".", ">"],
+            "Slash": ["/", "?"], "Space": [" ", " "]
+        };
+
+        const gameBoard = document.getElementById('game-board');
+        const focusOverlay = document.getElementById('focus-overlay');
+        const languageSelect = document.getElementById('language-select');
+        const cpmDisplay = document.getElementById('cpm-display');
+        const bestCpmDisplay = document.getElementById('best-cpm-display');
+        const timeDisplay = document.getElementById('time-display');
+        const restartBtn = document.getElementById('restart-btn');
+        const errorAlert = document.getElementById('error-alert');
+        const resultModal = document.getElementById('result-modal');
+        const finalCpm = document.getElementById('final-cpm');
+        const finalBest = document.getElementById('final-best');
+        const newRecordBadge = document.getElementById('new-record-badge');
+        const modalRestartBtn = document.getElementById('modal-restart-btn');
+
+        let currentSnippet = "";
+        let characterSpans = [];
+        let currentIndex = 0;
+        let timer = null;
+        let timeElapsed = 0;
+        let isPlaying = false;
+
+        function getBestCpm(lang) {
+            return parseInt(localStorage.getItem(`devtype_best_${lang}`) || "0");
+        }
+
+        function saveBestCpm(lang, cpm) {
+            const currentBest = getBestCpm(lang);
+            if (cpm > currentBest) {
+                localStorage.setItem(`devtype_best_${lang}`, cpm.toString());
+                return true;
+            }
+            return false;
+        }
+
+        function initGame() {
+            currentIndex = 0;
+            timeElapsed = 0;
+            isPlaying = false;
+            clearInterval(timer);
+            
+            cpmDisplay.innerText = "0";
+            timeDisplay.innerText = "0s";
+            resultModal.classList.add('hidden');
+            errorAlert.classList.add('hidden');
+            newRecordBadge.classList.add('hidden');
+            gameBoard.classList.remove('has-errors');
+            
+            const lang = languageSelect.value;
+            bestCpmDisplay.innerText = getBestCpm(lang);
+
+            const snippets = codeSnippets[lang];
+            currentSnippet = snippets[Math.floor(Math.random() * snippets.length)];
+            
+            renderSnippet(currentSnippet);
+            gameBoard.focus();
+        }
+
+        function renderSnippet(text) {
+            gameBoard.innerHTML = '';
+            characterSpans = [];
+            text.split('').forEach((char, index) => {
+                const span = document.createElement('span');
+                if (char === '\n') {
+                    span.innerText = '\n';
+                    span.classList.add('char', 'newline');
+                } else {
+                    span.innerText = char;
+                    span.classList.add('char');
+                    if (char === ' ') span.classList.add('space');
+                }
+                if (index === 0) span.classList.add('current');
+                gameBoard.appendChild(span);
+                characterSpans.push(span);
+            });
+        }
+
+        function startTimer() {
+            if (timer) clearInterval(timer);
+            timer = setInterval(() => {
+                timeElapsed++;
+                timeDisplay.innerText = timeElapsed + 's';
+                updateStats();
+            }, 1000);
+        }
+
+        function updateStats() {
+            if (timeElapsed > 0) {
+                const correctCount = characterSpans.slice(0, currentIndex).filter(s => s.classList.contains('correct')).length;
+                const cpm = Math.round((correctCount / timeElapsed) * 60);
+                cpmDisplay.innerText = Math.max(0, cpm);
+            }
+        }
+
+        function checkForErrors() {
+            const hasErrors = characterSpans.some(span => span.classList.contains('incorrect'));
+            if (hasErrors) {
+                gameBoard.classList.add('has-errors');
+                errorAlert.classList.remove('hidden');
+                return true;
+            } else {
+                gameBoard.classList.remove('has-errors');
+                errorAlert.classList.add('hidden');
+                return false;
+            }
+        }
+
+        // 팡파레 효과 함수
+        function fireConfetti() {
+            const duration = 3 * 1000;
+            const animationEnd = Date.now() + duration;
+            const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 100 };
+
+            const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+            const interval = setInterval(function() {
+                const timeLeft = animationEnd - Date.now();
+
+                if (timeLeft <= 0) {
+                    return clearInterval(interval);
+                }
+
+                const particleCount = 50 * (timeLeft / duration);
+                
+                // 왼쪽에서 발사
+                confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+                // 오른쪽에서 발사
+                confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+            }, 250);
+        }
+
+        function finishGame() {
+            if (checkForErrors()) return;
+
+            isPlaying = false;
+            clearInterval(timer);
+            
+            const lang = languageSelect.value;
+            const finalCpmValue = parseInt(cpmDisplay.innerText);
+            const isNewRecord = saveBestCpm(lang, finalCpmValue);
+            
+            finalCpm.innerText = finalCpmValue;
+            finalBest.innerText = getBestCpm(lang);
+            
+            if (isNewRecord) {
+                newRecordBadge.classList.remove('hidden');
+                fireConfetti(); // 신기록 달성 시 팡파레 터뜨리기
+            }
+            
+            resultModal.classList.remove('hidden');
+            gameBoard.blur();
+        }
+
+        function skipAllIndentation() {
+            while (currentIndex < currentSnippet.length && currentSnippet[currentIndex] === ' ') {
+                characterSpans[currentIndex].classList.remove('current');
+                characterSpans[currentIndex].classList.add('correct');
+                currentIndex++;
+                if (currentIndex < currentSnippet.length) {
+                    characterSpans[currentIndex].classList.add('current');
+                }
+                if (currentIndex < currentSnippet.length && currentSnippet[currentIndex] === '\n') break;
+            }
+        }
+
+        gameBoard.addEventListener('keydown', (e) => {
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            if (e.key === 'Process' || e.isComposing) return;
+
+            if (!isPlaying && (e.code in keyMap || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Tab')) {
+                isPlaying = true;
+                startTimer();
+            }
+
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                if (currentIndex < currentSnippet.length && currentSnippet[currentIndex] === ' ') {
+                    skipAllIndentation();
+                    if (currentIndex >= currentSnippet.length) finishGame();
+                }
+                return;
+            }
+
+            if (e.key === 'Backspace') {
+                if (currentIndex > 0) {
+                    characterSpans[currentIndex]?.classList.remove('current');
+                    currentIndex--;
+                    const charSpan = characterSpans[currentIndex];
+                    charSpan.classList.remove('correct', 'incorrect');
+                    charSpan.classList.add('current');
+                    checkForErrors();
+                }
+                return;
+            }
+
+            let inputChar = "";
+            if (e.key === 'Enter') {
+                inputChar = "\n";
+            } else if (keyMap[e.code]) {
+                inputChar = e.shiftKey ? keyMap[e.code][1] : keyMap[e.code][0];
+            } else {
+                return;
+            }
+
+            e.preventDefault();
+
+            if (currentIndex < currentSnippet.length) {
+                const expectedChar = currentSnippet[currentIndex];
+                const charSpan = characterSpans[currentIndex];
+
+                if (inputChar === expectedChar) {
+                    charSpan.classList.add('correct');
+                    charSpan.classList.remove('current');
+                    currentIndex++;
+                    
+                    if (inputChar === '\n') {
+                        skipAllIndentation();
+                    }
+
+                    if (currentIndex < currentSnippet.length) {
+                        characterSpans[currentIndex].classList.add('current');
+                    } else {
+                        finishGame();
+                    }
+                } else {
+                    charSpan.classList.add('incorrect');
+                    charSpan.classList.remove('current');
+                    currentIndex++;
+                    if (currentIndex < currentSnippet.length) {
+                        characterSpans[currentIndex].classList.add('current');
+                    }
+                }
+            }
+            
+            checkForErrors();
+            updateStats();
+        });
+
+        gameBoard.addEventListener('focus', () => focusOverlay.style.display = 'none');
+        gameBoard.addEventListener('blur', () => {
+            if (resultModal.classList.contains('hidden')) focusOverlay.style.display = 'flex';
+        });
+        focusOverlay.addEventListener('click', () => gameBoard.focus());
+        languageSelect.addEventListener('change', initGame);
+        restartBtn.addEventListener('click', initGame);
+        modalRestartBtn.addEventListener('click', initGame);
+
+        initGame();
+    </script>
+</body>
+</html>

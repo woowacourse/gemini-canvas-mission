@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>단어 연습 프로그램</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loader-large {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #6366f1;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 1s linear infinite;
+        }
+        /* 3D Flip 애니메이션용 클래스 */
+        .perspective-1000 { perspective: 1000px; }
+        .preserve-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        
+        /* 스크롤바 숨기기 (잔디밭용) */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* 단축키 키보드 스타일 */
+        kbd {
+            background-color: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-size: 0.75rem;
+            font-family: inherit;
+            color: #475569;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col items-center py-10 px-4 relative">
+
+    <!-- Initial Loader -->
+    <div id="initial-loader" class="fixed inset-0 bg-slate-50 z-[100] flex flex-col items-center justify-center transition-opacity duration-500">
+        <div class="loader-large mb-4"></div>
+        <p class="text-slate-500 font-medium text-sm">클라우드 데이터 동기화 중...</p>
+    </div>
+
+    <!-- Header / Stats -->
+    <header class="w-full max-w-2xl mb-2 flex justify-between items-end fade-in">
+        <div>
+            <h1 class="text-3xl font-bold text-indigo-600 tracking-tight">단어 연습 프로그램</h1>
+            <p class="text-slate-500 mt-1">Oxford 3000 필수 영단어 마스터하기</p>
+        </div>
+        <div class="flex gap-4 text-center items-center">
+            <!-- Streak & Heatmap Toggle -->
+            <div onclick="toggleHeatmap()" class="cursor-pointer bg-emerald-50 p-3 rounded-xl shadow-sm border border-emerald-100 hover:bg-emerald-100 transition min-w-[70px]">
+                <div class="text-[10px] text-emerald-500 font-semibold uppercase">Streak</div>
+                <div class="text-xl font-bold text-emerald-700" id="stat-streak">0일</div>
+            </div>
+
+            <!-- 클릭 시 퍼센트/개수 전환 (Flip) -->
+            <div onclick="toggleProgressFormat()" class="perspective-1000 w-[90px] h-[70px] cursor-pointer">
+                <div id="progress-card" class="relative w-full h-full transition-transform duration-500 preserve-3d">
+                    <!-- Front (Percent) -->
+                    <div class="absolute w-full h-full backface-hidden bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                        <div class="text-[10px] text-slate-400 font-semibold uppercase">Progress</div>
+                        <div class="text-xl font-bold text-slate-700" id="stat-progress-front">0%</div>
+                    </div>
+                    <!-- Back (Count) -->
+                    <div class="absolute w-full h-full backface-hidden rotate-y-180 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center items-center">
+                        <div class="text-[10px] text-slate-400 font-semibold uppercase">Learned</div>
+                        <div class="text-lg font-bold text-slate-700" id="stat-progress-back">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Shortcut Hint -->
+    <div class="w-full max-w-2xl mb-6 flex justify-start items-center gap-3 fade-in opacity-80">
+        <div class="flex gap-2 text-xs text-slate-500">
+            <span><kbd>W</kbd> <kbd>S</kbd> 이동</span>
+            <span><kbd>A</kbd> 뜻</span>
+            <span><kbd>D</kbd> 예문 작성</span>
+            <span><kbd>Space</kbd> 학습 완료</span>
+            <span><kbd>Enter</kbd> 예문 제출</span>
+        </div>
+    </div>
+
+    <!-- Heatmap (Jandi) -->
+    <div id="heatmap-section" class="hidden w-full max-w-2xl mb-8 bg-white p-5 rounded-xl shadow-sm border border-slate-100 fade-in flex-col gap-2">
+        <div class="text-sm font-bold text-slate-700 mb-2 flex items-center justify-between">
+            <span>나의 학습 잔디밭 🌱</span>
+            <span class="text-xs font-normal text-slate-400">시작일로부터 전체 기록</span>
+        </div>
+        <div id="heatmap-container" class="w-full overflow-x-auto pb-2 no-scrollbar">
+            <!-- 잔디밭이 여기에 렌더링됩니다 -->
+        </div>
+    </div>
+
+    <!-- App Container -->
+    <main id="app-container" class="w-full max-w-2xl bg-white p-6 rounded-2xl shadow-lg border border-slate-100 min-h-[500px] relative">
+        <h2 class="text-2xl font-bold text-slate-800 mb-6">오늘의 단어</h2>
+        <div id="word-list" class="space-y-4">
+            <!-- 단어 리스트가 렌더링됩니다 -->
+        </div>
+    </main>
+
+    <!-- Custom Modal for Notifications -->
+    <div id="toast-modal" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl opacity-0 pointer-events-none transition-opacity duration-300 z-50">
+        <span id="toast-message">메시지</span>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- 1. 데이터 및 초기 설정 ---
+        const apiKey = ""; // 실행 환경에서 자동으로 주입됩니다.
+        
+        // Oxford 3000 단어 리스트 초압축 하드코딩 (토큰 한계 극복)
+        // 매일 5개씩 뽑은 뒤, Gemini AI가 실시간으로 품사와 뜻을 번역해줍니다.
+        const oxford3000Words = "a abandon abandoned ability able about above abroad absence absent absolute absolutely absorb abuse academic accent accept acceptable access accident accidental accidentally accommodation accompany according_to account account_for accurate accurately accuse achieve achievement acid acknowledge a_couple acquire across act action active actively activity actor actress actual actually ad adapt add addition additional address adequate adequately adjust admiration admire admit adopt adult advance advanced advantage adventure advert advertise advertisement advertising advice advise affair affect affection afford afraid after afternoon afterwards again against age aged agency agent aggressive ago agree agreement ahead aid aim air aircraft airport alarm alarmed alarming alcohol alcoholic alive all allow allowance ally almost alone along alongside aloud alphabet alphabetical already also alter alternative alternatively although altogether always amaze amazed amazing ambition ambulance among amount amuse amused amusing analyse analysis ancient and anger angle angry animal ankle anniversary announce annoy annoyed annoying annual annually another answer anticipate anxiety anxious anxiously any anyone anything anyway anywhere apart apartment apologize apparent apparently appeal appear appearance apple application apply appoint appointment appreciate approach appropriate approval approve approximate approximately april area argue argument arise arm armed arms army around arrange arrangement arrest arrival arrive arrow art article artificial artificially artist artistic as ashamed aside ask asleep aspect assist assistance assistant associate associated association assume assure at atmosphere atom attach attached attack attempt attempted attend attention attitude attorney attract attraction attractive audience august aunt author authority automatic automatically autumn available average avoid awake award aware away awful awfully awkward awkwardly baby back background backward bacteria bad badly bag baggage bake balance ball ban band bandage bank bar barely bargain barrier base baseball basic basically basis basketball bath bathroom battery battle be beach beak bear beard beat beautiful beautifully beauty because become bed bedroom beef beer before begin beginning behalf behave behavior behind belief believe bell belong below belt bend beneath benefit bent beside best bet better between beyond bicycle bid big bike bill billion bin biology bird birth bit bite bitter bitterly black blade blame blank blind block blonde blood blow blue board boat body boil bomb bone book boot border bore bored boring born borrow boss both bother bottle bottom bound bowl box boy boyfriend brain branch brand brave bread break breakfast breast breath breathe breathing breed brick bridge brief briefly bright brightly brilliant bring broad broadcast broadly broken brother brown brush bubble budget build building bullet bunch burn burst bury bus bush business businessman busy but butter button buy buyer by cabinet cable cake calculate calculation call called calm calmly camera camp campaign camping can cancel cancer candidate candy cap capable capacity capital captain capture car card care career careful carefully careless carelessly carpet carrot carry case cash cast castle cat catch category cause cd cease ceiling celebrate celebration cell cellphone cent centre century ceremony certain certainly certificate chain chair chairman challenge chamber champion championship chance change channel chapter character characteristic charge charity chart chase chat cheap cheaply cheat check cheek cheer cheerful cheerfully cheese chemical chemist chemistry cheque chest chew chicken chief chiefly child childhood chip chocolate choice choose chop church cigarette cinema circle circumstance citizen city civil claim class classic classical clean clear clearly clerk clever click client climate climb climbing clock close closed closely closet cloth clothes clothing cloud club clue coach coal coast coat code coffee coin cold coldly collapse colleague collect collection college color column combination combine come comedy comfort comfortable comfortably command comment commercial commission commit commitment committee common commonly communicate communication community company compare comparison compete competition competitive complain complaint complete completely complex complicate complicated computer concentrate concentration concept concern concerned concerning concert conclude conclusion concrete condition conduct conference confidence confident confidently confirm conflict confront confuse confused confusing confusion congratulate congratulation congress connect connection conscious consequence conservative consider considerable considerably consideration consist constant constantly construct construction consult consumer contact contain container contemporary content contest context continent continue continuous continuously contract contrast contribute contribution control convenient convention conventional conversation convert convince cooking cool cope copy core corner correct correctly cost cottage cotton cough could council count country county couple courage course court cousin cover covered covering cow crack craft crash crazy cream create creature credit crew crime criminal crisis crisp criterion critical criticism criticize crop cross crowd crowded crown crucial cruel crush cry cultural culture cup cupboard cure curious curiously curl curly current currently curtain curve curved custom customer customs cut cycle dad daily damage damp dance dancer dancing danger dangerous dare dark data date daughter day dead deaf deal dear death debate debt decade decay december decide decision declare decline decorate decoration decorative decrease deep deeply defeat defence defend define definite definitely definition degree delay deliberate deliberately delicate delicious delight delighted deliver delivery demand demonstrate dentist deny department departure depend deposit depress depressed depressing depth derive describe description desert deserve design designer desk desperate desperately despite destroy destruction detail detailed determination determine determined develop development device devote devoted diagram diamond diary dictionary die diet difference different differently difficult difficulty dig dinner direct direction directly director dirt dirty disabled disagree disappear disappoint disappointed disappointing disappointment disaster disc discipline discount discover discovery discuss discussion disease disgust disgusted disgusting dish dismiss display dissolve distance distinguish distribute distribution district divide division divorce divorced do doctor document dog dollar domestic dominate door dot double doubt down downstairs downward downwards draft drag draw drawer drawing dream dress drink drive driver drop drug drum drunk dry due dull dump during dust duty dvd each ear early earn earth ease easily east eastern easy eat economic economy edge edit edition editor educate educated education educational effect effective effectively efficiency efficient effort egg either elbow elderly elect election electric electrical electricity electronic elegant element elephant elevator else elsewhere email embarrass embarrassed embarrassing emerge emergency emotion emotional emphasis emphasize empire employ employee employer employment empty enable encounter encourage end enemy energy engage engine engineer engineering enjoy enjoyable enormous enough ensure enter entertain entertainment enthusiasm enthusiastic entire entirely entitle entrance entry envelope environment environmental equal equally equipment error escape especially essay essential essentially establish estate estimate etc european evaluate even evening event eventually ever every everyone everything everywhere evidence evil exact exactly exaggerate exaggerated exam examination example excellent except exception exchange excite excited excitement exciting exclude excluding excuse executive exercise exhibit exhibition exist existence existing exit expand expect expectation expected expense expensive experience experienced experiment expert explain explanation explode explore explosion export expose express expression extend extension extensive extent extra extraordinary extreme extremely eye face facility fact factor factory fail failure fair fairly faith fall false familiar family famous fan fancy far farm farmer farming farther farthest fashion fashionable fast fasten fat father faucet fault favor favorite fear feather feature february federal fee feed feel feeling fellow female fence festival fetch fever few field fierce fiercely fifteen fifth fifty fight fighting figure file fill film final finally finance financial find fine finely finger finish fire firm firmly first fish fishing fit fix fixed flag flame flash flat flavor flesh flight float flood floor flour flow flower flu fly flying focus fold folding follow following food foot football for force forecast foreign forest forever forget forgive fork form formal formally format former formerly formula forty forward found foundation frame free freedom freely freeze frequent frequently fresh freshly friday friend friendly friendship frighten frightened frightening from front frozen fruit fry fuel full fully fun function fund fundamental funeral funny fur furniture further future gain gallon gamble gambling game gap garage garbage garden gas gasoline gate gather general generally generate generation generous gently gentleman genuine geography get giant gift girl girlfriend give glad glass global glove go goal god gold good goodbye goods govern government governor grab grade gradually grain grammar grand grandchild granddaughter grandmother grandparent grandson grant grass grateful grave gray great greatly green grocery ground group grow growth guarantee guard guess guest guide guilty gun guy habit hair half hall hammer hand handle hang happen happily happy hard hardly harm harmful harmless hat hate hatred have he head headache heal health healthy hear hearing heart heat heater heaven heavily heavy heel height helicopter hell hello help helpful her here hero hers herself hesitate hi hide high highlight highly highway hill him himself hip hire his historical history hit hold hole holiday hollow holy home homework honest honestly honor hook hope horizontal horn horror horse hospital host hot hotel hour house household housing how however huge human humorous hungry hunt hunting hurry hurt husband i ice idea ideal identify identity if ill illegal illness illustrate image imaginary imagine immediate immediately import importance important importantly impose impossible impress impressed impression impressive improve improvement in inch incident include including income increase increasingly indeed independent index indicate indirect individual indoor indoors industrial industry infection influence inform initial initially initiative injure injured injury ink inner innocent insect insert inside insist instance instead institute institution instruction instrument insult insurance intelligence intelligent intend intention interest interested interesting internal international internet interpret interrupt interview into introduce introduction invent invention invest investigate investigation investment invitation invite involve iron island issue it item its itself jacket jail january jaw jazz jealous jeans job join joint joke journalist journey joy judge judgment juice jump junior just justice justify keep key keyboard kick kid kill kilometer kind kindly king kiss kitchen knee knife knit knock knot know knowledge label laboratory labor lack lady lake lamp land landscape language large largely last late lately later latest latter laugh launch law lawyer lay lazy lead leader leadership leading leaf league lean learn least leather leave left leg legal legally lemon lend length less lesson let letter level library license lid lie life lift light lightly like likely limit line link lip liquid list listen literature little live lively load loan local locally locate location lock logic logical lonely long look loose loosely lord lorry lose loss lost lot loud loudly love lovely lover low loyal luck lucky lump lunch lung machine machinery mad magazine magic mail main mainly maintain major majority make male mall man manage management manager manner many map march mark market marketing marriage married marry mass massive master match matching material mathematics matter maximum may maybe mayor me meal mean meaning means meanwhile measure measurement meat media medical medicine medium meet meeting member membership memory mental mention menu mere merely mess message metal method middle midnight might mild mile military milk mind mine mineral minimum minister ministry minor minority minute mirror miss missing mistake mix mixed model modern mom moment monday money monkey month mood moon moral more moreover morning most mostly mother motion motor mountain mouse mouth move movement movie much mud multiply murder muscle museum music musical musician must my myself mysterious mystery nail naked name narrow nasty nation national natural naturally nature navy near nearby nearly neat necessarily necessary neck need needle negative neighbor neighborhood neither nephew nerve nervous nest net network never nevertheless new newly news newspaper next nice nicely niece night no nobody nod noise noisy non none nonsense nor normal normally north northern nose not note nothing notice noticeable novel november now nowhere nuclear number nurse nut object objective observation observe obtain obvious obviously occasion occasionally occupation occupy occur ocean'clock october odd oddly of off offence offend offense offensive offer office officer official officially often oh oil old old-fashioned on once one onion only onto open opening openly operate operation opinion opponent opportunity oppose opposite opposition option or orange order ordinary organ organization organize origin original originally other otherwise ought ounce our ours ourselves out outdoor outdoors outer outline outside outstanding oven over overall overcome owe own owner pace pack package packaging packet page pain painful paint painter painting pair palace pale pan panel pants paper parent park parking parliament part partial partially participate particular particularly partly partner partnership party pass passage passenger passing passport past path patience patient pattern pause pay payment peace peaceful peak pen penalty pencil penny people pepper per percentage perfect perfectly perform performance performer perhaps period permanent permanently permission permit person personal personality personally personnel perspective persuade pet phase philosophy phone photo photograph photographer photography phrase physical physically physics piano pick picture piece pig pile pill pilot pin pink pipe pitch pity place plain plan plane planet plant plastic plate platform play player pleasant please pleased pleasing pleasure plenty plot plug plus pocket poem poetry point pointed poison poisonous pole police policy polish polite political politically politician politics pollution pool poor pop popular population port pose position positive possess possession possibility possible possibly post pot potato potential potentially pound pour poverty powder power powerful practical practically practice praise pray prayer precisely predict prefer preference pregnant premises preparation prepare prepared presence present presentation preserve president press pressure presumably pretend pretty prevent previous previously price pride priest primarily primary prime prince princess principal principle print printer prior priority prison prisoner private privately prize probable probably problem procedure proceed process produce producer product production profession professional professor profit program project promise promote promotion prompt promptly pronounce pronunciation proof proper properly property proportion proposal propose prospect protect protection protest proud proudly prove provide provided pub public publication publicly publish publisher pudding pull punch punish punishment pupil purchase pure purely purple purpose pursue push put qualification qualify quality quantity quarter queen question quick quickly quiet quietly quit quite quote race racing radio rail railroad railway rain raise range rank rapid rapidly rare rarely rate rather raw reach react reaction read reader reading ready real realistic reality realize really reason reasonable reasonably recall receipt receive recent recently reception reckon recognition recognize recommend record recording recover red reduce reduction refer reference reflect reform refrigerator refusal refuse regard regarding region regional register regret regular regularly relate relation relationship relative relatively relax relaxed relaxing release relevance relief religion religious rely remain remark remarkable remember remind remote removal remove rent repair repeat repeatedly replace reply report reporter represent representative reproduce reputation request require requirement rescue research researcher reservation reserve respect respond response responsibility responsible rest restaurant restore restrict restriction result retain retire retired retirement return reveal reverse review revise revision revolution reward rhythm rice rich rid ride rider ridiculous riding right rightly ring rise risk rival river road rob rock role roll romantic roof room root rope rough roughly round route routine row royal rub rubber rubbish rude ruin rule run runner running rural rush sack sad sadly sadness safe safely safety sail sailing sailor salad salary sale salt same sample sand satisfaction satisfy satisfying saturday sauce save saving say scale scan scare scared scary scene schedule scheme school science scientific scientist scissors score scratch scream screen screw script sea seal search season seat second secondary secret secretary section sector secure security see seed seek seem select selection self sell seller send senior sense sensible sensitive sentence separate separated separately separation september series serious seriously servant serve service session set settle settlement several severe severely sew sex sexual sexually shade shadow shake shall shallow shame shape share sharp sharply shave she sheep sheet shelf shell shelter shift shine shiny ship shirt shock shocked shocking shoe shoot shooting shop shopping short shortly shot should shoulder shout show shower shut shy sick side sight sign signal signature significance significant significantly silence silent silk silly silver similar similarly simple simply sin since sincere sincerely sing singer singing single sink sir sister sit site situation six size skill skilled skin skirt sky sleep sleeve slice slide slight slightly slip slope slow slowly smash smell smile smoke smoking smooth smoothly snake snow so soap social socially society sock soft softly software soil soldier solid solution solve some somebody somehow someone something sometimes somewhat somewhere son song soon sore sorry sort soul sound soup sour source south southern space speak speaker special specialist specially specific specifically speech speed spell spelling spend spice spicy spider spin spirit spiritual split spoil spoken spoon sport spot spray spread spring square squeeze stable staff stage stair stamp stand standard star stare start state statement station statue status stay steadily steady steal steam steel steep steer step stick sticky stiff still sting stir stock stomach stone stop store storm story stove straight strain strange strangely stranger strategy stream street strength stress stretch strict strictly strike striking string strip stripe strong strongly structure struggle student studio study stuff stupid style subject substance substantial substantially substitute succeed success successful successfully such suck sudden suddenly suffer suffering sugar suggest suggestion suit suitable suitcase sum summer sun sunday supermarket supply support supporter suppose sure surely surface surgery surprise surprised surprising surprisingly surround surrounding surroundings survey survive suspect suspicion suspicious swallow swear sweat sweater sweep sweet swell swimming swing switch symbol sympathetic sympathy symptom system table tablet tackle tail take talk tall tank tap tape target task taste tax taxi tea teach teacher teaching team tear technical technique technology telephone television tell temper temperature temporary tend tendency tension tent term terrible terribly test text than thank thanks that the theater their theirs them theme themselves then theory there therefore these they thick thickly thief thin thing think thinking thirsty thirteen thirty this thoroughly those though thought thread threat threaten three throat through throughout throw thumb thursday thus ticket tie tight tightly till time tin tiny tip tire tired title to today toe together toilet tomato tomorrow ton tone tongue tonight too tool tooth top topic total totally touch tough tour tourist toward towards towel tower town toy trace track trade tradition traditional traffic train training transfer transform translate translation transparent transport transportation trap travel traveler treat treatment tree trend trial trick trip trouble trousers truck true truly trust truth try tube tuesday tune tunnel turn twelve twenty twice twin twist two type typical typically ugly ultimate ultimately unable uncle under underground underneath understand understanding underwear undo unemployed unemployment unexpected unfair unfortunately unhappy uniform union unique unit unite united universe university unknown unless unlike unlikely unload unlucky unnecessary until unusual unusually up upon upper upset upside upstairs upward upwards urban urge urgent us use used useful useless user usual usually vacation valid valley valuable value van variation variety various vary vast vegetable vehicle version very via victim victory video view village violence violent virtually virus visible vision visit visitor visual vital voice volume vote wage waist wait waiter wake walk wall wander want war warm warn wash waste watch water wave way we weak weakness weakly wealth weapon wear weather weave web website wedding wednesday week weekend weekly weigh weight weird welcome well west western wet what whatever wheel when whenever where whereas wherever whether which while whisper white who whole whom whose why wide widely width wife wild will willing willingly win wind window wine wing winner winter wipe wire wisdom wise wish with withdraw within without witness woman wonder wonderful wood wooden wool word work worker world worried worry worse worst worth would wound wrap wrist write writer writing wrong yard yawn yeah year yellow yes yesterday yet you young your yours yourself youth zero zone"
+         .replace(/_/g, " ")
+         .split(" ");
+
+        let appState = {
+            lastAccessDate: null, 
+            dailyWords: [],
+            seenWords: [],
+            totalLearned: 0,
+            history: {}
+        };
+
+        let progressFormat = 'percent'; // 'percent' 또는 'count'
+        let focusedWordIndex = 0; // 단축키 포커스를 위한 상태
+        let isTranslating = false; // 번역 중 상태 플래그
+
+        // --- Firebase 연동 로직 ---
+        let currentUser = null;
+        let db = null;
+        let appId = 'default-app-id';
+        let isFirstLoad = true;
+        let cloudUnsubscribe = null;
+
+        async function initFirebase() {
+            try {
+                if (typeof __firebase_config !== 'undefined') {
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                    const app = initializeApp(firebaseConfig);
+                    const auth = getAuth(app);
+                    db = getFirestore(app);
+
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            currentUser = user;
+                            listenToCloudState(); // getDoc 대신 실시간 감지 함수 실행
+                        }
+                    });
+                } else {
+                    loadLocalState();
+                    startApp();
+                }
+            } catch (err) {
+                console.error("Firebase Init Error:", err);
+                loadLocalState();
+                startApp();
+            }
+        }
+
+        // 클라우드 실시간 감지 및 동기화
+        function listenToCloudState() {
+            if (!db) return;
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sharedApp', 'globalState');
+            
+            if (cloudUnsubscribe) cloudUnsubscribe();
+            
+            // 데이터가 변경될 때마다 이 함수가 자동으로 즉시 실행됩니다.
+            cloudUnsubscribe = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const cloudData = docSnap.data();
+                    
+                    // 동기화 시, 현재 사용자가 타이핑 중인 텍스트가 날아가지 않도록 보호
+                    if (!isFirstLoad && appState.dailyWords && cloudData.dailyWords) {
+                        appState.dailyWords.forEach((item, idx) => {
+                            const s0 = document.getElementById(`s-${idx}-0`);
+                            const s1 = document.getElementById(`s-${idx}-1`);
+                            const s2 = document.getElementById(`s-${idx}-2`);
+                            if (cloudData.dailyWords[idx]) {
+                                if (s0 && document.activeElement === s0) cloudData.dailyWords[idx].sentences[0] = s0.value;
+                                if (s1 && document.activeElement === s1) cloudData.dailyWords[idx].sentences[1] = s1.value;
+                                if (s2 && document.activeElement === s2) cloudData.dailyWords[idx].sentences[2] = s2.value;
+                            }
+                        });
+                    }
+
+                    appState = cloudData;
+                    if (!appState.history) appState.history = {};
+                    localStorage.setItem('oxford3000_state_v2', JSON.stringify(appState));
+                    
+                    if (isFirstLoad) {
+                        isFirstLoad = false;
+                        startApp();
+                    } else {
+                        // 다른 기기에서 변경사항이 발생하면 화면을 즉시 갱신
+                        updateHeaderStats();
+                        renderDashboard();
+                    }
+                } else {
+                    if (isFirstLoad) {
+                        isFirstLoad = false;
+                        loadLocalState();
+                        startApp();
+                    }
+                }
+            }, (error) => {
+                console.error("Cloud sync error:", error);
+                if (isFirstLoad) {
+                    isFirstLoad = false;
+                    loadLocalState();
+                    startApp();
+                }
+            });
+        }
+
+        async function saveStateToCloud() {
+            if (!currentUser || !db) return;
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sharedApp', 'globalState');
+                await setDoc(docRef, appState);
+            } catch(e) {
+                console.error("Cloud save error:", e);
+            }
+        }
+
+        // --- 2. 로컬 스토리지 및 초기 로직 ---
+        function getTodayString() {
+            const now = new Date();
+            // 새벽 5시를 기준으로 하루가 넘어가도록 설정 (5시간 빼기)
+            now.setHours(now.getHours() - 5);
+            return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+        }
+        
+        // 날짜 기반 시드 생성 함수 (동일한 날짜에는 항상 동일한 숫자 생성)
+        function getSeedFromDate(dateStr) {
+            let hash = 0;
+            for (let i = 0; i < dateStr.length; i++) {
+                hash = Math.imul(31, hash) + dateStr.charCodeAt(i) | 0;
+            }
+            return hash;
+        }
+
+        // 결정론적 난수 생성기 (PRNG) - Seed 기반으로 섞기 위함
+        function mulberry32(a) {
+            return function() {
+                var t = a += 0x6D2B79F5;
+                t = Math.imul(t ^ t >>> 15, t | 1);
+                t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            }
+        }
+
+        function loadLocalState() {
+            const saved = localStorage.getItem('oxford3000_state_v2');
+            if (saved) {
+                appState = JSON.parse(saved);
+                if (!appState.history) appState.history = {};
+            }
+        }
+
+        function saveState() {
+            localStorage.setItem('oxford3000_state_v2', JSON.stringify(appState));
+            updateHeaderStats();
+            
+            if (currentUser && db) {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'sharedApp', 'globalState');
+                setDoc(docRef, appState).catch(e => console.error("Cloud save error:", e));
+            }
+        }
+
+        function selectDailyWords() {
+            const today = getTodayString();
+            
+            // 오늘 이미 단어를 배정받았다면 스킵
+            if (appState.lastAccessDate === today && appState.dailyWords.length === 5) {
+                return;
+            }
+
+            // 안 본 단어들만 필터링 (완료하지 않은 단어는 seenWords에 없으므로 다시 풀에 들어감)
+            let availableWords = oxford3000Words.filter(w => !appState.seenWords.includes(w));
+            
+            // 모든 단어를 다 봤다면 초기화
+            if (availableWords.length < 5) {
+                showToast("3000 단어를 모두 학습했습니다! 복습 모드로 전환됩니다.");
+                appState.seenWords = [];
+                availableWords = [...oxford3000Words];
+            }
+
+            // 기기마다 배열 순서가 다를 수 있는 점을 방지하기 위해 알파벳순 정렬
+            availableWords.sort();
+
+            // 날짜를 기반으로 난수 생성기 초기화 (어떤 기기든 동일한 날짜면 동일한 5단어 추출)
+            const seed = getSeedFromDate(today);
+            const random = mulberry32(seed);
+
+            // 오늘 배정될 5개 영단어 추출
+            const selectedStrings = [];
+            for (let i = 0; i < 5; i++) {
+                if (availableWords.length === 0) break;
+                // random()은 항상 일정한 순서의 난수를 반환
+                const index = Math.floor(random() * availableWords.length);
+                selectedStrings.push(availableWords[index]);
+                availableWords.splice(index, 1); // 뽑은 단어는 제외
+            }
+            
+            // 임시로 영어 단어만 넣고 화면을 그림
+            appState.dailyWords = selectedStrings.map(w => ({
+                word: w,
+                pos: "...",
+                meaning: "AI가 뜻을 번역하고 있습니다...",
+                completed: false,
+                sentences: ["", "", ""]
+            }));
+            appState.lastAccessDate = today;
+            
+            if (appState.history[today] === undefined) {
+                appState.history[today] = 0;
+            }
+            
+            saveState();
+            renderDashboard();
+
+            // 백그라운드에서 Gemini를 통해 뜻과 품사 가져오기
+            fetchMeaningsFromGemini(selectedStrings);
+        }
+
+        // 실시간으로 5단어의 뜻을 가져오는 함수
+        async function fetchMeaningsFromGemini(wordsArray) {
+            if (isTranslating) return;
+            isTranslating = true;
+            
+            const prompt = `
+다음 5개의 영어 단어에 대한 품사(영어 약어, 예: v., n., adj.)와 한국어 뜻을 제공해주세요.
+단어 목록: ${wordsArray.join(', ')}
+
+반드시 아래 JSON 배열 형식으로만 응답하세요. 마크다운 기호(\`\`\`json 등)나 다른 설명은 절대 추가하지 마세요.
+[
+  {"word": "단어1", "pos": "품사", "meaning": "한국어 뜻"},
+  {"word": "단어2", "pos": "품사", "meaning": "한국어 뜻"}
+]
+`;
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+
+            try {
+                const result = await fetchWithBackoff(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const textResp = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                const cleanJson = textResp.replace(/```json/g, '').replace(/```/g, '').trim();
+                const translatedData = JSON.parse(cleanJson);
+
+                // 번역된 데이터 매핑
+                appState.dailyWords = appState.dailyWords.map(item => {
+                    const trans = translatedData.find(t => t.word.toLowerCase() === item.word.toLowerCase());
+                    if (trans) {
+                        return { ...item, pos: trans.pos, meaning: trans.meaning };
+                    }
+                    return item;
+                });
+                saveState();
+                renderDashboard();
+                showToast("오늘의 단어 준비가 완료되었습니다!");
+            } catch (error) {
+                console.error("Meaning Fetch Error:", error);
+                // 실패 시 폴백
+                appState.dailyWords = appState.dailyWords.map(item => ({
+                    ...item,
+                    pos: "알 수 없음",
+                    meaning: "(사전을 직접 확인해주세요)"
+                }));
+                saveState();
+                renderDashboard();
+                showToast("뜻을 불러오지 못했습니다. 네트워크를 확인해주세요.");
+            } finally {
+                isTranslating = false;
+            }
+        }
+
+        function toggleProgressFormat() {
+            progressFormat = progressFormat === 'percent' ? 'count' : 'percent';
+            const card = document.getElementById('progress-card');
+            if (progressFormat === 'count') {
+                card.classList.add('rotate-y-180');
+            } else {
+                card.classList.remove('rotate-y-180');
+            }
+        }
+
+        function updateHeaderStats() {
+            const totalWords = 3000; // 전체 단어 수 기준점 (실제로는 3000개가 아니더라도 기준점은 유지)
+            const current = appState.totalLearned;
+            
+            const pct = ((current / totalWords) * 100).toFixed(1);
+            document.getElementById('stat-progress-front').innerText = `${pct}%`;
+            document.getElementById('stat-progress-back').innerText = `${current}`;
+
+            // 스트릭(연속 학습일) 계산 로직
+            let streak = 0;
+            let checkDate = new Date();
+            let todayStr = `${checkDate.getFullYear()}-${checkDate.getMonth() + 1}-${checkDate.getDate()}`;
+            
+            // 오늘 학습 기록이 없으면, 확인 시작일을 어제로 설정
+            if (!appState.history[todayStr] || appState.history[todayStr] === 0) {
+                checkDate.setDate(checkDate.getDate() - 1);
+            }
+
+            // 과거로 거슬러 올라가며 연속일 계산
+            while (true) {
+                let str = `${checkDate.getFullYear()}-${checkDate.getMonth() + 1}-${checkDate.getDate()}`;
+                if (appState.history[str] > 0) {
+                    streak++;
+                    checkDate.setDate(checkDate.getDate() - 1);
+                } else {
+                    break;
+                }
+            }
+            document.getElementById('stat-streak').innerText = `${streak}일`;
+
+            renderHeatmap();
+        }
+
+        // --- 단축키 포커스 UI 업데이트 ---
+        function updateFocusUI() {
+            appState.dailyWords.forEach((_, i) => {
+                const card = document.getElementById(`word-card-${i}`);
+                if (card) {
+                    if (i === focusedWordIndex) {
+                        card.classList.add('ring-2', 'ring-indigo-500', 'ring-offset-2');
+                        // 화면에 완전히 보이도록 스크롤 조정 (부드럽게)
+                        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    } else {
+                        card.classList.remove('ring-2', 'ring-indigo-500', 'ring-offset-2');
+                    }
+                }
+            });
+        }
+
+        function setFocus(index) {
+            if (focusedWordIndex !== index) {
+                // 다른 단어로 포커스가 이동할 때 이전에 열려있던 창을 모두 닫기 (자동 닫힘)
+                const prevMeaning = document.getElementById(`section-meaning-${focusedWordIndex}`);
+                const prevSentences = document.getElementById(`section-sentences-${focusedWordIndex}`);
+                
+                if (prevMeaning && !prevMeaning.classList.contains('hidden')) {
+                    prevMeaning.classList.add('hidden');
+                }
+                if (prevSentences && !prevSentences.classList.contains('hidden')) {
+                    prevSentences.classList.add('hidden');
+                }
+            }
+            focusedWordIndex = index;
+            updateFocusUI();
+        }
+
+        // --- 3. UI 렌더링 ---
+        function toggleHeatmap() {
+            const section = document.getElementById('heatmap-section');
+            section.classList.toggle('hidden');
+        }
+
+        function renderHeatmap() {
+            const container = document.getElementById('heatmap-container');
+            const historyKeys = Object.keys(appState.history);
+            
+            if (historyKeys.length === 0) {
+                container.innerHTML = '<div class="text-sm text-slate-400">아직 기록이 없습니다.</div>';
+                return;
+            }
+
+            // 모바일(Safari 등)에서 "YYYY-M-D" 포맷 파싱 오류(Invalid Date)를 방지하기 위해 직접 쪼개서 파싱
+            const dates = historyKeys.map(d => {
+                const parts = d.split('-');
+                return new Date(parts[0], parts[1] - 1, parts[2]).getTime();
+            });
+            let startDate = new Date(Math.min(...dates));
+            
+            const today = new Date();
+            today.setHours(today.getHours() - 5); // 새벽 5시 갱신 기준 동일하게 적용
+
+            // 시작일을 일요일로 맞춤 (일=0, 월=1, ... 토=6)
+            startDate.setDate(startDate.getDate() - startDate.getDay());
+
+            let html = '<div class="grid grid-rows-7 grid-flow-col gap-[3px] w-max">';
+
+            let currentDate = new Date(startDate);
+            // 오늘이 포함된 주의 토요일까지 그리드 생성
+            let endDate = new Date(today);
+            endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
+
+            while (currentDate <= endDate) {
+                const dateStr = `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}-${currentDate.getDate()}`;
+                const count = appState.history[dateStr] || 0;
+                
+                let colorClass = 'bg-slate-100'; // 기본(0)
+                if (currentDate > today) {
+                    colorClass = 'bg-transparent'; // 미래 날짜는 투명하게
+                } else if (count === 1) colorClass = 'bg-emerald-200';
+                else if (count === 2 || count === 3) colorClass = 'bg-emerald-400';
+                else if (count === 4) colorClass = 'bg-emerald-500';
+                else if (count >= 5) colorClass = 'bg-emerald-600';
+
+                const titleText = currentDate <= today ? `${currentDate.getFullYear()}.${currentDate.getMonth() + 1}.${currentDate.getDate()} - ${count}개 완료` : '';
+
+                html += `<div title="${titleText}" class="w-3.5 h-3.5 rounded-sm ${colorClass} ${currentDate <= today ? 'cursor-help hover:ring-2 hover:ring-slate-400' : ''}"></div>`;
+
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function renderDashboard() {
+            const listContainer = document.getElementById('word-list');
+            let html = '';
+
+            appState.dailyWords.forEach((item, index) => {
+                const bgClass = item.completed ? 'bg-slate-50 border-slate-200' : 'bg-white border-slate-200 hover:border-indigo-300';
+                const textClass = item.completed ? 'text-slate-400 line-through' : 'text-slate-800';
+                const checkClass = item.completed ? 'bg-slate-200 text-slate-400' : 'bg-indigo-100 text-indigo-600';
+
+                // 카드 클릭 시 포커스 이동 반영
+                html += `
+                    <div id="word-card-${index}" onclick="setFocus(${index})" class="p-5 rounded-xl border transition-all ${bgClass} cursor-pointer">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <!-- 단어 정보 -->
+                            <div class="flex items-center gap-4">
+                                <div id="word-circle-${index}" class="w-8 h-8 rounded-full ${checkClass} flex items-center justify-center font-bold text-sm flex-shrink-0 transition-colors">
+                                    ${item.completed ? '✓' : index + 1}
+                                </div>
+                                <h3 id="word-text-${index}" class="text-xl font-bold ${textClass} flex items-center gap-2 transition-colors">
+                                    ${item.word}
+                                    <span class="text-sm font-normal text-slate-500 italic no-underline">${item.pos}</span>
+                                </h3>
+                            </div>
+                            
+                            <!-- 액션 버튼 -->
+                            <div class="flex flex-wrap gap-2">
+                                <button onclick="event.stopPropagation(); toggleSection(${index}, 'meaning')" class="px-3 py-1.5 text-sm font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">뜻</button>
+                                <button onclick="event.stopPropagation(); toggleSection(${index}, 'sentences')" class="px-3 py-1.5 text-sm font-medium rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition flex items-center gap-1">
+                                    예문 작성
+                                </button>
+                                <div id="complete-btn-wrap-${index}">
+                                    ${!item.completed 
+                                        ? `<button onclick="event.stopPropagation(); toggleComplete(${index})" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white transition shadow-sm">학습 완료</button>` 
+                                        : `<button onclick="event.stopPropagation(); toggleComplete(${index})" class="px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-500 border border-slate-300 transition">완료됨</button>`}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 숨겨진 뜻 영역 -->
+                        <div id="section-meaning-${index}" class="hidden mt-4 p-3 bg-slate-100 border border-slate-200 rounded-lg text-slate-800 font-medium animate-[fadeIn_0.2s_ease-out]">
+                            💡 ${item.meaning}
+                        </div>
+
+                        <!-- 숨겨진 예문 작성 영역 -->
+                        <div id="section-sentences-${index}" class="hidden mt-4 p-4 bg-white border border-indigo-200 rounded-lg shadow-sm animate-[fadeIn_0.2s_ease-out]" onclick="event.stopPropagation();">
+                            <p class="text-sm text-slate-500 mb-3 font-medium">예문을 만들고 피드백을 받아보세요. (Enter를 눌러 바로 검사)</p>
+                            <div class="space-y-3 mb-4">
+                                <input type="text" id="s-${index}-0" onkeydown="handleInputKeydown(event, ${index})" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none text-sm transition" placeholder="문장 1 작성..." value="${item.sentences[0] || ''}">
+                                <input type="text" id="s-${index}-1" onkeydown="handleInputKeydown(event, ${index})" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none text-sm transition" placeholder="문장 2 작성..." value="${item.sentences[1] || ''}">
+                                <input type="text" id="s-${index}-2" onkeydown="handleInputKeydown(event, ${index})" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none text-sm transition" placeholder="문장 3 작성..." value="${item.sentences[2] || ''}">
+                            </div>
+                            <button id="check-btn-${index}" onclick="handleCheckSentences(${index})" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-md text-sm font-bold transition flex justify-center items-center gap-2">
+                                AI 피드백
+                            </button>
+                            
+                            <!-- 피드백 결과 영역 -->
+                            <div id="feedback-area-${index}" class="hidden mt-4 p-4 bg-indigo-50/50 border border-indigo-100 rounded-md text-sm text-indigo-950 whitespace-pre-wrap leading-relaxed"></div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            listContainer.innerHTML = html;
+            updateFocusUI(); // 렌더링 후 포커스 UI 적용
+        }
+
+        // --- 4. 액션 핸들러 ---
+        function toggleSection(index, type) {
+            setFocus(index); // 섹션을 열 때 포커스도 맞춤
+            const el = document.getElementById(`section-${type}-${index}`);
+            const isHidden = el.classList.contains('hidden');
+            
+            if (isHidden) {
+                el.classList.remove('hidden');
+                // 예문작성 열 때 첫번째 input에 자동 포커스
+                if (type === 'sentences') {
+                    setTimeout(() => {
+                        const firstInput = document.getElementById(`s-${index}-0`);
+                        if (firstInput) firstInput.focus();
+                    }, 50);
+                }
+            } else {
+                el.classList.add('hidden');
+            }
+        }
+
+        // 입력 중 키보드 이벤트 (Enter로 제출, Esc로 빠져나오기)
+        function handleInputKeydown(e, index) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleCheckSentences(index);
+            } else if (e.key === 'Escape') {
+                e.target.blur(); // 포커스 해제하여 단축키 내비게이션 모드로 복귀
+            }
+        }
+
+        // 단축키 전역 이벤트 리스너 (한글/영문 자판 완벽 지원)
+        document.addEventListener('keydown', (e) => {
+            // 현재 사용자가 입력창(input, textarea)에 타이핑 중이면 단축키 무시
+            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            const key = e.key.toLowerCase();
+
+            // 아래로 이동 (S 또는 ㄴ)
+            if (key === 's' || key === 'ㄴ') {
+                e.preventDefault();
+                setFocus(Math.min(focusedWordIndex + 1, appState.dailyWords.length - 1));
+            } 
+            // 위로 이동 (W 또는 ㅈ)
+            else if (key === 'w' || key === 'ㅈ') {
+                e.preventDefault();
+                setFocus(Math.max(focusedWordIndex - 1, 0));
+            } 
+            // 뜻 열기/닫기 (A 또는 ㅁ)
+            else if (key === 'a' || key === 'ㅁ') {
+                e.preventDefault();
+                toggleSection(focusedWordIndex, 'meaning');
+            } 
+            // 예문작성 열기/닫기 (D 또는 ㅇ)
+            else if (key === 'd' || key === 'ㅇ') {
+                e.preventDefault();
+                toggleSection(focusedWordIndex, 'sentences');
+            } 
+            // 완료 (Space)
+            else if (key === ' ' || key === 'spacebar') {
+                e.preventDefault();
+                toggleComplete(focusedWordIndex);
+            }
+        });
+
+        // 렌더링 되기 전 사용자가 입력 중이던 문장 데이터를 state에 임시 저장하는 함수
+        function saveCurrentInputs() {
+            appState.dailyWords.forEach((item, idx) => {
+                const s0 = document.getElementById(`s-${idx}-0`);
+                const s1 = document.getElementById(`s-${idx}-1`);
+                const s2 = document.getElementById(`s-${idx}-2`);
+                if (s0) item.sentences[0] = s0.value;
+                if (s1) item.sentences[1] = s1.value;
+                if (s2) item.sentences[2] = s2.value;
+            });
+        }
+
+        function toggleComplete(wordIndex) {
+            setFocus(wordIndex);
+            saveCurrentInputs(); // 기존 입력 데이터 날아가지 않게 임시저장
+            const wordData = appState.dailyWords[wordIndex];
+            const today = getTodayString();
+
+            if (wordData.completed) {
+                // 완료 취소
+                wordData.completed = false;
+                appState.totalLearned = Math.max(0, appState.totalLearned - 1);
+                appState.history[today] = Math.max(0, (appState.history[today] || 0) - 1);
+                
+                // 단어 학습 히스토리에서 제거 (당일 완료한 내역 취소 시)
+                const seenIdx = appState.seenWords.indexOf(wordData.word);
+                if (seenIdx !== -1) {
+                    appState.seenWords.splice(seenIdx, 1);
+                }
+                showToast("학습 완료가 취소되었습니다.");
+            } else {
+                // 학습 완료 처리
+                wordData.completed = true;
+                appState.totalLearned += 1;
+                
+                if (!appState.seenWords.includes(wordData.word)) {
+                    appState.seenWords.push(wordData.word);
+                }
+
+                appState.history[today] = (appState.history[today] || 0) + 1;
+                showToast("학습 완료! 잔디가 1포기 심어졌습니다 🌱");
+            }
+
+            saveState();
+            renderDashboard(); // 전체 상태를 반영하여 재렌더링
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast-modal');
+            document.getElementById('toast-message').innerText = message;
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 3000);
+        }
+
+        // Module 스코프 이슈 해결: HTML에서 호출하는 함수들을 window에 할당
+        window.toggleHeatmap = toggleHeatmap;
+        window.toggleProgressFormat = toggleProgressFormat;
+        window.toggleSection = toggleSection;
+        window.toggleComplete = toggleComplete;
+        window.handleCheckSentences = handleCheckSentences;
+        window.handleInputKeydown = handleInputKeydown;
+        window.setFocus = setFocus;
+
+        // --- 5. Gemini API (엄격한 피드백 반영) ---
+        async function fetchWithBackoff(url, options, maxRetries = 5) {
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+                    return await response.json();
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error;
+                    await new Promise(res => setTimeout(res, delays[i]));
+                }
+            }
+        }
+
+        async function handleCheckSentences(wordIndex) {
+            const wordData = appState.dailyWords[wordIndex];
+            const s0 = document.getElementById(`s-${wordIndex}-0`).value.trim();
+            const s1 = document.getElementById(`s-${wordIndex}-1`).value.trim();
+            const s2 = document.getElementById(`s-${wordIndex}-2`).value.trim();
+
+            if (!s0 && !s1 && !s2) {
+                showToast("최소 한 문장 이상 작성해주세요.");
+                return;
+            }
+
+            const btn = document.getElementById(`check-btn-${wordIndex}`);
+            const originalBtnText = btn.innerHTML;
+            btn.innerHTML = `<div class="loader"></div> 피드백 중...`;
+            btn.disabled = true;
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+
+            const prompt = `
+당신은 실용적인 영어 회화를 돕는 원어민 튜터입니다.
+학습할 영단어: '${wordData.word}' (품사: ${wordData.pos}, 뜻: ${wordData.meaning})
+
+작성된 문장:
+문장 1: ${s0 || "(작성안함)"}
+문장 2: ${s1 || "(작성안함)"}
+문장 3: ${s2 || "(작성안함)"}
+
+다음 지침을 엄격하게 지켜서 피드백을 작성해주세요:
+1. 평가의 핵심은 '제시된 단어(${wordData.word})를 문맥과 회화 상황에 알맞게 잘 활용했는가' 입니다.
+2. 완벽한 활용: 단어 사용이 자연스럽다면 "완벽하게 잘 활용하셨습니다!"라고만 간단히 언급해주세요.
+3. 유연한 문법 기준: 대소문자, 마침표, 사소한 관사 실수 등 회화에서 의사소통에 지장이 없는 가벼운 문법 오류는 지적하지 마세요.
+4. 어색한 사용 지적: 해당 단어를 회화에서 그렇게 사용하면 매우 어색하거나 뜻이 다르게 전달될 때만 그 이유를 간단명료하게 설명해주세요.
+5. 교정 시 필수 규칙: 사용자의 문장이 어색해서 교정해줄 때는 다른 단어로 아예 교체해버리지 말고, **반드시 제시된 단어('${wordData.word}')를 그대로 사용해서** 자연스러운 예문으로 고쳐주세요.
+6. 간결성 및 형식: 불필요한 인사말(안녕하세요, 수고하셨습니다 등)은 절대 작성하지 마세요. 오직 작성된 문장들에 대한 피드백만 핵심적으로 아주 간단하게 제공하세요.
+
+[반드시 아래의 출력 포맷을 엄격하게 지켜주세요]
+각 문장마다 아래 포맷으로 답변하세요. 마크다운 기호(*, 대괄호, 샵 등)는 일절 사용하지 마세요.
+
+문장 [번호]: [사용자가 작성한 원본 문장]
+[피드백 내용 (완벽하면 "완벽하게 잘 활용하셨습니다!", 어색하면 이유 설명)]
+(어색한 경우에만) 예시: [해당 단어를 사용하여 교정된 자연스러운 문장]
+
+(예시 답변)
+문장 1: it was an accident
+완벽하게 잘 활용하셨습니다!
+
+문장 2: the accident is kind
+'accident'는 '사고' 또는 '우연한 일'을 의미하는데, 'kind' (친절한)라는 형용사는 보통 사람이나 행동을 묘사할 때 사용됩니다. 따라서 '사고가 친절하다'는 어색합니다.
+예시: The accident was minor.
+`;
+
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }]
+            };
+
+            try {
+                const result = await fetchWithBackoff(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const feedbackText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (feedbackText) {
+                    const feedbackArea = document.getElementById(`feedback-area-${wordIndex}`);
+                    feedbackArea.innerText = feedbackText;
+                    feedbackArea.classList.remove('hidden');
+                } else {
+                    throw new Error("Invalid response");
+                }
+            } catch (error) {
+                console.error("API Error:", error);
+                showToast("AI 서버 통신 중 문제가 발생했습니다.");
+            } finally {
+                btn.innerHTML = originalBtnText;
+                btn.disabled = false;
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
+            }
+        }
+
+        // --- 6. 앱 시작 ---
+        function startApp() {
+            // 로더 숨기기
+            const loader = document.getElementById('initial-loader');
+            if (loader) {
+                loader.style.opacity = '0';
+                setTimeout(() => loader.style.display = 'none', 500);
+            }
+            
+            selectDailyWords();
+            updateHeaderStats();
+            renderDashboard();
+        }
+
+        window.onload = () => {
+            initFirebase();
+        };
+
+    </script>
+</body>
+</html>

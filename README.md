@@ -85,7 +85,7 @@ https://gemini.google.com/share/446d278a9321
 ### 앱 이름
 PlanBeforeCode Pro
 ### 배포 링크
-https://gemini.google.com/share/f009fd041432
+https://gemini.google.com/share/67838a0b1631
 ### 이 앱을 만든 이유
 개발자 취준생 입장에서 알고리즘이 제일 공부하기 싫고 어려웠습니다.
 문제를 풀려고 달려들면 막히고, 계속 막히다보면 진이 빠지는 경험을 많이 해봤습니다.

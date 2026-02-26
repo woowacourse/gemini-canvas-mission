@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TapTempo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- marked.js 추가 (마크다운 렌더링용) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        /* 탭할 때 버튼이 눌리는 효과를 위한 애니메이션 */
+        .tap-effect:active {
+            transform: scale(0.95);
+            transition: transform 0.05s ease;
+        }
+
+        .pulse-bg {
+            animation: pulse-animation 0.5s ease-out;
+        }
+
+        @keyframes pulse-animation {
+            0% {
+                background-color: #3b82f6;
+            }
+            /* Tailwind blue-500 */
+            100% {
+                background-color: #1e40af;
+            }
+            /* Tailwind blue-800 */
+        }
+
+        /* 마크다운 렌더링 스타일 (Tailwind 초기화 덮어쓰기) */
+        #search-result strong {
+            color: #93c5fd;
+            font-weight: 700;
+        }
+
+        #search-result ul {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        #search-result li {
+            margin-bottom: 0.25rem;
+        }
+
+        #search-result p {
+            margin-bottom: 0.5rem;
+        }
+
+        #search-result h1, #search-result h2, #search-result h3 {
+            font-weight: bold;
+            color: #60a5fa;
+            margin-top: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
+
+<div class="max-w-md w-full bg-gray-800 rounded-2xl shadow-2xl p-8 flex flex-col items-center border border-gray-700">
+
+    <h1 class="text-3xl font-bold mb-2 text-blue-400">TapTempo</h1>
+    <p class="text-gray-400 text-sm mb-8 text-center">음악의 4분 음표(1박)에 맞춰 버튼을 누르거나<br>스페이스바를 누르세요.</p>
+
+    <!-- BPM 표시 영역 -->
+    <div class="mb-8 flex flex-col items-center justify-center h-32 w-full bg-gray-900 rounded-xl border-2 border-gray-700">
+        <span id="bpm-display" class="text-6xl font-black text-white tracking-tighter">0</span>
+        <span class="text-gray-400 text-sm mt-1 uppercase tracking-widest">BPM</span>
+    </div>
+
+    <!-- 탭 버튼 -->
+    <button id="tap-btn"
+            class="tap-effect w-full py-12 bg-blue-600 hover:bg-blue-500 rounded-2xl text-2xl font-bold shadow-lg shadow-blue-500/30 transition-colors select-none touch-manipulation">
+        TAP (여기를 누르세요)
+    </button>
+
+    <!-- 리셋 버튼 -->
+    <button id="reset-btn"
+            class="mt-4 px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-full text-sm font-medium transition-colors">
+        초기화 (Reset)
+    </button>
+
+    <!-- 템포 변화 관련 안내 -->
+    <div class="mt-8 pt-6 border-t border-gray-700 w-full text-sm text-gray-300">
+        <h3 class="font-bold text-yellow-400 mb-2">💡 템포가 바뀌는 음악은 어떻게 하나요?</h3>
+        <ul class="list-disc pl-5 space-y-1 text-gray-400">
+            <li><strong>자동 적응 (슬라이딩 윈도우):</strong> 이 측정기는 <strong>최근 8번의 탭</strong>만 평균을 내어 계산합니다. 따라서 음악이 점진적으로 빨라지거나
+                느려지면, 계속 박자를 맞추는 것만으로도 화면의 BPM이 자연스럽게 새로운 템포로 변경됩니다.
+            </li>
+            <li><strong>급격한 템포 변화:</strong> 템포가 확 바뀐 구간에서는 <strong>2초 동안 아무것도 누르지 않고 기다리거나</strong>, <span
+                    class="text-gray-200">'초기화'</span> 버튼을 누른 후 바뀐 템포에 맞춰 다시 탭을 시작하시면 됩니다.
+            </li>
+        </ul>
+    </div>
+
+    <!-- BPM 검색 영역 (새로 추가됨) -->
+    <div class="mt-6 pt-6 border-t border-gray-700 w-full flex flex-col gap-3">
+        <h3 class="font-bold text-blue-400 text-sm">🔍 잘 알려진 곡 BPM 검색</h3>
+        <div class="flex gap-2">
+            <input type="text" id="song-input"
+                   class="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                   placeholder="곡 제목과 아티스트 (예: Hype Boy NewJeans)">
+            <button id="search-btn"
+                    class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 whitespace-nowrap">
+                검색
+            </button>
+        </div>
+        <!-- whitespace-pre-line 및 leading-relaxed 클래스를 추가하여 여러 줄 텍스트가 잘 보이게 수정 -->
+        <div id="search-result"
+             class="text-sm text-gray-300 min-h-[1.5rem] mt-2 break-keep whitespace-pre-line leading-relaxed"></div>
+    </div>
+
+</div>
+
+<script>
+    const tapBtn = document.getElementById('tap-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const bpmDisplay = document.getElementById('bpm-display');
+
+    let tapTimes = [];
+    const MAX_TAPS = 8; // 최근 8번의 탭 기록만 유지 (템포 변화 대응)
+    const RESET_TIMEOUT = 2000; // 2초(2000ms) 이상 입력이 없으면 자동 초기화
+
+    function calculateBPM() {
+        const currentTime = Date.now();
+
+        // 마지막 탭 이후 일정 시간(2초)이 지났으면 기록 초기화 (새로운 템포 측정 시작)
+        if (tapTimes.length > 0 && (currentTime - tapTimes[tapTimes.length - 1]) > RESET_TIMEOUT) {
+            tapTimes = [];
+        }
+
+        // 현재 탭 시간 저장
+        tapTimes.push(currentTime);
+
+        // 지정된 최대 탭 수(MAX_TAPS)를 넘어가면 가장 오래된 기록 삭제 (슬라이딩 윈도우)
+        if (tapTimes.length > MAX_TAPS) {
+            tapTimes.shift();
+        }
+
+        // 시각적 피드백 (버튼 배경색 깜빡임)
+        tapBtn.classList.remove('pulse-bg');
+        void tapBtn.offsetWidth; // DOM 리플로우 강제 트리거 (애니메이션 재시작을 위함)
+        tapBtn.classList.add('pulse-bg');
+
+        // 탭이 2번 이상이어야 간격을 계산할 수 있음
+        if (tapTimes.length >= 2) {
+            let totalInterval = 0;
+
+            // 각 탭 사이의 시간 간격(ms)을 더함
+            for (let i = 1; i < tapTimes.length; i++) {
+                totalInterval += (tapTimes[i] - tapTimes[i - 1]);
+            }
+
+            // 평균 시간 간격(ms)
+            const averageInterval = totalInterval / (tapTimes.length - 1);
+
+            // BPM 계산: 1분(60,000ms)을 평균 간격으로 나눔
+            const bpm = Math.round(60000 / averageInterval);
+
+            bpmDisplay.innerText = bpm;
+        } else {
+            // 첫 번째 탭일 경우 (아직 계산 불가)
+            bpmDisplay.innerText = "···";
+        }
+    }
+
+    function resetBPM() {
+        tapTimes = [];
+        bpmDisplay.innerText = "0";
+        tapBtn.classList.remove('pulse-bg');
+    }
+
+    // 이벤트 리스너: 마우스/터치 클릭
+    tapBtn.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // 더블 클릭 텍스트 선택 방지
+        calculateBPM();
+    });
+
+    // 터치 기기에서의 지연 방지
+    tapBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        calculateBPM();
+    });
+
+    resetBtn.addEventListener('click', resetBPM);
+
+    // 이벤트 리스너: 키보드 스페이스바 또는 엔터
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.code === 'Enter') {
+            // 기본 스크롤 동작 방지 (스페이스바 누를 때 화면 내려감 방지)
+            if (e.code === 'Space' && e.target === document.body) {
+                e.preventDefault();
+            }
+
+            // 버튼이 시각적으로 눌리는 효과
+            tapBtn.style.transform = 'scale(0.95)';
+            calculateBPM();
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (e.code === 'Space' || e.code === 'Enter') {
+            tapBtn.style.transform = 'scale(1)';
+        }
+    });
+
+    // --- 새로 추가된 Gemini API 검색 로직 ---
+    const apiKey = ""; // 실행 환경에서 자동으로 주입됩니다.
+    const songInput = document.getElementById('song-input');
+    const searchBtn = document.getElementById('search-btn');
+    const searchResult = document.getElementById('search-result');
+
+    // 지수 백오프를 적용한 API 호출 함수 (안정성 강화)
+    async function fetchWithRetry(url, options, retries = 5) {
+        const delays = [1000, 2000, 4000, 8000, 16000];
+        for (let i = 0; i < retries; i++) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                if (i === retries - 1) throw error;
+                await new Promise(res => setTimeout(res, delays[i]));
+            }
+        }
+    }
+
+    async function searchSongBPM() {
+        const query = songInput.value.trim();
+        if (!query) {
+            searchResult.innerHTML = '<span class="text-yellow-400">곡 제목을 입력해주세요.</span>';
+            return;
+        }
+
+        searchResult.innerHTML = '<span class="text-blue-400 animate-pulse">검색 중... (약간의 시간이 소요될 수 있습니다)</span>';
+        searchBtn.disabled = true;
+
+        // 프롬프트 수정: 구간별 템포 변화가 있는 곡에 대한 예외 처리 추가
+        const promptText = `음악 "${query}"의 BPM(템포)을 구글 검색을 통해 확인해서 알려줘.
+중요: 만약 'Bohemian Rhapsody'나 'Paranoid Android'처럼 구간별로 템포(BPM)가 크게 변하는 곡이라면, 단일 숫자로 답하지 말고 각 주요 파트/구간별 BPM을 나누어서 설명해줘.
+템포 변화가 없는 일반적인 곡이라면 '해당 곡의 BPM은 약 [숫자]입니다.' 형태로 대답해줘. 답변은 한국어로 읽기 쉽게 작성해.`;
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const payload = {
+            contents: [{parts: [{text: promptText}]}],
+            tools: [{google_search: {}}] // 구글 검색을 통한 최신/정확한 정보 수집(Grounding)
+        };
+
+        try {
+            const result = await fetchWithRetry(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+                // marked.parse()를 이용해 마크다운을 HTML로 변환
+                const htmlContent = marked.parse(text);
+                searchResult.innerHTML = `<div class="text-green-400 font-medium">${htmlContent}</div>`;
+            } else {
+                searchResult.innerHTML = '<span class="text-red-400">BPM 정보를 찾을 수 없습니다.</span>';
+            }
+        } catch (error) {
+            searchResult.innerHTML = '<span class="text-red-500">검색 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</span>';
+        } finally {
+            searchBtn.disabled = false;
+        }
+    }
+
+    searchBtn.addEventListener('click', searchSongBPM);
+
+    // 엔터키를 눌러도 검색되도록 이벤트 추가
+    songInput.addEventListener('keydown', (e) => {
+        // TAP 단축키인 스페이스바 이벤트가 중복 실행되지 않도록 이벤트 전파 중지
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            searchSongBPM();
+        }
+    });
+
+    // 입력창에 포커스가 있을 때는 TAP 단축키(스페이스바) 무시
+    songInput.addEventListener('keyup', (e) => {
+        e.stopPropagation();
+    });
+
+</script>
+</body>
+</html>

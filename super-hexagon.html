@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>웹 슈퍼헥사곤</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #111;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .hud {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 40px;
+            box-sizing: border-box;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .hud.active {
+            opacity: 1;
+        }
+
+        .screen {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(1);
+            background: rgba(0, 0, 0, 0.85);
+            padding: 40px;
+            border-radius: 15px;
+            border: 2px solid white;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+            pointer-events: auto;
+            transition: opacity 0.3s, transform 0.3s;
+            text-align: center;
+            width: 85%;
+            max-width: 450px;
+            box-sizing: border-box;
+            z-index: 100;
+        }
+
+        .hidden {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.8);
+            pointer-events: none !important;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 42px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        p {
+            font-size: 18px;
+            margin-bottom: 30px;
+            color: #ddd;
+            line-height: 1.5;
+        }
+
+        button {
+            background: white;
+            color: black;
+            border: none;
+            padding: 15px 40px;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+        }
+
+        button:hover {
+            background: #eee;
+            transform: scale(1.05);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        .controls-info {
+            margin-top: 25px;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        /* 모바일 터치 영역 */
+        .touch-zone {
+            position: absolute;
+            top: 0;
+            width: 50%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        #touch-left {
+            left: 0;
+        }
+
+        #touch-right {
+            right: 0;
+        }
+
+        @media (max-width: 600px) {
+            .hud {
+                padding: 0 20px;
+                font-size: 18px;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+
+            p {
+                font-size: 16px;
+            }
+
+            .screen {
+                padding: 30px 20px;
+                width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="touch-left" class="touch-zone"></div>
+<div id="touch-right" class="touch-zone"></div>
+
+<div id="ui-layer">
+    <div id="hud" class="hud">
+        <div id="hud-time">시간: 00:00</div>
+        <div id="hud-stage">스테이지: 1</div>
+    </div>
+
+    <div id="start-screen" class="screen">
+        <h1>슈퍼헥사곤</h1>
+        <p>1분마다 빨라지는 가속의 끝을 경험하세요.</p>
+        <button id="start-btn">게임 시작</button>
+        <div class="controls-info">조작: 좌/우 방향키 또는 화면 좌/우 터치</div>
+    </div>
+
+    <div id="game-over-screen" class="screen hidden">
+        <h1 style="color: #ff4444;">게임 오버</h1>
+        <p id="final-time">버틴 시간: 00:00<br>최종 스테이지: 1</p>
+        <button id="restart-btn">다시 시작</button>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const startScreen = document.getElementById('start-screen');
+    const gameOverScreen = document.getElementById('game-over-screen');
+    const hud = document.getElementById('hud');
+    const hudTime = document.getElementById('hud-time');
+    const hudStage = document.getElementById('hud-stage');
+    const finalTimeText = document.getElementById('final-time');
+
+    const STATE_MENU = 0;
+    const STATE_PLAYING = 1;
+    const STATE_GAMEOVER = 2;
+
+    let gameState = STATE_MENU;
+    let lastTime = 0;
+    let surviveTime = 0;
+    let currentStage = 1;
+
+    const centerRadius = 40;
+    const playerDistance = 65;
+    const playerSize = 8;
+
+    let worldRotation = 0;
+    let worldRotDirection = 1;
+    let nextRotChangeTime = 0;
+
+    let playerAngle = Math.PI / 2;
+
+    let walls = [];
+    let patternDelay = 0;
+    let cameraShake = 0;
+    let pulseTimer = 0;
+
+    const stageHues = [210, 140, 45, 0, 310];
+    let currentHue = 210;
+    let bgFlicker = 0;
+
+    const keys = {left: false, right: false};
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+        // 엔터키 추가
+        if (e.code === 'Space' || e.code === 'Enter') {
+            if (gameState === STATE_MENU || gameState === STATE_GAMEOVER) startGame();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+    });
+
+    const touchLeft = document.getElementById('touch-left');
+    const touchRight = document.getElementById('touch-right');
+
+    const handleTouchStart = (dir) => (e) => {
+        e.preventDefault();
+        if (gameState === STATE_MENU || gameState === STATE_GAMEOVER) startGame();
+        else {
+            if (dir === 'left') keys.left = true;
+            if (dir === 'right') keys.right = true;
+        }
+    };
+    const handleTouchEnd = (dir) => (e) => {
+        e.preventDefault();
+        if (dir === 'left') keys.left = false;
+        if (dir === 'right') keys.right = false;
+    };
+
+    touchLeft.addEventListener('touchstart', handleTouchStart('left'), {passive: false});
+    touchLeft.addEventListener('touchend', handleTouchEnd('left'));
+    touchLeft.addEventListener('touchcancel', handleTouchEnd('left'));
+
+    touchRight.addEventListener('touchstart', handleTouchStart('right'), {passive: false});
+    touchRight.addEventListener('touchend', handleTouchEnd('right'));
+    touchRight.addEventListener('touchcancel', handleTouchEnd('right'));
+
+    document.getElementById('start-btn').addEventListener('click', startGame);
+    document.getElementById('restart-btn').addEventListener('click', startGame);
+
+    function formatTime(ms) {
+        let totalSeconds = Math.floor(ms / 1000);
+        let mins = Math.floor(totalSeconds / 60);
+        let secs = totalSeconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function startGame() {
+        gameState = STATE_PLAYING;
+        startScreen.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+        hud.classList.add('active');
+
+        surviveTime = 0;
+        currentStage = 1;
+        playerAngle = Math.PI / 2;
+        worldRotation = 0;
+        worldRotDirection = 1;
+        walls = [];
+        patternDelay = 0;
+        cameraShake = 0;
+
+        keys.left = false;
+        keys.right = false;
+    }
+
+    function gameOver() {
+        gameState = STATE_GAMEOVER;
+        cameraShake = 25;
+        hud.classList.remove('active');
+        gameOverScreen.classList.remove('hidden');
+        finalTimeText.innerHTML = `버틴 시간: ${formatTime(surviveTime)}<br>최종 스테이지: ${currentStage}`;
+    }
+
+    function spawnPattern(params) {
+        let type = Math.floor(Math.random() * 7); // 0~6 패턴
+        let gap = Math.floor(Math.random() * 6);
+        let dir = Math.random() > 0.5 ? 1 : -1;
+
+        let startRadius = Math.sqrt(Math.pow(canvas.width / 2, 2) + Math.pow(canvas.height / 2, 2)) + 50;
+        let thickness = 25; // 기본 패턴용 두께
+        let lastWallRadius = startRadius;
+
+        if (type === 0) {
+            let sides = [1, 1, 1, 1, 1, 1];
+            sides[gap] = 0;
+            walls.push({radius: startRadius, thickness: thickness, sides: sides});
+        } else if (type === 1) {
+            let sides = [1, 1, 1, 1, 1, 1];
+            sides[gap] = 0;
+            sides[(gap + 1) % 6] = 0;
+            sides[(gap + 2) % 6] = 0;
+            walls.push({radius: startRadius, thickness: thickness, sides: sides});
+        } else if (type === 2) {
+            let count = 3;
+            let tunnelSpacing = thickness + 70;
+            for (let i = 0; i < count; i++) {
+                let sides = [1, 1, 1, 1, 1, 1];
+                sides[gap] = 0;
+                let r = startRadius + i * tunnelSpacing;
+                walls.push({radius: r, thickness: thickness, sides: sides});
+                lastWallRadius = r;
+            }
+        } else if (type === 3) {
+            let sides = [1, 1, 1, 1, 1, 1];
+            sides[gap] = 0;
+            sides[(gap + 3) % 6] = 0;
+            walls.push({radius: startRadius, thickness: thickness, sides: sides});
+        } else if (type === 4) {
+            let count = 4;
+            let zigzagSpacing = thickness + 100;
+            for (let i = 0; i < count; i++) {
+                let sides = [1, 1, 1, 1, 1, 1];
+                let hole = (((gap + (i % 2) * dir) % 6) + 6) % 6;
+                sides[hole] = 0;
+                let r = startRadius + i * zigzagSpacing;
+                walls.push({radius: r, thickness: thickness, sides: sides});
+                lastWallRadius = r;
+            }
+        } else if (type === 5) {
+            // [리얼 나선형 회오리 패턴]
+            let count = Math.floor(Math.random() * 6) + 10;
+
+            // 플레이어가 1칸(60도)을 돌파하는데 걸리는 시간 계산
+            let timeToShift = (Math.PI / 3) / params.playerSpeed;
+
+            // 완벽한 나선형 연결을 위해 '간격'과 '두께'를 일치시킵니다.
+            // 단, 플레이어가 피할 수 있도록 통과 시간에 벽 속도를 곱한 값에 10% 여유(1.1)를 줍니다.
+            let spiralThickness = timeToShift * params.wallSpeed * 1.1;
+            thickness = spiralThickness; // 딜레이 계산을 위해 업데이트
+
+            for (let i = 0; i < count; i++) {
+                let sides = [1, 1, 1, 1, 1, 1];
+
+                // 빈칸 2칸을 뚫어서 시각적인 통로(길)를 확보
+                let hole1 = (((gap + i * dir) % 6) + 6) % 6;
+                let hole2 = (hole1 + 1) % 6;
+                sides[hole1] = 0;
+                sides[hole2] = 0;
+
+                // 벽을 spiralThickness만큼 연속으로 생성하여 대각선 꼭짓점을 잇는 '연속된 나선형 띠' 생성
+                let r = startRadius + i * spiralThickness;
+                walls.push({radius: r, thickness: spiralThickness, sides: sides});
+                lastWallRadius = r;
+            }
+        } else if (type === 6) {
+            // [신규 패턴] 엇박자 지그재그 (Hyper Hexagonest 스타일)
+            let sequence = [0, 1, 2, 1, 0, -1];
+            let tightSpacing = thickness + 90;
+
+            for (let i = 0; i < sequence.length; i++) {
+                let sides = [1, 1, 1, 1, 1, 1];
+                let hole = (((gap + sequence[i] * dir) % 6) + 6) % 6;
+                sides[hole] = 0;
+
+                let r = startRadius + i * tightSpacing;
+                walls.push({radius: r, thickness: thickness, sides: sides});
+                lastWallRadius = r;
+            }
+        }
+
+        let distanceToClear = (lastWallRadius - startRadius) + thickness;
+        let timeToClear = distanceToClear / params.wallSpeed;
+        patternDelay = timeToClear + params.spawnInterval;
+    }
+
+    function getStageParams() {
+        const wallSpeedBase = 0.28;
+        const rotSpeedBase = 0.0012;
+        const spawnIntervalBase = 900;
+
+        const multipliers = [1, 1.25, 1.5, 1.8, 2.2];
+        let mult = multipliers[currentStage - 1];
+
+        return {
+            wallSpeed: wallSpeedBase * mult,
+            rotSpeed: rotSpeedBase * mult,
+            spawnInterval: spawnIntervalBase / mult,
+            // 플레이어 조작 속도를 원래대로 유지
+            playerSpeed: 0.005 + (0.0005 * currentStage)
+        };
+    }
+
+    function update(dt) {
+        if (gameState !== STATE_PLAYING) {
+            worldRotation += 0.0005 * dt;
+            pulseTimer += dt;
+            return;
+        }
+
+        surviveTime += dt;
+
+        let newStage = Math.floor(surviveTime / 60000) + 1;
+        if (newStage > 5) newStage = 5;
+        currentStage = newStage;
+
+        hudTime.innerText = `시간: ${formatTime(surviveTime)}`;
+        hudStage.innerText = `스테이지: ${currentStage}`;
+
+        const params = getStageParams();
+
+        let targetHue = stageHues[currentStage - 1];
+        currentHue += (targetHue - currentHue) * 0.05;
+
+        let prevPlayerAngle = playerAngle;
+        if (keys.left) playerAngle -= params.playerSpeed * dt;
+        if (keys.right) playerAngle += params.playerSpeed * dt;
+        playerAngle = (playerAngle + Math.PI * 2) % (Math.PI * 2);
+
+        // 측면 마진으로 막힘 처리
+        let isBlocked = false;
+        let blockMargin = 0.16;
+        for (let w of walls) {
+            if (w.radius <= playerDistance + playerSize && w.radius + w.thickness >= playerDistance - playerSize) {
+                let angleLeft = (playerAngle - blockMargin + Math.PI * 2) % (Math.PI * 2);
+                let angleRight = (playerAngle + blockMargin) % (Math.PI * 2);
+
+                let sectorCenter = Math.floor(playerAngle / (Math.PI / 3)) % 6;
+                let sectorLeft = Math.floor(angleLeft / (Math.PI / 3)) % 6;
+                let sectorRight = Math.floor(angleRight / (Math.PI / 3)) % 6;
+
+                if (w.sides[sectorCenter] || w.sides[sectorLeft] || w.sides[sectorRight]) {
+                    isBlocked = true;
+                    break;
+                }
+            }
+        }
+        if (isBlocked) {
+            playerAngle = prevPlayerAngle;
+        }
+
+        if (surviveTime > nextRotChangeTime) {
+            worldRotDirection *= -1;
+            nextRotChangeTime = surviveTime + 3000 + Math.random() * 3000;
+        }
+        worldRotation += params.rotSpeed * worldRotDirection * dt;
+        pulseTimer += dt;
+
+        patternDelay -= dt;
+        if (patternDelay <= 0) {
+            spawnPattern(params);
+        }
+
+        for (let i = walls.length - 1; i >= 0; i--) {
+            let w = walls[i];
+            w.radius -= params.wallSpeed * dt;
+
+            // 좁은 마진으로 정면 압사 처리
+            if (w.radius < playerDistance + playerSize * 0.5 && w.radius + w.thickness > playerDistance - playerSize * 0.5) {
+                let deathMargin = 0.04;
+                let angleLeft = (playerAngle - deathMargin + Math.PI * 2) % (Math.PI * 2);
+                let angleRight = (playerAngle + deathMargin) % (Math.PI * 2);
+
+                let sectorCenter = Math.floor(playerAngle / (Math.PI / 3)) % 6;
+                let sectorLeft = Math.floor(angleLeft / (Math.PI / 3)) % 6;
+                let sectorRight = Math.floor(angleRight / (Math.PI / 3)) % 6;
+
+                if (w.sides[sectorCenter] || w.sides[sectorLeft] || w.sides[sectorRight]) {
+                    gameOver();
+                }
+            }
+
+            if (w.radius + w.thickness < centerRadius) walls.splice(i, 1);
+        }
+
+        if (cameraShake > 0) cameraShake *= 0.9;
+    }
+
+    function drawPolygon(ctx, radius, sidesCount) {
+        ctx.beginPath();
+        for (let i = 0; i < sidesCount; i++) {
+            let angle = i * (Math.PI * 2) / sidesCount;
+            let x = Math.cos(angle) * radius;
+            let y = Math.sin(angle) * radius;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+    }
+
+    function drawWall(ctx, radius, thickness, sides) {
+        const angleStep = Math.PI / 3;
+        for (let i = 0; i < 6; i++) {
+            if (sides[i]) {
+                // 미세 렌더링 오차로 인한 틈새 방지
+                let startAngle = i * angleStep - 0.005;
+                let endAngle = (i + 1) * angleStep + 0.005;
+
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(startAngle) * radius, Math.sin(startAngle) * radius);
+                ctx.lineTo(Math.cos(endAngle) * radius, Math.sin(endAngle) * radius);
+                ctx.lineTo(Math.cos(endAngle) * (radius + thickness + 1), Math.sin(endAngle) * (radius + thickness + 1));
+                ctx.lineTo(Math.cos(startAngle) * (radius + thickness + 1), Math.sin(startAngle) * (radius + thickness + 1));
+                ctx.closePath();
+
+                ctx.fill();
+            }
+        }
+    }
+
+    function draw() {
+        bgFlicker = (Math.sin(pulseTimer * 0.01) * 0.5 + 0.5);
+        let colorA = `hsl(${currentHue}, 50%, ${12 + bgFlicker * 5}%)`;
+        let colorB = `hsl(${currentHue}, 50%, ${18 + bgFlicker * 5}%)`;
+        let lineColor = `hsl(${currentHue}, 70%, 55%)`;
+
+        ctx.fillStyle = colorA;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+        let shakeX = (Math.random() - 0.5) * cameraShake;
+        let shakeY = (Math.random() - 0.5) * cameraShake;
+        ctx.translate(canvas.width / 2 + shakeX, canvas.height / 2 + shakeY);
+
+        ctx.rotate(worldRotation);
+
+        for (let i = 0; i < 6; i++) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            let a1 = i * Math.PI / 3;
+            let a2 = (i + 1) * Math.PI / 3;
+            ctx.lineTo(Math.cos(a1) * 3000, Math.sin(a1) * 3000);
+            ctx.lineTo(Math.cos(a2) * 3000, Math.sin(a2) * 3000);
+            ctx.closePath();
+            ctx.fillStyle = (i % 2 === 0) ? colorA : colorB;
+            ctx.fill();
+        }
+
+        ctx.fillStyle = lineColor;
+        for (let w of walls) {
+            drawWall(ctx, w.radius, w.thickness, w.sides);
+        }
+
+        let pulseScale = 1 + Math.sin(pulseTimer * 0.02) * 0.1;
+        drawPolygon(ctx, centerRadius * pulseScale, 6);
+        ctx.fillStyle = colorB;
+        ctx.fill();
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        ctx.restore();
+
+        if (gameState === STATE_PLAYING) {
+            ctx.save();
+            ctx.translate(canvas.width / 2 + shakeX, canvas.height / 2 + shakeY);
+            ctx.rotate(worldRotation + playerAngle);
+
+            ctx.beginPath();
+            ctx.moveTo(playerDistance, 0);
+            ctx.lineTo(playerDistance + playerSize * 1.5, -playerSize);
+            ctx.lineTo(playerDistance + playerSize * 1.5, playerSize);
+            ctx.closePath();
+
+            ctx.fillStyle = 'white';
+            ctx.fill();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = 'white';
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    function loop(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        let dt = timestamp - lastTime;
+        lastTime = timestamp;
+
+        if (dt > 100) dt = 100;
+
+        update(dt);
+        draw();
+
+        requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

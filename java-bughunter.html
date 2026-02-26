@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java 버그 헌터</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- CodeMirror for Java Syntax Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/clike/clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/edit/closebrackets.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #0f172a; /* slate-900 */
+            color: #f8fafc; /* slate-50 */
+        }
+
+        .CodeMirror {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 100%;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 15px;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        .loader {
+            border: 4px solid #334155;
+            border-bottom-color: #3b82f6;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+        }
+
+        @keyframes rotation {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+<!-- Header -->
+<header class="bg-slate-800 border-b border-slate-700 p-4 shadow-md z-10 flex justify-between items-center">
+    <div class="flex items-center gap-3">
+        <div class="bg-rose-600 text-white px-2.5 py-2 rounded-lg font-bold flex items-center gap-1.5 shadow-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m8 2 1.88 1.88"/>
+                <path d="M14.12 3.88 16 2"/>
+                <path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/>
+                <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/>
+                <path d="M12 20v-9"/>
+                <path d="M6.53 9C4.6 8.8 3 7.1 3 5"/>
+                <path d="M6 13H2"/>
+                <path d="M3 21c0-2.1 1.7-3.9 3.8-4"/>
+                <path d="M20.97 5c-2 .2-3.53 1.9-3.53 3.8"/>
+                <path d="M22 13h-4"/>
+                <path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/>
+            </svg>
+            <span>Java</span>
+        </div>
+        <h1 class="text-xl font-bold tracking-tight">버그 헌터 <span class="text-blue-400 font-medium text-sm ml-2"
+                                                                 id="header-stage-info"></span></h1>
+    </div>
+    <div id="progress-container" class="hidden items-center gap-2">
+        <span class="text-sm text-slate-400">진행률:</span>
+        <div class="w-32 h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div id="progress-bar" class="h-full bg-blue-500 transition-all duration-300 w-0"></div>
+        </div>
+        <span id="progress-text" class="text-sm font-mono text-slate-300">0/10</span>
+    </div>
+</header>
+
+<!-- Main Content Area -->
+<main class="flex-1 relative overflow-hidden bg-slate-900">
+
+    <!-- 1. Loading Screen -->
+    <div id="loading-screen" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 z-50">
+        <div class="loader w-16 h-16 mb-6"></div>
+        <h2 class="text-2xl font-bold text-white mb-2" id="loading-title">문제 생성 중...</h2>
+        <p class="text-slate-400 text-center max-w-md" id="loading-desc">Gemini AI가 당신을 위해 교묘한 Java 버그를 심은<br>10개의 스테이지를
+            제작하고 있습니다. 잠시만 기다려주세요.</p>
+    </div>
+
+    <!-- 2. Game Screen -->
+    <div id="game-screen"
+         class="hidden absolute inset-0 flex flex-col md:flex-row p-4 gap-4 overflow-y-auto md:overflow-hidden">
+
+        <!-- Left Panel: Problem Description -->
+        <div class="w-full md:w-1/3 flex flex-col gap-4 md:h-full md:overflow-y-auto md:pr-2 pb-4 md:pb-0 shrink-0">
+            <div class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-lg flex flex-col shrink-0">
+                <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-700">
+                    <h2 class="text-lg font-bold text-white" id="stage-title">스테이지 1</h2>
+                    <span class="px-2 py-1 bg-blue-900/50 text-blue-300 text-xs rounded border border-blue-800"
+                          id="difficulty-badge">난이도: 쉬움</span>
+                </div>
+
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">임무 목표</h3>
+                    <div id="problem-description" class="text-slate-200 leading-relaxed whitespace-pre-wrap">
+                        <!-- Problem description goes here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Button Area (Submit) -->
+            <button id="submit-btn"
+                    class="group relative w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3.5 px-6 rounded-xl shadow-lg transition-transform hover:scale-[1.02] active:scale-95 flex justify-center items-center gap-2 shrink-0 text-lg">
+                <span>코드 제출 및 검증</span>
+                <div id="submit-loader" class="loader w-5 h-5 hidden" style="border-width: 2.5px;"></div>
+
+                <!-- 즉시 표시되는 커스텀 CSS 툴팁 (아래로 위치 변경) -->
+                <div class="absolute top-full mt-3 left-1/2 -translate-x-1/2 bg-slate-900 text-slate-300 text-xs py-2 px-3 rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap shadow-2xl border border-slate-700 flex items-center gap-1.5 font-normal z-50">
+                    단축키:
+                    <span class="flex items-center gap-1">
+                            <kbd class="bg-slate-800 border border-slate-600 px-1.5 py-0.5 rounded text-slate-200 font-mono text-[11px] shadow-sm">Ctrl</kbd>
+                            <span>+</span>
+                            <kbd class="bg-slate-800 border border-slate-600 px-1.5 py-0.5 rounded text-slate-200 font-mono text-[11px] shadow-sm">Enter</kbd>
+                        </span>
+                    <!-- 툴팁 꼬리 (위쪽 화살표) -->
+                    <div class="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-slate-900 border-t border-l border-slate-700 transform rotate-45"></div>
+                </div>
+            </button>
+
+            <!-- Feedback Area -->
+            <div id="feedback-panel"
+                 class="hidden bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-lg fade-in shrink-0">
+                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2" id="feedback-title">실행
+                    결과</h3>
+                <div id="feedback-message" class="text-slate-200 leading-relaxed text-sm">
+                    <!-- Feedback goes here -->
+                </div>
+                <button id="next-stage-btn"
+                        class="hidden mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded transition-colors">
+                    다음 스테이지로 이동 ➔
+                </button>
+            </div>
+        </div>
+
+        <!-- Right Panel: Code Editor -->
+        <div class="w-full md:w-2/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden min-h-[500px] md:min-h-0 md:h-full shrink-0">
+            <div class="bg-slate-900 px-4 py-2 border-b border-slate-700 flex justify-between items-center">
+                <span class="text-sm text-slate-400 font-mono">Main.java</span>
+                <button id="reset-code-btn" class="text-xs text-slate-400 hover:text-white transition-colors"
+                        title="초기 코드로 되돌리기">
+                    ↺ 초기화
+                </button>
+            </div>
+            <div class="flex-1 relative min-h-[300px]">
+                <textarea id="code-editor"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Completion Screen -->
+    <div id="completion-screen"
+         class="hidden absolute inset-0 flex flex-col items-center justify-center bg-slate-900 z-40">
+        <div class="text-6xl mb-6">🕵️‍♂️</div>
+        <h2 class="text-3xl font-bold text-white mb-4">모든 미스터리 해결!</h2>
+        <p class="text-slate-400 text-center max-w-md mb-8">대단합니다! 단서만으로 모든 버그의 원인을 정확히 추론해내셨습니다.<br>당신은 진정한 Java 버그
+            헌터입니다.</p>
+        <button id="restart-btn"
+                class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform hover:scale-105">
+            새로운 미스터리에 다시 도전하기 ↻
+        </button>
+    </div>
+
+</main>
+
+<script>
+    // --- API & State Setup ---
+    const apiKey = ""; // Runtime provides the key
+    const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
+
+    let problemsList = [];
+    let currentStageIndex = 0;
+    let editor;
+    let isRetry = false; // 재시도(심화 난이도) 여부 추적
+
+    // --- DOM Elements ---
+    const screens = {
+        loading: document.getElementById('loading-screen'),
+        game: document.getElementById('game-screen'),
+        completion: document.getElementById('completion-screen')
+    };
+    const els = {
+        stageTitle: document.getElementById('stage-title'),
+        difficultyBadge: document.getElementById('difficulty-badge'),
+        problemDesc: document.getElementById('problem-description'),
+        feedbackPanel: document.getElementById('feedback-panel'),
+        feedbackTitle: document.getElementById('feedback-title'),
+        feedbackMessage: document.getElementById('feedback-message'),
+        nextStageBtn: document.getElementById('next-stage-btn'),
+        submitBtn: document.getElementById('submit-btn'),
+        submitLoader: document.getElementById('submit-loader'),
+        resetCodeBtn: document.getElementById('reset-code-btn'),
+        restartBtn: document.getElementById('restart-btn'),
+        progressBar: document.getElementById('progress-bar'),
+        progressText: document.getElementById('progress-text'),
+        progressContainer: document.getElementById('progress-container'),
+        headerStageInfo: document.getElementById('header-stage-info')
+    };
+
+    // --- Initialize Editor ---
+    function initEditor() {
+        if (!editor) {
+            editor = CodeMirror.fromTextArea(document.getElementById("code-editor"), {
+                mode: "text/x-java",
+                theme: "dracula",
+                lineNumbers: true,
+                matchBrackets: true,
+                autoCloseBrackets: true,
+                indentUnit: 4,
+                tabSize: 4,
+                lineWrapping: true
+            });
+        }
+    }
+
+    // --- Utility: API Request with Backoff ---
+    async function callGeminiAPI(prompt, systemInstruction, schema) {
+        const url = `${API_URL}?key=${apiKey}`;
+        const payload = {
+            contents: [{parts: [{text: prompt}]}],
+            systemInstruction: {parts: [{text: systemInstruction}]},
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: schema
+            }
+        };
+
+        const retries = 5;
+        const delays = [1000, 2000, 4000, 8000, 16000];
+
+        for (let i = 0; i < retries; i++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+                const data = await response.json();
+                let textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!textResult) throw new Error("Empty response from API");
+
+                return JSON.parse(textResult);
+            } catch (error) {
+                console.error(`API Call failed (Attempt ${i + 1}/${retries}):`, error);
+                if (i === retries - 1) throw error;
+                await new Promise(resolve => setTimeout(resolve, delays[i]));
+            }
+        }
+    }
+
+    // --- Stage 1: Generate Problems ---
+    async function generateProblems() {
+        showScreen('loading');
+
+        // 재시도 여부에 따라 로딩 텍스트 변경
+        document.getElementById('loading-title').innerText = isRetry ? "심화 사건 기록부 생성 중..." : "사건 기록부(문제) 생성 중...";
+        document.getElementById('loading-desc').innerHTML = isRetry ?
+            "Gemini AI가 당신의 한계를 시험할<br>10개의 심화 Java 미스터리를 제작하고 있습니다." :
+            "Gemini AI가 당신의 추리력을 시험할<br>10개의 Java 미스터리 코드를 제작하고 있습니다.";
+
+        els.progressContainer.classList.add('hidden');
+
+        const systemInstruction = "당신은 Java 프로그래밍 마스터이자 학습자의 추론을 유도하는 교육자입니다.";
+
+        // 1회차와 다회차(재시도) 프롬프트 분기 처리
+        const promptRules = isRetry
+            ? `2. 모든 스테이지는 '보통' 이상의 난이도로 구성되며, 갈수록 '매우 어려움(마스터)' 수준으로 뚜렷하게 어려워져야 합니다.
+3. 단순한 문법/컴파일 에러는 철저히 제외하세요. 초반부터 까다로운 런타임 에러로 시작하여, 중/후반은 실무에서 발견하기 어려운 복잡한 논리 에러(메모리 누수, 동시성/컬렉션 수정 오류, 얕은 복사/깊은 복사 문제, 데드락 조건 등)를 포함하세요.`
+            : `2. 스테이지 1부터 10까지 갈수록 난이도가 뚜렷하게 어려워져야 합니다.
+3. 초반 스테이지는 컴파일 에러, 중반은 흔한 런타임 에러, 후반은 발견하기 어려운 논리 에러(Integer Overflow, 동시성/컬렉션 수정 오류, 객체 참조 비교 오류 등)를 포함하세요.`;
+
+        const prompt = `
+Java 프로그래밍 교육을 위한 웹앱에서 사용할 디버깅 문제 10개를 생성해주세요.
+조건:
+1. 정확히 10개의 문제를 반환해야 합니다.
+${promptRules}
+4. **[매우 중요] 문제 설명(description)에는 에러의 직접적인 원인, 에러 이름(예: NullPointerException), 정답을 암시하는 내용을 절대 적지 마세요.** 대신 "이 코드를 실행하면 예상치 못한 결과가 나옵니다", "특정 조건에서 프로그램이 멈춥니다", "컴파일이 실패합니다", "출력값이 의도한 결과(X)와 다르게 (Y)가 나옵니다" 처럼 **발생하는 겉보기 현상과 달성해야 할 목표만** 제시하여, 사용자가 코드를 직접 읽고 원인을 추론하게 하세요.
+5. **[매우 중요]** 생성되는 \`initialCode\`는 반드시 가독성을 위해 적절한 줄바꿈(\\n)과 들여쓰기(스페이스 4칸)가 적용된 멀티라인 구조로 작성하세요. 절대로 코드를 한 줄로 압축해서 반환하지 마세요.
+
+각 문제는 다음 형식을 따릅니다:
+- description: 단서와 현상만 설명된 상황. (에러명 기재 금지)
+- initialCode: 버그가 포함된 가독성 좋은 Java 코드 전체. (반드시 실행 가능한 클래스 형태를 띄고 있어야함. \`public class Main { ... }\`)
+`;
+
+        const schema = {
+            type: "ARRAY",
+            items: {
+                type: "OBJECT",
+                properties: {
+                    description: {type: "STRING"},
+                    initialCode: {type: "STRING"}
+                },
+                required: ["description", "initialCode"]
+            }
+        };
+
+        try {
+            problemsList = await callGeminiAPI(prompt, systemInstruction, schema);
+
+            if (!problemsList || problemsList.length === 0) throw new Error("No problems generated");
+
+            currentStageIndex = 0;
+            initEditor();
+            els.progressContainer.classList.remove('hidden');
+            loadStage(currentStageIndex);
+            showScreen('game');
+        } catch (error) {
+            alert("문제 생성에 실패했습니다. 페이지를 새로고침 해주세요.\n상세 에러: " + error.message);
+            document.getElementById('loading-title').innerText = "오류 발생";
+            document.getElementById('loading-desc').innerText = "API 키 설정이나 네트워크 연결을 확인해주세요.";
+        }
+    }
+
+    // --- Stage 2: Play Game ---
+    function loadStage(index) {
+        const problem = problemsList[index];
+
+        // Update UI
+        els.stageTitle.innerText = `스테이지 ${index + 1}`;
+        els.headerStageInfo.innerText = `(Stage ${index + 1} / ${problemsList.length})`;
+
+        let diffLabel = "쉬움";
+        let diffColor = "text-green-400 border-green-800 bg-green-900/50";
+
+        // 재시도 여부에 따라 난이도 뱃지 라벨 및 색상 변경
+        if (isRetry) {
+            diffLabel = "보통";
+            diffColor = "text-yellow-400 border-yellow-800 bg-yellow-900/50";
+            if (index > 2) {
+                diffLabel = "어려움";
+                diffColor = "text-red-400 border-red-800 bg-red-900/50";
+            }
+            if (index > 6) {
+                diffLabel = "마스터";
+                diffColor = "text-purple-400 border-purple-800 bg-purple-900/50";
+            }
+        } else {
+            if (index > 2) {
+                diffLabel = "보통";
+                diffColor = "text-yellow-400 border-yellow-800 bg-yellow-900/50";
+            }
+            if (index > 6) {
+                diffLabel = "어려움";
+                diffColor = "text-red-400 border-red-800 bg-red-900/50";
+            }
+            if (index === 9) {
+                diffLabel = "마스터";
+                diffColor = "text-purple-400 border-purple-800 bg-purple-900/50";
+            }
+        }
+
+        els.difficultyBadge.className = `px-2 py-1 text-xs rounded border ${diffColor}`;
+        els.difficultyBadge.innerText = `난이도: ${diffLabel}`;
+
+        els.problemDesc.innerText = problem.description;
+
+        // Set code
+        editor.setValue(problem.initialCode);
+        editor.clearHistory();
+
+        // Reset feedback
+        els.feedbackPanel.classList.add('hidden');
+        els.nextStageBtn.classList.add('hidden');
+        els.submitBtn.classList.remove('hidden'); // 이 줄이 추가되었습니다!
+        els.submitBtn.disabled = false;
+        els.submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+        updateProgress();
+    }
+
+    async function evaluateCode() {
+        const userCode = editor.getValue();
+        const problem = problemsList[currentStageIndex];
+
+        // UI Loading state
+        els.submitBtn.disabled = true;
+        els.submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        els.submitLoader.classList.remove('hidden');
+        els.feedbackPanel.classList.add('hidden');
+
+        const systemInstruction = "당신은 학습자의 성장을 돕는 멘토이자 컴파일러입니다. 사용자가 수정한 코드가 문제를 해결했는지 평가합니다.";
+        const prompt = `
+문제의 단서(현상): ${problem.description}
+원본 버그 코드:
+${problem.initialCode}
+
+사용자가 제출한 수정 코드:
+${userCode}
+
+평가 기준:
+1. 원본 코드에 있던 오류가 수정되었고, 의도한 대로 동작하는가? (isCorrect 판별)
+
+평가 결과를 JSON으로 반환하세요.
+- isCorrect: 완벽히 해결했으면 true, 아니면 false
+- feedback:
+  - 정답(true)인 경우: 칭찬과 함께, 기존 코드에 어떤 문제가 숨어있었는지, 왜 지금 코드가 맞는지 핵심 원리를 1~2줄로 명확하게 짚어주세요.
+  - 오답(false)인 경우: **절대 에러의 직접적인 원인이나 정답 코드를 바로 알려주지 마세요!** 대신 사용자가 스스로 생각할 수 있도록 유도하는 힌트나 질문을 던지세요.
+    (예시: "XX 번째 줄에서 변수에 어떤 값이 들어갈 수 있을까요?", "반복문의 종료 조건을 다시 한번 확인해보세요.", "객체가 생성되기 전에 접근하고 있지는 않은가요?", "컴파일이 되지 않고 있습니다. 괄호의 짝이 맞는지 확인해보세요.")
+`;
+
+        const schema = {
+            type: "OBJECT",
+            properties: {
+                isCorrect: {type: "BOOLEAN"},
+                feedback: {type: "STRING"}
+            },
+            required: ["isCorrect", "feedback"]
+        };
+
+        try {
+            const result = await callGeminiAPI(prompt, systemInstruction, schema);
+            showFeedback(result.isCorrect, result.feedback);
+        } catch (error) {
+            showFeedback(false, "코드 검증 중 오류가 발생했습니다. 다시 시도해주세요.\n에러: " + error.message);
+        } finally {
+            els.submitBtn.disabled = false;
+            els.submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            els.submitLoader.classList.add('hidden');
+        }
+    }
+
+    function showFeedback(isCorrect, message) {
+        els.feedbackPanel.classList.remove('hidden');
+        els.feedbackPanel.classList.remove('fade-in');
+        void els.feedbackPanel.offsetWidth;
+        els.feedbackPanel.classList.add('fade-in');
+
+        els.feedbackMessage.innerText = message;
+
+        if (isCorrect) {
+            els.feedbackPanel.classList.remove('border-yellow-800', 'bg-yellow-900/20');
+            els.feedbackPanel.classList.add('border-green-800', 'bg-green-900/20');
+            els.feedbackTitle.innerText = "✅ 정확합니다!";
+            els.feedbackTitle.className = "text-sm font-semibold text-green-400 uppercase tracking-wider mb-2";
+
+            els.submitBtn.classList.add('hidden');
+            els.nextStageBtn.classList.remove('hidden');
+        } else {
+            els.feedbackPanel.classList.remove('border-green-800', 'bg-green-900/20');
+            els.feedbackPanel.classList.add('border-yellow-800', 'bg-yellow-900/20');
+            els.feedbackTitle.innerText = "💡 힌트 (컴파일러의 조언)";
+            els.feedbackTitle.className = "text-sm font-semibold text-yellow-400 uppercase tracking-wider mb-2";
+
+            els.submitBtn.classList.remove('hidden');
+            els.nextStageBtn.classList.add('hidden');
+        }
+    }
+
+    // --- Helpers & Event Listeners ---
+    function showScreen(screenName) {
+        Object.values(screens).forEach(s => s.classList.add('hidden'));
+        screens[screenName].classList.remove('hidden');
+
+        // 화면이 표시된 직후 에디터 크기 및 레이아웃 재계산 (줄 번호 겹침 버그 해결)
+        if (screenName === 'game' && editor) {
+            setTimeout(() => {
+                editor.refresh();
+            }, 10);
+        }
+    }
+
+    function updateProgress() {
+        const total = problemsList.length;
+        const current = currentStageIndex;
+        const percentage = (current / total) * 100;
+
+        els.progressBar.style.width = `${percentage}%`;
+        els.progressText.innerText = `${current}/${total}`;
+    }
+
+    els.submitBtn.addEventListener('click', evaluateCode);
+
+    els.nextStageBtn.addEventListener('click', () => {
+        currentStageIndex++;
+        if (currentStageIndex >= problemsList.length) {
+            updateProgress(); // Show 10/10
+            els.progressContainer.classList.add('hidden');
+            showScreen('completion');
+        } else {
+            loadStage(currentStageIndex);
+            els.submitBtn.classList.remove('hidden');
+        }
+    });
+
+    els.resetCodeBtn.addEventListener('click', () => {
+        if (confirm("코드를 초기 상태로 되돌리시겠습니까?")) {
+            editor.setValue(problemsList[currentStageIndex].initialCode);
+        }
+    });
+
+    els.restartBtn.addEventListener('click', () => {
+        isRetry = true; // 재시도 시 심화 모드로 변경
+        generateProblems();
+    });
+
+    // --- Keyboard Shortcuts ---
+    document.addEventListener('keydown', (e) => {
+        // Ctrl + Enter 또는 Cmd + Enter
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            // 게임 화면이 보이고, 제출 버튼이 활성화 상태일 때만 실행
+            if (!screens.game.classList.contains('hidden') &&
+                !els.submitBtn.classList.contains('hidden') &&
+                !els.submitBtn.disabled) {
+                e.preventDefault(); // 기본 동작(줄바꿈 등) 방지
+                evaluateCode();
+            }
+        }
+    });
+
+    // Start App
+    window.addEventListener('DOMContentLoaded', () => {
+        generateProblems();
+    });
+
+</script>
+</body>
+</html>

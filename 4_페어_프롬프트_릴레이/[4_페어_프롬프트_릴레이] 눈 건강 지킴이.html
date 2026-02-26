@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>개발자 눈 건강 지킴이</title>
+    <!-- Tailwind CSS (디자인용) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind 다크모드 설정 -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    <!-- MediaPipe 라이브러리 (얼굴 인식용) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <style>
+        /* 경고 발생 시 화면 깜빡임 효과 */
+        @keyframes flash-red {
+            0%, 100% {
+                background-color: rgba(239, 68, 68, 0.1);
+            }
+            50% {
+                background-color: rgba(239, 68, 68, 0.4);
+                border-color: #ef4444;
+            }
+        }
+
+        @keyframes flash-purple {
+            0%, 100% {
+                background-color: rgba(168, 85, 247, 0.1);
+            }
+            50% {
+                background-color: rgba(168, 85, 247, 0.4);
+                border-color: #a855f7;
+            }
+        }
+
+        .alert-active {
+            animation: flash-red 1s infinite;
+            border: 4px solid #ef4444;
+        }
+
+        .sleep-active {
+            animation: flash-purple 0.5s infinite;
+            border: 4px solid #a855f7;
+        }
+
+        /* 캔버스 래퍼 비율 유지 */
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            aspect-ratio: 4/3;
+            background-color: #000;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+
+        .video-element, .canvas-element {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* 거울 모드 */
+        }
+
+        /* 캔버스 뒤의 원본 웹캠 비디오를 보이지 않게 숨김 */
+        .video-element {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white font-sans h-screen flex flex-col p-4 sm:p-8 transition-colors duration-300"
+      id="main-body">
+
+<!-- 헤더 -->
+<header class="mb-8 text-center sm:text-left flex flex-col sm:flex-row justify-between items-center gap-4">
+    <div>
+        <h1 class="text-3xl font-bold text-teal-600 dark:text-teal-400 flex items-center justify-center sm:justify-start gap-2">
+            <!-- 귀여운 눈물방울 캐릭터 로고 -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">
+                <!-- 물방울 몸통 -->
+                <path d="M12 22a8 8 0 0 0 8-8c0-4-3-8-8-12-5 4-8 8-8 12a8 8 0 0 0 8 8z"
+                      class="fill-teal-100 dark:fill-teal-900/60" stroke="currentColor" stroke-width="2"
+                      stroke-linejoin="round"/>
+                <!-- 발그레한 볼 -->
+                <ellipse cx="8" cy="15" rx="1.5" ry="1" class="fill-pink-400/70 dark:fill-pink-500/60"/>
+                <ellipse cx="16" cy="15" rx="1.5" ry="1" class="fill-pink-400/70 dark:fill-pink-500/60"/>
+                <!-- 까만 눈 -->
+                <circle cx="9.5" cy="13.5" r="1.5" fill="currentColor"/>
+                <circle cx="14.5" cy="13.5" r="1.5" fill="currentColor"/>
+                <!-- 눈동자 하이라이트 (초롱초롱) -->
+                <circle cx="9" cy="13" r="0.5" fill="white"/>
+                <circle cx="14" cy="13" r="0.5" fill="white"/>
+                <!-- 웃는 입 -->
+                <path d="M10.5 16.5c.5.8 2.5.8 3 0" fill="none" stroke="currentColor" stroke-width="1.5"
+                      stroke-linecap="round"/>
+            </svg>
+            눈 건강 지킴이
+        </h1>
+        <p class="text-gray-500 dark:text-gray-400 mt-2 text-sm sm:text-base">웹캠을 켜고 코딩에 집중하세요. 깜빡임이 적어지면 알려드립니다.</p>
+    </div>
+
+    <div class="flex items-center gap-3">
+        <!-- 테마 전환 버튼 -->
+        <button id="theme-toggle"
+                class="p-2.5 rounded-lg bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 shadow-sm border border-gray-200 dark:border-gray-700 transition-colors"
+                aria-label="테마 변경">
+            <!-- 라이트 모드일 때 보이는 달 아이콘 -->
+            <svg id="theme-icon-moon" class="w-5 h-5 hidden dark:block" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+            </svg>
+            <!-- 다크 모드일 때 보이는 해 아이콘 -->
+            <svg id="theme-icon-sun" class="w-5 h-5 block dark:hidden" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+            </svg>
+        </button>
+        <button id="start-btn"
+                class="bg-teal-500 hover:bg-teal-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors shadow-lg shadow-teal-500/30">
+            시작하기
+        </button>
+    </div>
+</header>
+
+<!-- 메인 대시보드 -->
+<main class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-8 relative">
+
+    <!-- 로딩 오버레이 -->
+    <div id="loading-overlay"
+         class="hidden absolute inset-0 z-10 bg-white/90 dark:bg-gray-900/90 flex flex-col items-center justify-center rounded-xl backdrop-blur-sm">
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-teal-500 mb-4"></div>
+        <p class="text-teal-600 dark:text-teal-400 font-medium tracking-wide">AI 모델 로딩 및 카메라 연결 중...</p>
+    </div>
+
+    <!-- 왼쪽: 카메라 및 인식 화면 -->
+    <div class="flex flex-col items-center">
+        <div class="video-container ring-1 ring-gray-300 dark:ring-gray-700">
+            <video id="input-video" class="video-element" autoplay playsinline></video>
+            <canvas id="output-canvas" class="canvas-element"></canvas>
+        </div>
+        <div class="mt-4 flex gap-4 w-full max-w-[640px]">
+            <div class="flex-1 bg-white dark:bg-gray-800 p-4 rounded-lg flex items-center justify-between border border-gray-200 dark:border-gray-700">
+                <span class="text-gray-600 dark:text-gray-400 text-sm font-medium">카메라 화면 표시</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="toggle-video" class="sr-only peer" checked>
+                    <div class="w-11 h-6 bg-gray-300 dark:bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-500"></div>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- 오른쪽: 상태 및 컨트롤 패널 -->
+    <div class="flex flex-col gap-6">
+
+        <!-- 경고 메시지 영역 -->
+        <div id="status-card"
+             class="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 transition-all duration-300 flex flex-col items-center justify-center min-h-[160px] shadow-sm">
+            <h2 id="status-icon" class="text-4xl mb-2">🤔</h2>
+            <h3 id="status-title" class="text-2xl font-bold text-gray-500 dark:text-gray-400">얼굴 인식 대기 중</h3>
+            <p id="status-desc" class="text-gray-500 mt-1">시작하기 버튼을 눌러 카메라를 연결해주세요.</p>
+        </div>
+
+        <!-- 통계 데이터 -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">총 깜빡임 횟수</p>
+                <p class="text-2xl font-bold text-teal-600 dark:text-teal-400"><span id="blink-count">0</span>회</p>
+            </div>
+            <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">최근 1분 환산 (BPM)</p>
+                <p class="text-2xl font-bold text-blue-600 dark:text-blue-400" id="bpm-display"><span
+                        id="bpm-count">0</span><span id="bpm-unit" class="text-base font-normal ml-1">회</span></p>
+            </div>
+            <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">마지막 깜빡임 후</p>
+                <p class="text-2xl font-bold text-yellow-600 dark:text-yellow-400"><span id="time-since-blink">0</span>초
+                </p>
+            </div>
+        </div>
+
+        <!-- 설정 -->
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 flex-1 shadow-sm">
+            <h4 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
+                알림 설정</h4>
+
+            <div class="mb-6">
+                <div class="flex justify-between mb-1">
+                    <label class="text-sm text-gray-500 dark:text-gray-400">경고 발생 시간 (초)</label>
+                    <span class="text-sm text-teal-600 dark:text-teal-400 font-bold" id="threshold-val">10초</span>
+                </div>
+                <input type="range" id="alert-threshold" min="3" max="20" value="10"
+                       class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-teal-500">
+                <p class="text-xs text-gray-500 mt-2">지정된 시간 동안 눈을 깜빡이지 않으면 알림이 발생합니다.</p>
+            </div>
+
+            <!-- 추가된 기능 및 알림 설정 영역 -->
+            <div class="mb-6">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-2">추가 기능 및 알림</p>
+                <div class="flex flex-col sm:flex-row gap-4 sm:gap-6">
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="sound-mode" class="sr-only peer" checked>
+                        <div class="w-11 h-6 bg-gray-300 dark:bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-500"></div>
+                        <span class="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">소리 알림</span>
+                    </label>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="drowsy-mode" class="sr-only peer" checked>
+                        <div class="w-11 h-6 bg-gray-300 dark:bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-500"></div>
+                        <span class="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">졸음 방지 알람 (3초↑)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-2">실시간 눈 열림 정도 (EAR)</p>
+                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 relative overflow-hidden">
+                    <div id="ear-bar" class="bg-teal-500 h-4 rounded-full transition-all duration-75"
+                         style="width: 0%"></div>
+                    <!-- 기준선 -->
+                    <div class="absolute top-0 bottom-0 left-[23%] border-l-2 border-red-500/50 z-10"
+                         title="깜빡임 감지 기준선"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    // 테마 설정 로직
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    const htmlEl = document.documentElement;
+
+    // 초기 테마 설정 (로컬스토리지 또는 OS 시스템 설정 반영)
+    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        htmlEl.classList.add('dark');
+    } else {
+        htmlEl.classList.remove('dark');
+    }
+
+    // 테마 토글 버튼 이벤트
+    themeToggleBtn.addEventListener('click', () => {
+        htmlEl.classList.toggle('dark');
+        if (htmlEl.classList.contains('dark')) {
+            localStorage.theme = 'dark';
+        } else {
+            localStorage.theme = 'light';
+        }
+    });
+
+    // DOM 요소
+    const videoElement = document.getElementById('input-video');
+    const canvasElement = document.getElementById('output-canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const startBtn = document.getElementById('start-btn');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const toggleVideo = document.getElementById('toggle-video');
+
+    // 상태 표시 요소
+    const blinkCountEl = document.getElementById('blink-count');
+    const bpmCountEl = document.getElementById('bpm-count');
+    const timeSinceBlinkEl = document.getElementById('time-since-blink');
+    const earBarEl = document.getElementById('ear-bar');
+    const statusCard = document.getElementById('status-card');
+    const statusTitle = document.getElementById('status-title');
+    const statusDesc = document.getElementById('status-desc');
+    const statusIcon = document.getElementById('status-icon');
+    const mainBody = document.getElementById('main-body');
+
+    // 설정 요소
+    const thresholdSlider = document.getElementById('alert-threshold');
+    const thresholdVal = document.getElementById('threshold-val');
+    const soundModeCb = document.getElementById('sound-mode');
+    const drowsyModeCb = document.getElementById('drowsy-mode');
+
+    // 상태 변수
+    let isRunning = false;
+    let blinkCount = 0;
+    let isEyesClosed = false;
+    let eyesClosedTimestamp = 0;
+    let isFaceDetected = false;
+    let wasFaceDetected = false;
+    let sessionStartTime = 0;
+    const blinkTimestamps = [];
+    let lastBlinkTimestamp = Date.now();
+    let alertThresholdMs = 10000;
+    let audioCtx = null;
+    let updateTimer = null;
+    let beepInterval = null;
+    let isBeeping = false;
+    let beepType = 'normal';
+
+    // 알림 모드 상태 변수
+    let isSoundEnabled = true;
+    let isDrowsyModeEnabled = true;
+
+    // MediaPipe 눈 랜드마크 인덱스
+    const LEFT_EYE = [362, 385, 387, 263, 373, 380];
+    const RIGHT_EYE = [33, 160, 158, 133, 153, 144];
+    const BLINK_THRESHOLD_EAR = 0.23;
+
+    // 유틸리티: 두 점 사이의 거리 계산
+    const euclideanDistance = (point1, point2) => {
+        return Math.sqrt(Math.pow((point1.x - point2.x), 2) + Math.pow((point1.y - point2.y), 2));
+    };
+
+    // 눈 종횡비(Eye Aspect Ratio, EAR) 계산 공식
+    const calculateEAR = (landmarks, eyeIndices) => {
+        const v1 = euclideanDistance(landmarks[eyeIndices[1]], landmarks[eyeIndices[5]]);
+        const v2 = euclideanDistance(landmarks[eyeIndices[2]], landmarks[eyeIndices[4]]);
+        const h = euclideanDistance(landmarks[eyeIndices[0]], landmarks[eyeIndices[3]]);
+        return (v1 + v2) / (2.0 * h);
+    };
+
+    // 오디오 초기화 및 경고음 재생 함수
+    const initAudio = () => {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    };
+
+    const playBeep = () => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.type = beepType === 'urgent' ? 'sawtooth' : 'square';
+        osc.frequency.setValueAtTime(beepType === 'urgent' ? 800 : 600, audioCtx.currentTime);
+
+        gain.gain.setValueAtTime(beepType === 'urgent' ? 0.2 : 0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.3);
+    };
+
+    const startBeep = (type = 'normal') => {
+        if (!isSoundEnabled) return;
+        if (!isBeeping || beepType !== type) {
+            stopBeep();
+            beepType = type;
+            isBeeping = true;
+            playBeep();
+            beepInterval = setInterval(playBeep, type === 'urgent' ? 500 : 1500);
+        }
+    };
+
+    const stopBeep = () => {
+        if (isBeeping) {
+            isBeeping = false;
+            clearInterval(beepInterval);
+            beepInterval = null;
+        }
+    };
+
+    const updateStatusCardUI = (bgColor, borderColor, titleColor, titleText, descText, iconText) => {
+        const baseClasses = "p-6 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center min-h-[160px] shadow-sm";
+        statusCard.className = `${baseClasses} ${bgColor} ${borderColor}`;
+        statusTitle.className = `text-2xl font-bold ${titleColor}`;
+        statusTitle.textContent = titleText;
+        statusDesc.textContent = descText;
+        statusIcon.textContent = iconText;
+    };
+
+    // 라이트/다크 모드 양쪽에서 모두 잘 보이도록 색상 클래스 적용
+    const updateStatus = (state, bpm = 0) => {
+        if (state === 'NOT_DETECTED') {
+            mainBody.classList.remove('alert-active', 'sleep-active');
+            updateStatusCardUI('bg-white dark:bg-gray-800', 'border-gray-200 dark:border-gray-700', 'text-gray-500 dark:text-gray-400', '얼굴 인식 대기 중', '카메라 화면에 얼굴이 보이도록 해주세요.', '🤔');
+            stopBeep();
+        } else if (state === 'SLEEPING') {
+            mainBody.classList.remove('alert-active');
+            mainBody.classList.add('sleep-active');
+            updateStatusCardUI('bg-purple-50 dark:bg-purple-900/50', 'border-purple-400 dark:border-purple-500', 'text-purple-600 dark:text-purple-400', '졸음 감지!', '3초 이상 눈을 감고 있습니다. 휴식을 취하세요!', '💤');
+            startBeep('urgent');
+        } else if (state === 'RESTING') {
+            mainBody.classList.remove('alert-active', 'sleep-active');
+            updateStatusCardUI('bg-indigo-50 dark:bg-indigo-900/30', 'border-indigo-300 dark:border-indigo-500/50', 'text-indigo-600 dark:text-indigo-400', '눈 휴식 중', '편안하게 눈을 쉬어주세요.', '😌');
+            stopBeep();
+        } else if (state === 'ALERT') {
+            mainBody.classList.remove('sleep-active');
+            mainBody.classList.add('alert-active');
+            updateStatusCardUI('bg-red-50 dark:bg-red-900/50', 'border-red-400 dark:border-red-500', 'text-red-600 dark:text-red-400', '눈을 깜빡이세요!', `${thresholdVal.textContent} 이상 눈을 깜빡이지 않았습니다!`, '⚠️');
+            startBeep('normal');
+        } else if (state === 'WARNING') {
+            mainBody.classList.remove('alert-active', 'sleep-active');
+            updateStatusCardUI('bg-yellow-50 dark:bg-yellow-900/30', 'border-yellow-400 dark:border-yellow-600', 'text-yellow-600 dark:text-yellow-400', '깜빡임 횟수 부족', `현재 1분 환산 ${bpm}회 (권장: 15회 이상). 의식적으로 더 깜빡여주세요.`, '😐');
+            stopBeep();
+        } else if (state === 'GOOD') {
+            mainBody.classList.remove('alert-active', 'sleep-active');
+            updateStatusCardUI('bg-white dark:bg-gray-800', 'border-teal-400 dark:border-teal-500/50', 'text-teal-600 dark:text-teal-400', '눈 상태 양호', bpm > 0 ? `현재 1분 환산 ${bpm}회. 권장 횟수를 잘 채우고 있습니다.` : '지금처럼 꾸준히 눈을 깜빡여주세요.', '😊');
+            stopBeep();
+        }
+    };
+
+    // 상태 업데이트 UI 루프
+    const startStateLoop = () => {
+        if (updateTimer) clearInterval(updateTimer);
+
+        updateTimer = setInterval(() => {
+            const now = Date.now();
+
+            if (!isFaceDetected) {
+                lastBlinkTimestamp = now;
+                timeSinceBlinkEl.textContent = "-";
+                bpmCountEl.textContent = "-";
+                document.getElementById('bpm-unit').style.display = 'inline';
+
+                blinkCount = 0;
+                blinkCountEl.textContent = "0";
+
+                updateStatus('NOT_DETECTED');
+                return;
+            }
+
+            if (isEyesClosed) {
+                const closedDuration = now - eyesClosedTimestamp;
+                if (closedDuration > 3000) {
+                    if (isDrowsyModeEnabled) {
+                        updateStatus('SLEEPING');
+                    } else {
+                        updateStatus('RESTING');
+                    }
+                }
+                return;
+            }
+
+            while (blinkTimestamps.length > 0 && now - blinkTimestamps[0] > 60000) {
+                blinkTimestamps.shift();
+            }
+
+            let activeTimeMs = now - sessionStartTime;
+            let currentBPM = 0;
+            const bpmUnit = document.getElementById('bpm-unit');
+
+            if (activeTimeMs < 15000) {
+                bpmCountEl.textContent = "측정중";
+                bpmCountEl.classList.add('text-lg', 'text-gray-400');
+                bpmUnit.style.display = 'none';
+            } else {
+                bpmCountEl.classList.remove('text-lg', 'text-gray-400');
+                bpmUnit.style.display = 'inline';
+
+                if (activeTimeMs < 60000) {
+                    currentBPM = Math.round(blinkTimestamps.length * (60000 / activeTimeMs));
+                } else {
+                    currentBPM = blinkTimestamps.length;
+                }
+                bpmCountEl.textContent = currentBPM;
+            }
+
+            const secondsSince = Math.floor((now - lastBlinkTimestamp) / 1000);
+            timeSinceBlinkEl.textContent = secondsSince;
+
+            if (now - lastBlinkTimestamp > alertThresholdMs) {
+                updateStatus('ALERT');
+            } else {
+                if (activeTimeMs > 15000 && currentBPM < 15) {
+                    updateStatus('WARNING', currentBPM);
+                } else {
+                    updateStatus('GOOD', currentBPM);
+                }
+            }
+        }, 500);
+    };
+
+    // MediaPipe FaceMesh 결과 처리 콜백
+    const onResults = (results) => {
+        if (loadingOverlay.classList.contains('flex')) {
+            loadingOverlay.classList.replace('flex', 'hidden');
+            startStateLoop();
+        }
+
+        canvasCtx.save();
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+        if (toggleVideo.checked) {
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+        } else {
+            canvasCtx.fillStyle = '#000000';
+            canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+        }
+
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            isFaceDetected = true;
+
+            if (!wasFaceDetected) {
+                wasFaceDetected = true;
+                sessionStartTime = Date.now();
+                blinkTimestamps.length = 0;
+                lastBlinkTimestamp = Date.now();
+                blinkCount = 0;
+                blinkCountEl.textContent = "0";
+            }
+
+            const landmarks = results.multiFaceLandmarks[0];
+
+            const leftEAR = calculateEAR(landmarks, LEFT_EYE);
+            const rightEAR = calculateEAR(landmarks, RIGHT_EYE);
+            const avgEAR = (leftEAR + rightEAR) / 2.0;
+
+            const earPercent = Math.min(Math.max(avgEAR / 0.40 * 100, 0), 100);
+            earBarEl.style.width = `${earPercent}%`;
+
+            if (avgEAR < BLINK_THRESHOLD_EAR) {
+                earBarEl.classList.replace('bg-teal-500', 'bg-red-500');
+                if (!isEyesClosed) {
+                    isEyesClosed = true;
+                    eyesClosedTimestamp = Date.now();
+                }
+            } else {
+                earBarEl.classList.replace('bg-red-500', 'bg-teal-500');
+                if (isEyesClosed) {
+                    isEyesClosed = false;
+                    const closedDuration = Date.now() - eyesClosedTimestamp;
+
+                    if (closedDuration > 50 && (Date.now() - lastBlinkTimestamp > 300)) {
+                        blinkCount++;
+                        blinkCountEl.textContent = blinkCount;
+                        blinkTimestamps.push(Date.now());
+                        lastBlinkTimestamp = Date.now();
+                    }
+                }
+            }
+
+            canvasCtx.fillStyle = '#14b8a6';
+            const drawPoints = (indices) => {
+                indices.forEach(idx => {
+                    const point = landmarks[idx];
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(point.x * canvasElement.width, point.y * canvasElement.height, 2, 0, 2 * Math.PI);
+                    canvasCtx.fill();
+                });
+            };
+            drawPoints(LEFT_EYE);
+            drawPoints(RIGHT_EYE);
+        } else {
+            isFaceDetected = false;
+            wasFaceDetected = false;
+            earBarEl.style.width = '0%';
+
+            blinkCount = 0;
+            blinkCountEl.textContent = "0";
+        }
+        canvasCtx.restore();
+    };
+
+    const faceMesh = new FaceMesh({
+        locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }
+    });
+
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    faceMesh.onResults(onResults);
+
+    let camera = null;
+
+    startBtn.addEventListener('click', () => {
+        if (isRunning) return;
+
+        initAudio();
+        loadingOverlay.classList.replace('hidden', 'flex');
+
+        canvasElement.width = videoElement.videoWidth || 640;
+        canvasElement.height = videoElement.videoHeight || 480;
+
+        camera = new Camera(videoElement, {
+            onFrame: async () => {
+                if (canvasElement.width !== videoElement.videoWidth) {
+                    canvasElement.width = videoElement.videoWidth;
+                    canvasElement.height = videoElement.videoHeight;
+                }
+                await faceMesh.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+
+        camera.start()
+            .then(() => {
+                isRunning = true;
+                startBtn.textContent = "동작 중";
+                startBtn.classList.replace('bg-teal-500', 'bg-gray-600');
+                startBtn.classList.replace('hover:bg-teal-600', 'hover:bg-gray-700');
+                startBtn.classList.remove('shadow-teal-500/30');
+                startBtn.disabled = true;
+            })
+            .catch((err) => {
+                console.error("카메라를 시작할 수 없습니다:", err);
+                alert("카메라 접근 권한을 허용해주세요.");
+                loadingOverlay.classList.replace('flex', 'hidden');
+            });
+    });
+
+    thresholdSlider.addEventListener('input', (e) => {
+        const val = e.target.value;
+        thresholdVal.textContent = `${val}초`;
+        alertThresholdMs = parseInt(val) * 1000;
+    });
+
+    soundModeCb.addEventListener('change', (e) => {
+        isSoundEnabled = e.target.checked;
+        if (!isSoundEnabled) stopBeep();
+    });
+
+    drowsyModeCb.addEventListener('change', (e) => {
+        isDrowsyModeEnabled = e.target.checked;
+        if (!isDrowsyModeEnabled && beepType === 'urgent') stopBeep();
+    });
+
+    toggleVideo.addEventListener('change', (e) => {
+        if (!e.target.checked) {
+            canvasCtx.fillStyle = 'black';
+            canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+        }
+    });
+
+</script>
+</body>
+</html>

@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우아한 성장 트래커</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        .wooteco-primary { color: #00cccc; }
+        .wooteco-bg { background-color: #00cccc; }
+        .wooteco-border { border-color: #00cccc; }
+        
+        .card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .step-inactive { opacity: 0.5; pointer-events: none; filter: grayscale(1); }
+        
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #00cccc;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .growth-badge {
+            background: linear-gradient(135deg, #00cccc 0%, #009999 100%);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            margin-bottom: 4px;
+            display: inline-block;
+        }
+
+        /* --- Print Styles --- */
+        @media print {
+            @page {
+                size: A4;
+                margin: 20mm;
+            }
+            body {
+                background: white !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .no-print, 
+            aside, 
+            #step1, 
+            #step2, 
+            #step3, 
+            #emptyState, 
+            #loadingOverlay,
+            .wooteco-bg.text-white.w-8.h-8,
+            button {
+                display: none !important;
+            }
+            #missionEditor, #step4 {
+                display: block !important;
+                visibility: visible !important;
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+            }
+            .card {
+                box-shadow: none !important;
+                border: none !important;
+            }
+            h2 {
+                font-size: 24pt !important;
+                margin-bottom: 20pt !important;
+            }
+            .wooteco-primary {
+                color: #008888 !important;
+            }
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        .modal-overlay { transition: opacity 0.3s ease; }
+        .modal-content { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-5xl mx-auto flex flex-col md:flex-row gap-8">
+        
+        <!-- Left Sidebar: Mission List -->
+        <aside class="w-full md:w-64 no-print flex flex-col min-h-[calc(100vh-4rem)]">
+            <div class="sticky top-8 flex flex-col h-full">
+                <header class="mb-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <h1 class="text-xl font-bold flex items-center gap-2">🚀 우아한 성장 트래커</h1>
+                        <button onclick="toggleGrowthModal(true)" 
+                                class="w-10 h-10 flex items-center justify-center bg-white border border-slate-200 rounded-xl shadow-sm transition text-slate-400 hover:text-teal-500 hover:border-teal-500 hover:shadow-md" 
+                                title="성장 곡선 보기">
+                            <i class="fa-solid fa-chart-line text-lg"></i>
+                        </button>
+                    </div>
+                    <p class="text-xs text-slate-500">우아한테크코스 미션 관리</p>
+                </header>
+                
+                <button onclick="addNewMission()" class="w-full mb-4 flex items-center justify-center gap-2 bg-slate-800 text-white py-2 rounded-lg text-sm font-bold hover:bg-slate-700 transition">
+                    <i class="fa-solid fa-plus"></i> 새 미션 추가
+                </button>
+
+                <nav id="missionNav" class="space-y-2 overflow-y-auto max-h-[50vh] pr-2 flex-1">
+                    <!-- 미션 리스트 -->
+                </nav>
+
+                <!-- Footer Credits -->
+                <footer class="mt-8 pt-6 border-t border-slate-100">
+                    <div class="flex flex-col gap-2">
+                        <p class="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em]">Designed by</p>
+                        <div class="flex items-center gap-3">
+                            <div class="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-100 shadow-sm transition hover:border-teal-200">
+                                <span class="text-sm">🍇</span>
+                                <span class="text-xs font-semibold text-slate-600">포도</span>
+                            </div>
+                            <div class="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-100 shadow-sm transition hover:border-teal-200">
+                                <span class="text-sm">🐮</span>
+                                <span class="text-xs font-semibold text-slate-600">아지</span>
+                            </div>
+                        </div>
+                    </div>
+                </footer>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 space-y-8">
+            <div id="emptyState" class="card p-12 text-center">
+                <i class="fa-solid fa-folder-open text-5xl text-slate-200 mb-4"></i>
+                <h2 class="text-xl font-bold text-slate-400">선택된 미션이 없습니다</h2>
+                <p class="text-slate-400 text-sm mt-2">왼쪽에서 미션을 추가하거나 선택해주세요.</p>
+            </div>
+
+            <div id="missionEditor" class="hidden space-y-8">
+                <!-- Step 1: Mission Upload -->
+                <section id="step1" class="card p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center">
+                            <span class="wooteco-bg text-white w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">1</span>
+                            <h2 class="text-xl font-bold">미션 내용 업로드</h2>
+                        </div>
+                        <button onclick="showDeleteConfirm()" class="text-rose-400 hover:text-rose-600 text-sm no-print transition">
+                            <i class="fa-solid fa-trash-can"></i> 미션 삭제
+                        </button>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">미션 제목</label>
+                                <span id="lockBadge" class="hidden text-[10px] font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded border border-amber-100"><i class="fa-solid fa-lock mr-1"></i>평가 완료 (수정 불가)</span>
+                            </div>
+                            <input type="text" id="missionTitleInput" oninput="syncTitle(this.value)" class="w-full p-3 border rounded-lg font-bold text-lg focus:ring-2 focus:wooteco-border outline-none transition disabled:bg-slate-50 disabled:text-slate-400" placeholder="예: 자동차 경주 미션">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">미션 설명 및 요구사항 (README)</label>
+                            <div id="missionInputsContainer" class="space-y-3">
+                                <!-- Multi-inputs -->
+                            </div>
+                            <button id="addInputBtn" onclick="addInputField()" class="mt-3 text-sm font-semibold wooteco-primary hover:text-[#00aaaa] transition flex items-center gap-1 no-print">
+                                <i class="fa-solid fa-plus-circle"></i> 내용 추가 (README 분할 업로드)
+                            </button>
+                        </div>
+                    </div>
+
+                    <button onclick="analyzeMission()" id="analyzeBtn" class="mt-6 w-full wooteco-bg text-white py-3 rounded-lg font-bold hover:opacity-90 transition flex items-center justify-center gap-2 no-print shadow-lg shadow-teal-100 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-brain"></i> AI 종합 설계 의도 분석
+                    </button>
+                </section>
+
+                <!-- Step 2: Mission Objectives -->
+                <section id="step2" class="card p-6 step-inactive">
+                    <div class="flex items-center mb-4">
+                        <span class="wooteco-bg text-white w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">2</span>
+                        <h2 class="text-xl font-bold">추출된 핵심 성장 포인트</h2>
+                    </div>
+                    <div id="missionIntentBox" class="mb-6 p-5 bg-slate-50 rounded-xl border border-slate-100 hidden">
+                        <h3 class="font-bold text-slate-800 mb-2 text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-bullseye wooteco-primary"></i> 이번 미션의 본질적 설계 의도
+                        </h3>
+                        <p id="intentText" class="text-slate-600 text-sm leading-relaxed italic"></p>
+                    </div>
+                    <div id="objectiveList" class="grid grid-cols-1 gap-4 mb-2">
+                        <!-- Dynamic content -->
+                    </div>
+                </section>
+
+                <!-- Step 3: Retrospective -->
+                <section id="step3" class="card p-6 step-inactive">
+                    <div class="flex items-center mb-4">
+                        <span class="wooteco-bg text-white w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">3</span>
+                        <h2 class="text-xl font-bold">회고록 작성 및 성취도 평가</h2>
+                    </div>
+                    <p class="text-sm text-slate-500 mb-3">위에서 분석된 성장 포인트들에 대해 본인이 어떤 고민과 시도를 했는지 적어주세요.</p>
+                    <textarea id="retroInput" class="w-full h-48 p-4 border rounded-lg focus:ring-2 focus:wooteco-border outline-none transition text-sm leading-relaxed" placeholder="어떤 점을 배웠고 어떻게 해결했나요?"></textarea>
+                    <button onclick="evaluateGrowth()" id="evaluateBtn" class="mt-4 w-full bg-slate-800 text-white py-3 rounded-lg font-bold hover:bg-slate-700 transition flex items-center justify-center gap-2 no-print shadow-lg shadow-slate-200">
+                        <i class="fa-solid fa-chart-line"></i> 최종 성장 성취도 평가
+                    </button>
+                </section>
+
+                <!-- Step 4: Final Result -->
+                <section id="step4" class="card p-6 hidden border-2 wooteco-border">
+                    <div class="flex items-center mb-6 border-b pb-4">
+                        <i class="fa-solid fa-trophy text-yellow-500 text-2xl mr-3"></i>
+                        <h2 class="text-xl font-bold">최종 분석 결과</h2>
+                    </div>
+                    <div id="resultContent" class="space-y-6">
+                        <!-- Dynamic content -->
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Growth Curve Modal -->
+    <div id="growthModal" class="modal-overlay fixed inset-0 bg-black/60 backdrop-blur-md hidden flex items-end md:items-center justify-center z-[60] opacity-0 pointer-events-none transition-all duration-300 p-0 md:p-8 no-print">
+        <div class="modal-content bg-white w-full h-auto max-h-[92vh] md:max-h-[90vh] md:max-w-4xl rounded-t-[2.5rem] md:rounded-[2rem] shadow-2xl overflow-hidden transform translate-y-full md:translate-y-0 md:scale-95 flex flex-col">
+            <div class="px-6 py-5 flex items-start justify-between bg-white border-b border-slate-100 shrink-0">
+                <div class="pt-1">
+                    <h2 class="text-xl md:text-2xl font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-line wooteco-primary"></i> 나의 성장 곡선
+                    </h2>
+                    <p class="text-[10px] md:text-xs text-slate-500 font-medium tracking-tight mt-0.5">미션별 성취도 변화 추이</p>
+                </div>
+                <button onclick="toggleGrowthModal(false)" 
+                        class="w-10 h-10 flex items-center justify-center bg-slate-50 border border-slate-100 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition shadow-sm">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+            <div class="px-6 py-5 overflow-y-auto flex-1 h-full">
+                <div class="relative w-full bg-slate-50/50 rounded-2xl p-4 border border-slate-100 min-h-[300px] md:min-h-[400px]">
+                    <canvas id="growthChart"></canvas>
+                    <div id="chartEmptyMessage" class="absolute inset-0 hidden flex flex-col items-center justify-center text-slate-400">
+                        <i class="fa-solid fa-chart-simple text-5xl mb-4 opacity-20"></i>
+                        <p class="text-center font-medium text-sm">아직 평가가 완료된 미션이 없습니다.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Delete Confirmation Modal -->
+    <div id="deleteModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center z-[70] p-4 opacity-0 transition-opacity duration-300 no-print">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl transform scale-95 transition-transform duration-300">
+            <div class="flex items-center gap-3 text-rose-500 mb-4">
+                <i class="fa-solid fa-triangle-exclamation text-2xl"></i>
+                <h3 class="text-lg font-bold">미션 삭제</h3>
+            </div>
+            <p class="text-slate-600 text-sm mb-6 leading-relaxed">이 미션에 기록된 모든 분석 데이터와 성취도 리포트가 영구적으로 삭제됩니다. 계속하시겠습니까?</p>
+            <div class="flex gap-3">
+                <button onclick="closeDeleteModal()" class="flex-1 py-2 rounded-lg bg-slate-100 text-slate-600 font-bold text-sm hover:bg-slate-200 transition">취소</button>
+                <button onclick="confirmDelete()" class="flex-1 py-2 rounded-lg bg-rose-500 text-white font-bold text-sm hover:bg-rose-600 transition">삭제하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden flex items-center justify-center z-50 no-print">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-xs w-full">
+            <div class="loading-spinner mb-4"></div>
+            <p id="loadingText" class="font-bold text-slate-800 text-center">AI 코치가 데이터를<br>심층 분석 중입니다...</p>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; 
+        const modelName = "gemini-2.5-flash-preview-09-2025";
+        
+        let missions = []; 
+        let currentMissionId = null;
+        let growthChartInstance = null;
+
+        // --- Core Functions ---
+
+        function addNewMission() {
+            const newMission = {
+                id: Date.now(),
+                title: "새 미션 " + (missions.length + 1),
+                texts: [""], 
+                intent: "",
+                objectives: [],
+                retro: "",
+                result: null
+            };
+            missions.push(newMission);
+            selectMission(newMission.id);
+            renderMissionList();
+        }
+
+        function selectMission(id) {
+            currentMissionId = id;
+            const mission = missions.find(m => m.id === id);
+            if (!mission) return;
+            
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('missionEditor').classList.remove('hidden');
+            
+            const isLocked = !!mission.result;
+            
+            const titleInput = document.getElementById('missionTitleInput');
+            titleInput.value = mission.title;
+            titleInput.disabled = isLocked;
+            
+            document.getElementById('retroInput').value = mission.retro || "";
+            document.getElementById('lockBadge').classList.toggle('hidden', !isLocked);
+            document.getElementById('addInputBtn').classList.toggle('hidden', isLocked);
+            document.getElementById('analyzeBtn').disabled = isLocked;
+            
+            renderInputFields(mission.texts, isLocked);
+            updateStepsUI(mission);
+            renderMissionList();
+        }
+
+        function renderInputFields(texts, isLocked = false) {
+            const container = document.getElementById('missionInputsContainer');
+            container.innerHTML = "";
+            texts.forEach((val, idx) => {
+                const div = document.createElement('div');
+                div.className = "relative group";
+                div.innerHTML = `
+                    <textarea 
+                        class="mission-data-input w-full h-32 p-4 border rounded-lg focus:ring-2 focus:wooteco-border outline-none transition text-sm disabled:bg-slate-50 disabled:text-slate-500" 
+                        placeholder="README 내용을 입력하세요..."
+                        oninput="updateMissionText(${idx}, this.value)"
+                        ${isLocked ? 'disabled' : ''}
+                    >${val}</textarea>
+                    ${!isLocked && texts.length > 1 ? `
+                        <button onclick="removeInputField(${idx})" class="absolute top-2 right-2 text-slate-300 hover:text-rose-500 transition no-print opacity-0 group-hover:opacity-100">
+                            <i class="fa-solid fa-circle-xmark text-lg"></i>
+                        </button>
+                    ` : ''}
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addInputField() {
+            const mission = missions.find(m => m.id === currentMissionId);
+            if (!mission || mission.result) return;
+            mission.texts.push("");
+            renderInputFields(mission.texts);
+        }
+
+        function removeInputField(index) {
+            const mission = missions.find(m => m.id === currentMissionId);
+            if (!mission || mission.result) return;
+            mission.texts.splice(index, 1);
+            renderInputFields(mission.texts);
+        }
+
+        function updateMissionText(index, value) {
+            const mission = missions.find(m => m.id === currentMissionId);
+            if (!mission || mission.result) return;
+            mission.texts[index] = value;
+        }
+
+        function syncTitle(val) {
+            const mission = missions.find(m => m.id === currentMissionId);
+            if (!mission || mission.result) return;
+            mission.title = val;
+            renderMissionList();
+        }
+
+        function showDeleteConfirm() {
+            const modal = document.getElementById('deleteModal');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.add('opacity-100');
+                modal.children[0].classList.remove('scale-95');
+                modal.children[0].classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeDeleteModal() {
+            const modal = document.getElementById('deleteModal');
+            modal.classList.remove('opacity-100');
+            modal.children[0].classList.remove('scale-100');
+            modal.children[0].classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        function confirmDelete() {
+            if (!currentMissionId) return;
+            missions = missions.filter(m => m.id !== currentMissionId);
+            currentMissionId = null;
+            document.getElementById('missionEditor').classList.add('hidden');
+            document.getElementById('emptyState').classList.remove('hidden');
+            renderMissionList();
+            closeDeleteModal();
+        }
+
+        function updateStepsUI(mission) {
+            if (mission.objectives && mission.objectives.length > 0) {
+                document.getElementById('step2').classList.remove('step-inactive');
+                document.getElementById('missionIntentBox').classList.remove('hidden');
+                document.getElementById('intentText').innerText = mission.intent;
+                renderObjectives(mission.objectives);
+                document.getElementById('step3').classList.remove('step-inactive');
+            } else {
+                document.getElementById('step2').classList.add('step-inactive');
+                document.getElementById('missionIntentBox').classList.add('hidden');
+                document.getElementById('objectiveList').innerHTML = '<p class="text-slate-400 italic text-center py-8">분석 버튼을 눌러 미션 의도를 파악하세요.</p>';
+                document.getElementById('step3').classList.add('step-inactive');
+            }
+
+            if (mission.result) {
+                document.getElementById('step4').classList.remove('hidden');
+                renderResult(mission.result);
+            } else {
+                document.getElementById('step4').classList.add('hidden');
+            }
+        }
+
+        function renderMissionList() {
+            const nav = document.getElementById('missionNav');
+            nav.innerHTML = missions.map(m => `
+                <div onclick="selectMission(${m.id})" class="group p-3 rounded-xl cursor-pointer transition flex items-center justify-between ${currentMissionId === m.id ? 'bg-white border-l-4 wooteco-border shadow-md font-bold' : 'hover:bg-slate-200 text-slate-600'}">
+                    <div class="flex items-center gap-3 truncate">
+                        <i class="fa-solid ${m.result ? 'fa-circle-check text-emerald-500' : 'fa-circle-dot text-slate-300'}"></i>
+                        <span class="truncate text-sm">${m.title || '제목 없음'}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleGrowthModal(show) {
+            const modal = document.getElementById('growthModal');
+            const content = modal.querySelector('.modal-content');
+            
+            if (show) {
+                modal.classList.remove('hidden');
+                modal.offsetHeight; 
+                modal.classList.add('opacity-100', 'pointer-events-auto');
+                content.classList.remove('translate-y-full', 'md:scale-95');
+                content.classList.add('translate-y-0', 'md:scale-100');
+                updateGrowthChart();
+            } else {
+                modal.classList.remove('opacity-100', 'pointer-events-auto');
+                content.classList.add('translate-y-full', 'md:scale-95');
+                content.classList.remove('translate-y-0', 'md:scale-100');
+                setTimeout(() => {
+                    modal.classList.add('hidden');
+                }, 400);
+            }
+        }
+
+        function updateGrowthChart() {
+            const evaluationData = missions
+                .filter(m => m.result && m.result.score !== undefined)
+                .sort((a, b) => a.id - b.id);
+
+            const canvas = document.getElementById('growthChart');
+            const emptyMsg = document.getElementById('chartEmptyMessage');
+
+            if (evaluationData.length === 0) {
+                canvas.classList.add('hidden');
+                emptyMsg.classList.remove('hidden');
+                return;
+            }
+
+            canvas.classList.remove('hidden');
+            emptyMsg.classList.add('hidden');
+
+            const labels = evaluationData.map(m => m.title);
+            const scores = evaluationData.map(m => m.result.score);
+
+            if (growthChartInstance) {
+                growthChartInstance.destroy();
+            }
+
+            const ctx = canvas.getContext('2d');
+            growthChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '성취 점수',
+                        data: scores,
+                        borderColor: '#00cccc',
+                        backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 450);
+                            gradient.addColorStop(0, 'rgba(0, 204, 204, 0.4)');
+                            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                            return gradient;
+                        },
+                        borderWidth: 4,
+                        tension: 0.4,
+                        pointBackgroundColor: '#fff',
+                        pointBorderColor: '#00cccc',
+                        pointBorderWidth: 3,
+                        pointRadius: 6,
+                        pointHoverRadius: 9,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: { font: { family: 'Pretendard', weight: '600' }, color: '#94a3b8' },
+                            grid: { color: '#f1f5f9' }
+                        },
+                        x: {
+                            ticks: { font: { family: 'Pretendard', weight: '600' }, color: '#94a3b8' },
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1e293b',
+                            padding: 16,
+                            titleFont: { family: 'Pretendard', size: 15, weight: '700' },
+                            bodyFont: { family: 'Pretendard', size: 14 },
+                            cornerRadius: 12,
+                            displayColors: false
+                        }
+                    }
+                }
+            });
+        }
+
+        async function analyzeMission() {
+            const mission = missions.find(m => m.id === currentMissionId);
+            if (!mission || mission.result) return;
+            
+            const combinedText = mission.texts.filter(t => t.trim() !== "").join("\n\n---\n\n");
+            if (!combinedText.trim()) return alert("미션 내용을 입력해주세요.");
+
+            toggleLoading(true, "미션 설계 의도를 분석 중입니다...");
+
+            const systemPrompt = `
+                너는 우아한테크코스의 시니어 코치야. 
+                제공된 미션 요구사항 텍스트들을 분석해서 설계 의도와 성장 포인트를 JSON으로 응답해줘.
+                형식: { "coreIntent": "...", "objectives": [ { "category": "...", "title": "...", "growthDemand": "..." } ] }
+            `;
+
+            try {
+                const result = await callGemini(combinedText, systemPrompt);
+                mission.intent = result.coreIntent;
+                mission.objectives = result.objectives;
+                updateStepsUI(mission);
+                document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
+            } catch (error) {
+                console.error(error);
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+        async function evaluateGrowth() {
+            const mission = missions.find(m => m.id === currentMissionId);
+            if (!mission) return;
+            const retroText = document.getElementById('retroInput').value.trim();
+            if (!retroText) return alert("회고록을 입력해주세요.");
+
+            mission.retro = retroText;
+            toggleLoading(true, "성취도를 분석 중입니다...");
+
+            const systemPrompt = `
+                너는 우아한테크코스의 리뷰어 코치야. 사용자의 회고록을 미션 목표와 비교해서 평가해줘.
+                형식(JSON): { "score": 0~100, "summary": "...", "achievements": [], "growthEvidence": "...", "improvements": [], "next_steps": "..." }
+            `;
+
+            const prompt = `[의도] ${mission.intent} [목표] ${JSON.stringify(mission.objectives)} [회고] ${retroText}`;
+
+            try {
+                const result = await callGemini(prompt, systemPrompt);
+                mission.result = result;
+                selectMission(mission.id); 
+                updateStepsUI(mission);
+                document.getElementById('step4').scrollIntoView({ behavior: 'smooth' });
+            } catch (error) {
+                console.error(error);
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+        function renderObjectives(objectives) {
+            const container = document.getElementById('objectiveList');
+            container.innerHTML = objectives.map(obj => `
+                <div class="p-4 border rounded-xl bg-white shadow-sm border-l-4 wooteco-border">
+                    <div class="growth-badge">${obj.category}</div>
+                    <h4 class="font-bold text-slate-800 text-sm mb-1">${obj.title}</h4>
+                    <p class="text-xs text-slate-600 leading-relaxed">${obj.growthDemand}</p>
+                </div>
+            `).join('');
+        }
+
+        function renderResult(data) {
+            const container = document.getElementById('resultContent');
+            container.innerHTML = `
+                <div class="flex items-end gap-4 border-b pb-6">
+                    <div class="text-7xl font-bold wooteco-primary tracking-tighter">${data.score}</div>
+                    <div class="pb-2 text-slate-500 font-bold">성취도 리포트</div>
+                </div>
+                <div class="space-y-6 pt-2">
+                    <div class="bg-slate-50 p-6 rounded-2xl border border-slate-100 text-sm leading-relaxed">
+                        <h4 class="font-bold text-slate-800 mb-2 flex items-center gap-2">
+                            <i class="fa-solid fa-comment-dots text-teal-500"></i> AI 코치 총평
+                        </h4>
+                        ${data.summary}
+                    </div>
+                    <div class="p-5 bg-blue-50 rounded-2xl border border-blue-100 text-sm font-medium text-blue-900 leading-relaxed">
+                        <h4 class="font-bold text-blue-800 mb-2 flex items-center gap-2">
+                            <i class="fa-solid fa-magnifying-glass-chart"></i> 성장의 증거 발견
+                        </h4>
+                        ${data.growthEvidence}
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div class="p-5 bg-emerald-50 rounded-2xl text-sm text-emerald-800 border border-emerald-100">
+                            <h4 class="font-bold mb-3 uppercase tracking-wider text-emerald-700 border-b border-emerald-200 pb-1">잘 녹여낸 가치</h4>
+                            <ul class="space-y-2">
+                                ${data.achievements.map(a => `<li class="flex gap-2"><span>•</span> <span>${a}</span></li>`).join('')}
+                            </ul>
+                        </div>
+                        <div class="p-5 bg-rose-50 rounded-2xl text-sm text-rose-800 border border-rose-100">
+                            <h4 class="font-bold mb-3 uppercase tracking-wider text-rose-700 border-b border-rose-200 pb-1">보완 필요</h4>
+                            <ul class="space-y-2">
+                                ${data.improvements.map(i => `<li class="flex gap-2"><span>•</span> <span>${i}</span></li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="p-6 bg-slate-900 text-white rounded-2xl shadow-lg">
+                        <h4 class="text-teal-400 text-[10px] font-bold uppercase tracking-widest mb-2 flex items-center gap-2">
+                            <i class="fa-solid fa-rocket"></i> Next Step for Growth
+                        </h4>
+                        <p class="text-sm font-medium leading-relaxed">${data.next_steps}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleLoading(show, text) {
+            const overlay = document.getElementById('loadingOverlay');
+            const textEl = document.getElementById('loadingText');
+            if (text) textEl.innerHTML = text;
+            overlay.classList.toggle('hidden', !show);
+        }
+
+        async function callGemini(prompt, systemInstruction) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] },
+                generationConfig: { responseMimeType: "application/json" }
+            };
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error('API Fail');
+                    const data = await response.json();
+                    return JSON.parse(data.candidates[0].content.parts[0].text);
+                } catch (error) {
+                    if (i === 4) throw error;
+                    await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
+                }
+            }
+        }
+    </script>
+</body>
+</html>

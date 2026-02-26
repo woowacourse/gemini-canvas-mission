@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL 튜닝 시뮬레이터</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --primary: #2563eb;
+            --secondary: #64748b;
+            --accent: #0ea5e9;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --border: #e2e8f0;
+            --text-main: #1e293b;
+            --text-sub: #64748b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Pretendard', -apple-system, sans-serif; background: var(--bg); color: var(--text-main); line-height: 1.6; }
+        
+        .layout { display: grid; grid-template-columns: 350px 1fr 320px; height: 100vh; overflow: hidden; }
+        
+        /* 공통 스타일 */
+        h2 { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
+        .scroll { overflow-y: auto; padding: 1.5rem; }
+        
+        /* 좌측: 빌더 */
+        .sidebar-left { border-right: 1px solid var(--border); background: #fff; }
+        .control-group { margin-bottom: 1.5rem; }
+        .label-row { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.9rem; font-weight: 600; }
+        select, input { width: 100%; padding: 0.6rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; margin-bottom: 0.5rem; }
+        .sql-preview { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; margin-top: 1rem; border-left: 4px solid var(--primary); }
+
+        /* 중앙: 결과 & 비교 */
+        .main-content { background: var(--bg); display: flex; flex-direction: column; }
+        .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        
+        /* 시뮬레이션 카드 */
+        .metric-card { text-align: center; padding: 1.5rem; }
+        .metric-value { font-size: 2rem; font-weight: 800; color: var(--primary); }
+        .metric-label { font-size: 0.85rem; color: var(--text-sub); }
+
+        /* EXPLAIN 카드 */
+        .explain-box { border-left: 4px solid var(--accent); padding-left: 1rem; }
+        .explain-item { margin-bottom: 0.8rem; font-size: 0.9rem; }
+        .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+        .badge-blue { background: #dbeafe; color: #1e40af; }
+        .badge-red { background: #fee2e2; color: #991b1b; }
+        .badge-green { background: #dcfce7; color: #166534; }
+
+        /* 하단 비교 보드 */
+        .comparison-board { margin-top: auto; border-top: 1px solid var(--border); background: #fff; padding: 1.5rem; height: 300px; overflow-y: auto; }
+        .comp-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .comp-table th { text-align: left; padding: 0.5rem; border-bottom: 2px solid var(--border); color: var(--text-sub); }
+        .comp-table td { padding: 0.8rem 0.5rem; border-bottom: 1px solid var(--border); }
+        .save-btn { background: var(--primary); color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%; margin-top: 1rem; }
+        .save-btn:hover { opacity: 0.9; }
+
+        /* 우측: 튜닝 토글 */
+        .sidebar-right { border-left: 1px solid var(--border); background: #fff; }
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .switch { position: relative; display: inline-block; width: 44px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--primary); }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+        /* 그래프 (라이브러리 없이 구현) */
+        .chart-container { display: flex; align-items: flex-end; gap: 8px; height: 100px; margin-top: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+        .chart-bar { flex: 1; background: var(--primary); position: relative; border-radius: 4px 4px 0 0; min-width: 30px; transition: height 0.3s ease; }
+        .chart-bar:hover::after { content: attr(data-val); position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 10px; background: #333; color: #fff; padding: 2px 4px; border-radius: 4px; }
+        .stack-bar { height: 24px; width: 100%; display: flex; border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
+        .stack-segment { height: 100%; transition: width 0.3s; }
+
+        /* 미션 버튼 */
+        .mission-btn { display: block; width: 100%; text-align: left; padding: 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; }
+        .mission-btn:hover { border-color: var(--primary); background: #eff6ff; }
+        .mission-btn strong { display: block; color: var(--primary); margin-bottom: 2px; }
+
+        .tag-row { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="layout">
+    <!-- 좌측 빌더 영역 -->
+    <div class="sidebar-left scroll">
+        <h2><span style="color:var(--primary)">■</span> Query Builder</h2>
+        
+        <div class="control-group">
+            <div class="label-row"><span>대상 테이블</span></div>
+            <select id="builder-from" onchange="updateQuery()">
+                <option value="users">users (회원)</option>
+                <option value="orders">orders (주문)</option>
+                <option value="order_items">order_items (상세내역)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <div class="label-row"><span>조회 컬럼 수</span><span id="val-cols">3</span></div>
+            <input type="range" id="builder-cols" min="1" max="10" value="3" oninput="updateQuery()">
+        </div>
+
+        <div class="control-group">
+            <div class="label-row"><span>JOIN 테이블</span></div>
+            <select id="builder-join" onchange="updateQuery()">
+                <option value="none">없음</option>
+                <option value="orders">orders 테이블</option>
+                <option value="order_items">order_items 테이블</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <div class="label-row"><span>WHERE 조건 개수</span><span id="val-where">1</span></div>
+            <input type="range" id="builder-where" min="0" max="3" value="1" oninput="updateQuery()">
+        </div>
+
+        <div class="control-group">
+            <div class="label-row"><span>정렬 및 페이징</span></div>
+            <div class="toggle-row">
+                <span class="text-sm">ORDER BY 적용</span>
+                <label class="switch">
+                    <input type="checkbox" id="builder-order" onchange="updateQuery()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <select id="builder-limit" onchange="updateQuery()">
+                <option value="0">LIMIT 없음 (전체)</option>
+                <option value="10">LIMIT 10</option>
+                <option value="100">LIMIT 100</option>
+                <option value="1000">LIMIT 1000</option>
+            </select>
+        </div>
+
+        <div class="sql-preview" id="sql-display">SELECT id, name, email FROM users WHERE id = ?</div>
+        
+        <div style="margin-top: 2rem;">
+            <h2><span style="color:var(--success)">■</span> 학습 미션</h2>
+            <button class="mission-btn" onclick="loadMission('fullscan')">
+                <strong>01. Full Scan 탈출하기</strong>
+                100만 건 테이블에서 인덱스 없이 조회하기
+            </button>
+            <button class="mission-btn" onclick="loadMission('join')">
+                <strong>02. JOIN 지옥 해결</strong>
+                인덱스 없는 JOIN의 처참한 속도 체감
+            </button>
+            <button class="mission-btn" onclick="loadMission('cache')">
+                <strong>03. 캐시의 위력</strong>
+                반복되는 쿼리에서 캐시 효율 확인
+            </button>
+        </div>
+    </div>
+
+    <!-- 중앙 결과 영역 -->
+    <div class="main-content">
+        <div class="scroll" style="flex: 1;">
+            <div class="dashboard-grid">
+                <div class="card metric-card">
+                    <div class="metric-label">P50 Latency</div>
+                    <div class="metric-value" id="res-p50">0ms</div>
+                </div>
+                <div class="card metric-card">
+                    <div class="metric-label">P95 Latency</div>
+                    <div class="metric-value" id="res-p95" style="color:var(--danger)">0ms</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>실행 계획 요약 (Educational Explain)</h2>
+                <div class="explain-box" id="explain-content">
+                    <!-- JS로 렌더링 -->
+                </div>
+                <div style="margin-top:1.5rem">
+                    <div class="label-row"><span>비용 구성 (Breakdown)</span></div>
+                    <div class="stack-bar" id="cost-stack">
+                        <!-- JS로 렌더링 -->
+                    </div>
+                    <div class="tag-row" style="margin-top:8px" id="cost-legend">
+                        <!-- 범례 -->
+                    </div>
+                </div>
+            </div>
+
+            <button class="save-btn" onclick="saveCurrentQuery()">현재 쿼리 비교 보드에 저장</button>
+        </div>
+
+        <div class="comparison-board">
+            <h2>Query Comparison Board</h2>
+            <table class="comp-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Scan Type</th>
+                        <th>Rows</th>
+                        <th>P50</th>
+                        <th>P95</th>
+                        <th>비고</th>
+                        <th>삭제</th>
+                    </tr>
+                </thead>
+                <tbody id="comparison-body">
+                    <!-- 저장된 쿼리 목록 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 우측 설정 영역 -->
+    <div class="sidebar-right scroll">
+        <h2><span style="color:var(--secondary)">■</span> 환경 설정</h2>
+        <div class="control-group">
+            <div class="label-row"><span>데이터 규모 (Table Rows)</span></div>
+            <select id="env-rows" onchange="runSimulation()">
+                <option value="10000">10,000 (Small)</option>
+                <option value="100000">100,000 (Medium)</option>
+                <option value="1000000" selected>1,000,000 (Large)</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <div class="label-row"><span>데이터 선택도 (Selectivity)</span></div>
+            <select id="env-selectivity" onchange="runSimulation()">
+                <option value="0.001">0.1% (매우 정밀)</option>
+                <option value="0.01" selected>1% (일반적)</option>
+                <option value="0.1">10% (광범위)</option>
+                <option value="0.5">50% (대량)</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <div class="label-row"><span>네트워크 지연</span></div>
+            <select id="env-net" onchange="runSimulation()">
+                <option value="2">2ms (Local/Internal)</option>
+                <option value="20" selected>20ms (Intra-Region)</option>
+                <option value="80">80ms (Cross-Region)</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <div class="label-row"><span>동시 트래픽 (QPS)</span><span id="val-qps">10</span></div>
+            <input type="range" id="env-qps" min="1" max="1000" value="10" oninput="runSimulation()">
+        </div>
+
+        <h2 style="margin-top:2rem"><span style="color:var(--accent)">■</span> 튜닝 레버</h2>
+        <div class="card">
+            <div class="toggle-row">
+                <span>WHERE 인덱스</span>
+                <label class="switch">
+                    <input type="checkbox" id="tune-idx-where" onchange="runSimulation()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="toggle-row">
+                <span>JOIN 인덱스</span>
+                <label class="switch">
+                    <input type="checkbox" id="tune-idx-join" onchange="runSimulation()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="toggle-row">
+                <span>커버링 인덱스(정렬)</span>
+                <label class="switch">
+                    <input type="checkbox" id="tune-idx-sort" onchange="runSimulation()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="toggle-row">
+                <span>결과 캐싱 적용</span>
+                <label class="switch">
+                    <input type="checkbox" id="tune-cache" onchange="runSimulation()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="card" style="background: #f1f5f9; border: none;">
+            <p style="font-size: 0.8rem; color: var(--text-sub);">
+                <strong>💡 Tip:</strong> 인덱스가 없으면 DB는 모든 데이터를 하나씩 대조하는 <strong>Full Table Scan</strong>을 수행합니다. 데이터가 100만 건일 때의 차이를 확인해보세요.
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- State 관리 ---
+    let savedQueries = [];
+    let currentMetrics = {};
+
+    const schema = {
+        users: { cols: ['id', 'name', 'email', 'age', 'status', 'created_at', 'updated_at', 'bio', 'city', 'phone'] },
+        orders: { cols: ['id', 'user_id', 'total_price', 'status', 'order_date', 'shipping_addr', 'payment_id', 'coupon_code'] },
+        order_items: { cols: ['id', 'order_id', 'product_id', 'quantity', 'unit_price', 'discount'] }
+    };
+
+    // --- 초기화 ---
+    window.onload = () => {
+        updateQuery();
+    };
+
+    // --- 쿼리 빌더 로직 ---
+    function updateQuery() {
+        const from = document.getElementById('builder-from').value;
+        const colCount = document.getElementById('builder-cols').value;
+        const join = document.getElementById('builder-join').value;
+        const whereCount = document.getElementById('builder-where').value;
+        const hasOrder = document.getElementById('builder-order').checked;
+        const limit = document.getElementById('builder-limit').value;
+
+        document.getElementById('val-cols').innerText = colCount;
+        document.getElementById('val-where').innerText = whereCount;
+
+        let sql = `SELECT ${schema[from].cols.slice(0, colCount).join(', ')}\nFROM ${from}`;
+        
+        if (join !== 'none') {
+            sql += `\nJOIN ${join} ON ${from}.${from === 'users' ? 'id' : 'user_id'} = ${join}.${join === 'orders' ? 'user_id' : 'order_id'}`;
+        }
+
+        if (whereCount > 0) {
+            sql += `\nWHERE `;
+            let conditions = [];
+            for (let i = 0; i < whereCount; i++) {
+                conditions.push(`${schema[from].cols[i % schema[from].cols.length]} = ?`);
+            }
+            sql += conditions.join(' AND ');
+        }
+
+        if (hasOrder) {
+            sql += `\nORDER BY created_at DESC`;
+        }
+
+        if (limit > 0) {
+            sql += `\nLIMIT ${limit}`;
+        }
+
+        document.getElementById('sql-display').innerText = sql;
+        runSimulation();
+    }
+
+    // --- 시뮬레이션 핵심 모델 ---
+    function runSimulation() {
+        const env = {
+            rows: parseInt(document.getElementById('env-rows').value),
+            selectivity: parseFloat(document.getElementById('env-selectivity').value),
+            net: parseInt(document.getElementById('env-net').value),
+            qps: parseInt(document.getElementById('env-qps').value)
+        };
+
+        const tuning = {
+            idxWhere: document.getElementById('tune-idx-where').checked,
+            idxJoin: document.getElementById('tune-idx-join').checked,
+            idxSort: document.getElementById('tune-idx-sort').checked,
+            cache: document.getElementById('tune-cache').checked
+        };
+
+        const queryState = {
+            join: document.getElementById('builder-join').value !== 'none',
+            where: parseInt(document.getElementById('builder-where').value),
+            sort: document.getElementById('builder-order').checked,
+            limit: parseInt(document.getElementById('builder-limit').value)
+        };
+
+        document.getElementById('val-qps').innerText = env.qps;
+
+        // 1. Scan Model
+        let scannedRows = env.rows;
+        let accessPath = "Full Table Scan";
+        let scanBaseTime = 0;
+
+        if (tuning.idxWhere && queryState.where > 0) {
+            scannedRows = Math.max(1, env.rows * env.selectivity);
+            accessPath = "Index Range Scan";
+        }
+
+        // 10만 행 스캔 당 약 20ms 소요 (가상의 CPU 비용)
+        scanBaseTime = (scannedRows / 100000) * 20;
+
+        // 2. Join Model
+        let joinTime = 0;
+        if (queryState.join) {
+            if (!tuning.idxJoin) {
+                // Nested Loop without Index = 매우 비쌈
+                joinTime = (scannedRows / 1000) * 50; 
+                accessPath += " + NL Join (Cartesian Risk)";
+            } else {
+                joinTime = 5; // Index Lookup
+                accessPath += " + Equi Join (Indexed)";
+            }
+        }
+
+        // 3. Sort Model
+        let sortTime = 0;
+        if (queryState.sort) {
+            if (tuning.idxSort) {
+                sortTime = 1; // 이미 정렬됨
+            } else {
+                // 데이터 양에 따른 Quick Sort 비용
+                sortTime = (scannedRows / 10000) * 5;
+                if (queryState.limit > 0 && queryState.limit < 500) sortTime *= 0.3; // Top-N Optimization
+            }
+        }
+
+        // 4. Cache Effect
+        let cacheMultiplier = tuning.cache ? 0.05 : 1.0;
+
+        // 5. Total Calculation
+        let p50 = (scanBaseTime + joinTime + sortTime) * cacheMultiplier + env.net;
+        
+        // 6. QPS / Concurrency (대기열 시뮬레이션)
+        let serverCapacity = 500; // 임의의 처리 한계
+        let loadFactor = (env.qps * p50) / (serverCapacity * 1000);
+        let queueDelay = loadFactor > 0.5 ? Math.pow(loadFactor, 2) * 200 : loadFactor * 20;
+        
+        p50 += queueDelay;
+        let p95 = p50 * (1.5 + loadFactor * 5); // 트래픽이 몰릴수록 꼬리 지연시간 급증
+
+        // 결과 저장
+        currentMetrics = {
+            p50: p50.toFixed(1),
+            p95: p95.toFixed(1),
+            scanned: Math.round(scannedRows),
+            path: accessPath,
+            breakdown: {
+                Scan: scanBaseTime * cacheMultiplier,
+                Join: joinTime * cacheMultiplier,
+                Sort: sortTime * cacheMultiplier,
+                Network: env.net,
+                Queue: queueDelay
+            }
+        };
+
+        renderMetrics();
+    }
+
+    function renderMetrics() {
+        document.getElementById('res-p50').innerText = `${currentMetrics.p50}ms`;
+        document.getElementById('res-p95').innerText = `${currentMetrics.p95}ms`;
+
+        // Explain 카드 렌더링
+        const explain = document.getElementById('explain-content');
+        let badgeClass = currentMetrics.path.includes('Full') ? 'badge-red' : 'badge-green';
+        
+        explain.innerHTML = `
+            <div class="explain-item">
+                <strong>Access Path:</strong> <span class="badge ${badgeClass}">${currentMetrics.path}</span>
+            </div>
+            <div class="explain-item">
+                <strong>Estimated Rows:</strong> <span>${currentMetrics.scanned.toLocaleString()} rows</span>
+            </div>
+            <div class="explain-item">
+                <strong>Bottleneck:</strong> <span style="color:var(--danger)">${getBottleneck()}</span>
+            </div>
+        `;
+
+        // 스택 바 렌더링
+        const stack = document.getElementById('cost-stack');
+        const legend = document.getElementById('cost-legend');
+        stack.innerHTML = '';
+        legend.innerHTML = '';
+
+        const colors = { Scan: '#3b82f6', Join: '#8b5cf6', Sort: '#f59e0b', Network: '#10b981', Queue: '#ef4444' };
+        const total = Object.values(currentMetrics.breakdown).reduce((a, b) => a + b, 0);
+
+        for (let [key, val] of Object.entries(currentMetrics.breakdown)) {
+            let pct = (val / total) * 100;
+            if (pct < 1) continue;
+            
+            const seg = document.createElement('div');
+            seg.className = 'stack-segment';
+            seg.style.width = `${pct}%`;
+            seg.style.backgroundColor = colors[key];
+            seg.title = `${key}: ${val.toFixed(1)}ms`;
+            stack.appendChild(seg);
+
+            const leg = document.createElement('div');
+            leg.innerHTML = `<span style="display:inline-block;width:10px;height:10px;background:${colors[key]};border-radius:2px"></span> <span style="font-size:0.75rem">${key}</span>`;
+            legend.appendChild(leg);
+        }
+    }
+
+    function getBottleneck() {
+        let maxKey = 'Scan';
+        let maxVal = 0;
+        for (let [key, val] of Object.entries(currentMetrics.breakdown)) {
+            if (val > maxVal) { maxVal = val; maxKey = key; }
+        }
+        if (maxKey === 'Scan' && currentMetrics.path.includes('Full')) return "Full Table Scan (인덱스 부족)";
+        if (maxKey === 'Join') return "Unindexed Join (조인 키 확인 필요)";
+        if (maxKey === 'Queue') return "High Concurrency (서버 부하)";
+        if (maxKey === 'Network') return "Network Latency (리전 간 거리)";
+        return `${maxKey} Processing`;
+    }
+
+    // --- 비교 보드 로직 ---
+    function saveCurrentQuery() {
+        if (savedQueries.length >= 10) savedQueries.shift();
+        const q = {
+            id: Date.now().toString().slice(-4),
+            metrics: { ...currentMetrics },
+            sql: document.getElementById('sql-display').innerText
+        };
+        savedQueries.push(q);
+        renderComparison();
+    }
+
+    function renderComparison() {
+        const body = document.getElementById('comparison-body');
+        body.innerHTML = '';
+        savedQueries.forEach((q, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>#${q.id}</td>
+                <td><small>${q.metrics.path.split('+')[0]}</small></td>
+                <td>${q.metrics.scanned.toLocaleString()}</td>
+                <td><strong>${q.metrics.p50}ms</strong></td>
+                <td style="color:var(--danger)">${q.metrics.p95}ms</td>
+                <td><small>${idx > 0 ? getDiff(savedQueries[idx-1], q) : '-'}</small></td>
+                <td><button onclick="deleteQuery(${idx})" style="border:none;background:none;cursor:pointer">❌</button></td>
+            `;
+            body.appendChild(tr);
+        });
+    }
+
+    function getDiff(prev, curr) {
+        let diff = prev.metrics.p50 - curr.metrics.p50;
+        if (diff > 0) return `<span style="color:var(--success)">▲ ${diff.toFixed(1)}ms 개선</span>`;
+        if (diff < 0) return `<span style="color:var(--danger)">▼ ${Math.abs(diff).toFixed(1)}ms 악화</span>`;
+        return '-';
+    }
+
+    function deleteQuery(idx) {
+        savedQueries.splice(idx, 1);
+        renderComparison();
+    }
+
+    // --- 미션 로드 로직 ---
+    function loadMission(type) {
+        // 모든 토글 초기화
+        document.getElementById('tune-idx-where').checked = false;
+        document.getElementById('tune-idx-join').checked = false;
+        document.getElementById('tune-idx-sort').checked = false;
+        document.getElementById('tune-cache').checked = false;
+        document.getElementById('env-rows').value = "1000000";
+        document.getElementById('env-qps').value = "10";
+
+        if (type === 'fullscan') {
+            document.getElementById('builder-from').value = 'users';
+            document.getElementById('builder-where').value = '1';
+            document.getElementById('builder-join').value = 'none';
+        } else if (type === 'join') {
+            document.getElementById('builder-from').value = 'users';
+            document.getElementById('builder-join').value = 'orders';
+        } else if (type === 'cache') {
+            document.getElementById('env-qps').value = "500";
+            document.getElementById('tune-idx-where').checked = true;
+        }
+        
+        updateQuery();
+    }
+</script>
+
+</body>
+</html>

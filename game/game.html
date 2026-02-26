@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI/2인용 숫자 야구 대결</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: #f0f2f5;
+        }
+
+        .baseball-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
+        @keyframes homerun {
+            0% { transform: translate(-100px, 100px) scale(1); opacity: 1; }
+            50% { transform: translate(150px, -150px) scale(1.5); opacity: 1; }
+            100% { transform: translate(400px, -400px) scale(0.5); opacity: 0; }
+        }
+        .animate-homerun {
+            animation: homerun 1.5s ease-in-out forwards;
+        }
+
+        @keyframes catch-ball {
+            0% { transform: translateY(-200px); opacity: 0; }
+            80% { transform: translateY(0); opacity: 1; }
+            90% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-catch {
+            animation: catch-ball 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        .history-scroll {
+            height: 400px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+
+        .modal-scroll {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        #memo-pad {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .memo-closed {
+            transform: translateX(calc(100% - 40px));
+        }
+
+        .num-none { background: #e5e7eb; color: #4b5563; }
+        .num-out { background: #fee2e2; color: #ef4444; }
+        .num-ball { background: #dbeafe; color: #3b82f6; }
+        .num-strike { background: #dcfce7; color: #22c55e; }
+
+        .blur-text {
+            filter: blur(8px);
+            transition: filter 0.2s;
+            cursor: pointer;
+            user-select: none;
+        }
+        .blur-text:active {
+            filter: blur(0);
+        }
+
+        /* 카드 뽑기 애니메이션 */
+        .card-draw {
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            perspective: 1000px;
+        }
+        .card-draw:hover {
+            transform: translateY(-10px) scale(1.05);
+        }
+        .card-flipped {
+            transform: rotateY(180px);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+<div id="app" class="w-full max-w-4xl baseball-card p-6 md:p-8 relative overflow-hidden">
+    <!-- 상단 내비게이션 -->
+    <div class="flex justify-between items-center mb-4">
+        <h1 class="text-xl font-black text-blue-600 italic tracking-tighter">BASEBALL MATCH</h1>
+        <button onclick="toggleHistoryModal(true)" class="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-blue-600 transition-colors bg-gray-100 px-3 py-1.5 rounded-lg">
+            <i data-lucide="history" class="w-4 h-4"></i> 경기 기록
+        </button>
+    </div>
+
+    <!-- 0단계: 모드 선택 화면 -->
+    <div id="mode-screen" class="text-center py-10">
+        <h2 class="text-3xl font-extrabold text-gray-800 mb-10">게임 모드 선택</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+            <button onclick="selectMode('ai')" class="group p-8 bg-blue-50 rounded-3xl border-4 border-transparent hover:border-blue-500 transition-all text-center">
+                <div class="bg-blue-600 text-white w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+                    <i data-lucide="cpu" class="w-8 h-8"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-800 mb-2">AI와 대결</h3>
+                <p class="text-gray-500 text-sm">똑똑한 AI의 숫자를 맞춰보세요!</p>
+            </button>
+            <button onclick="selectMode('pvp')" class="group p-8 bg-orange-50 rounded-3xl border-4 border-transparent hover:border-orange-500 transition-all text-center">
+                <div class="bg-orange-600 text-white w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+                    <i data-lucide="users" class="w-8 h-8"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-800 mb-2">2인용 대결</h3>
+                <p class="text-gray-500 text-sm">한 컴퓨터에서 친구와 대결하세요!</p>
+            </button>
+        </div>
+    </div>
+
+    <!-- 1단계: 숫자 설정 화면 -->
+    <div id="setup-screen" class="hidden text-center py-10">
+        <h2 id="setup-title" class="text-3xl font-extrabold text-gray-800 mb-6">숫자 설정</h2>
+        <p id="setup-desc" class="text-gray-600 mb-8">상대방이 맞출 당신의 <span class="font-bold text-blue-600">숫자 4자리</span>를 정해주세요.</p>
+
+        <div class="flex justify-center gap-4 mb-8">
+            <div class="relative flex items-center">
+                <input type="password" id="user-secret" maxlength="4" placeholder="••••"
+                       onkeydown="if(event.key === 'Enter') handleSetupSubmit()"
+                       class="text-4xl text-center tracking-widest border-b-4 border-blue-500 focus:outline-none w-48 py-2 bg-transparent pr-10">
+                <button type="button" onclick="toggleSecretVisibility()" class="absolute right-0 p-2 text-gray-400 hover:text-blue-500 transition-colors">
+                    <i id="eye-icon" data-lucide="eye" class="w-6 h-6"></i>
+                </button>
+            </div>
+        </div>
+
+        <button onclick="handleSetupSubmit()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-10 rounded-full transition-all shadow-lg">
+            확인
+        </button>
+    </div>
+
+    <!-- 1.5단계: 선공 결정 화면 -->
+    <div id="turn-decision-screen" class="hidden text-center py-10">
+        <h2 class="text-2xl font-bold mb-4">선공 결정!</h2>
+        <p id="decision-desc" class="text-gray-500 mb-10">두 장의 카드 중 하나를 선택하여 선공을 결정하세요.</p>
+
+        <div id="decision-status" class="text-xl font-semibold mb-8 text-blue-600 h-8"></div>
+
+        <div class="flex justify-center gap-8 mb-10">
+            <button id="draw-card-0" onclick="pickTurn(0)" class="card-draw w-32 h-44 bg-blue-600 rounded-2xl shadow-xl border-4 border-white flex items-center justify-center text-white text-5xl">
+                <i data-lucide="help-circle" class="w-12 h-12"></i>
+            </button>
+            <button id="draw-card-1" onclick="pickTurn(1)" class="card-draw w-32 h-44 bg-red-600 rounded-2xl shadow-xl border-4 border-white flex items-center justify-center text-white text-5xl">
+                <i data-lucide="help-circle" class="w-12 h-12"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 2단계: 메인 게임 화면 -->
+    <div id="game-screen" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <!-- 플레이어 1 비밀번호 -->
+            <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-bold text-blue-400 uppercase">P1's Secret (Click to see)</span>
+                    <span id="p1-secret-display" class="text-xl font-black tracking-widest text-blue-800 blur-text">----</span>
+                </div>
+            </div>
+            <!-- 플레이어 2 / AI 비밀번호 -->
+            <div class="bg-red-50 p-4 rounded-xl border border-red-100 flex items-center justify-between">
+                <div class="flex flex-col">
+                    <span id="p2-label" class="text-[10px] font-bold text-red-400 uppercase tracking-tighter">P2's Secret (Click to see)</span>
+                    <span id="p2-secret-display" class="text-xl font-black tracking-widest text-red-800 blur-text">----</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-100 rounded-2xl p-6 mb-8 border-2 border-dashed border-gray-300">
+            <div id="turn-indicator" class="text-center mb-4 font-bold text-blue-600 text-lg">턴 정보 로딩...</div>
+            <div class="flex max-w-sm mx-auto gap-2">
+                <input type="text" id="user-guess" maxlength="4" placeholder="숫자 4자리 입력"
+                       onkeydown="if(event.key === 'Enter') handleTurnSubmit()"
+                       class="flex-1 p-4 border-2 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none text-xl text-center font-bold tracking-widest">
+                <button id="throw-btn" onclick="handleTurnSubmit()" class="bg-blue-600 text-white px-8 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg active:scale-95 disabled:opacity-30">투구!</button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="flex flex-col space-y-4">
+                <div class="flex items-center justify-between border-b-2 pb-2">
+                    <h2 class="text-lg font-bold flex items-center gap-2">
+                        <i data-lucide="user" class="text-blue-500 w-5 h-5"></i> 플레이어 1
+                    </h2>
+                    <div id="p1-attacking-badge" class="hidden px-2 py-0.5 bg-blue-500 text-white text-[10px] font-bold rounded-full animate-pulse uppercase">Attacking</div>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-4">
+                    <h3 class="text-[10px] font-bold mb-3 text-gray-400 uppercase tracking-wider">추측 기록 (Guess History)</h3>
+                    <div id="p1-history" class="history-scroll space-y-2 pr-1"></div>
+                </div>
+            </div>
+
+            <div class="flex flex-col space-y-4">
+                <div class="flex items-center justify-between border-b-2 pb-2">
+                    <h2 class="text-lg font-bold flex items-center gap-2">
+                        <i id="p2-icon" data-lucide="users" class="text-red-500 w-5 h-5"></i>
+                        <span id="p2-name-label">플레이어 2</span>
+                    </h2>
+                    <div id="p2-attacking-badge" class="hidden px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse uppercase">Attacking</div>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-4">
+                    <h3 class="text-[10px] font-bold mb-3 text-gray-400 uppercase tracking-wider">추측 기록 (Guess History)</h3>
+                    <div id="p2-history" class="history-scroll space-y-2 pr-1"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="post-game-controls" class="hidden mt-8 flex justify-center">
+            <button onclick="resetToModeSelect()" class="bg-blue-600 text-white font-bold py-4 px-10 rounded-2xl hover:bg-blue-700 shadow-lg transition-all flex items-center gap-2">
+                <i data-lucide="home"></i> 메인 화면으로
+            </button>
+        </div>
+    </div>
+
+    <!-- 추론 메모장 -->
+    <div id="memo-pad" class="hidden fixed right-0 bottom-10 z-40 flex items-center memo-closed">
+        <button onclick="toggleMemo()" class="bg-gray-800 text-white p-3 rounded-l-2xl shadow-xl flex flex-col items-center gap-1">
+            <i data-lucide="edit-3" class="w-5 h-5"></i>
+            <span class="text-[10px] font-bold" id="memo-toggle-text">열기</span>
+        </button>
+        <div class="bg-white border-2 border-gray-800 p-4 shadow-2xl w-64">
+            <h3 class="text-sm font-black mb-3 border-b pb-2 flex justify-between">
+                <span>추론 메모장</span>
+                <button onclick="resetMemo()" class="text-[10px] text-red-500 underline">초기화</button>
+            </h3>
+            <div class="grid grid-cols-5 gap-2" id="memo-grid"></div>
+            <p class="text-[9px] text-gray-400 mt-4 leading-tight">* 숫자를 클릭하여 상태를 변경하세요:<br>기본 → X(Out) → △(Ball) → ○(Strike)</p>
+        </div>
+    </div>
+
+    <!-- 결과 오버레이 -->
+    <div id="overlay" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-3xl p-10 max-w-sm w-full text-center relative overflow-hidden shadow-2xl">
+            <div id="win-anim" class="hidden mb-6 relative h-40 flex items-center justify-center">
+                <div class="absolute text-5xl animate-homerun">⚾</div><div class="text-7xl">🏏</div>
+            </div>
+            <div id="lose-anim" class="hidden mb-6 relative h-40 flex items-center justify-center">
+                <div class="text-8xl">🧤</div><div class="absolute text-4xl animate-catch">⚾</div>
+            </div>
+            <h2 id="result-title" class="text-3xl font-black mb-2"></h2>
+            <p id="result-desc" class="text-gray-600 mb-4"></p>
+
+            <div id="reveal-container" class="space-y-3 mb-8">
+                <div class="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                    <p id="reveal-label-1" class="text-[9px] text-blue-400 font-bold uppercase mb-1">P1 Number</p>
+                    <p id="reveal-num-1" class="text-xl font-black tracking-widest text-blue-600"></p>
+                </div>
+                <div class="p-3 bg-red-50 rounded-xl border border-red-100">
+                    <p id="reveal-label-2" class="text-[9px] text-red-400 font-bold uppercase mb-1">P2 Number</p>
+                    <p id="reveal-num-2" class="text-xl font-black tracking-widest text-red-600"></p>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3">
+                <button onclick="closeOverlay()" class="w-full bg-gray-100 text-gray-700 font-bold py-4 rounded-xl hover:bg-gray-200">기록 확인하기</button>
+                <button onclick="resetToModeSelect()" class="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700">메인 화면으로</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 전체 경기 기록 모달 -->
+    <div id="history-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-5 border-b flex justify-between items-center bg-gray-50">
+                <div class="flex items-center gap-2">
+                    <button id="history-back-btn" onclick="showHistoryList()" class="hidden mr-2 p-1 hover:bg-gray-200 rounded"><i data-lucide="chevron-left"></i></button>
+                    <h2 id="history-modal-title" class="text-lg font-bold flex items-center gap-2 text-gray-800">경기 기록</h2>
+                </div>
+                <button onclick="toggleHistoryModal(false)" class="text-gray-400 hover:text-gray-600"><i data-lucide="x"></i></button>
+            </div>
+            <div id="history-list-view" class="modal-scroll p-6 space-y-4"></div>
+            <div id="history-detail-view" class="hidden modal-scroll p-6 bg-gray-50">
+                <div id="detail-summary" class="mb-6 grid grid-cols-2 gap-4 p-4 bg-white rounded-xl border"></div>
+                <div class="grid grid-cols-2 gap-4 h-[400px]">
+                    <div class="flex flex-col"><h4 id="detail-attacker-label" class="text-xs font-bold text-blue-500 mb-2">P1 LOGS</h4><div id="detail-p1-logs" class="flex-1 overflow-y-auto space-y-2 bg-white p-3 rounded-lg border"></div></div>
+                    <div class="flex flex-col"><h4 id="detail-defender-label" class="text-xs font-bold text-red-500 mb-2">P2 LOGS</h4><div id="detail-p2-logs" class="flex-1 overflow-y-auto space-y-2 bg-white p-3 rounded-lg border"></div></div>
+                </div>
+            </div>
+            <div class="p-4 bg-gray-50 border-t text-center"><button onclick="toggleHistoryModal(false)" class="text-blue-600 font-bold text-sm">닫기</button></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    lucide.createIcons();
+
+    let gameState = {
+        mode: 'ai',
+        p1Secret: "",
+        p2Secret: "",
+        isGameOver: false,
+        currentPlayer: 1,
+        logs: { p1: [], p2: [] },
+        aiPossibilities: [],
+        matchHistory: []
+    };
+
+    let memoStates = Array(10).fill(0);
+
+    function selectMode(mode) {
+        gameState.mode = mode;
+        document.getElementById('mode-screen').classList.add('hidden');
+        document.getElementById('setup-screen').classList.remove('hidden');
+
+        if (mode === 'ai') {
+            document.getElementById('setup-title').textContent = "AI 대결: 나의 숫자 설정";
+            document.getElementById('setup-desc').textContent = "AI가 맞출 당신의 숫자 4자리를 정해주세요.";
+        } else {
+            document.getElementById('setup-title').textContent = "2인용: 플레이어 1 숫자 설정";
+            document.getElementById('setup-desc').textContent = "플레이어 2가 맞출 당신의 숫자 4자리를 정해주세요.";
+        }
+    }
+
+    function toggleSecretVisibility() {
+        const input = document.getElementById('user-secret');
+        const icon = document.getElementById('eye-icon');
+
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.setAttribute('data-lucide', 'eye-off');
+        } else {
+            input.type = 'password';
+            icon.setAttribute('data-lucide', 'eye');
+        }
+        lucide.createIcons();
+    }
+
+    function resetSecretVisibility() {
+        const input = document.getElementById('user-secret');
+        const icon = document.getElementById('eye-icon');
+        input.type = 'password';
+        icon.setAttribute('data-lucide', 'eye');
+        lucide.createIcons();
+    }
+
+    function handleSetupSubmit() {
+        const input = document.getElementById('user-secret');
+        const val = input.value;
+        if (!isValid(val)) {
+            input.classList.add('border-red-500');
+            setTimeout(() => input.classList.remove('border-red-500'), 1000);
+            return;
+        }
+
+        if (gameState.mode === 'ai') {
+            gameState.p1Secret = val;
+            gameState.p2Secret = generateRandomNumber();
+            gameState.aiPossibilities = getAllCombinations();
+            input.value = "";
+            resetSecretVisibility();
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('turn-decision-screen').classList.remove('hidden');
+        } else {
+            if (gameState.p1Secret === "") {
+                gameState.p1Secret = val;
+                input.value = "";
+                resetSecretVisibility();
+                document.getElementById('setup-title').textContent = "2인용: 플레이어 2 숫자 설정";
+                document.getElementById('setup-desc').textContent = "플레이어 1이 맞출 당신의 숫자 4자리를 정해주세요.";
+            } else {
+                gameState.p2Secret = val;
+                input.value = "";
+                resetSecretVisibility();
+                document.getElementById('setup-screen').classList.add('hidden');
+                document.getElementById('turn-decision-screen').classList.remove('hidden');
+            }
+        }
+    }
+
+    function pickTurn(cardIdx) {
+        const status = document.getElementById('decision-status');
+        const cards = document.querySelectorAll('.card-draw');
+
+        // ✅ 모든 카드 클릭 이벤트 해제 (연타 방지)
+        cards.forEach(c => c.onclick = null);
+
+        const winner = Math.random() < 0.5 ? 1 : 2;
+
+        if (winner === 1) {
+            status.textContent = "플레이어 1이 선공입니다!";
+            status.className = "text-xl font-semibold mb-8 text-blue-600 h-8";
+        } else {
+            const name = gameState.mode === 'ai' ? "AI" : "플레이어 2";
+            status.textContent = `${name}가 선공입니다!`;
+            status.className = "text-xl font-semibold mb-8 text-red-600 h-8";
+        }
+
+        // ✅ 선택된 카드 강조
+        cards[cardIdx].classList.add('scale-110', 'ring-4', 'ring-yellow-400');
+
+        setTimeout(() => { startGame(winner); }, 1500);
+    }
+
+    function startGame(firstPlayer) {
+        gameState.currentPlayer = firstPlayer;
+        gameState.isGameOver = false;
+        gameState.logs = { p1: [], p2: [] };
+
+        document.getElementById('turn-decision-screen').classList.add('hidden');
+        document.getElementById('game-screen').classList.remove('hidden');
+        document.getElementById('memo-pad').classList.remove('hidden');
+        document.getElementById('post-game-controls').classList.add('hidden');
+
+        document.getElementById('p1-secret-display').textContent = gameState.p1Secret;
+
+        const p2Display = document.getElementById('p2-secret-display');
+        const p2Label = document.getElementById('p2-label');
+
+        if (gameState.mode === 'ai') {
+            p2Label.textContent = "AI's Secret";
+            p2Display.textContent = "????";
+            p2Display.classList.remove('blur-text');
+
+            document.getElementById('p2-name-label').textContent = "AI";
+            document.getElementById('p2-icon').setAttribute('data-lucide', 'cpu');
+        } else {
+            p2Label.textContent = "P2's Secret (Click to see)";
+            p2Display.textContent = gameState.p2Secret;
+            p2Display.classList.add('blur-text');
+
+            document.getElementById('p2-name-label').textContent = "플레이어 2";
+            document.getElementById('p2-icon').setAttribute('data-lucide', 'users');
+        }
+
+        initMemo();
+        updateTurnUI();
+        lucide.createIcons();
+
+        if (gameState.mode === 'ai' && gameState.currentPlayer === 2) {
+            setTimeout(handleAITurn, 1000);
+        }
+    }
+
+    function updateTurnUI() {
+        const indicator = document.getElementById('turn-indicator');
+        const p1Badge = document.getElementById('p1-attacking-badge');
+        const p2Badge = document.getElementById('p2-attacking-badge');
+        const btn = document.getElementById('throw-btn');
+        const input = document.getElementById('user-guess');
+
+        p1Badge.classList.toggle('hidden', gameState.currentPlayer !== 1);
+        p2Badge.classList.toggle('hidden', gameState.currentPlayer !== 2);
+
+        const isAIThinking = (gameState.mode === 'ai' && gameState.currentPlayer === 2);
+        btn.disabled = isAIThinking;
+        input.disabled = isAIThinking;
+
+        if (gameState.currentPlayer === 1) {
+            indicator.textContent = "현재 공격: 플레이어 1";
+            indicator.className = "text-center mb-4 font-bold text-blue-600 text-lg";
+        } else {
+            const name = gameState.mode === 'ai' ? "AI" : "플레이어 2";
+            indicator.textContent = isAIThinking ? "AI가 생각 중입니다..." : `현재 공격: ${name}`;
+            indicator.className = `text-center mb-4 font-bold text-red-600 text-lg ${isAIThinking ? 'animate-pulse' : ''}`;
+        }
+
+        renderHistory('p1-history', gameState.logs.p1, 'blue');
+        renderHistory('p2-history', gameState.logs.p2, 'red');
+    }
+
+    function handleTurnSubmit() {
+        if (gameState.isGameOver) return;
+        if (gameState.mode === 'ai' && gameState.currentPlayer === 2) return;
+
+        const inputEl = document.getElementById('user-guess');
+        const guess = inputEl.value;
+        if (!isValid(guess)) {
+            inputEl.classList.add('border-red-500');
+            setTimeout(() => inputEl.classList.remove('border-red-500'), 1000);
+            return;
+        }
+
+        const target = (gameState.currentPlayer === 1) ? gameState.p2Secret : gameState.p1Secret;
+        const result = getResult(guess, target);
+
+        if (gameState.currentPlayer === 1) gameState.logs.p1.push({ guess, result });
+        else gameState.logs.p2.push({ guess, result });
+
+        inputEl.value = "";
+
+        if (result.s === 4) {
+            endGame(gameState.currentPlayer);
+        } else {
+            gameState.currentPlayer = (gameState.currentPlayer === 1) ? 2 : 1;
+            updateTurnUI();
+            if (gameState.mode === 'ai' && gameState.currentPlayer === 2) {
+                setTimeout(handleAITurn, 1200);
+            }
+        }
+    }
+
+    function handleAITurn() {
+        if (gameState.isGameOver) return;
+        const guess = gameState.aiPossibilities[Math.floor(Math.random() * gameState.aiPossibilities.length)];
+        const result = getResult(guess, gameState.p1Secret);
+
+        gameState.logs.p2.push({ guess, result });
+
+        gameState.aiPossibilities = gameState.aiPossibilities.filter(p => {
+            const r = getResult(guess, p);
+            return r.s === result.s && r.b === result.b;
+        });
+
+        if (result.s === 4) {
+            endGame(2);
+        } else {
+            gameState.currentPlayer = 1;
+            updateTurnUI();
+        }
+    }
+
+    function endGame(winner) {
+        gameState.isGameOver = true;
+        updateTurnUI();
+
+        const record = {
+            id: Date.now(),
+            mode: gameState.mode,
+            winner: winner,
+            p1Secret: gameState.p1Secret,
+            p2Secret: gameState.p2Secret,
+            logs: JSON.parse(JSON.stringify(gameState.logs)),
+            date: new Date().toLocaleString('ko-KR')
+        };
+        gameState.matchHistory.push(record);
+
+        const overlay = document.getElementById('overlay');
+        const title = document.getElementById('result-title');
+        const desc = document.getElementById('result-desc');
+        overlay.classList.remove('hidden');
+
+        document.getElementById('win-anim').classList.toggle('hidden', false);
+        document.getElementById('lose-anim').classList.toggle('hidden', true);
+
+        if (winner === 1) {
+            title.textContent = "플레이어 1 승리!!";
+            title.className = "text-3xl font-black mb-2 text-blue-600";
+            desc.textContent = "플레이어 1이 홈런을 쳤습니다!";
+        } else {
+            const isAI = gameState.mode === 'ai';
+            title.textContent = isAI ? "AI 승리!!" : "플레이어 2 승리!!";
+            title.className = "text-3xl font-black mb-2 text-red-600";
+            desc.textContent = isAI ? "AI가 당신의 숫자를 맞췄습니다." : "플레이어 2가 홈런을 쳤습니다!";
+        }
+
+        document.getElementById('reveal-label-2').textContent = gameState.mode === 'ai' ? "AI Number" : "P2 Number";
+        document.getElementById('reveal-num-1').textContent = gameState.p1Secret;
+        document.getElementById('reveal-num-2').textContent = gameState.p2Secret;
+    }
+
+    function isValid(input) { return /^\d{4}$/.test(input) && new Set(input).size === 4; }
+    function generateRandomNumber() {
+        let digits = Array.from({length: 10}, (_, i) => i.toString());
+        let result = "";
+        for (let i = 0; i < 4; i++) result += digits.splice(Math.floor(Math.random() * digits.length), 1)[0];
+        return result;
+    }
+    function getAllCombinations() {
+        let combos = [];
+        for (let i = 0; i <= 9999; i++) {
+            let s = i.toString().padStart(4, '0');
+            if (new Set(s).size === 4) combos.push(s);
+        }
+        return combos;
+    }
+    function getResult(guess, target) {
+        let s = 0, b = 0, o = 0;
+        for (let i = 0; i < 4; i++) {
+            if (guess[i] === target[i]) s++;
+            else if (target.includes(guess[i])) b++;
+            else o++;
+        }
+        return { s, b, o };
+    }
+    function formatScore(result) {
+        if (result.s === 4) return "4S";
+        if (result.o === 4) return `<span class="text-red-500 font-bold">4 Out</span>`;
+        let parts = [];
+        if (result.s > 0) parts.push(`<span class="text-green-600 font-bold">${result.s}S</span>`);
+        if (result.b > 0) parts.push(`<span class="text-blue-600 font-bold">${result.b}B</span>`);
+        return parts.length > 0 ? parts.join(" ") : "-";
+    }
+
+    function renderHistory(containerId, logs, color) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = logs.map(l => `
+                <div class="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm border-l-4 mb-2 border-${color}-400">
+                    <span class="font-mono text-lg tracking-widest">${l.guess}</span>
+                    <span class="text-xs uppercase">${formatScore(l.result)}</span>
+                </div>
+            `).reverse().join('');
+    }
+
+    function closeOverlay() {
+        document.getElementById('overlay').classList.add('hidden');
+        document.getElementById('post-game-controls').classList.remove('hidden');
+    }
+
+    // ✅ 메인 화면으로 돌아갈 때 선공 결정 화면을 초기화하는 로직 추가
+    function resetToModeSelect() {
+        gameState.p1Secret = "";
+        gameState.p2Secret = "";
+        gameState.isGameOver = false; // 추가: 상태 명시적 리셋 ✅
+
+        // 화면 초기화
+        document.getElementById('overlay').classList.add('hidden');
+        document.getElementById('game-screen').classList.add('hidden');
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('turn-decision-screen').classList.add('hidden');
+        document.getElementById('memo-pad').classList.add('hidden');
+        document.getElementById('mode-screen').classList.remove('hidden');
+        document.getElementById('user-secret').value = "";
+
+        // ✅ 선공 결정 화면 UI 초기화
+        const status = document.getElementById('decision-status');
+        status.textContent = "";
+        status.className = "text-xl font-semibold mb-8 text-blue-600 h-8";
+
+        const cards = [
+            document.getElementById('draw-card-0'),
+            document.getElementById('draw-card-1')
+        ];
+
+        cards.forEach((card, idx) => {
+            card.onclick = () => pickTurn(idx); // ✅ 클릭 이벤트 복구
+            card.classList.remove('scale-110', 'ring-4', 'ring-yellow-400'); // ✅ 강조 효과 제거
+        });
+
+        resetSecretVisibility();
+    }
+
+    function initMemo() {
+        const grid = document.getElementById('memo-grid');
+        grid.innerHTML = "";
+        for (let i = 0; i < 10; i++) {
+            const btn = document.createElement('button');
+            btn.id = `memo-num-${i}`;
+            btn.className = "h-12 rounded-lg text-sm font-bold num-none transition-all flex flex-col items-center justify-center leading-none";
+            btn.innerHTML = `<span>${i}</span>`;
+            btn.onclick = () => updateMemo(i);
+            grid.appendChild(btn);
+        }
+    }
+    function updateMemo(num) {
+        memoStates[num] = (memoStates[num] + 1) % 4;
+        const btn = document.getElementById(`memo-num-${num}`);
+        btn.className = "h-12 rounded-lg text-sm font-bold transition-all flex flex-col items-center justify-center leading-none ";
+        let label = `<span>${num}</span>`;
+        switch(memoStates[num]) {
+            case 1: btn.classList.add('num-out'); label = `<span class="text-[10px] opacity-70">${num}</span><span class="text-lg font-black mt-[-2px]">X</span>`; break;
+            case 2: btn.classList.add('num-ball'); label = `<span class="text-[10px] opacity-70">${num}</span><span class="text-lg font-black mt-[-2px]">△</span>`; break;
+            case 3: btn.classList.add('num-strike'); label = `<span class="text-[10px] opacity-70">${num}</span><span class="text-lg font-black mt-[-2px]">○</span>`; break;
+            default: btn.classList.add('num-none');
+        }
+        btn.innerHTML = label;
+    }
+    function toggleMemo() {
+        const pad = document.getElementById('memo-pad');
+        const text = document.getElementById('memo-toggle-text');
+        pad.classList.toggle('memo-closed');
+        text.textContent = pad.classList.contains('memo-closed') ? "열기" : "닫기";
+    }
+    function resetMemo() {
+        memoStates = Array(10).fill(0);
+        initMemo();
+    }
+
+    function toggleHistoryModal(show) {
+        const modal = document.getElementById('history-modal');
+        modal.classList.toggle('hidden', !show);
+        if (show) showHistoryList();
+        lucide.createIcons();
+    }
+    function showHistoryList() {
+        document.getElementById('history-back-btn').classList.add('hidden');
+        document.getElementById('history-list-view').classList.remove('hidden');
+        document.getElementById('history-detail-view').classList.add('hidden');
+        const container = document.getElementById('history-list-view');
+        if (gameState.matchHistory.length === 0) {
+            container.innerHTML = `<div class="text-center text-gray-400 py-10">아직 경기 기록이 없습니다.</div>`;
+            return;
+        }
+        container.innerHTML = gameState.matchHistory.map(record => `
+                <div onclick="showMatchDetail(${record.id})" class="bg-white border rounded-xl p-4 shadow-sm border-l-8 cursor-pointer hover:bg-gray-50 transition-colors ${record.winner === 1 ? 'border-blue-500' : 'border-red-500'}">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">${record.date} [${record.mode.toUpperCase()}]</span>
+                        <span class="px-2 py-1 rounded text-[10px] font-bold ${record.winner === 1 ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}">
+                            ${record.winner === 1 ? 'P1 WIN' : (record.mode === 'ai' ? 'AI WIN' : 'P2 WIN')}
+                        </span>
+                    </div>
+                    <div class="flex justify-between items-end">
+                        <div class="flex gap-6">
+                            <div><p class="text-[8px] text-gray-400 font-bold uppercase">P1</p><p class="text-lg font-black tracking-widest text-gray-700">${record.p1Secret}</p></div>
+                            <div><p class="text-[8px] text-gray-400 font-bold uppercase">${record.mode === 'ai' ? 'AI' : 'P2'}</p><p class="text-lg font-black tracking-widest text-gray-700">${record.p2Secret}</p></div>
+                        </div>
+                        <i data-lucide="chevron-right" class="w-4 h-4 text-blue-500"></i>
+                    </div>
+                </div>
+            `).reverse().join('');
+        lucide.createIcons();
+    }
+    function showMatchDetail(id) {
+        const record = gameState.matchHistory.find(r => r.id === id);
+        document.getElementById('history-back-btn').classList.remove('hidden');
+        document.getElementById('history-list-view').classList.add('hidden');
+        document.getElementById('history-detail-view').classList.remove('hidden');
+
+        document.getElementById('detail-summary').innerHTML = `
+                <div class="text-center border-r">
+                    <p class="text-[10px] text-gray-400 font-bold uppercase">P1's Secret</p>
+                    <p class="text-2xl font-black text-blue-600 tracking-widest">${record.p1Secret}</p>
+                </div>
+                <div class="text-center">
+                    <p class="text-[10px] text-gray-400 font-bold uppercase">${record.mode === 'ai' ? 'AI' : 'P2'}'s Secret</p>
+                    <p class="text-2xl font-black text-red-600 tracking-widest">${record.p2Secret}</p>
+                </div>
+            `;
+
+        document.getElementById('detail-attacker-label').textContent = "P1 LOGS";
+        document.getElementById('detail-defender-label').textContent = record.mode === 'ai' ? "AI LOGS" : "P2 LOGS";
+
+        const renderLog = (logs) => logs.map((l, i) => `
+                <div class="flex justify-between items-center p-2 border-b text-xs">
+                    <span class="text-gray-400">${i+1}회</span>
+                    <span class="font-mono font-bold">${l.guess}</span>
+                    <span>${formatScore(l.result)}</span>
+                </div>
+            `).join('');
+
+        document.getElementById('detail-p1-logs').innerHTML = renderLog(record.logs.p1);
+        document.getElementById('detail-p2-logs').innerHTML = renderLog(record.logs.p2);
+        lucide.createIcons();
+    }
+</script>
+</body>
+</html>

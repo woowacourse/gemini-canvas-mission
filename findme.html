@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>나를 찾아줘</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 폭죽 애니메이션을 위한 canvas-confetti 라이브러리 추가 -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+
+        .card-inner {
+            transition: transform 0.4s cubic-bezier(0.4, 0.2, 0.2, 1);
+        }
+        .card.flipped .card-inner,
+        .card.matched .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card.matched .card-front {
+            border-color: #2dd4bf;
+            box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.3);
+        }
+
+        .board-container {
+            width: 100%;
+            max-width: min(100%, 65vh);
+            margin: 0 auto;
+        }
+
+        /* 하드코어 체크박스 커스텀 스타일 */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #ef4444;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #ef4444;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans h-screen flex flex-col overflow-hidden relative">
+
+<!-- 토스트 메시지 (알림용) -->
+<div id="toast-message" class="fixed top-5 left-1/2 transform -translate-x-1/2 -translate-y-4 bg-slate-800 text-white px-6 py-3 rounded-xl shadow-2xl z-[100] transition-all duration-300 opacity-0 pointer-events-none font-bold text-sm whitespace-nowrap">
+    메시지
+</div>
+
+<!-- 1. 로딩 화면 -->
+<div id="screen-loading" class="flex-1 flex flex-col items-center justify-center p-4">
+    <svg class="w-12 h-12 text-teal-500 animate-spin mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    <p class="text-gray-600 font-medium text-lg">우테코 크루원 데이터를 불러오는 중...</p>
+</div>
+
+<!-- 2. 에러 화면 -->
+<div id="screen-error" class="flex-1 flex flex-col items-center justify-center p-6 text-center hidden">
+    <svg class="w-16 h-16 text-red-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+    </svg>
+    <h2 class="text-2xl font-bold mb-2">데이터 연동 실패</h2>
+    <p id="error-message" class="text-gray-600 max-w-md mb-6"></p>
+    <button onclick="fetchSheetData()" class="px-6 py-3 bg-teal-500 text-white rounded-lg shadow hover:bg-teal-600 font-medium transition-colors">
+        다시 시도
+    </button>
+</div>
+
+<!-- 3. 모드 선택 화면 (초기 화면) -->
+<div id="screen-start" class="flex-1 flex flex-col items-center justify-center p-4 hidden overflow-y-auto relative">
+    <button onclick="showLeaderboard()" class="absolute top-4 right-4 bg-yellow-400 text-yellow-900 px-4 py-2 rounded-lg font-bold shadow hover:bg-yellow-500 transition-colors flex items-center gap-2 z-10">
+        🏆 랭킹 보기
+    </button>
+    <div class="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full text-center mt-8">
+        <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight mb-2">
+            🔍 나를 <span class="text-teal-600">찾아줘</span>
+        </h1>
+        <p class="text-slate-500 mb-6 text-sm">
+            이름 카드(<span class="text-teal-500 font-bold">초록</span>)와 사진 카드(<span class="text-purple-500 font-bold">보라</span>)의 짝을 찾아주세요!
+        </p>
+
+        <!-- 하드코어 모드 토글 스위치 -->
+        <div class="flex items-center justify-center gap-3 mb-6 bg-red-50 p-3 rounded-lg border border-red-100">
+            <span class="font-bold text-red-600 text-sm flex items-center gap-1">🔥 하드코어 모드 (오답 시 0.3초 컷)</span>
+            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                <input type="checkbox" name="toggle" id="hardcore-toggle" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300 top-0 bottom-0 m-auto z-10"/>
+                <label for="hardcore-toggle" class="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer transition-colors duration-300"></label>
+            </div>
+        </div>
+
+        <div class="flex flex-col gap-4">
+            <button onclick="startGame('4x4')" class="w-full py-4 bg-teal-500 text-white rounded-xl font-bold text-lg hover:bg-teal-600 transition-colors shadow hover:-translate-y-0.5 transform">
+                4 x 4 모드 (16장)
+            </button>
+            <button onclick="startGame('6x6')" class="w-full py-4 bg-purple-500 text-white rounded-xl font-bold text-lg hover:bg-purple-600 transition-colors shadow hover:-translate-y-0.5 transform">
+                6 x 6 모드 (36장)
+            </button>
+        </div>
+    </div>
+
+    <!-- 크레딧 영역 -->
+    <div class="mt-8 text-center z-10 w-full max-w-2xl px-4">
+        <p class="font-extrabold text-slate-600 mb-2">🚀 제작: BE 루드비코</p>
+        <p class="text-xs sm:text-sm text-slate-500 mb-3 font-medium">앱 개발 및 테스트에 도움을 주신 8기 크루원들께 깊이 감사드립니다.</p>
+        <div class="bg-white/60 p-3 sm:p-4 rounded-xl border border-slate-200 shadow-sm backdrop-blur-sm">
+            <p id="credits-names" class="text-[11px] sm:text-xs text-slate-500 break-keep leading-relaxed font-medium"></p>
+        </div>
+    </div>
+</div>
+
+<!-- 4. 랭킹(리더보드) 화면 -->
+<div id="screen-leaderboard" class="flex-1 flex flex-col items-center py-6 px-4 hidden overflow-y-auto">
+    <div class="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-2xl font-extrabold text-slate-800 flex items-center gap-2">
+                🏆 명예의 전당
+            </h2>
+            <div class="flex items-center gap-2">
+                <button onclick="refreshLeaderboard()" class="p-2 bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100 transition-colors" title="새로고침">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </button>
+                <button onclick="resetToStart()" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 font-medium">
+                    돌아가기
+                </button>
+            </div>
+        </div>
+
+        <!-- 랭킹 탭 -->
+        <div class="flex gap-2 mb-4 border-b pb-2">
+            <button onclick="filterLeaderboard('4x4')" id="tab-4x4" class="px-4 py-2 font-bold rounded-lg bg-teal-100 text-teal-700">4x4 랭킹</button>
+            <button onclick="filterLeaderboard('6x6')" id="tab-6x6" class="px-4 py-2 font-bold rounded-lg text-slate-500 hover:bg-slate-100">6x6 랭킹</button>
+        </div>
+
+        <div class="bg-slate-50 rounded-xl overflow-hidden">
+            <ul id="leaderboard-list" class="divide-y divide-slate-200">
+                <li class="p-4 text-center text-slate-500">랭킹 데이터를 불러오는 중...</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- 5. 게임 화면 -->
+<div id="screen-game" class="flex-1 flex flex-col items-center py-4 px-2 hidden relative">
+
+    <!-- 상단 헤더 -->
+    <div class="w-full max-w-3xl flex justify-between items-center bg-white p-3 sm:p-4 rounded-2xl shadow-sm mb-3 sm:mb-6">
+        <div class="flex-1 flex flex-col justify-center">
+            <h1 class="text-lg sm:text-2xl font-extrabold tracking-tight truncate flex items-center gap-2">
+                🔍 나를 <span class="text-teal-600">찾아줘</span>
+                <span id="hardcore-badge" class="hidden text-[10px] sm:text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full border border-red-200">🔥 Hardcore</span>
+            </h1>
+            <p id="game-mode-text" class="text-slate-500 text-xs sm:text-sm mt-0.5 truncate"></p>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <!-- 타이머 추가 -->
+            <div class="bg-slate-800 text-white px-3 py-1.5 rounded-lg font-mono font-bold text-sm sm:text-base tracking-widest shadow-inner">
+                <span id="timer-display">00:00</span>
+            </div>
+
+            <div class="flex flex-col items-end">
+                <div class="bg-slate-100 px-3 py-1.5 rounded-lg font-bold text-sm sm:text-base">
+                    점수: <span id="score-display" class="text-teal-600 text-lg sm:text-xl">0</span>
+                </div>
+                <div id="combo-display" class="text-orange-500 font-bold text-xs sm:text-sm h-5 transition-opacity opacity-0 whitespace-nowrap">
+                    🔥 0 Combo!
+                </div>
+            </div>
+            <button onclick="resetToStart()" class="p-2 sm:p-3 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors text-xs sm:text-sm font-medium whitespace-nowrap">
+                포기하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 카드 보드 영역 -->
+    <div class="flex-1 min-h-0 w-full flex items-center justify-center relative">
+        <div id="preshow-overlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none transition-opacity duration-300">
+        <span class="text-2xl sm:text-4xl font-black text-slate-800 bg-white/80 px-6 py-3 rounded-full shadow-lg backdrop-blur-sm animate-pulse border-4 border-slate-800">
+          👀 2초 동안 위치를 기억하세요!
+        </span>
+        </div>
+        <div class="board-container">
+            <div id="card-board" class="grid gap-1.5 sm:gap-2.5 w-full perspective-1000"></div>
+        </div>
+    </div>
+
+    <!-- 점수 기록 모달 -->
+    <div id="save-score-modal" class="absolute inset-0 bg-slate-900/60 flex items-center justify-center z-50 hidden backdrop-blur-sm">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full mx-4 text-center transform transition-all scale-100">
+            <div class="text-5xl mb-2">🎉</div>
+            <h3 class="text-2xl font-extrabold text-slate-800 mb-1">게임 클리어!</h3>
+            <p class="text-slate-500 text-sm mb-4 font-medium" id="modal-time-desc"></p>
+
+            <div class="bg-slate-50 p-4 rounded-xl mb-6 border border-slate-100">
+                <p class="text-slate-600 font-medium">최종 점수</p>
+                <p class="font-black text-teal-600 text-3xl"><span id="final-score">0</span><span class="text-lg ml-1">점</span></p>
+            </div>
+
+            <div class="text-left mb-6">
+                <label class="block text-sm font-bold text-slate-700 mb-2">랭킹에 등록할 닉네임</label>
+                <input type="text" id="player-name" maxlength="10" placeholder="닉네임 (최대 10자)" class="w-full border-2 border-slate-200 p-3 rounded-lg focus:outline-none focus:border-teal-500 font-medium">
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="skipSaveScore()" class="flex-1 py-3 bg-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-300 transition-colors">
+                    건너뛰기
+                </button>
+                <button onclick="submitScore()" id="btn-submit" class="flex-1 py-3 bg-teal-500 text-white font-bold rounded-lg hover:bg-teal-600 transition-colors shadow">
+                    등록하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // 글로벌 상태 변수
+    let allMembers = [];
+    let cards = [];
+    let flippedCards = [];
+    let matchedPairs = 0;
+    let isLocked = true; // 게임 시작 전 2초간 잠금
+    let score = 0;
+    let combo = 0;
+    let currentMode = '';
+    let isHardcore = false;
+
+    // 타이머 변수
+    let timerInterval = null;
+    let startTime = 0;
+    let elapsedTime = 0;
+    let preShowTimeout = null;
+
+    const SHEET_ID = '1SxjJdNiGGV29g6HWWcpvgtRmGVItppzdJlS03C7DnOw';
+    let leaderboardData = [];
+    let currentLeaderboardTab = '4x4';
+
+    // Firebase 설정
+    let firebaseConfig = { apiKey: "dummy", projectId: "dummy" };
+    try {
+        if (typeof __firebase_config !== 'undefined') {
+            firebaseConfig = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
+        }
+    } catch (e) {
+        console.error("Firebase Config Parse Error:", e);
+    }
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    let canvasUser = null;
+
+    const authPromise = (async () => {
+        try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        } catch (error) {
+            console.error("Firebase Auth 초기화 실패:", error);
+        }
+    })();
+
+    onAuthStateChanged(auth, (user) => canvasUser = user);
+
+    // --- 웹 오디오 API (효과음 합성기) ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(type) {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+        if (type === 'flip') { // 가벼운 '착' 소리
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(500, now + 0.1);
+            gainNode.gain.setValueAtTime(0.2, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now); osc.stop(now + 0.1);
+        } else if (type === 'match') { // 경쾌한 '띠링' 소리
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(523.25, now); // C5
+            osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+            gainNode.gain.setValueAtTime(0.1, now);
+            gainNode.gain.linearRampToValueAtTime(0, now + 0.3);
+            osc.start(now); osc.stop(now + 0.3);
+        } else if (type === 'fail') { // 묵직한 '띡' 소리
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.exponentialRampToValueAtTime(80, now + 0.2);
+            gainNode.gain.setValueAtTime(0.15, now);
+            gainNode.gain.linearRampToValueAtTime(0, now + 0.2);
+            osc.start(now); osc.stop(now + 0.2);
+        }
+    }
+
+    // --- 타이머 로직 ---
+    function startTimer() {
+        startTime = Date.now();
+        elapsedTime = 0;
+        updateTimerUI();
+        timerInterval = setInterval(() => {
+            elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+            updateTimerUI();
+        }, 1000);
+    }
+
+    function stopTimer() {
+        if(timerInterval) clearInterval(timerInterval);
+    }
+
+    function formatTime(seconds) {
+        const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+        const s = String(seconds % 60).padStart(2, '0');
+        return `${m}:${s}`;
+    }
+
+    function updateTimerUI() {
+        document.getElementById('timer-display').textContent = formatTime(elapsedTime);
+    }
+
+    window.showToast = (msg) => {
+        const toast = document.getElementById('toast-message');
+        toast.textContent = msg;
+        toast.classList.remove('opacity-0', '-translate-y-4');
+        toast.classList.add('translate-y-0');
+        setTimeout(() => {
+            toast.classList.add('opacity-0', '-translate-y-4');
+            toast.classList.remove('translate-y-0');
+        }, 3500);
+    };
+
+    // 데이터 가져오기 (시간, 하드코어 포함)
+    async function fetchLeaderboardData() {
+        await authPromise;
+        if (!canvasUser || !db) return;
+
+        try {
+            const lbRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+            const snapshot = await getDocs(lbRef);
+            const scores = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                scores.push({ id: doc.id, time: 0, isHardcore: false, ...data });
+            });
+
+            // 정렬: 1순위 점수(내림차순), 2순위 시간(오름차순)
+            scores.sort((a, b) => {
+                if (b.score !== a.score) return b.score - a.score;
+                return a.time - b.time;
+            });
+            leaderboardData = scores;
+        } catch (e) {
+            console.error("랭킹 동기화 에러:", e);
+            window.showToast("랭킹 데이터를 불러오는데 실패했습니다.");
+        }
+    }
+
+    window.submitScore = async () => {
+        const nameInput = document.getElementById('player-name').value.trim();
+        if (!nameInput) {
+            document.getElementById('player-name').classList.add('border-red-500');
+            setTimeout(() => document.getElementById('player-name').classList.remove('border-red-500'), 1000);
+            return;
+        }
+
+        const btn = document.getElementById('btn-submit');
+        btn.innerText = '저장 중...';
+        btn.disabled = true;
+
+        localStorage.setItem('myWoowaNickname', nameInput);
+        await authPromise;
+
+        if (!canvasUser || !db) {
+            window.showToast("서버 연결에 실패했습니다. 새로고침 후 다시 시도해주세요.");
+            btn.innerText = '등록하기';
+            btn.disabled = false;
+            return;
+        }
+
+        try {
+            const lbRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+            await addDoc(lbRef, {
+                name: nameInput,
+                score: score,
+                mode: currentMode,
+                time: elapsedTime,
+                isHardcore: isHardcore,
+                userId: canvasUser.uid,
+                timestamp: Date.now()
+            });
+
+            document.getElementById('save-score-modal').classList.add('hidden');
+            window.showToast("점수가 성공적으로 등록되었습니다!");
+            await window.showLeaderboard();
+        } catch (e) {
+            console.error("점수 저장 실패:", e);
+            window.showToast("점수 저장에 실패했습니다.");
+        } finally {
+            btn.innerText = '등록하기';
+            btn.disabled = false;
+        }
+    };
+
+    window.skipSaveScore = () => {
+        document.getElementById('save-score-modal').classList.add('hidden');
+        window.resetToStart();
+    };
+
+    window.showLeaderboard = async () => {
+        window.showScreen('screen-leaderboard');
+        const listEl = document.getElementById('leaderboard-list');
+        listEl.innerHTML = '<li class="p-6 text-center text-slate-500 font-medium"><div class="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent text-teal-600 rounded-full mr-2"></div>최신 랭킹을 서버에서 불러오는 중...</li>';
+
+        await fetchLeaderboardData();
+        renderLeaderboardList();
+    };
+
+    window.refreshLeaderboard = async () => {
+        const listEl = document.getElementById('leaderboard-list');
+        listEl.innerHTML = '<li class="p-6 text-center text-slate-500 font-medium"><div class="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent text-teal-600 rounded-full mr-2"></div>새로고침 중...</li>';
+
+        await fetchLeaderboardData();
+        renderLeaderboardList();
+        window.showToast("최신 랭킹으로 갱신되었습니다.");
+    };
+
+    window.filterLeaderboard = (mode) => {
+        currentLeaderboardTab = mode;
+        const tab4 = document.getElementById('tab-4x4');
+        const tab6 = document.getElementById('tab-6x6');
+
+        if (mode === '4x4') {
+            tab4.className = "px-4 py-2 font-bold rounded-lg bg-teal-100 text-teal-700";
+            tab6.className = "px-4 py-2 font-bold rounded-lg text-slate-500 hover:bg-slate-100";
+        } else {
+            tab6.className = "px-4 py-2 font-bold rounded-lg bg-teal-100 text-teal-700";
+            tab4.className = "px-4 py-2 font-bold rounded-lg text-slate-500 hover:bg-slate-100";
+        }
+        renderLeaderboardList();
+    };
+
+    function renderLeaderboardList() {
+        const listEl = document.getElementById('leaderboard-list');
+        listEl.innerHTML = '';
+
+        const filteredData = leaderboardData.filter(d => d.mode === currentLeaderboardTab);
+
+        if (filteredData.length === 0) {
+            listEl.innerHTML = '<li class="p-6 text-center text-slate-500 font-medium">아직 등록된 랭킹이 없습니다. 첫 번째로 이름을 남겨보세요!</li>';
+            return;
+        }
+
+        const myNickname = localStorage.getItem('myWoowaNickname');
+
+        filteredData.slice(0, 50).forEach((data, index) => {
+            const li = document.createElement('li');
+            li.className = "p-4 flex justify-between items-center hover:bg-white transition-colors gap-2 sm:gap-4";
+
+            let rankBadge = `<span class="w-6 sm:w-8 font-bold text-slate-400 text-center">${index + 1}</span>`;
+            if (index === 0) rankBadge = `<span class="w-6 sm:w-8 text-xl sm:text-2xl text-center">🥇</span>`;
+            if (index === 1) rankBadge = `<span class="w-6 sm:w-8 text-xl sm:text-2xl text-center">🥈</span>`;
+            if (index === 2) rankBadge = `<span class="w-6 sm:w-8 text-xl sm:text-2xl text-center">🥉</span>`;
+
+            const isMe = data.name === myNickname || (canvasUser && data.userId === canvasUser.uid);
+            const hcBadge = data.isHardcore ? '<span class="text-[10px] sm:text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200 ml-1">🔥</span>' : '';
+            const timeStr = data.time ? `<span class="text-xs sm:text-sm text-slate-400 bg-slate-100 px-2 py-1 rounded ml-2 font-mono">${formatTime(data.time)}</span>` : '';
+
+            li.innerHTML = `
+              <div class="flex items-center gap-2 flex-1 min-w-0">
+                ${rankBadge}
+                <div class="flex items-center gap-1 min-w-0 truncate">
+                  <span class="font-extrabold text-slate-800 text-base sm:text-lg truncate">${data.name}</span>
+                  ${isMe ? '<span class="text-[10px] sm:text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full font-bold shadow-sm shrink-0 ml-1">나</span>' : ''}
+                  ${hcBadge}
+                </div>
+              </div>
+              <div class="flex items-center shrink-0">
+                <span class="font-bold text-teal-600 text-lg sm:text-xl">${data.score}<span class="text-xs sm:text-sm text-slate-400 ml-0.5">점</span></span>
+                ${timeStr}
+              </div>
+            `;
+            listEl.appendChild(li);
+        });
+    }
+
+    // --- 메인 게임 로직 ---
+
+    window.showScreen = (screenId) => {
+        document.getElementById('screen-loading').classList.add('hidden');
+        document.getElementById('screen-error').classList.add('hidden');
+        document.getElementById('screen-start').classList.add('hidden');
+        document.getElementById('screen-game').classList.add('hidden');
+        document.getElementById('screen-leaderboard').classList.add('hidden');
+        document.getElementById(screenId).classList.remove('hidden');
+    }
+
+    window.fetchSheetData = async () => {
+        window.showScreen('screen-loading');
+        try {
+            const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
+            const response = await fetch(url);
+            const text = await response.text();
+            const jsonString = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+            const data = JSON.parse(jsonString);
+
+            const parsedRows = data.table.rows
+                .map(row => ({
+                    nickname: row.c[0]?.v || '',
+                    imageUrl: row.c[1]?.v || ''
+                }))
+                .filter(row => row.nickname && row.imageUrl && row.nickname !== '닉네임');
+
+            if (parsedRows.length === 0) throw new Error("데이터 없음");
+            allMembers = parsedRows;
+
+            const nicknames = allMembers.map(member => member.nickname).join(', ');
+            document.getElementById('credits-names').textContent = nicknames;
+
+            window.showScreen('screen-start');
+        } catch (err) {
+            document.getElementById('error-message').textContent = "스프레드시트 데이터를 불러오지 못했습니다.";
+            window.showScreen('screen-error');
+        }
+    }
+
+    window.resetToStart = () => {
+        stopTimer();
+        clearTimeout(preShowTimeout);
+        window.showScreen('screen-start');
+    }
+
+    window.startGame = (mode) => {
+        // 웹 오디오 API 초기화 트리거 (사용자 클릭 시 필요)
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+
+        currentMode = mode;
+        isHardcore = document.getElementById('hardcore-toggle').checked;
+        const pairCount = mode === '4x4' ? 8 : 18;
+
+        cards = [];
+        flippedCards = [];
+        matchedPairs = 0;
+        isLocked = true; // 프리쇼 2초 동안 클릭 금지
+        score = 0;
+        combo = 0;
+        elapsedTime = 0;
+        updateScoreUI();
+        updateTimerUI();
+
+        document.getElementById('save-score-modal').classList.add('hidden');
+        document.getElementById('player-name').value = '';
+        document.getElementById('game-mode-text').textContent = `${mode} 모드 - 닉네임과 사진을 매칭하세요!`;
+
+        const hcBadge = document.getElementById('hardcore-badge');
+        if (isHardcore) hcBadge.classList.remove('hidden');
+        else hcBadge.classList.add('hidden');
+
+        const shuffledMembers = [...allMembers].sort(() => 0.5 - Math.random());
+        const selectedMembers = shuffledMembers.slice(0, Math.min(pairCount, shuffledMembers.length));
+
+        selectedMembers.forEach((row, index) => {
+            cards.push({ id: `nick-${index}`, type: 'nickname', value: row.nickname, pairId: index });
+            cards.push({ id: `img-${index}`, type: 'image', value: row.imageUrl, pairId: index });
+        });
+
+        for (let i = cards.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+
+        // 초기 프리쇼 렌더링 (모든 카드가 뒤집힌 상태)
+        renderBoard(true);
+        window.showScreen('screen-game');
+
+        const overlay = document.getElementById('preshow-overlay');
+        overlay.classList.remove('opacity-0');
+
+        // 2초 후 카드를 모두 엎고 게임 시작 (타이머 작동)
+        preShowTimeout = setTimeout(() => {
+            overlay.classList.add('opacity-0');
+            const cardEls = document.querySelectorAll('.card');
+            cardEls.forEach(el => el.classList.remove('flipped'));
+            isLocked = false;
+            startTimer();
+            playSound('flip'); // 시작 알림음
+        }, 2000);
+    }
+
+    function renderBoard(initialFlip = false) {
+        const board = document.getElementById('card-board');
+        board.innerHTML = '';
+        board.className = `grid gap-1.5 sm:gap-2.5 w-full perspective-1000 ${currentMode === '4x4' ? 'grid-cols-4' : 'grid-cols-6'}`;
+
+        cards.forEach((card, index) => {
+            const isNick = card.type === 'nickname';
+            const backBgClass = isNick ? 'bg-gradient-to-br from-teal-400 to-emerald-500' : 'bg-gradient-to-br from-purple-400 to-violet-500';
+            const backIcon = isNick ? 'Aa' : '👤';
+
+            const cardEl = document.createElement('div');
+            // initialFlip이 참이면 시작하자마자 flipped 클래스 추가
+            cardEl.className = `card w-full aspect-square cursor-pointer group relative ${initialFlip ? 'flipped' : ''}`;
+            cardEl.dataset.index = index;
+            cardEl.dataset.id = card.id;
+            cardEl.dataset.pairId = card.pairId;
+
+            let frontContent = '';
+            if (isNick) {
+                const textSize = currentMode === '6x6' ? 'text-xs sm:text-sm' : 'text-sm sm:text-lg';
+                frontContent = `<span class="${textSize} font-bold text-slate-800 text-center break-keep leading-tight px-1">${card.value}</span>`;
+            } else {
+                frontContent = `<img src="${card.value}" alt="프로필" class="w-full h-full object-cover rounded pointer-events-none bg-slate-100" onerror="this.src='https://via.placeholder.com/150?text=이미지+없음'; this.className='w-full h-full object-contain p-2 opacity-50'">`;
+            }
+
+            cardEl.innerHTML = `
+              <div class="card-inner relative w-full h-full transform-style-3d">
+                <div class="card-back absolute inset-0 rounded-lg shadow-sm backface-hidden flex items-center justify-center border-2 border-white/50 group-hover:shadow-md transition-shadow ${backBgClass}">
+                  <span class="text-white opacity-80 font-black text-xl sm:text-3xl">${backIcon}</span>
+                </div>
+                <div class="card-front absolute inset-0 rounded-lg shadow-sm backface-hidden rotate-y-180 flex items-center justify-center p-1 border-2 border-slate-200 bg-white overflow-hidden">
+                  ${frontContent}
+                  <div class="match-overlay absolute inset-0 bg-white/50 flex items-center justify-center opacity-0 transition-opacity duration-300">
+                    <div class="bg-teal-500 rounded-full p-0.5 sm:p-1 shadow text-white">
+                      <svg class="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `;
+
+            cardEl.addEventListener('click', () => handleCardClick(cardEl));
+            board.appendChild(cardEl);
+        });
+    }
+
+    function handleCardClick(cardEl) {
+        if (isLocked || cardEl.classList.contains('flipped') || cardEl.classList.contains('matched')) return;
+
+        playSound('flip');
+        cardEl.classList.add('flipped');
+        flippedCards.push(cardEl);
+
+        if (flippedCards.length === 2) {
+            isLocked = true;
+            const [card1, card2] = flippedCards;
+            const pair1 = card1.dataset.pairId;
+            const pair2 = card2.dataset.pairId;
+
+            if (pair1 === pair2) {
+                // 짝이 맞음
+                score += (20 + combo * 2);
+                combo += 1;
+                updateScoreUI();
+                matchedPairs += 1;
+
+                setTimeout(() => playSound('match'), 300);
+
+                setTimeout(() => {
+                    card1.classList.add('matched');
+                    card2.classList.add('matched');
+                    card1.querySelector('.match-overlay').classList.remove('opacity-0');
+                    card2.querySelector('.match-overlay').classList.remove('opacity-0');
+
+                    flippedCards = [];
+                    isLocked = false;
+                    checkWin();
+                }, 400);
+            } else {
+                // 짝이 틀림
+                score -= 3;
+                combo = 0;
+                updateScoreUI();
+
+                setTimeout(() => playSound('fail'), 200);
+
+                // 하드코어 모드일 때는 0.3초 만에, 일반 모드는 1초 만에 뒤집힘
+                const flipBackTime = isHardcore ? 300 : 1000;
+                setTimeout(() => {
+                    card1.classList.remove('flipped');
+                    card2.classList.remove('flipped');
+                    flippedCards = [];
+                    isLocked = false;
+                }, flipBackTime);
+            }
+        }
+    }
+
+    function updateScoreUI() {
+        const scoreDisplay = document.getElementById('score-display');
+        scoreDisplay.textContent = score;
+
+        if (score < 0) {
+            scoreDisplay.classList.replace('text-teal-600', 'text-red-500');
+        } else {
+            scoreDisplay.classList.replace('text-red-500', 'text-teal-600');
+        }
+
+        const comboDisplay = document.getElementById('combo-display');
+        if (combo > 0) {
+            comboDisplay.textContent = `🔥 ${combo} Combo! (+${combo * 2})`;
+            comboDisplay.classList.remove('opacity-0');
+            comboDisplay.classList.add('animate-pulse');
+        } else {
+            comboDisplay.classList.add('opacity-0');
+            comboDisplay.classList.remove('animate-pulse');
+        }
+    }
+
+    function checkWin() {
+        const targetPairs = currentMode === '4x4' ? 8 : 18;
+        if (matchedPairs >= targetPairs) {
+            stopTimer();
+
+            // 폭죽 효과!
+            confetti({
+                particleCount: 150,
+                spread: 70,
+                origin: { y: 0.6 },
+                colors: ['#14b8a6', '#8b5cf6', '#f59e0b', '#ef4444']
+            });
+
+            document.getElementById('final-score').textContent = score;
+            document.getElementById('modal-time-desc').innerHTML = `소요 시간: <span class="font-bold text-slate-700">${formatTime(elapsedTime)}</span>`;
+
+            // 0.5초 대기 후 모달 띄우기 (폭죽 먼저 감상하도록)
+            setTimeout(() => {
+                document.getElementById('save-score-modal').classList.remove('hidden');
+            }, 500);
+        }
+    }
+
+    const initApp = () => {
+        window.fetchSheetData();
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initApp);
+    } else {
+        initApp();
+    }
+
+</script>
+</body>
+</html>

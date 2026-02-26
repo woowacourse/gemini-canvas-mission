@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>시스테밀 - 식재료 관리</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* 스크롤바 숨기기 */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 스와이프 트랜지션 */
+        .swipe-transition { transition: transform 0.3s ease-out; }
+
+        /* 드래그 상태 반투명 처리 */
+        .dragging { opacity: 0.5; transform: scale(0.95); }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800 antialiased selection:bg-orange-200">
+
+<!-- 앱 컨테이너 -->
+<div class="max-w-md mx-auto h-screen flex flex-col bg-white shadow-2xl relative sm:rounded-3xl sm:h-[90vh] sm:my-[5vh] overflow-hidden">
+
+    <!-- 계정 정보 배너 (로그인 시 보임) -->
+    <div id="account-banner" class="hidden bg-gray-800 text-white px-4 py-2 flex items-center justify-between text-sm z-20">
+        <div class="flex items-center space-x-2 truncate">
+            <i data-lucide="user" class="w-4 h-4 flex-shrink-0"></i>
+            <span class="truncate opacity-80" id="banner-id"></span>
+        </div>
+        <div class="flex items-center space-x-3 ml-3">
+            <button id="btn-copy-id" class="hover:text-orange-400 transition-colors flex items-center space-x-1" title="UUID 복사">
+                <i data-lucide="copy" class="w-4 h-4" id="icon-copy"></i>
+                <i data-lucide="check" class="w-4 h-4 text-green-400 hidden" id="icon-check"></i>
+            </button>
+            <button id="btn-logout" class="hover:text-red-400 transition-colors" title="로그아웃">
+                <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 헤더 -->
+    <header class="flex-shrink-0 bg-white px-5 py-4 flex items-center justify-between border-b border-gray-100 z-10">
+        <div class="flex items-center space-x-3">
+            <button id="btn-back" class="hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
+                <i data-lucide="arrow-left" class="w-6 h-6"></i>
+            </button>
+            <div id="header-title" class="flex items-center">
+                <div class="flex items-center space-x-2">
+                    <div class="bg-gradient-to-tr from-orange-500 to-red-500 text-white p-1.5 rounded-xl shadow-sm">
+                        <i data-lucide="chef-hat" class="w-5 h-5"></i>
+                    </div>
+                    <div class="flex items-baseline space-x-1.5">
+                        <span class="font-black text-2xl tracking-tighter bg-gradient-to-r from-orange-600 to-red-500 bg-clip-text text-transparent">시스테밀</span>
+                        <span class="text-[11px] font-bold text-gray-400 tracking-tight">체계적인 식단관리 시스템</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <button id="btn-goto-trash" class="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors relative">
+            <i data-lucide="trash-2" class="w-6 h-6"></i>
+            <span id="trash-badge" class="hidden absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>
+        </button>
+    </header>
+
+    <!-- === 리스트 뷰 === -->
+    <div id="view-list" class="flex-1 overflow-y-auto bg-gray-50 overflow-x-hidden relative flex flex-col">
+        <div class="min-h-full flex flex-col px-4 pt-4 pb-2">
+
+            <!-- 비로그인 안내 배너 -->
+            <div id="notice-login" class="bg-blue-50 border border-blue-100 p-4 rounded-2xl mb-4 shadow-sm flex flex-col justify-center items-center text-center">
+                <i data-lucide="info" class="w-7 h-7 text-blue-500 mb-2"></i>
+                <p class="text-sm text-blue-800 font-medium leading-relaxed">
+                    데이터를 안전하게 보관하고 다른 기기에서도<br>관리하려면 계정을 생성하거나 연결하세요.
+                </p>
+                <button id="btn-load-account" class="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-colors w-full">
+                    기존 정보 불러오기
+                </button>
+            </div>
+
+            <!-- 태그 필터 바 -->
+            <div id="tag-filter-container" class="mb-4 hidden">
+                <div id="tag-filter-list" class="flex overflow-x-auto space-x-2 pb-2 hide-scrollbar">
+                    <!-- 렌더링 영역 -->
+                </div>
+            </div>
+
+            <!-- 추가 버튼 -->
+            <button id="btn-add-item" class="w-full mb-4 py-3 bg-orange-50/80 border-2 border-dashed border-orange-300 text-orange-600 rounded-2xl flex items-center justify-center font-bold hover:bg-orange-100 transition-colors shadow-sm">
+                <i data-lucide="plus" class="w-5 h-5 mr-2" stroke-width="2.5"></i>
+                <span id="add-btn-text">새 식재료/요리 추가</span>
+            </button>
+
+            <!-- 아이템 리스트 -->
+            <div id="list-content" class="space-y-3 flex-1">
+                <!-- 렌더링 영역 -->
+            </div>
+
+            <!-- 제작자 크레딧 -->
+            <div class="mt-auto pt-10 pb-4 text-center text-xs text-gray-400 font-medium tracking-wide shrink-0">
+                <p>© 2026 Systemeal. All rights reserved.</p>
+                <p class="mt-1">제작: 우아한테크코스 8기 루드비코 with Gemini</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- === 휴지통 뷰 === -->
+    <div id="view-trash" class="hidden flex-1 overflow-y-auto p-4 bg-gray-50 flex flex-col">
+        <div class="flex justify-end mb-4">
+            <button id="btn-empty-trash" class="px-4 py-2 bg-red-100 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-200 transition-colors">
+                휴지통 비우기
+            </button>
+        </div>
+        <div id="trash-content" class="space-y-3">
+            <!-- 렌더링 영역 -->
+        </div>
+    </div>
+
+    <!-- === 입력 폼 뷰 === -->
+    <div id="view-form" class="hidden flex-1 overflow-y-auto bg-gray-50 p-5 pb-24">
+        <form id="item-form" class="space-y-5 max-w-sm mx-auto">
+
+            <!-- 타입 선택 -->
+            <div class="flex bg-gray-200 p-1 rounded-xl shadow-inner">
+                <button type="button" id="type-ingredient" class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all bg-white shadow-sm text-gray-800">🥩 단일 식재료</button>
+                <button type="button" id="type-dish" class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all text-gray-500 hover:text-gray-700">🍳 요리 (복합)</button>
+            </div>
+
+            <!-- 아이콘 및 태그 -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <label class="block text-sm font-semibold text-gray-700 mb-3">아이콘 선택</label>
+                <div id="form-icon-grid" class="grid grid-cols-5 gap-2 mb-4">
+                    <!-- 렌더링 영역 -->
+                </div>
+
+                <label class="flex items-center text-sm font-semibold text-gray-700 mb-2 mt-4 border-t pt-4">
+                    <i data-lucide="tag" class="w-4 h-4 mr-1 text-gray-400"></i> 태그 지정
+                </label>
+                <div id="form-tags-list" class="flex flex-wrap gap-2 mb-3">
+                    <!-- 렌더링 영역 -->
+                </div>
+                <input type="text" id="input-tag" placeholder="태그 입력 후 Enter를 누르세요" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm">
+            </div>
+
+            <!-- 하위 식재료 선택 -->
+            <div id="form-sub-ingredients" class="hidden bg-orange-50 p-5 rounded-2xl shadow-sm border border-orange-100">
+                <label class="block text-sm font-semibold text-orange-800 mb-2">포함된 식재료 선택 (요리 카운트 시 자동 차감)</label>
+                <div id="form-sub-list" class="max-h-48 overflow-y-auto space-y-1.5 border border-orange-200/50 p-2 rounded-xl bg-white">
+                    <!-- 렌더링 영역 -->
+                </div>
+            </div>
+
+            <!-- 기본 정보 -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">이름 <span class="text-red-500">*</span></label>
+                    <input type="text" id="input-name" placeholder="예: 알리오 올리오" maxlength="20" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-gray-800">
+                    <div id="name-counter" class="text-right text-xs text-gray-400 mt-1">0/20</div>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">부제목</label>
+                    <input type="text" id="input-subtitle" placeholder="부가 설명" maxlength="50" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-gray-800 text-sm">
+                    <div id="subtitle-counter" class="text-right text-xs text-gray-400 mt-1">0/50</div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">사용 횟수</label>
+                        <input type="number" id="input-usage" value="0" min="0" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-gray-800">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">구매/예상 가격(원)</label>
+                        <input type="number" id="input-price" placeholder="선택" min="0" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-gray-800">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">구매처 또는 참고 링크</label>
+                    <input type="text" id="input-link" placeholder="오프라인 매장 이름 또는 https://..." maxlength="500" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-gray-800 text-sm">
+                </div>
+            </div>
+
+            <!-- 상세 설명 -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <label class="block text-sm font-semibold text-gray-700 mb-1">상세 설명 & 레시피</label>
+                <textarea id="input-desc" placeholder="상세한 조리법, 유통기한, 보관법 등 긴 기록을 남겨보세요." maxlength="1000" rows="5" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all text-gray-800 text-sm resize-y"></textarea>
+                <div id="desc-counter" class="text-right text-xs text-gray-400 mt-1">0/1000</div>
+            </div>
+
+            <div id="form-error" class="hidden bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm text-center font-medium animate-pulse"></div>
+
+            <!-- 하단 버튼 -->
+            <div class="flex space-x-3 pt-2">
+                <button type="button" id="btn-delete-item" class="hidden px-4 py-3 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl font-bold items-center justify-center transition-colors shadow-sm" title="삭제 (휴지통)">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                </button>
+                <button type="submit" class="flex-1 py-3 bg-gray-800 hover:bg-gray-900 text-white rounded-xl font-bold flex items-center justify-center space-x-2 transition-all shadow-md active:scale-95">
+                    <i data-lucide="save" class="w-5 h-5"></i> <span id="btn-save-text">등록하기</span>
+                </button>
+            </div>
+        </form>
+    </div>
+
+</div> <!-- App Container End -->
+
+<!-- === 모달 영역 === -->
+<!-- 생성 모달 -->
+<div id="modal-create" class="hidden absolute inset-0 z-50 bg-black/50 flex-col justify-end sm:justify-center items-center backdrop-blur-sm p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
+        <h2 class="text-xl font-bold text-gray-800 mb-2">데이터 저장소 생성</h2>
+        <p class="text-sm text-gray-500 mb-6">데이터를 안전하게 보관하고 다른 기기에서 불러오기 위한 계정 정보를 생성합니다.</p>
+        <form id="form-create" class="space-y-5">
+            <div>
+                <label class="block text-xs font-bold text-gray-500 mb-1">발급된 고유 UUID</label>
+                <div class="flex items-center bg-gray-50 border border-gray-200 p-3 rounded-xl">
+                    <span id="generated-uuid" class="flex-1 text-xs text-gray-700 font-mono truncate mr-2 select-all"></span>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-500 mb-1">4자리 숫자 비밀번호 설정 <span class="text-red-500">*</span></label>
+                <div class="relative">
+                    <i data-lucide="lock" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <input type="password" id="create-pin" maxlength="4" placeholder="숫자 4자리 입력" class="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-mono tracking-widest">
+                </div>
+            </div>
+            <div id="create-error" class="hidden text-red-500 text-sm font-medium"></div>
+            <div class="flex space-x-3 pt-2">
+                <button type="button" class="btn-close-modal px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors">취소</button>
+                <button type="submit" class="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-md transition-colors active:scale-95">생성 및 계속하기</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 불러오기 모달 -->
+<div id="modal-load" class="hidden absolute inset-0 z-50 bg-black/50 flex-col justify-end sm:justify-center items-center backdrop-blur-sm p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
+        <h2 class="text-xl font-bold text-gray-800 mb-2 flex items-center"><i data-lucide="log-in" class="w-5 h-5 mr-2 text-blue-500"></i> 기존 데이터 불러오기</h2>
+        <p class="text-sm text-gray-500 mb-6">다른 기기에서 저장해둔 UUID와 비밀번호를 입력하세요.</p>
+        <form id="form-load" class="space-y-5">
+            <div>
+                <label class="block text-xs font-bold text-gray-500 mb-1">UUID 입력</label>
+                <input type="text" id="load-uuid" placeholder="예: 123e4567-e89b-..." class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-mono">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-500 mb-1">4자리 숫자 비밀번호</label>
+                <div class="relative">
+                    <i data-lucide="lock" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <input type="password" id="load-pin" maxlength="4" placeholder="숫자 4자리 입력" class="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono tracking-widest">
+                </div>
+            </div>
+            <div id="load-error" class="hidden text-red-500 text-sm font-medium"></div>
+            <div class="flex space-x-3 pt-2">
+                <button type="button" class="btn-close-modal px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors">취소</button>
+                <button type="submit" id="btn-submit-load" class="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-colors">불러오기</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Javascript Logic -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // --- Firebase Setup ---
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    const MAX_INT = 2147483647;
+
+    // --- Icons & Data ---
+    const ChickenBreastSVG = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="drop-shadow-sm"><path d="M21 14.5C21 14.5 19 19.5 12 19.5C5 19.5 3 15.5 3 11C3 6.5 6.5 4.5 11.5 4.5C15.5 4.5 18 8 18.5 9.5C19 11 21 12 21 14.5Z" fill="#FFF5F0" stroke="#E2C6B9" stroke-width="1.5"/><path d="M6 8.5L12 9.5" stroke="#8A4A33" stroke-width="1.5" stroke-linecap="round"/><path d="M5 12.5L14.5 13.5" stroke="#8A4A33" stroke-width="1.5" stroke-linecap="round"/><path d="M6.5 16.5L13 17.5" stroke="#8A4A33" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+    const OilBottleSVG = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="drop-shadow-sm"><path d="M10.5 8V4.5C10.5 3.67157 11.1716 3 12 3C12.8284 3 13.5 3.67157 13.5 4.5V8" fill="#FEF3C7" stroke="#D97706" stroke-width="1.5"/><path d="M8 11C8 9.5 9 8 10 8H14C15 8 16 9.5 16 11V19C16 20.6569 14.6569 22 13 22H11C9.34315 22 8 20.6569 8 19V11Z" fill="#FCD34D" stroke="#D97706" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 2.5H14" stroke="#92400E" stroke-width="2" stroke-linecap="round"/><path d="M10.5 14C10.5 14 12 13 13.5 14.5" stroke="#059669" stroke-width="1.5" stroke-linecap="round"/><circle cx="11.5" cy="15.5" r="1" fill="#059669"/></svg>`;
+
+    const FOOD_ICONS = [
+        { id: 'chicken_breast', type: 'svg', label: '닭가슴살', defaultTags: ['육류', '단백질'], content: ChickenBreastSVG },
+        { id: 'meat', type: 'emoji', value: '🥩', label: '고기류', defaultTags: ['육류'] },
+        { id: 'oil', type: 'svg', label: '오일/기름', defaultTags: ['조미료', '오일'], content: OilBottleSVG },
+        { id: 'pasta', type: 'emoji', value: '🍝', label: '파스타/면', defaultTags: ['탄수화물', '면류'] },
+        { id: 'shrimp', type: 'emoji', value: '🍤', label: '새우/해산물', defaultTags: ['해산물', '단백질'] },
+        { id: 'egg', type: 'emoji', value: '🥚', label: '계란', defaultTags: ['단백질', '계란'] },
+        { id: 'veg', type: 'emoji', value: '🥦', label: '채소', defaultTags: ['채소'] },
+        { id: 'spice', type: 'emoji', value: '🧂', label: '소스, 향신료', defaultTags: ['조미료', '향신료'] },
+        { id: 'sauce', type: 'emoji', value: '🥫', label: '소스/양념', defaultTags: ['소스', '조미료'] },
+        { id: 'rice', type: 'emoji', value: '🍚', label: '쌀/밥', defaultTags: ['탄수화물', '곡류'] },
+        { id: 'bread', type: 'emoji', value: '🍞', label: '빵', defaultTags: ['탄수화물', '빵류'] },
+        { id: 'milk', type: 'emoji', value: '🥛', label: '유제품', defaultTags: ['유제품'] },
+        { id: 'default', type: 'emoji', value: '🍽️', label: '기타', defaultTags: ['기타'] },
+    ];
+
+    function getIconContent(iconId) {
+        const found = FOOD_ICONS.find(i => i.id === iconId || i.value === iconId);
+        if (found) return found.type === 'svg' ? found.content : found.value;
+        return iconId || '🍽️';
+    }
+
+    // --- State ---
+    const state = {
+        user: null,
+        inventoryId: null,
+        pin: null,
+        items: [],
+        currentView: 'list', // list, trash, form
+        editingItem: null,
+        selectedTag: '전체',
+        unsubscribeSnapshot: null,
+        // Form Local State
+        formType: 'ingredient',
+        formIcon: 'chicken_breast',
+        formTags: [],
+        formChildIds: []
+    };
+
+    // --- DOM Elements ---
+    const UI = {
+        views: {
+            list: document.getElementById('view-list'),
+            trash: document.getElementById('view-trash'),
+            form: document.getElementById('view-form')
+        },
+        header: {
+            title: document.getElementById('header-title'),
+            btnBack: document.getElementById('btn-back'),
+            btnTrash: document.getElementById('btn-goto-trash'),
+            trashBadge: document.getElementById('trash-badge')
+        },
+        banner: {
+            container: document.getElementById('account-banner'),
+            idText: document.getElementById('banner-id'),
+            btnCopy: document.getElementById('btn-copy-id'),
+            btnLogout: document.getElementById('btn-logout'),
+            iconCopy: document.getElementById('icon-copy'),
+            iconCheck: document.getElementById('icon-check')
+        },
+        list: {
+            noticeLogin: document.getElementById('notice-login'),
+            btnAdd: document.getElementById('btn-add-item'),
+            addText: document.getElementById('add-btn-text'),
+            content: document.getElementById('list-content'),
+            tagContainer: document.getElementById('tag-filter-container'),
+            tagList: document.getElementById('tag-filter-list'),
+            btnLoadAcc: document.getElementById('btn-load-account')
+        },
+        trash: {
+            content: document.getElementById('trash-content'),
+            btnEmpty: document.getElementById('btn-empty-trash')
+        },
+        form: {
+            formEl: document.getElementById('item-form'),
+            typeIng: document.getElementById('type-ingredient'),
+            typeDish: document.getElementById('type-dish'),
+            iconGrid: document.getElementById('form-icon-grid'),
+            tagsList: document.getElementById('form-tags-list'),
+            inputTag: document.getElementById('input-tag'),
+            subIngContainer: document.getElementById('form-sub-ingredients'),
+            subList: document.getElementById('form-sub-list'),
+            inputs: {
+                name: document.getElementById('input-name'),
+                subtitle: document.getElementById('input-subtitle'),
+                usage: document.getElementById('input-usage'),
+                price: document.getElementById('input-price'),
+                link: document.getElementById('input-link'),
+                desc: document.getElementById('input-desc'),
+            },
+            counters: {
+                name: document.getElementById('name-counter'),
+                subtitle: document.getElementById('subtitle-counter'),
+                desc: document.getElementById('desc-counter')
+            },
+            btnDelete: document.getElementById('btn-delete-item'),
+            btnSaveText: document.getElementById('btn-save-text'),
+            error: document.getElementById('form-error')
+        },
+        modals: {
+            create: document.getElementById('modal-create'),
+            load: document.getElementById('modal-load')
+        }
+    };
+
+    // --- Init & Auth ---
+    async function init() {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+            await signInAnonymously(auth);
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            state.user = user;
+            setupSnapshot();
+        });
+
+        // Load session
+        const sessionStr = localStorage.getItem('ingredient_manager_session');
+        if (sessionStr) {
+            try {
+                const session = JSON.parse(sessionStr);
+                if (session.inventoryId && session.pin) {
+                    state.inventoryId = session.inventoryId;
+                    state.pin = session.pin;
+                }
+            } catch (e) {}
+        }
+
+        lucide.createIcons();
+        updateMainUI();
+        setupEventListeners();
+    }
+
+    function setupSnapshot() {
+        if (state.unsubscribeSnapshot) state.unsubscribeSnapshot();
+        if (!state.user || !state.inventoryId) {
+            state.items = [];
+            updateMainUI();
+            return;
+        }
+
+        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventories', state.inventoryId);
+        state.unsubscribeSnapshot = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists() && docSnap.data().pin === state.pin) {
+                state.items = docSnap.data().items || [];
+                updateMainUI();
+            } else {
+                doLogout();
+            }
+        }, (err) => console.error(err));
+    }
+
+    async function syncItemsToCloud() {
+        updateMainUI(); // 낙관적 업데이트
+        if (!state.user || !state.inventoryId || !state.pin) return;
+        try {
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventories', state.inventoryId);
+            await setDoc(docRef, { pin: state.pin, items: state.items }, { merge: true });
+        } catch (err) {}
+    }
+
+    function doLogout() {
+        state.inventoryId = null; state.pin = null; state.items = []; state.selectedTag = '전체';
+        localStorage.removeItem('ingredient_manager_session');
+        if (state.unsubscribeSnapshot) state.unsubscribeSnapshot();
+        updateMainUI();
+    }
+
+    // --- UI Renderers ---
+    function updateMainUI() {
+        // Visibility
+        Object.values(UI.views).forEach(v => v.classList.add('hidden'));
+        UI.views[state.currentView].classList.remove('hidden');
+        UI.views[state.currentView].classList.add('flex');
+
+        // Header
+        if (state.currentView === 'list') {
+            UI.header.title.innerHTML = `
+          <div class="flex items-center space-x-2">
+            <div class="bg-gradient-to-tr from-orange-500 to-red-500 text-white p-1.5 rounded-xl shadow-sm">
+              <i data-lucide="chef-hat" class="w-5 h-5"></i>
+            </div>
+            <div class="flex items-baseline space-x-1.5">
+              <span class="font-black text-2xl tracking-tighter bg-gradient-to-r from-orange-600 to-red-500 bg-clip-text text-transparent">시스테밀</span>
+              <span class="text-[11px] font-bold text-gray-400 tracking-tight">체계적인 식단관리 시스템</span>
+            </div>
+          </div>
+        `;
+            UI.header.btnBack.classList.add('hidden');
+            UI.header.btnTrash.classList.remove('hidden');
+        } else if (state.currentView === 'trash') {
+            UI.header.title.innerHTML = '<span class="text-xl font-bold text-gray-800 tracking-tight">휴지통</span>';
+            UI.header.btnBack.classList.remove('hidden');
+            UI.header.btnTrash.classList.add('hidden');
+        } else {
+            UI.header.title.innerHTML = `<span class="text-xl font-bold text-gray-800 tracking-tight">${state.editingItem ? '항목 수정' : '새 항목 추가'}</span>`;
+            UI.header.btnBack.classList.remove('hidden');
+            UI.header.btnTrash.classList.add('hidden');
+        }
+
+        const trashed = state.items.filter(i => i.status === 'trash');
+        UI.header.trashBadge.style.display = trashed.length > 0 ? 'block' : 'none';
+
+        // Banner
+        if (state.inventoryId && state.currentView === 'list') {
+            UI.banner.container.classList.remove('hidden');
+            UI.banner.idText.textContent = `ID: ${state.inventoryId}`;
+        } else {
+            UI.banner.container.classList.add('hidden');
+        }
+
+        if (state.currentView === 'list') renderList();
+        if (state.currentView === 'trash') renderTrash();
+        if (state.currentView === 'form') renderForm();
+
+        lucide.createIcons();
+    }
+
+    function renderList() {
+        const activeItems = state.items.filter(i => i.status === 'active').sort((a,b) => a.order - b.order);
+        const allTags = Array.from(new Set(activeItems.flatMap(i => i.tags || []))).sort();
+
+        UI.list.noticeLogin.classList.toggle('hidden', !!state.inventoryId);
+
+        // Tags
+        if (activeItems.length > 0) {
+            UI.list.tagContainer.classList.remove('hidden');
+            let tagsHtml = `<button data-tag="전체" class="tag-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-bold border transition-colors ${state.selectedTag === '전체' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'}">전체 보기</button>`;
+            allTags.forEach(t => {
+                tagsHtml += `<button data-tag="${t}" class="tag-filter-btn flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-bold border transition-colors flex items-center space-x-1 ${state.selectedTag === t ? 'bg-orange-500 text-white border-orange-500 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'}"><span>${t}</span></button>`;
+            });
+            UI.list.tagList.innerHTML = tagsHtml;
+        } else {
+            UI.list.tagContainer.classList.add('hidden');
+        }
+
+        UI.list.addText.textContent = state.selectedTag !== '전체' ? `'${state.selectedTag}' 식재료 추가` : '새 식재료/요리 추가';
+
+        // Items
+        const isFiltered = state.selectedTag !== '전체';
+        const filtered = activeItems.filter(i => isFiltered ? (i.tags && i.tags.includes(state.selectedTag)) : true);
+
+        if (filtered.length === 0) {
+            UI.list.content.innerHTML = `<div class="flex flex-col items-center justify-center py-10 text-gray-400"><p>등록된 식재료가 없습니다.</p></div>`;
+            return;
+        }
+
+        let listHtml = '';
+        filtered.forEach((item, index) => {
+            let linkHtml = '';
+            if (item.link) {
+                if (item.link.startsWith('http')) {
+                    linkHtml = `<a href="${item.link}" target="_blank" class="text-blue-500 hover:text-blue-700 flex-shrink-0 link-stop"><i data-lucide="link" class="w-3.5 h-3.5"></i></a>`;
+                } else {
+                    linkHtml = `<span class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded flex-shrink-0">${item.link}</span>`;
+                }
+            }
+
+            let tagsHtml = (item.tags || []).map(t => `<span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded whitespace-nowrap">#${t}</span>`).join('');
+
+            listHtml += `
+          <div data-id="${item.id}" data-index="${index}" class="list-item relative rounded-2xl bg-red-500 overflow-hidden shadow-sm border border-gray-100 transition-all">
+            <div class="absolute inset-y-0 right-0 w-20 flex items-center justify-center bg-red-500">
+              <button class="btn-delete-swipe w-full h-full flex flex-col items-center justify-center text-white hover:bg-red-600">
+                <i data-lucide="trash-2" class="w-5 h-5"></i><span class="text-xs font-bold mt-1">버리기</span>
+              </button>
+            </div>
+
+            <div class="swipe-inner relative z-10 bg-white p-4 flex items-center swipe-transition cursor-pointer hover:bg-gray-50">
+              <div class="flex-shrink-0 w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl mr-4 border border-gray-100 shadow-sm relative">
+                ${getIconContent(item.icon)}
+                ${item.type === 'dish' ? '<div class="absolute -top-1 -right-1 bg-yellow-400 w-4 h-4 rounded-full border-2 border-white"></div>' : ''}
+              </div>
+
+              <div class="flex-1 min-w-0 pointer-events-none">
+                <div class="flex items-center space-x-2 pointer-events-auto">
+                  <h3 class="text-lg font-bold text-gray-800 truncate">${item.name}</h3>
+                  ${item.type === 'dish' ? '<span class="bg-orange-100 text-orange-700 text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0">요리</span>' : ''}
+                  ${linkHtml}
+                </div>
+                ${item.subtitle ? `<p class="text-xs font-medium text-gray-500 truncate mt-0.5 leading-snug">${item.subtitle}</p>` : ''}
+                <div class="flex gap-1 mt-1.5 overflow-x-auto hide-scrollbar">${tagsHtml}</div>
+                <div class="text-sm text-gray-600 mt-1 flex items-center space-x-2">
+                  <span>사용 횟수: <strong class="text-orange-600 text-base">${item.usageCount}</strong>회</span>
+                </div>
+                ${item.lastModified ? `<div class="text-[11px] text-gray-400 mt-0.5">수정: ${item.lastModified.date} ${item.lastModified.time} (${item.lastModified.change})</div>` : ''}
+              </div>
+
+              <div class="flex items-center space-x-3 ml-2">
+                <button class="btn-increment w-10 h-10 bg-orange-100 hover:bg-orange-200 text-orange-600 rounded-full flex items-center justify-center transition-colors shadow-sm relative z-20">
+                  <i data-lucide="plus" class="w-5 h-5" stroke-width="3"></i>
+                </button>
+                <div class="drag-handle p-2 ${isFiltered ? 'text-gray-200' : 'text-gray-300 hover:text-gray-500 touch-none cursor-grab'}" ${!isFiltered ? 'draggable="true"' : ''}>
+                  <i data-lucide="grip-horizontal" class="w-6 h-6"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        });
+        UI.list.content.innerHTML = listHtml;
+    }
+
+    function renderTrash() {
+        const trashed = state.items.filter(i => i.status === 'trash').sort((a,b) => b.deletedAt - a.deletedAt);
+        if (trashed.length === 0) {
+            UI.trash.content.innerHTML = `<div class="flex flex-col items-center justify-center py-20 text-gray-400 space-y-4"><i data-lucide="trash-2" class="w-12 h-12"></i><p>휴지통이 비어있습니다.</p></div>`;
+            return;
+        }
+
+        let html = '';
+        trashed.forEach(item => {
+            html += `
+          <div data-id="${item.id}" class="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 opacity-75">
+            <div class="flex items-center">
+              <div class="w-10 h-10 mr-3 flex items-center justify-center grayscale opacity-50 text-2xl relative">
+                ${getIconContent(item.icon)}
+                ${item.type === 'dish' ? '<div class="absolute -top-1 -right-1 bg-gray-300 w-4 h-4 rounded-full border-2 border-white"></div>' : ''}
+              </div>
+              <div>
+                <h3 class="text-lg font-bold text-gray-600 line-through">${item.name}</h3>
+                <div class="text-sm text-gray-400 mt-0.5">최종 횟수: ${item.usageCount}회</div>
+              </div>
+            </div>
+            <button class="btn-restore px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium flex items-center space-x-1">
+              <i data-lucide="refresh-ccw" class="w-4 h-4"></i><span>복원</span>
+            </button>
+          </div>
+        `;
+        });
+        UI.trash.content.innerHTML = html;
+    }
+
+    // --- Form Handling ---
+    function renderForm() {
+        UI.form.error.classList.add('hidden');
+        if (state.editingItem) {
+            const i = state.editingItem;
+            state.formType = i.type || 'ingredient';
+            state.formIcon = i.icon || FOOD_ICONS[0].id;
+            state.formTags = [...(i.tags || [])];
+            state.formChildIds = [...(i.childIngredientIds || [])];
+
+            UI.form.inputs.name.value = i.name || '';
+            UI.form.inputs.subtitle.value = i.subtitle || '';
+            UI.form.inputs.usage.value = i.usageCount || 0;
+            UI.form.inputs.price.value = i.price !== null ? i.price : '';
+            UI.form.inputs.link.value = i.link || '';
+            UI.form.inputs.desc.value = i.description || '';
+            UI.form.btnDelete.classList.remove('hidden');
+            UI.form.btnSaveText.textContent = '수정 내용 저장';
+        } else {
+            state.formType = 'ingredient';
+            state.formIcon = FOOD_ICONS[0].id;
+            state.formTags = state.selectedTag !== '전체' ? [state.selectedTag] : [...FOOD_ICONS[0].defaultTags];
+            state.formChildIds = [];
+
+            Object.values(UI.form.inputs).forEach(input => input.value = input.type === 'number' && input.id==='input-usage' ? '0' : '');
+            UI.form.btnDelete.classList.add('hidden');
+            UI.form.btnSaveText.textContent = '등록하기';
+        }
+
+        updateFormCounters();
+        renderFormType();
+        renderFormIcons();
+        renderFormTags();
+        renderFormSubIngredients();
+    }
+
+    function renderFormType() {
+        if (state.formType === 'ingredient') {
+            UI.form.typeIng.className = 'flex-1 py-2.5 text-sm font-bold rounded-lg transition-all bg-white shadow-sm text-gray-800';
+            UI.form.typeDish.className = 'flex-1 py-2.5 text-sm font-bold rounded-lg transition-all text-gray-500 hover:text-gray-700';
+            UI.form.subIngContainer.classList.add('hidden');
+        } else {
+            UI.form.typeIng.className = 'flex-1 py-2.5 text-sm font-bold rounded-lg transition-all text-gray-500 hover:text-gray-700';
+            UI.form.typeDish.className = 'flex-1 py-2.5 text-sm font-bold rounded-lg transition-all bg-orange-500 shadow-sm text-white';
+            UI.form.subIngContainer.classList.remove('hidden');
+        }
+    }
+
+    function renderFormIcons() {
+        let html = '';
+        FOOD_ICONS.forEach(obj => {
+            const isSelected = state.formIcon === obj.id;
+            const cls = isSelected ? 'bg-orange-100 border-2 border-orange-400 scale-105' : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100';
+            const iconContent = obj.type === 'svg' ? obj.content : obj.value;
+            html += `<button type="button" data-icon="${obj.id}" title="${obj.label}" class="form-icon-btn text-2xl p-2 rounded-xl flex items-center justify-center transition-all h-12 ${cls}">${iconContent}</button>`;
+        });
+        UI.form.iconGrid.innerHTML = html;
+    }
+
+    function renderFormTags() {
+        let html = '';
+        state.formTags.forEach(tag => {
+            html += `<span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm flex items-center">${tag}<button type="button" data-tag="${tag}" class="btn-remove-tag ml-2 text-gray-400 hover:text-red-500">&times;</button></span>`;
+        });
+        UI.form.tagsList.innerHTML = html;
+    }
+
+    function renderFormSubIngredients() {
+        const available = state.items.filter(i => i.status === 'active' && i.type !== 'dish' && (!state.editingItem || i.id !== state.editingItem.id));
+        if (available.length === 0) {
+            UI.form.subList.innerHTML = `<p class="text-sm text-gray-500 p-3">먼저 단일 식재료를 등록해주세요.</p>`;
+            return;
+        }
+        let html = '';
+        available.forEach(ing => {
+            const checked = state.formChildIds.includes(ing.id) ? 'checked' : '';
+            html += `
+          <label class="flex items-center space-x-3 cursor-pointer p-2 hover:bg-orange-50/50 rounded-lg transition-colors">
+            <input type="checkbox" value="${ing.id}" class="chk-sub-ing w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500" ${checked}>
+            <div class="flex items-center space-x-2"><span class="text-xl">${getIconContent(ing.icon)}</span><span class="text-sm text-gray-800 font-medium">${ing.name}</span></div>
+          </label>
+        `;
+        });
+        UI.form.subList.innerHTML = html;
+    }
+
+    function updateFormCounters() {
+        UI.form.counters.name.textContent = `${UI.form.inputs.name.value.length}/20`;
+        UI.form.counters.subtitle.textContent = `${UI.form.inputs.subtitle.value.length}/50`;
+        UI.form.counters.desc.textContent = `${UI.form.inputs.desc.value.length}/1000`;
+    }
+
+    // --- Events & Logic ---
+    function setupEventListeners() {
+        // Inputs counters
+        UI.form.inputs.name.addEventListener('input', updateFormCounters);
+        UI.form.inputs.subtitle.addEventListener('input', updateFormCounters);
+        UI.form.inputs.desc.addEventListener('input', updateFormCounters);
+
+        // Nav
+        UI.header.btnBack.addEventListener('click', () => { state.currentView = 'list'; updateMainUI(); });
+        UI.header.btnTrash.addEventListener('click', () => { state.currentView = 'trash'; updateMainUI(); });
+        UI.list.btnLoadAcc.addEventListener('click', () => {
+            UI.modals.load.classList.remove('hidden');
+            UI.modals.load.classList.add('flex');
+        });
+        UI.list.btnAdd.addEventListener('click', () => {
+            if (!state.inventoryId) {
+                document.getElementById('generated-uuid').textContent = crypto.randomUUID();
+                UI.modals.create.classList.remove('hidden');
+                UI.modals.create.classList.add('flex');
+            } else {
+                state.editingItem = null; state.currentView = 'form'; updateMainUI();
+            }
+        });
+
+        // Banner Actions
+        UI.banner.btnCopy.addEventListener('click', () => {
+            copyToClipboard(state.inventoryId);
+            UI.banner.iconCopy.classList.add('hidden');
+            UI.banner.iconCheck.classList.remove('hidden');
+            setTimeout(() => {
+                UI.banner.iconCopy.classList.remove('hidden');
+                UI.banner.iconCheck.classList.add('hidden');
+            }, 2000);
+        });
+        UI.banner.btnLogout.addEventListener('click', doLogout);
+
+        // Modals
+        document.querySelectorAll('.btn-close-modal').forEach(b => b.addEventListener('click', (e) => {
+            e.target.closest('div[id^="modal-"]').classList.add('hidden');
+        }));
+
+        document.getElementById('form-create').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const pin = document.getElementById('create-pin').value;
+            if (!/^\d{4}$/.test(pin)) { document.getElementById('create-error').textContent = '4자리 숫자'; document.getElementById('create-error').classList.remove('hidden'); return; }
+            const uuid = document.getElementById('generated-uuid').textContent;
+            state.inventoryId = uuid; state.pin = pin;
+            localStorage.setItem('ingredient_manager_session', JSON.stringify({ inventoryId: uuid, pin }));
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventories', uuid), { pin, items: [] });
+            UI.modals.create.classList.add('hidden');
+            setupSnapshot();
+            state.editingItem = null; state.currentView = 'form'; updateMainUI();
+        });
+
+        document.getElementById('form-load').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const uuid = document.getElementById('load-uuid').value.trim();
+            const pin = document.getElementById('load-pin').value;
+            if (!uuid || !/^\d{4}$/.test(pin)) { document.getElementById('load-error').textContent = '입력 오류'; document.getElementById('load-error').classList.remove('hidden'); return; }
+
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventories', uuid);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists() && docSnap.data().pin === pin) {
+                    state.inventoryId = uuid; state.pin = pin;
+                    localStorage.setItem('ingredient_manager_session', JSON.stringify({ inventoryId: uuid, pin }));
+                    UI.modals.load.classList.add('hidden');
+                    setupSnapshot();
+                } else {
+                    document.getElementById('load-error').textContent = '정보 불일치'; document.getElementById('load-error').classList.remove('hidden');
+                }
+            } catch (e) {}
+        });
+
+        // Form interactions
+        UI.form.typeIng.addEventListener('click', () => { state.formType = 'ingredient'; renderFormType(); renderFormSubIngredients(); });
+        UI.form.typeDish.addEventListener('click', () => { state.formType = 'dish'; renderFormType(); renderFormSubIngredients(); });
+
+        UI.form.iconGrid.addEventListener('click', (e) => {
+            const btn = e.target.closest('.form-icon-btn');
+            if (btn) {
+                state.formIcon = btn.dataset.icon;
+                const iconDef = FOOD_ICONS.find(i => i.id === state.formIcon);
+                if (iconDef && !state.editingItem) state.formTags = [...iconDef.defaultTags];
+                renderFormIcons(); renderFormTags();
+            }
+        });
+
+        UI.form.inputTag.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const val = e.target.value.trim();
+                if (val && !state.formTags.includes(val)) {
+                    state.formTags.push(val); renderFormTags();
+                }
+                e.target.value = '';
+            }
+        });
+        UI.form.tagsList.addEventListener('click', (e) => {
+            if (e.target.classList.contains('btn-remove-tag')) {
+                const tag = e.target.dataset.tag;
+                state.formTags = state.formTags.filter(t => t !== tag);
+                renderFormTags();
+            }
+        });
+        UI.form.subList.addEventListener('change', (e) => {
+            if (e.target.classList.contains('chk-sub-ing')) {
+                const id = e.target.value;
+                if (e.target.checked) state.formChildIds.push(id);
+                else state.formChildIds = state.formChildIds.filter(cid => cid !== id);
+            }
+        });
+
+        UI.form.formEl.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const err = UI.form.error;
+            const name = UI.form.inputs.name.value.trim();
+            const subtitle = UI.form.inputs.subtitle.value;
+            const priceStr = UI.form.inputs.price.value;
+            const link = UI.form.inputs.link.value;
+            const usageCount = Number(UI.form.inputs.usage.value) || 0;
+            const desc = UI.form.inputs.desc.value;
+
+            if (!name) { err.textContent = '이름을 입력해주세요.'; err.classList.remove('hidden'); return; }
+            if (name.length > 20 || subtitle.length > 50 || desc.length > 1000 || link.length > 500) { err.textContent = '글자수 초과'; err.classList.remove('hidden'); return; }
+            let price = null;
+            if (priceStr !== '') {
+                price = Number(priceStr);
+                if (price < 0 || price > MAX_INT || !Number.isInteger(price)) { err.textContent = '올바른 가격을 입력하세요.'; err.classList.remove('hidden'); return; }
+            }
+            if (usageCount < 0 || usageCount > MAX_INT || !Number.isInteger(usageCount)) { err.textContent = '올바른 횟수를 입력하세요.'; err.classList.remove('hidden'); return; }
+
+            err.classList.add('hidden');
+
+            const activeItems = state.items.filter(i => i.status === 'active');
+            let newItems = [...state.items];
+
+            if (state.editingItem) {
+                const oldItem = state.items.find(i => i.id === state.editingItem.id);
+                const usageDiff = usageCount - oldItem.usageCount;
+                let lastMod = oldItem.lastModified;
+                if (usageDiff !== 0) {
+                    const now = new Date();
+                    lastMod = { date: now.toLocaleDateString(), time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), change: usageDiff > 0 ? `+${usageDiff}` : `${usageDiff}` };
+                }
+
+                newItems = newItems.map(i => {
+                    if (i.id === state.editingItem.id) {
+                        return { ...i, name, subtitle, price, link, usageCount, description: desc, type: state.formType, icon: state.formIcon, tags: state.formTags, childIngredientIds: state.formType==='dish'?state.formChildIds:[], lastModified: lastMod };
+                    }
+                    if (oldItem.type === 'dish' && state.formType === 'dish' && usageDiff > 0 && state.formChildIds.includes(i.id)) {
+                        return { ...i, usageCount: Math.min(i.usageCount + usageDiff, MAX_INT), lastModified: lastMod };
+                    }
+                    return i;
+                });
+            } else {
+                const minOrder = activeItems.length > 0 ? Math.min(...activeItems.map(i => i.order)) : 0;
+                newItems.push({
+                    id: crypto.randomUUID(), status: 'active', createdAt: Date.now(), order: minOrder - 1,
+                    name, subtitle, price, link, usageCount, description: desc, type: state.formType, icon: state.formIcon, tags: state.formTags, childIngredientIds: state.formType==='dish'?state.formChildIds:[], lastModified: null
+                });
+            }
+
+            syncItemsToCloud(newItems);
+            state.currentView = 'list'; updateMainUI();
+        });
+
+        UI.form.btnDelete.addEventListener('click', () => {
+            if (!state.editingItem) return;
+            const newItems = state.items.map(i => i.id === state.editingItem.id ? { ...i, status: 'trash', deletedAt: Date.now() } : i);
+            syncItemsToCloud(newItems);
+            state.currentView = 'list'; updateMainUI();
+        });
+
+        // Trash Interactions
+        UI.trash.btnEmpty.addEventListener('click', () => {
+            if (confirm('휴지통을 비우시겠습니까?')) syncItemsToCloud(state.items.filter(i => i.status !== 'trash'));
+        });
+        UI.trash.content.addEventListener('click', (e) => {
+            const btn = e.target.closest('.btn-restore');
+            if (btn) {
+                const id = btn.closest('[data-id]').dataset.id;
+                syncItemsToCloud(state.items.map(i => i.id === id ? { ...i, status: 'active', deletedAt: null } : i));
+            }
+        });
+
+        // List Interactions
+        UI.list.tagList.addEventListener('click', (e) => {
+            const btn = e.target.closest('.tag-filter-btn');
+            if (btn) { state.selectedTag = btn.dataset.tag; renderList(); lucide.createIcons(); }
+        });
+
+        UI.list.content.addEventListener('click', (e) => {
+            if (e.target.closest('.link-stop')) return;
+            const btnInc = e.target.closest('.btn-increment');
+            const btnDel = e.target.closest('.btn-delete-swipe');
+            const itemEl = e.target.closest('.list-item');
+
+            // Reset swipes
+            if (!btnDel) document.querySelectorAll('.swipe-inner').forEach(el => el.style.transform = '');
+
+            if (btnInc) {
+                const id = itemEl.dataset.id;
+                let updated = [...state.items];
+                const target = updated.find(i => i.id === id);
+                if (!target) return;
+                const now = new Date();
+                const lastMod = { date: now.toLocaleDateString(), time: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), change: '+1' };
+                const inc = (i) => i.usageCount >= MAX_INT ? i : { ...i, usageCount: i.usageCount + 1, lastModified: lastMod };
+
+                if (target.type === 'dish') {
+                    updated = updated.map(i => i.id === id ? inc(i) : i);
+                    updated = updated.map(i => (target.childIngredientIds||[]).includes(i.id) ? inc(i) : i);
+                } else {
+                    updated = updated.map(i => i.id === id ? inc(i) : i);
+                }
+                syncItemsToCloud(updated);
+                return;
+            }
+
+            if (btnDel) {
+                const id = itemEl.dataset.id;
+                syncItemsToCloud(state.items.map(i => i.id === id ? { ...i, status: 'trash', deletedAt: Date.now() } : i));
+                return;
+            }
+
+            if (itemEl && !e.target.closest('.drag-handle')) {
+                const id = itemEl.dataset.id;
+                state.editingItem = state.items.find(i => i.id === id);
+                state.currentView = 'form'; updateMainUI();
+            }
+        });
+
+        // Swipe to Delete logic
+        let touchStartX = 0, touchStartY = 0, swipingEl = null;
+        UI.list.content.addEventListener('touchstart', (e) => {
+            const itemEl = e.target.closest('.list-item');
+            if (!itemEl || e.target.closest('.drag-handle')) return;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            swipingEl = itemEl.querySelector('.swipe-inner');
+        }, {passive: true});
+
+        UI.list.content.addEventListener('touchend', (e) => {
+            if (!swipingEl) return;
+            const diffX = touchStartX - e.changedTouches[0].clientX;
+            const diffY = Math.abs(touchStartY - e.changedTouches[0].clientY);
+            if (diffX > 40 && diffY < 40) {
+                document.querySelectorAll('.swipe-inner').forEach(el => el !== swipingEl && (el.style.transform = ''));
+                swipingEl.style.transform = 'translateX(-80px)';
+            } else if (diffX < -30 && diffY < 40) {
+                swipingEl.style.transform = '';
+            }
+            swipingEl = null;
+        });
+
+        // Drag and Drop Logic (Mobile & Desktop)
+        let draggedEl = null;
+        UI.list.content.addEventListener('dragstart', (e) => {
+            if (state.selectedTag !== '전체') { e.preventDefault(); return; }
+            const handle = e.target.closest('.drag-handle');
+            if (!handle) { e.preventDefault(); return; }
+            draggedEl = e.target.closest('.list-item');
+            setTimeout(() => draggedEl.classList.add('dragging'), 0);
+        });
+        UI.list.content.addEventListener('dragend', () => draggedEl && draggedEl.classList.remove('dragging'));
+        UI.list.content.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const overEl = e.target.closest('.list-item');
+            if (overEl && overEl !== draggedEl) {
+                handleReorder(draggedEl.dataset.index, overEl.dataset.index);
+            }
+        });
+
+        UI.list.content.addEventListener('touchmove', (e) => {
+            if (state.selectedTag !== '전체') return;
+            const handle = e.target.closest('.drag-handle');
+            if (!handle) return;
+            e.preventDefault(); // prevent scroll
+            if (!draggedEl) draggedEl = e.target.closest('.list-item');
+
+            const touch = e.touches[0];
+            const elem = document.elementFromPoint(touch.clientX, touch.clientY);
+            const overEl = elem ? elem.closest('.list-item') : null;
+            if (overEl && overEl !== draggedEl) {
+                handleReorder(draggedEl.dataset.index, overEl.dataset.index);
+            }
+        }, {passive: false});
+
+        UI.list.content.addEventListener('touchend', (e) => {
+            if (e.target.closest('.drag-handle')) draggedEl = null;
+        });
+    }
+
+    function handleReorder(fromIdxStr, toIdxStr) {
+        if (!fromIdxStr || !toIdxStr || fromIdxStr === toIdxStr) return;
+        const fromIdx = parseInt(fromIdxStr, 10);
+        const toIdx = parseInt(toIdxStr, 10);
+
+        const activeItems = state.items.filter(i => i.status === 'active').sort((a,b) => a.order - b.order);
+        const dragged = activeItems[fromIdx];
+        activeItems.splice(fromIdx, 1);
+        activeItems.splice(toIdx, 0, dragged);
+
+        const updated = state.items.map(item => {
+            const foundIdx = activeItems.findIndex(ai => ai.id === item.id);
+            if (foundIdx !== -1) return { ...item, order: foundIdx };
+            return item;
+        });
+        syncItemsToCloud(updated); // This triggers re-render via snapshot or optimistcally
+    }
+
+    // Start App
+    init();
+
+</script>
+</body>
+</html>

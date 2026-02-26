@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>우아한테크코스 미로탈출</title>
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 기본 폰트 및 드래그 방지 */
+    body { font-family: 'Malgun Gothic', sans-serif; user-select: none; -webkit-user-select: none; }
+    canvas { image-rendering: pixelated; }
+  </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen bg-black overflow-x-hidden overflow-y-auto text-white p-2 sm:p-4">
+
+<!-- 게임 헤더 -->
+<div class="w-full max-w-[800px] bg-slate-900 p-4 border-b-4 border-sky-500 flex justify-between items-center rounded-t-xl z-10 shrink-0">
+  <h1 class="text-2xl font-black text-sky-400">🚀 우아한테크코스 미로탈출</h1>
+  <div id="game-header-info" class="hidden items-center gap-4">
+    <div id="level-name" class="bg-slate-800 px-4 py-1 rounded-md font-bold text-sky-300"></div>
+    <div class="bg-slate-800 px-4 py-1 rounded-md font-bold text-yellow-400 flex items-center gap-2">
+      <span>남은 별:</span>
+      <span id="star-count" class="text-xl">0</span>
+    </div>
+  </div>
+</div>
+
+<!-- 캔버스 및 오버레이 래퍼 -->
+<div class="relative border-4 border-slate-800 shadow-[0_0_40px_rgba(56,189,248,0.15)] bg-[#0f172a] w-full max-w-[800px]">
+  <canvas id="gameCanvas" width="800" height="600" class="block w-full h-auto object-contain"></canvas>
+
+  <!-- 시작 화면 -->
+  <div id="screen-start" class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center backdrop-blur-sm">
+    <h2 class="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-600">
+      우테코 미로 서바이벌
+    </h2>
+    <p class="text-xl mb-8 text-sky-100">벽을 피해 외계인을 따돌리고 수많은 별을 모으세요!</p>
+    <button id="btn-start" class="px-8 py-4 bg-sky-600 hover:bg-sky-500 font-bold rounded-full text-2xl transition-transform hover:scale-105">
+      11층 캠퍼스 입장
+    </button>
+  </div>
+
+  <!-- 미션 클리어 화면 -->
+  <div id="screen-success" class="absolute inset-0 bg-sky-900/90 hidden flex-col items-center justify-center backdrop-blur-md">
+    <div class="text-7xl mb-4">✨</div>
+    <h2 class="text-5xl font-black mb-4 text-white">미션 클리어!</h2>
+    <button id="btn-next" class="px-8 py-4 bg-white text-sky-900 font-bold rounded-full text-2xl transition-transform hover:scale-105">
+      다음 층으로 올라가기
+    </button>
+  </div>
+
+  <!-- 게임 오버 화면 -->
+  <div id="screen-gameover" class="absolute inset-0 bg-red-900/90 hidden flex-col items-center justify-center backdrop-blur-md">
+    <div class="text-8xl mb-4 animate-bounce">👾</div>
+    <h2 class="text-5xl font-black mb-4 text-white">외계인에게 잡혔습니다!</h2>
+    <button id="btn-retry" class="px-8 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-full text-2xl transition-transform hover:scale-105">
+      다시 도전하기
+    </button>
+  </div>
+
+  <!-- 엔딩 화면 -->
+  <div id="screen-ending" class="absolute inset-0 bg-gradient-to-b from-blue-900 to-black hidden flex-col items-center justify-center z-50">
+    <div class="text-8xl mb-6">🎓🚀</div>
+    <h2 class="text-5xl font-black mb-6 text-yellow-400">완벽 수료!</h2>
+    <p class="text-xl mb-12 text-center text-blue-200">우아한테크코스의 모든 미로를 돌파했습니다.</p>
+    <button id="btn-restart" class="px-8 py-4 bg-yellow-500 hover:bg-yellow-400 text-black font-black rounded-full text-2xl transition-transform hover:scale-105">
+      처음부터 다시하기
+    </button>
+  </div>
+</div>
+
+<!-- 모바일 컨트롤러 -->
+<div class="w-full max-w-[800px] bg-slate-900 p-6 rounded-b-xl flex justify-center lg:hidden shrink-0">
+  <div class="grid grid-cols-3 gap-3 w-48 h-48 sm:w-56 sm:h-56">
+    <div></div>
+    <button id="btnUp" class="bg-slate-700 rounded-xl active:bg-sky-500 text-4xl shadow-lg flex items-center justify-center pb-2">↑</button>
+    <div></div>
+    <button id="btnLeft" class="bg-slate-700 rounded-xl active:bg-sky-500 text-4xl shadow-lg flex items-center justify-center pb-2">←</button>
+    <button id="btnDown" class="bg-slate-700 rounded-xl active:bg-sky-500 text-4xl shadow-lg flex items-center justify-center pb-2">↓</button>
+    <button id="btnRight" class="bg-slate-700 rounded-xl active:bg-sky-500 text-4xl shadow-lg flex items-center justify-center pb-2">→</button>
+  </div>
+</div>
+
+<!-- 게임 로직 스크립트 -->
+<script>
+  // --- [게임 유틸리티] ---
+  const W_T = 6;
+
+  const makeRoom = (x, y, w, h, doors = []) => {
+    let walls = [];
+    let top = doors.find(d => d.side === 'top');
+    if(top) {
+      walls.push({x, y, w: top.pos, h: W_T});
+      walls.push({x: x+top.pos+top.size, y, w: w - top.pos - top.size + W_T, h: W_T});
+      if(top.isElevator) walls.push({x: x+top.pos, y, w: top.size, h: W_T, isElevator: true});
+    } else walls.push({x, y, w: w + W_T, h: W_T});
+
+    let bot = doors.find(d => d.side === 'bottom');
+    if(bot) {
+      walls.push({x, y: y+h, w: bot.pos, h: W_T});
+      walls.push({x: x+bot.pos+bot.size, y: y+h, w: w - bot.pos - bot.size + W_T, h: W_T});
+      if(bot.isElevator) walls.push({x: x+bot.pos, y: y+h, w: bot.size, h: W_T, isElevator: true});
+    } else walls.push({x, y: y+h, w: w + W_T, h: W_T});
+
+    let lft = doors.find(d => d.side === 'left');
+    if(lft) {
+      walls.push({x, y, w: W_T, h: lft.pos});
+      walls.push({x, y: y+lft.pos+lft.size, w: W_T, h: h - lft.pos - lft.size + W_T});
+      if(lft.isElevator) walls.push({x, y: y+lft.pos, w: W_T, h: lft.size, isElevator: true});
+    } else walls.push({x, y, w: W_T, h: h + W_T});
+
+    let rgt = doors.find(d => d.side === 'right');
+    if(rgt) {
+      walls.push({x: x+w, y, w: W_T, h: rgt.pos});
+      walls.push({x: x+w, y: y+rgt.pos+rgt.size, w: W_T, h: h - rgt.pos - rgt.size + W_T});
+      if(rgt.isElevator) walls.push({x: x+w, y: y+rgt.pos, w: W_T, h: rgt.size, isElevator: true});
+    } else walls.push({x: x+w, y, w: W_T, h: h + W_T});
+
+    return walls;
+  };
+
+  const line = (x, y, w, h) => [{x, y, w, h}];
+
+  // --- [게임 로직 유틸리티] ---
+  const isColliding = (px, py, size, walls, isDoorOpen) => {
+    const padding = 2;
+    for (let w of walls) {
+      if (w.isElevator && isDoorOpen) continue;
+      if (px + padding < w.x + w.w && px + size - padding > w.x && py + padding < w.y + w.h && py + size - padding > w.y) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const generateRandomStars = (count, levelData) => {
+    const newStars = [];
+    const walls = levelData.walls;
+    const starSize = 16; // 별의 대략적인 크기
+
+    while (newStars.length < count) {
+      const rx = Math.floor(Math.random() * 740) + 30; // 30 ~ 770 범위
+      const ry = Math.floor(Math.random() * 540) + 30; // 30 ~ 570 범위
+
+      // 1. 엘리베이터(출입구) 내부 생성 방지 (별을 다 먹기 전까진 닫혀있으므로 갇힘 방지)
+      if (rx > 260 && rx < 560 && ry > 210 && ry < 380) continue;
+
+      // 2. 13층 공사중인 라이브러리(접근 불가 구역) 예외 처리
+      if (levelData.level === 13 && rx < 470 && ry < 160) continue;
+
+      // 3. 우측 상단 데드존(공조실 등 벽으로 아예 막혀있는 구역) 예외 처리
+      if (levelData.level === 11 && rx > 740 && ry < 210) continue;
+      if (levelData.level === 12 && rx > 730 && ry < 210) continue;
+      if (levelData.level === 13 && rx > 680 && ry < 170) continue;
+
+      // 랜덤 좌표가 벽과 겹치지 않는 곳일 때만 별 추가
+      if (!isColliding(rx, ry, starSize, walls, false)) {
+        newStars.push({ x: rx, y: ry, active: true });
+      }
+    }
+    return newStars;
+  };
+
+  // --- [맵 데이터 설계] ---
+  const MAP_DATA = {
+    11: {
+      level: 11,
+      name: "11F : 여정의 시작",
+      playerStart: { x: 230, y: 30 },
+      monsterStart: { x: 700, y: 550 },
+      walls: [
+        ...line(0,0,800,W_T), ...line(0,594,800,W_T), ...line(0,0,W_T,600), ...line(794,0,W_T,600),
+        ...makeRoom(10, 10, 200, 360, [{side:'bottom', pos:150, size:50}]),
+        ...makeRoom(10, 410, 200, 180, [{side:'top', pos:150, size:50}]),
+        ...makeRoom(270, 220, 260, 150, [{side:'left', pos:55, size:40, isElevator: true}, {side:'right', pos:55, size:40, isElevator: true}]),
+        ...makeRoom(270, 410, 120, 180, [{side:'top', pos:70, size:50}]),
+        ...makeRoom(390, 410, 140, 180, [{side:'top', pos:20, size:50}]),
+        ...makeRoom(580, 410, 80, 180, [{side:'left', pos:20, size:50}]),
+
+        // 금성/수성 (위아래를 나누는 벽에 중앙 통로 확보)
+        ...makeRoom(550, 10, 80, 170, [{side:'bottom', pos:20, size:40}]),
+        ...line(550, 90, 20, W_T), ...line(610, 90, 20, W_T),
+
+        // 지구/화성 (위아래를 나누는 벽에 중앙 통로 확보)
+        ...makeRoom(670, 10, 80, 170, [{side:'bottom', pos:20, size:40}]),
+        ...line(670, 90, 20, W_T), ...line(730, 90, 20, W_T),
+
+        ...line(760, 200, 40, W_T),
+        ...makeRoom(650, 240, 140, 110, [{side:'left', pos:35, size:40}]),
+
+        // 목/토/천 (수동 벽 생성으로 여러 개의 문 완벽 구현 및 통로 넓이 확보)
+        ...line(700, 390, 90, W_T), ...line(700, 590, 90, W_T), ...line(790, 390, W_T, 200),
+        ...line(700, 390, W_T, 20), ...line(700, 450, W_T, 20), ...line(700, 510, W_T, 20), ...line(700, 570, W_T, 20),
+        ...line(700, 450, 90, W_T), ...line(700, 520, 90, W_T)
+      ],
+      labels: [
+        { text: '큰 강의실', x: 110, y: 190 }, { text: '옆 강의실', x: 110, y: 500 },
+        { text: '코워킹 존', x: 400, y: 110 }, { text: '출입구\n(엘리베이터)', x: 400, y: 295 },
+        { text: '캔틴', x: 330, y: 500 }, { text: '코치룸', x: 460, y: 500 }, { text: '코치1', x: 620, y: 500 },
+        { text: '금성', x: 590, y: 50 }, { text: '수성', x: 590, y: 135 },
+        { text: '지구', x: 710, y: 50 }, { text: '화성', x: 710, y: 135 }, { text: '공조실', x: 775, y: 100 },
+        { text: '화장실', x: 720, y: 295 }, { text: '목성', x: 745, y: 420 }, { text: '토성', x: 745, y: 485 }, { text: '천왕성', x: 745, y: 555 }
+      ]
+    },
+    12: {
+      level: 12,
+      name: "12F : 지식의 탐구",
+      playerStart: { x: 250, y: 195 },
+      monsterStart: { x: 50, y: 500 },
+      walls: [
+        ...line(0,0,800,W_T), ...line(0,594,800,W_T), ...line(0,0,W_T,600), ...line(794,0,W_T,600),
+        ...makeRoom(10, 10, 450, 140, [{side:'bottom', pos:380, size:60}]),
+
+        // 페어룸 7~10 (수동 벽 생성으로 여러 개의 문 완벽 구현)
+        ...line(10, 190, 80, W_T), ...line(10, 370, 80, W_T), ...line(10, 190, W_T, 180),
+        ...line(90, 190, W_T, 30), ...line(90, 260, W_T, 40), ...line(90, 340, W_T, 30),
+        ...line(10, 250, 80, W_T), ...line(10, 310, 80, W_T),
+
+        // 나머지 벽 유지
+        ...line(240, 190, W_T, 180), ...line(90, 370, 150, W_T),
+        ...makeRoom(10, 410, 240, 180, [{side:'top', pos:180, size:50}]),
+        ...makeRoom(280, 220, 270, 140, [{side:'left', pos:50, size:40, isElevator: true}, {side:'right', pos:50, size:40, isElevator: true}]),
+        ...makeRoom(280, 410, 120, 180, [{side:'top', pos:60, size:50}]),
+        ...makeRoom(440, 410, 200, 180, [{side:'top', pos:20, size:50}]), ...line(440, 490, 80, W_T),
+
+        // 보이저/아폴로 (위아래를 나누는 벽에 중앙 통로 확보)
+        ...makeRoom(480, 10, 120, 140, [{side:'bottom', pos:20, size:40}]),
+        ...line(480, 80, 40, W_T), ...line(560, 80, 40, W_T),
+
+        // 디스커버리/허블 (위아래를 나누는 벽에 중앙 통로 확보)
+        ...makeRoom(620, 10, 120, 140, [{side:'bottom', pos:20, size:40}]),
+        ...line(620, 80, 40, W_T), ...line(700, 80, 40, W_T),
+
+        ...makeRoom(700, 200, 90, 160, [{side:'left', pos:60, size:40}]),
+        ...makeRoom(700, 400, 90, 190, [{side:'left', pos:30, size:40}])
+      ],
+      labels: [
+        { text: '라이브러리', x: 235, y: 80 }, { text: '페 7~10', x: 50, y: 280 },
+        { text: '코워킹 존', x: 165, y: 280 }, { text: '작은 강의실', x: 130, y: 500 },
+        { text: '출입구', x: 415, y: 290 }, { text: '캔틴', x: 340, y: 500 },
+        { text: '코치 2', x: 480, y: 450 }, { text: '코치룸', x: 540, y: 500 },
+        { text: '보이저', x: 540, y: 50 }, { text: '아폴로', x: 540, y: 120 },
+        { text: '디스.', x: 680, y: 50 }, { text: '허블', x: 680, y: 120 },
+        { text: '화장실', x: 745, y: 280 }, { text: '서버실', x: 745, y: 500 }
+      ]
+    },
+    13: {
+      level: 13,
+      name: "13F : 몰입과 수료",
+      playerStart: { x: 350, y: 400 },
+      monsterStart: { x: 700, y: 50 },
+      walls: [
+        ...line(0,0,800,W_T), ...line(0,594,800,W_T), ...line(0,0,W_T,600), ...line(794,0,W_T,600),
+        ...makeRoom(10, 10, 450, 140, []),
+        ...makeRoom(10, 190, 210, 400, [{side:'top', pos:150, size:50}]),
+        ...makeRoom(270, 220, 270, 140, [{side:'left', pos:50, size:40, isElevator: true}, {side:'right', pos:50, size:40, isElevator: true}]),
+        ...makeRoom(480, 10, 190, 140, [{side:'bottom', pos:80, size:40}]),
+        ...line(690, 150, 100, W_T),
+        ...makeRoom(640, 200, 150, 160, [{side:'left', pos:60, size:40}]),
+        ...makeRoom(460, 400, 220, 190, [{side:'top', pos:80, size:60}]),
+        ...line(460, 520, 220, W_T), ...line(510, 520, W_T, 80), ...line(560, 520, W_T, 80), ...line(620, 520, W_T, 80),
+
+        // 은하수/스튜디오 (수동 벽 생성 및 진입 통로 넓이 확보)
+        ...line(720, 400, 70, W_T), ...line(720, 590, 70, W_T), ...line(790, 400, W_T, 190),
+        ...line(720, 400, W_T, 20), ...line(720, 460, W_T, 40), ...line(720, 540, W_T, 50),
+        ...line(720, 490, 70, W_T)
+      ],
+      labels: [
+        { text: '라이브러리 (접근불가)', x: 235, y: 80 }, { text: '스타트랙', x: 115, y: 380 },
+        { text: '코워킹 존', x: 360, y: 480 }, { text: '출입구', x: 405, y: 290 },
+        { text: '안드로메다같은 방', x: 575, y: 80 }, { text: '공조실', x: 745, y: 80 },
+        { text: '화장실', x: 715, y: 280 }, { text: '포커스 존', x: 570, y: 450 },
+        { text: '은하수', x: 755, y: 445 }, { text: '스튜디오', x: 755, y: 545 }
+      ]
+    }
+  };
+
+  // --- [상태 및 변수 초기화] ---
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  let gameState = 'START';
+  let currentLevel = 11;
+  let stars = [];
+  let player = { x: 0, y: 0, size: 20, speed: 5 };
+  let monster = { x: 0, y: 0, size: 22, speed: 2.5 };
+  let keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, w: false, a: false, s: false, d: false };
+  let animationFrameId;
+
+  // --- [UI 및 렌더링 함수] ---
+  const updateUI = () => {
+    const activeStars = stars.filter(s => s.active).length;
+    document.getElementById('star-count').innerText = activeStars;
+    document.getElementById('level-name').innerText = MAP_DATA[currentLevel].name;
+
+    // 스크린 표시/숨김
+    document.getElementById('screen-start').style.display = gameState === 'START' ? 'flex' : 'none';
+    document.getElementById('screen-success').style.display = gameState === 'SUCCESS' ? 'flex' : 'none';
+    document.getElementById('screen-gameover').style.display = gameState === 'GAMEOVER' ? 'flex' : 'none';
+    document.getElementById('screen-ending').style.display = gameState === 'ENDING' ? 'flex' : 'none';
+    document.getElementById('game-header-info').style.display = gameState === 'PLAYING' ? 'flex' : 'none';
+
+    // 다음 층 버튼 텍스트
+    if (gameState === 'SUCCESS' && currentLevel < 13) {
+      document.getElementById('btn-next').innerText = `${currentLevel + 1}층으로 올라가기`;
+    }
+  };
+
+  const setGameState = (state) => {
+    gameState = state;
+    updateUI();
+    if (state === 'PLAYING') {
+      initLevel(currentLevel);
+    }
+  };
+
+  const initLevel = (level) => {
+    const data = MAP_DATA[level];
+    player.x = data.playerStart.x;
+    player.y = data.playerStart.y;
+    monster.x = data.monsterStart.x;
+    monster.y = data.monsterStart.y;
+    monster.speed = 2.2 + (level - 11) * 0.4;
+
+    // 기존 하드코딩 배열 대신, 맵마다 80개의 별을 랜덤 위치에 생성합니다.
+    stars = generateRandomStars(80, data);
+    for (let k in keys) keys[k] = false;
+    updateUI();
+  };
+
+  // --- [게임 로직] ---
+  const update = () => {
+    const activeStarsCount = stars.filter(s => s.active).length;
+    const isDoorOpen = activeStarsCount === 0;
+    const walls = MAP_DATA[currentLevel].walls;
+
+    // 플레이어 이동 로직
+    let dx = 0; let dy = 0;
+    if (keys.ArrowUp || keys.w) dy -= player.speed;
+    if (keys.ArrowDown || keys.s) dy += player.speed;
+    if (keys.ArrowLeft || keys.a) dx -= player.speed;
+    if (keys.ArrowRight || keys.d) dx += player.speed;
+
+    if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+
+    if (dx !== 0 && !isColliding(player.x + dx, player.y, player.size, walls, isDoorOpen)) player.x += dx;
+    if (dy !== 0 && !isColliding(player.x, player.y + dy, player.size, walls, isDoorOpen)) player.y += dy;
+
+    // 몬스터 AI 로직
+    let mx = Math.sign(player.x - monster.x) * monster.speed;
+    let my = Math.sign(player.y - monster.y) * monster.speed;
+
+    let canMoveX = mx !== 0 && !isColliding(monster.x + mx, monster.y, monster.size, walls, false);
+    let canMoveY = my !== 0 && !isColliding(monster.x, monster.y + my, monster.size, walls, false);
+
+    if (canMoveX && canMoveY) {
+      if (Math.abs(player.x - monster.x) > Math.abs(player.y - monster.y)) monster.x += mx;
+      else monster.y += my;
+    } else if (canMoveX) monster.x += mx;
+    else if (canMoveY) monster.y += my;
+    else {
+      monster.x += (Math.random() - 0.5) * monster.speed * 2;
+      monster.y += (Math.random() - 0.5) * monster.speed * 2;
+    }
+
+    // 충돌(게임 오버) 감지
+    const dist = Math.hypot(player.x - monster.x, player.y - monster.y);
+    if (dist < (player.size + monster.size) * 0.4) {
+      setGameState('GAMEOVER');
+      return;
+    }
+
+    // 별 획득 감지
+    let starEaten = false;
+    stars.forEach(star => {
+      if (star.active) {
+        if (player.x < star.x + 10 && player.x + player.size > star.x - 10 &&
+                player.y < star.y + 10 && player.y + player.size > star.y - 10) {
+          star.active = false;
+          starEaten = true;
+        }
+      }
+    });
+
+    if (starEaten) updateUI();
+
+    // 다음 층 이동 검사
+    if (stars.filter(s => s.active).length === 0) {
+      if (player.x > 280 && player.x < 500 && player.y > 230 && player.y < 350) {
+        if (currentLevel < 13) setGameState('SUCCESS');
+        else setGameState('ENDING');
+      }
+    }
+  };
+
+  const draw = () => {
+    const data = MAP_DATA[currentLevel];
+    const activeStarsCount = stars.filter(s => s.active).length;
+    const isDoorOpen = activeStarsCount === 0;
+
+    // 배경
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, 800, 600);
+
+    if (currentLevel === 13) {
+      ctx.strokeStyle = 'rgba(100, 116, 139, 0.3)';
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(10, 10); ctx.lineTo(460, 150); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(460, 10); ctx.lineTo(10, 150); ctx.stroke();
+    }
+
+    // 벽 (네온 효과)
+    ctx.shadowBlur = 10;
+    data.walls.forEach(w => {
+      if (w.isElevator) {
+        ctx.fillStyle = isDoorOpen ? 'rgba(74, 222, 128, 0.1)' : '#ef4444';
+        ctx.shadowColor = isDoorOpen ? 'transparent' : '#ef4444';
+      } else {
+        ctx.fillStyle = '#38bdf8';
+        ctx.shadowColor = '#38bdf8';
+      }
+      ctx.fillRect(w.x, w.y, w.w, w.h);
+    });
+    ctx.shadowBlur = 0;
+
+    // 라벨
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
+    ctx.font = 'bold 16px "Malgun Gothic", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    data.labels.forEach(lbl => {
+      const lines = lbl.text.split('\n');
+      lines.forEach((line, index) => {
+        ctx.fillText(line, lbl.x, lbl.y + (index * 20));
+      });
+    });
+
+    // 엘리베이터 바닥
+    ctx.fillStyle = isDoorOpen ? 'rgba(74, 222, 128, 0.2)' : 'rgba(239, 68, 68, 0.1)';
+    ctx.fillRect(320, 240, 160, 100);
+    ctx.fillStyle = isDoorOpen ? '#4ade80' : '#ef4444';
+    ctx.fillText(isDoorOpen ? "🚀 다음 층으로!" : `별 ${activeStarsCount}개 필요`, 400, 290);
+
+    // 별
+    ctx.font = '16px Arial';
+    stars.forEach(star => {
+      if (star.active) {
+        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(Date.now() / 150 + star.x);
+        ctx.fillText('⭐', star.x, star.y);
+      }
+    });
+    ctx.globalAlpha = 1.0;
+
+    // 캐릭터들
+    ctx.font = '24px Arial';
+    ctx.fillText('🚀', player.x + player.size/2, player.y + player.size/2 + 2);
+
+    ctx.font = '28px Arial';
+    ctx.fillText('👾', monster.x + monster.size/2, monster.y + monster.size/2 + 2);
+  };
+
+  const gameLoop = () => {
+    if (gameState === 'PLAYING') {
+      update();
+      draw();
+    }
+    animationFrameId = requestAnimationFrame(gameLoop);
+  };
+
+  // --- [이벤트 리스너 및 버튼 바인딩] ---
+  window.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+    if (keys.hasOwnProperty(key)) keys[key] = true;
+  });
+
+  window.addEventListener('keyup', (e) => {
+    const key = e.key.toLowerCase();
+    if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+    if (keys.hasOwnProperty(key)) keys[key] = false;
+  });
+
+  // 모바일 버튼 설정
+  const setupMobileButton = (id, keyBind) => {
+    const btn = document.getElementById(id);
+    btn.addEventListener('pointerdown', () => keys[keyBind] = true);
+    btn.addEventListener('pointerup', () => keys[keyBind] = false);
+    btn.addEventListener('pointerleave', () => keys[keyBind] = false);
+  };
+  setupMobileButton('btnUp', 'ArrowUp');
+  setupMobileButton('btnDown', 'ArrowDown');
+  setupMobileButton('btnLeft', 'ArrowLeft');
+  setupMobileButton('btnRight', 'ArrowRight');
+
+  // 상태 제어 버튼 설정
+  document.getElementById('btn-start').addEventListener('click', () => { currentLevel = 11; setGameState('PLAYING'); });
+  document.getElementById('btn-next').addEventListener('click', () => { currentLevel++; setGameState('PLAYING'); });
+  document.getElementById('btn-retry').addEventListener('click', () => setGameState('PLAYING'));
+  document.getElementById('btn-restart').addEventListener('click', () => { currentLevel = 11; setGameState('START'); });
+
+  // 초기 시작점
+  updateUI();
+  gameLoop(); // 백그라운드 루프 실행
+</script>
+</body>
+</html>

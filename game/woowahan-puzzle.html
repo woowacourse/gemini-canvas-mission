@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사천성 게임</title>
+    <style>
+        :root {
+            --bg-color: #f0f4f8;
+            --board-bg: #e2e8f0;
+            --tile-bg: #ffffff;
+            --tile-border: #cbd5e1;
+            --tile-shadow: rgba(0, 0, 0, 0.1);
+            --primary-color: #3b82f6;
+            --primary-hover: #2563eb;
+            --text-color: #1e293b;
+            --success-color: #10b981;
+            --cell-size: 50px;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            margin-top: 0;
+            color: #0f172a;
+        }
+
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px var(--tile-shadow);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="number"] {
+            width: 70px;
+            padding: 8px;
+            border: 1px solid var(--tile-border);
+            border-radius: 6px;
+            font-size: 16px;
+            text-align: center;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        button.secondary {
+            background-color: #64748b;
+        }
+
+        button.secondary:hover {
+            background-color: #475569;
+        }
+
+        .status-board {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: var(--primary-color);
+            height: 24px;
+        }
+
+        #game-wrapper {
+            position: relative;
+            background-color: var(--board-bg);
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+            display: inline-block;
+        }
+
+        #board {
+            display: grid;
+            gap: 4px;
+            position: relative;
+            z-index: 10;
+        }
+
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 30px;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        .tile {
+            background-color: var(--tile-bg);
+            border: 2px solid var(--tile-border);
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px var(--tile-shadow);
+            transition: transform 0.1s, border-color 0.2s;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .tile:hover {
+            transform: translateY(-2px);
+            border-color: #94a3b8;
+        }
+
+        .tile.selected {
+            border-color: var(--primary-color);
+            background-color: #eff6ff;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+            transform: scale(1.05);
+            z-index: 20;
+        }
+
+        .tile.empty {
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        #svg-layer {
+            position: absolute;
+            top: 10px; /* game-wrapper padding */
+            left: 10px;
+            width: calc(100% - 20px);
+            height: calc(100% - 20px);
+            pointer-events: none;
+            z-index: 30;
+        }
+
+        polyline {
+            fill: none;
+            stroke: #ef4444; /* Red path */
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2));
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: drawPath 0.3s forwards;
+        }
+
+        @keyframes drawPath {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        #message-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 12px;
+            z-index: 50;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        #message-overlay.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        #message-overlay h2 {
+            color: var(--success-color);
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        /* 반응형: 화면이 작을 때 셀 크기 줄이기 */
+        @media (max-width: 600px) {
+            :root {
+                --cell-size: 40px;
+            }
+            .cell {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>사천성 게임 🧩</h1>
+
+    <div class="controls">
+        <div class="input-group">
+            <label for="tile-count">타일 개수 (2~50 짝수):</label>
+            <input type="number" id="tile-count" min="2" max="50" step="2" value="20">
+        </div>
+        <div class="input-group">
+            <label for="time-limit">제한 시간(초, 0=무제한):</label>
+            <input type="number" id="time-limit" min="0" max="300" step="10" value="60">
+        </div>
+        <button onclick="startGame()">새 게임 시작</button>
+        <button class="secondary" onclick="shuffleRemaining()">타일 섞기</button>
+    </div>
+
+    <div class="status-board">
+        <span id="status-text">설정을 완료하고 게임을 시작하세요.</span>
+        <span id="timer-display" style="margin-left: 20px;"></span>
+    </div>
+
+    <div id="game-wrapper" style="display: none;">
+        <div id="board"></div>
+        <svg id="svg-layer">
+            <polyline id="path-line" points=""></polyline>
+        </svg>
+        <div id="message-overlay">
+            <h2>게임 클리어! 🎉</h2>
+            <p>모든 타일을 제거했습니다.</p>
+            <button onclick="startGame()" style="margin-top: 15px;">다시 하기</button>
+        </div>
+    </div>
+
+    <script>
+        const EMOJIS = ['🍎','🍊','🍇','🍉','🍓','🍒','🍑','🍍','🥝','🍅','🍆','🥑','🥦','🌽','🥕','🍄','🍔','🍟','🍕','🌭','🍿','🍩','🍪','🍬','🍭'];
+        
+        let board = [];
+        let cols = 0;
+        let rows = 0;
+        let tilesRemaining = 0;
+        let selectedTile = null;
+        let isProcessing = false;
+
+        let timerInterval = null;
+        let timeRemaining = 0;
+        let isTimeAttack = false;
+
+        // DOM 요소
+        const boardEl = document.getElementById('board');
+        const gameWrapper = document.getElementById('game-wrapper');
+        const tileCountInput = document.getElementById('tile-count');
+        const statusText = document.getElementById('status-text');
+        let pathLine = document.getElementById('path-line');
+        const messageOverlay = document.getElementById('message-overlay');
+
+        function startGame() {
+            let count = parseInt(tileCountInput.value);
+            let timeLimit = parseInt(document.getElementById('time-limit').value);
+            
+            // 입력값 검증
+            if (isNaN(count) || count < 2) count = 2;
+            if (count > 50) count = 50;
+            if (count % 2 !== 0) count += 1;
+            if (count > 50) count = 50;
+            if (isNaN(timeLimit) || timeLimit < 0) timeLimit = 0;
+            
+            tileCountInput.value = count;
+            document.getElementById('time-limit').value = timeLimit;
+            
+            tilesRemaining = count;
+            selectedTile = null;
+            isProcessing = false;
+            
+            // 타이머 초기화
+            clearInterval(timerInterval);
+            if (timeLimit > 0) {
+                isTimeAttack = true;
+                timeRemaining = timeLimit;
+                updateTimerDisplay();
+                timerInterval = setInterval(timerTick, 1000);
+            } else {
+                isTimeAttack = false;
+                document.getElementById('timer-display').innerText = "시간 제한: 없음";
+                document.getElementById('timer-display').style.color = '';
+            }
+
+            messageOverlay.classList.remove('show');
+            pathLine.setAttribute('points', '');
+
+            // 그리드 차원 계산 (루트를 활용해 최대한 정사각형에 가깝게)
+            cols = Math.ceil(Math.sqrt(count));
+            rows = Math.ceil(count / cols);
+
+            initBoardArray();
+            populateBoard(count);
+            renderBoard();
+            
+            gameWrapper.style.display = 'inline-block';
+            updateStatusText();
+        }
+
+        // 2차원 배열 초기화 (상하좌우에 빈 공간(0)을 1칸씩 추가하여 바깥쪽 우회 경로 완벽 지원)
+        function initBoardArray() {
+            board = [];
+            for (let y = 0; y <= rows + 1; y++) {
+                board[y] = [];
+                for (let x = 0; x <= cols + 1; x++) {
+                    board[y][x] = 0; 
+                }
+            }
+        }
+
+        function populateBoard(count) {
+            let pairTypes = [];
+            const numPairs = count / 2;
+            for (let i = 0; i < numPairs; i++) {
+                pairTypes.push(EMOJIS[i % EMOJIS.length]);
+            }
+            placePairsSolvably(pairTypes, false);
+        }
+
+        // 데드락 방지를 위한 '역방향 생성(Reverse Generation)' 알고리즘
+        function placePairsSolvably(pairTypes, preserveShape) {
+            let maxRetries = 150;
+            let originalShape = [];
+            
+            for (let y = 1; y <= rows; y++) {
+                for (let x = 1; x <= cols; x++) {
+                    if (!preserveShape || board[y][x] !== 0) {
+                        originalShape.push({x, y});
+                    }
+                }
+            }
+
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                // 공간 비우기
+                for (let p of originalShape) {
+                    board[p.y][p.x] = 0;
+                }
+
+                let pairsToPlace = [...pairTypes];
+                pairsToPlace.sort(() => Math.random() - 0.5);
+
+                let success = true;
+                let filledCells = new Set();
+
+                for (let tile of pairsToPlace) {
+                    let availableCells = originalShape.filter(p => !filledCells.has(`${p.x},${p.y}`));
+                    let validPairs = [];
+
+                    for (let c1 = 0; c1 < availableCells.length; c1++) {
+                        for (let c2 = c1 + 1; c2 < availableCells.length; c2++) {
+                            let p1 = availableCells[c1];
+                            let p2 = availableCells[c2];
+                            // 빈 공간들끼리 서로 연결되는지 확인
+                            if (findPath(p1.x, p1.y, p2.x, p2.y) !== null) {
+                                validPairs.push([p1, p2]);
+                            }
+                        }
+                    }
+
+                    if (validPairs.length === 0) {
+                        success = false;
+                        break;
+                    }
+
+                    let chosenPair = validPairs[Math.floor(Math.random() * validPairs.length)];
+                    board[chosenPair[0].y][chosenPair[0].x] = tile;
+                    board[chosenPair[1].y][chosenPair[1].x] = tile;
+                    filledCells.add(`${chosenPair[0].x},${chosenPair[0].y}`);
+                    filledCells.add(`${chosenPair[1].x},${chosenPair[1].y}`);
+                }
+
+                if (success) {
+                    return true;
+                }
+            }
+            
+            console.warn("완벽한 쌍 배치를 실패했습니다. 랜덤 배치로 전환합니다.");
+            let activeTiles = [];
+            for(let p of pairTypes) { activeTiles.push(p, p); }
+            activeTiles.sort(() => Math.random() - 0.5);
+            let idx = 0;
+            for(let p of originalShape) {
+                board[p.y][p.x] = activeTiles[idx++];
+            }
+            return false;
+        }
+
+        function renderBoard() {
+            boardEl.innerHTML = '';
+            // 외곽 마진 셀 포함 (cols + 2)
+            boardEl.style.gridTemplateColumns = `repeat(${cols + 2}, var(--cell-size))`;
+            boardEl.style.gridTemplateRows = `repeat(${rows + 2}, var(--cell-size))`;
+
+            for (let y = 0; y <= rows + 1; y++) {
+                for (let x = 0; x <= cols + 1; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${y}-${x}`;
+                    
+                    // 외곽 마진이거나, 내부라도 데이터가 0이면 빈 공간
+                    const tileVal = board[y][x];
+                    if (tileVal !== 0 && y > 0 && y <= rows && x > 0 && x <= cols) {
+                        const tileInner = document.createElement('div');
+                        tileInner.className = 'tile';
+                        tileInner.innerText = tileVal;
+                        tileInner.onclick = () => handleTileClick(x, y);
+                        cell.appendChild(tileInner);
+                    }
+                    boardEl.appendChild(cell);
+                }
+            }
+        }
+
+        function shuffleRemaining() {
+            if (isProcessing || tilesRemaining === 0) return;
+            
+            let remainingCounts = {};
+            for (let y = 1; y <= rows; y++) {
+                for (let x = 1; x <= cols; x++) {
+                    let t = board[y][x];
+                    if (t !== 0) {
+                        remainingCounts[t] = (remainingCounts[t] || 0) + 1;
+                    }
+                }
+            }
+            
+            let pairTypes = [];
+            for (let t in remainingCounts) {
+                let pairs = remainingCounts[t] / 2;
+                for (let i = 0; i < pairs; i++) {
+                    pairTypes.push(t);
+                }
+            }
+            
+            // 기존 타일 모양(Shape)을 유지한 채 100% 해결 가능한 상태로 재배치
+            placePairsSolvably(pairTypes, true);
+            
+            for (let y = 1; y <= rows; y++) {
+                for (let x = 1; x <= cols; x++) {
+                    const cell = document.getElementById(`cell-${y}-${x}`);
+                    cell.innerHTML = ''; 
+                    
+                    if (board[y][x] !== 0) {
+                        const tileInner = document.createElement('div');
+                        tileInner.className = 'tile';
+                        tileInner.innerText = board[y][x];
+                        tileInner.onclick = () => handleTileClick(x, y);
+                        cell.appendChild(tileInner);
+                    }
+                }
+            }
+            
+            selectedTile = null;
+            clearSelectionUI();
+        }
+
+        function handleTileClick(x, y) {
+            if (isProcessing) return;
+            if (board[y][x] === 0) return;
+
+            if (selectedTile && selectedTile.x === x && selectedTile.y === y) {
+                selectedTile = null;
+                clearSelectionUI();
+                return;
+            }
+
+            if (selectedTile) {
+                const prevX = selectedTile.x;
+                const prevY = selectedTile.y;
+                
+                if (board[prevY][prevX] === board[y][x]) {
+                    const path = findPath(prevX, prevY, x, y);
+                    
+                    if (path) {
+                        isProcessing = true;
+                        drawPath(path);
+                        
+                        setTimeout(() => {
+                            removeTiles(prevX, prevY, x, y);
+                        }, 300);
+                    } else {
+                        changeSelection(x, y);
+                    }
+                } else {
+                    changeSelection(x, y);
+                }
+            } else {
+                changeSelection(x, y);
+            }
+        }
+
+        function changeSelection(x, y) {
+            clearSelectionUI();
+            selectedTile = { x, y };
+            const cellEl = document.getElementById(`cell-${y}-${x}`);
+            if (cellEl && cellEl.firstElementChild) {
+                cellEl.firstElementChild.classList.add('selected');
+            }
+        }
+
+        function clearSelectionUI() {
+            const selectedEls = document.querySelectorAll('.tile.selected');
+            selectedEls.forEach(el => el.classList.remove('selected'));
+        }
+
+        function removeTiles(x1, y1, x2, y2) {
+            board[y1][x1] = 0;
+            board[y2][x2] = 0;
+
+            const el1 = document.getElementById(`cell-${y1}-${x1}`).firstElementChild;
+            const el2 = document.getElementById(`cell-${y2}-${x2}`).firstElementChild;
+            
+            if (el1) {
+                el1.classList.remove('selected');
+                el1.classList.add('empty');
+            }
+            if (el2) {
+                el2.classList.remove('selected');
+                el2.classList.add('empty');
+            }
+
+            pathLine.setAttribute('points', '');
+            selectedTile = null;
+            tilesRemaining -= 2;
+            updateStatusText();
+            isProcessing = false;
+
+            if (tilesRemaining === 0) {
+                clearInterval(timerInterval);
+                messageOverlay.innerHTML = `
+                    <h2 style="color: var(--success-color);">게임 클리어! 🎉</h2>
+                    <p>모든 타일을 제거했습니다.</p>
+                    <button onclick="startGame()" style="margin-top: 15px;">다시 하기</button>
+                `;
+                messageOverlay.classList.add('show');
+            }
+        }
+
+        function updateStatusText() {
+            statusText.innerText = `남은 타일: ${tilesRemaining}개`;
+        }
+
+        // ==== 전면 개편된 명시적 경로 탐색 알고리즘 ====
+
+        // 두 점 사이의 직선 경로에 장애물이 없는지 확인 (양 끝점은 제외하고 중간만 검사)
+        function isLineClear(x1, y1, x2, y2) {
+            if (x1 !== x2 && y1 !== y2) return false; // 직선이 아님
+            
+            if (x1 === x2) {
+                const yMin = Math.min(y1, y2);
+                const yMax = Math.max(y1, y2);
+                for (let y = yMin + 1; y < yMax; y++) {
+                    if (board[y][x1] !== 0) return false;
+                }
+            } else {
+                const xMin = Math.min(x1, x2);
+                const xMax = Math.max(x1, x2);
+                for (let x = xMin + 1; x < xMax; x++) {
+                    if (board[y1][x] !== 0) return false;
+                }
+            }
+            return true;
+        }
+
+        // 출발지(x1,y1)에서 목적지(x2,y2)로 최대 2번 꺾어 갈 수 있는지 탐색
+        function findPath(x1, y1, x2, y2) {
+            // 0번 꺾임 (직선 연결)
+            if (isLineClear(x1, y1, x2, y2)) {
+                return [{x: x1, y: y1}, {x: x2, y: y2}];
+            }
+
+            // 1번 꺾임 (ㄱ 혹은 ㄴ 모양 연결)
+            // 코너 1: (x1, y2)
+            if (board[y2][x1] === 0 && isLineClear(x1, y1, x1, y2) && isLineClear(x1, y2, x2, y2)) {
+                return [{x: x1, y: y1}, {x: x1, y: y2}, {x: x2, y: y2}];
+            }
+            // 코너 2: (x2, y1)
+            if (board[y1][x2] === 0 && isLineClear(x1, y1, x2, y1) && isLineClear(x2, y1, x2, y2)) {
+                return [{x: x1, y: y1}, {x: x2, y: y1}, {x: x2, y: y2}];
+            }
+
+            // 2번 꺾임 (ㄷ, ㄹ 모양 및 바깥 테두리 우회)
+            // 1. 중간 선분이 가로축(수평)인 경우 (위/아래 테두리 우회 포함)
+            for (let y = 0; y <= rows + 1; y++) {
+                if (y !== y1 && y !== y2) { // 0, 1번 꺾임은 이미 검사했으므로 제외
+                    if (board[y][x1] === 0 && board[y][x2] === 0) { // 두 코너가 비어있어야 함
+                        if (isLineClear(x1, y1, x1, y) && isLineClear(x1, y, x2, y) && isLineClear(x2, y, x2, y2)) {
+                            return [{x: x1, y: y1}, {x: x1, y: y}, {x: x2, y: y}, {x: x2, y: y2}];
+                        }
+                    }
+                }
+            }
+
+            // 2. 중간 선분이 세로축(수직)인 경우 (좌/우 테두리 우회 포함)
+            for (let x = 0; x <= cols + 1; x++) {
+                if (x !== x1 && x !== x2) {
+                    if (board[y1][x] === 0 && board[y2][x] === 0) { // 두 코너가 비어있어야 함
+                        if (isLineClear(x1, y1, x, y1) && isLineClear(x, y1, x, y2) && isLineClear(x, y2, x2, y2)) {
+                            return [{x: x1, y: y1}, {x: x, y: y1}, {x: x, y: y2}, {x: x2, y: y2}];
+                        }
+                    }
+                }
+            }
+
+            return null; // 연결 불가
+        }
+
+        function drawPath(pathPoints) {
+            const pointsStr = pathPoints.map(p => {
+                const cell = document.getElementById(`cell-${p.y}-${p.x}`);
+                const cx = cell.offsetLeft + cell.offsetWidth / 2;
+                const cy = cell.offsetTop + cell.offsetHeight / 2;
+                return `${cx},${cy}`;
+            }).join(' ');
+
+            const newPolyline = pathLine.cloneNode(true);
+            newPolyline.setAttribute('points', pointsStr);
+            pathLine.parentNode.replaceChild(newPolyline, pathLine);
+            
+            pathLine = newPolyline;
+        }
+
+        // 타이머 관련 함수
+        function timerTick() {
+            timeRemaining--;
+            updateTimerDisplay();
+            
+            if (timeRemaining <= 0) {
+                clearInterval(timerInterval);
+                isProcessing = true; // 게임 오버 시 클릭 방지
+                messageOverlay.innerHTML = `
+                    <h2 style="color: #ef4444;">타임 오버! ⏰</h2>
+                    <p>시간이 다 되었습니다.</p>
+                    <button onclick="startGame()" style="margin-top: 15px;">다시 하기</button>
+                `;
+                messageOverlay.classList.add('show');
+            }
+        }
+
+        function updateTimerDisplay() {
+            const timerDisplay = document.getElementById('timer-display');
+            if (isTimeAttack) {
+                timerDisplay.innerText = `남은 시간: ${timeRemaining}초`;
+                if (timeRemaining <= 10) {
+                    timerDisplay.style.color = '#ef4444'; // 10초 이하면 빨간색 경고
+                } else {
+                    timerDisplay.style.color = '';
+                }
+            }
+        }
+        
+    </script>
+</body>
+</html>

@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>꼬박꼬박 - 영양제 & 물 습관 관리</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body {
+            font-family: 'Pretendard', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(2px);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        
+        /* 숨겨진 DatePicker (텍스트 위에 오버레이용) */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased">
+
+    <!-- Main App Container -->
+    <div class="max-w-md mx-auto bg-white min-h-screen shadow-lg relative pb-20">
+        
+        <!-- Header with Calendar Navigation -->
+        <header class="pt-8 pb-4 px-6 bg-white sticky top-0 z-40 border-b border-slate-100 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800 mb-1">꼬박꼬박</h1>
+                
+                <!-- Date Navigation -->
+                <div class="flex items-center gap-2">
+                    <button onclick="changeDate(-1)" class="p-1 -ml-1 text-slate-400 hover:text-slate-700 transition rounded-full hover:bg-slate-50 active:scale-95">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                    </button>
+                    
+                    <div class="relative flex items-center gap-1 cursor-pointer group px-2 py-1 rounded-lg hover:bg-blue-50 transition">
+                        <svg class="w-4 h-4 text-slate-400 group-hover:text-blue-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        <span id="currentDateDisplay" class="text-sm font-bold text-slate-600 group-hover:text-blue-600 transition">날짜 로딩중...</span>
+                        <input type="date" id="datePicker" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" onchange="handleDateSelect(event)">
+                    </div>
+
+                    <button onclick="changeDate(1)" class="p-1 text-slate-400 hover:text-slate-700 transition rounded-full hover:bg-slate-50 active:scale-95">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="p-6 space-y-6">
+            
+            <!-- Water Tracker Section -->
+            <section class="bg-blue-50 rounded-3xl p-6 border border-blue-100 relative overflow-hidden">
+                <div class="flex justify-between items-center mb-4 relative z-10">
+                    <h2 class="text-lg font-bold text-blue-900 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12.5V10c0-4.418-4.03-8-9-8s-9 3.582-9 8v2.5c0 4.418 4.03 8 9 8s9-3.582 9-8z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 22v-3"></path></svg>
+                        수분 섭취량
+                    </h2>
+                    <button id="btnEditWaterGoal" onclick="openWaterGoalModal()" class="text-xs text-blue-600 bg-blue-100 px-3 py-1.5 rounded-full font-medium hover:bg-blue-200 transition">
+                        목표 수정
+                    </button>
+                </div>
+
+                <div class="flex justify-between items-end mb-3 relative z-10">
+                    <div class="flex items-end gap-2">
+                        <span class="text-4xl font-extrabold text-blue-600" id="waterCurrentDisplay">0</span>
+                        <span class="text-slate-500 font-medium mb-1">/ <span id="waterGoalDisplay">2000</span> ml</span>
+                    </div>
+                    <!-- 목표 달성 축하 메시지 (기본 숨김) -->
+                    <div id="waterSuccessMsg" class="hidden text-sm font-bold text-teal-600 bg-teal-50 px-3 py-1.5 rounded-full mb-1 animate-pulse flex items-center gap-1 border border-teal-100 shadow-sm">
+                        <span>🎉</span> 목표 달성!
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="h-3 w-full bg-blue-100 rounded-full overflow-hidden mb-5 relative z-10">
+                    <div id="waterProgressBar" class="h-full bg-blue-500 transition-all duration-500 ease-out" style="width: 0%;"></div>
+                </div>
+
+                <!-- Quick Add Buttons -->
+                <div id="waterActionButtons" class="grid grid-cols-3 gap-2 relative z-10">
+                    <button onclick="addWater(100)" class="py-2 bg-white rounded-xl text-sm font-medium text-blue-700 shadow-sm border border-blue-100 hover:bg-blue-50 active:scale-95 transition">+100ml</button>
+                    <button onclick="addWater(250)" class="py-2 bg-white rounded-xl text-sm font-medium text-blue-700 shadow-sm border border-blue-100 hover:bg-blue-50 active:scale-95 transition">+250ml</button>
+                    <button onclick="openWaterCustomModal()" class="py-2 bg-white rounded-xl text-sm font-medium text-blue-700 shadow-sm border border-blue-100 hover:bg-blue-50 active:scale-95 transition">직접입력</button>
+                </div>
+            </section>
+
+            <!-- Supplements Section -->
+            <section>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-bold text-slate-800">영양제 & 약 복용</h2>
+                    <button id="btnAddSupplement" onclick="openSupplementModal('add')" class="text-sm text-white bg-slate-800 px-4 py-2 rounded-xl font-medium hover:bg-slate-700 active:scale-95 transition flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        추가
+                    </button>
+                </div>
+
+                <!-- Timeline / Categories -->
+                <div id="supplementsTimeline" class="space-y-4">
+                    <!-- Morning -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="bg-orange-50 px-4 py-3 border-b border-orange-100 flex items-center gap-2">
+                            <span class="text-orange-500 text-lg">🌅</span>
+                            <h3 class="font-bold text-orange-900">아침</h3>
+                        </div>
+                        <ul id="list-morning" class="divide-y divide-slate-100 px-2">
+                            <!-- Items injected here -->
+                        </ul>
+                    </div>
+
+                    <!-- Lunch -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="bg-yellow-50 px-4 py-3 border-b border-yellow-100 flex items-center gap-2">
+                            <span class="text-yellow-500 text-lg">☀️</span>
+                            <h3 class="font-bold text-yellow-900">점심</h3>
+                        </div>
+                        <ul id="list-lunch" class="divide-y divide-slate-100 px-2">
+                             <!-- Items injected here -->
+                        </ul>
+                    </div>
+
+                    <!-- Dinner -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="bg-indigo-50 px-4 py-3 border-b border-indigo-100 flex items-center gap-2">
+                            <span class="text-indigo-500 text-lg">🌙</span>
+                            <h3 class="font-bold text-indigo-900">저녁</h3>
+                        </div>
+                        <ul id="list-dinner" class="divide-y divide-slate-100 px-2">
+                             <!-- Items injected here -->
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Empty State Guide -->
+                <div id="supplementsEmptyState" class="hidden bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center mt-2">
+                    <div class="text-4xl mb-3">💊</div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">첫 영양제를 등록해보세요!</h3>
+                    <p class="text-sm text-slate-500 mb-6">매일 챙겨 먹는 영양제나 약을 등록하면<br>시간대별로 잊지 않고 관리할 수 있어요.</p>
+                    <button id="btnEmptyAddSupplement" onclick="openSupplementModal('add')" class="inline-flex items-center justify-center gap-2 bg-slate-800 text-white px-6 py-3 rounded-xl font-medium hover:bg-slate-700 transition active:scale-95">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        영양제 추가하기
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals (Hidden by default) -->
+    <!-- Supplement Modal (Add/Edit) -->
+    <div id="supplementModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl p-6 w-11/12 max-w-sm shadow-2xl transform scale-95 transition-transform duration-300">
+            <h3 id="suppModalTitle" class="text-xl font-bold text-slate-800 mb-5">영양제 등록</h3>
+            <input type="hidden" id="suppId">
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">복용 시간대</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="suppTime" value="morning" class="peer sr-only" checked>
+                            <div class="text-center py-2 px-3 rounded-xl border border-slate-200 peer-checked:bg-orange-100 peer-checked:border-orange-400 peer-checked:text-orange-700 transition">아침</div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="suppTime" value="lunch" class="peer sr-only">
+                            <div class="text-center py-2 px-3 rounded-xl border border-slate-200 peer-checked:bg-yellow-100 peer-checked:border-yellow-400 peer-checked:text-yellow-700 transition">점심</div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="suppTime" value="dinner" class="peer sr-only">
+                            <div class="text-center py-2 px-3 rounded-xl border border-slate-200 peer-checked:bg-indigo-100 peer-checked:border-indigo-400 peer-checked:text-indigo-700 transition">저녁</div>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">영양제 이름</label>
+                    <input type="text" id="suppName" placeholder="예: 비타민 C" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">1회 복용량</label>
+                    <input type="text" id="suppDosage" placeholder="예: 1알, 200mg" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-8">
+                <button onclick="closeModal('supplementModal')" class="flex-1 py-3 bg-slate-100 text-slate-600 font-medium rounded-xl hover:bg-slate-200 transition">취소</button>
+                <button onclick="saveSupplement()" class="flex-1 py-3 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-700 transition">저장하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Water Goal Modal -->
+    <div id="waterGoalModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl p-6 w-11/12 max-w-sm shadow-2xl transform scale-95 transition-transform duration-300">
+            <h3 class="text-xl font-bold text-slate-800 mb-2">목표 수분 섭취량</h3>
+            <p class="text-sm text-slate-500 mb-5">하루에 마실 목표량(ml)을 설정하세요.</p>
+            
+            <div class="relative">
+                <input type="number" id="waterGoalInput" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-bold text-center pr-12">
+                <span class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">ml</span>
+            </div>
+
+            <div class="flex gap-3 mt-8">
+                <button onclick="closeModal('waterGoalModal')" class="flex-1 py-3 bg-slate-100 text-slate-600 font-medium rounded-xl hover:bg-slate-200 transition">취소</button>
+                <button onclick="saveWaterGoal()" class="flex-1 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 transition">설정하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Water Add Modal -->
+    <div id="waterCustomModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl p-6 w-11/12 max-w-sm shadow-2xl transform scale-95 transition-transform duration-300">
+            <h3 class="text-xl font-bold text-slate-800 mb-2">수분 섭취 직접 입력</h3>
+            
+            <div class="relative mt-4">
+                <input type="number" id="waterCustomInput" placeholder="0" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-bold text-center pr-12">
+                <span class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">ml</span>
+            </div>
+
+            <div class="flex gap-3 mt-8">
+                <button onclick="closeModal('waterCustomModal')" class="flex-1 py-3 bg-slate-100 text-slate-600 font-medium rounded-xl hover:bg-slate-200 transition">취소</button>
+                <button onclick="saveCustomWater()" class="flex-1 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 transition">추가하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Confirmation Modal -->
+    <div id="confirmModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl p-6 w-11/12 max-w-sm shadow-2xl transform scale-95 transition-transform duration-300 text-center">
+            <div class="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </div>
+            <h3 class="text-xl font-bold text-slate-800 mb-2">정말 삭제하시겠습니까?</h3>
+            <p class="text-sm text-slate-500 mb-6">삭제된 기록은 복구할 수 없습니다.</p>
+            
+            <div class="flex gap-3">
+                <button onclick="closeModal('confirmModal')" class="flex-1 py-3 bg-slate-100 text-slate-600 font-medium rounded-xl hover:bg-slate-200 transition">취소</button>
+                <button id="confirmBtn" class="flex-1 py-3 bg-red-500 text-white font-medium rounded-xl hover:bg-red-600 transition">삭제</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Data & State Management (localStorage 적용) ---
+        
+        // 로컬 타임존 기준 YYYY-MM-DD 포맷 반환 함수
+        function getLocalYYYYMMDD(dateObj) {
+            const offset = dateObj.getTimezoneOffset() * 60000;
+            return (new Date(dateObj - offset)).toISOString().slice(0, 10);
+        }
+
+        const todayStr = getLocalYYYYMMDD(new Date());
+        let selectedDate = todayStr;
+        
+        // localStorage에서 전체 데이터 로드
+        let appData = JSON.parse(localStorage.getItem('kkobakData')) || {};
+
+        // 현재 선택된 날짜의 상태 (화면에 그려지는 데이터)
+        let state = {
+            water: { goal: 2000, current: 0 },
+            supplements: []
+        };
+
+        // --- Initialization ---
+        function init() {
+            loadDataForDate(selectedDate);
+        }
+
+        // --- Date & Calendar Logic ---
+        
+        function loadDataForDate(dateStr) {
+            if (appData[dateStr]) {
+                // 해당 날짜에 데이터가 있으면 복사해서 사용
+                state = JSON.parse(JSON.stringify(appData[dateStr]));
+            } else {
+                // 데이터가 없으면 과거 가장 최근 기록을 찾아 영양제 리스트와 물 목표량을 가져옴 (복용 여부는 false)
+                const recentDateStr = getMostRecentDate(dateStr);
+                if (recentDateStr && appData[recentDateStr]) {
+                    state = {
+                        water: { goal: appData[recentDateStr].water.goal, current: 0 },
+                        supplements: appData[recentDateStr].supplements.map(s => ({...s, taken: false}))
+                    };
+                } else {
+                    // 완전 최초 접속이거나 과거 기록이 하나도 없을 때
+                    state = { water: { goal: 2000, current: 0 }, supplements: [] };
+                }
+            }
+            
+            updateDateUI();
+            renderWater();
+            renderSupplements();
+        }
+
+        // 특정 날짜 이전의 가장 최근 기록 날짜 찾기
+        function getMostRecentDate(targetDateStr) {
+            const dates = Object.keys(appData).filter(d => d < targetDateStr).sort();
+            return dates.length > 0 ? dates[dates.length - 1] : null;
+        }
+
+        // 상태를 appData에 업데이트하고 localStorage에 저장
+        function saveData() {
+            appData[selectedDate] = JSON.parse(JSON.stringify(state));
+            localStorage.setItem('kkobakData', JSON.stringify(appData));
+        }
+
+        // 날짜 화살표 클릭 시 이동 (+1 또는 -1)
+        function changeDate(offset) {
+            const dateObj = new Date(selectedDate);
+            dateObj.setDate(dateObj.getDate() + offset);
+            selectedDate = getLocalYYYYMMDD(dateObj);
+            loadDataForDate(selectedDate);
+        }
+
+        // 네이티브 DatePicker 달력에서 날짜 선택 시
+        function handleDateSelect(event) {
+            if (event.target.value) {
+                selectedDate = event.target.value;
+                loadDataForDate(selectedDate);
+            }
+        }
+
+        // 날짜 UI 업데이트 (표시 텍스트 노출)
+        function updateDateUI() {
+            const dateObj = new Date(selectedDate);
+            const options = { month: 'long', day: 'numeric', weekday: 'short' };
+            let dateText = dateObj.toLocaleDateString('ko-KR', options);
+            
+            // YYYY-MM-DD 포맷팅 차이 방지용 정규식 치환
+            dateText = dateText.replace(/ /g, ' '); 
+
+            document.getElementById('currentDateDisplay').textContent = dateText;
+            document.getElementById('datePicker').value = selectedDate;
+            
+            updateReadOnlyState();
+        }
+
+        // 오늘 날짜가 아니면 읽기 전용으로 UI 변경
+        function updateReadOnlyState() {
+            const isToday = (selectedDate === todayStr);
+            const btnEditWaterGoal = document.getElementById('btnEditWaterGoal');
+            const waterActionButtons = document.getElementById('waterActionButtons');
+            const btnAddSupplement = document.getElementById('btnAddSupplement');
+            const btnEmptyAddSupplement = document.getElementById('btnEmptyAddSupplement');
+
+            if (isToday) {
+                btnEditWaterGoal.classList.remove('hidden');
+                waterActionButtons.classList.remove('hidden');
+                btnAddSupplement.classList.remove('hidden');
+                btnEmptyAddSupplement.classList.remove('hidden');
+            } else {
+                btnEditWaterGoal.classList.add('hidden');
+                waterActionButtons.classList.add('hidden');
+                btnAddSupplement.classList.add('hidden');
+                btnEmptyAddSupplement.classList.add('hidden');
+            }
+        }
+
+        // --- Water Logic ---
+        function renderWater() {
+            document.getElementById('waterCurrentDisplay').textContent = state.water.current;
+            document.getElementById('waterGoalDisplay').textContent = state.water.goal;
+            
+            let percentage = (state.water.current / state.water.goal) * 100;
+            const successMsg = document.getElementById('waterSuccessMsg');
+            const progressBar = document.getElementById('waterProgressBar');
+
+            if (percentage >= 100) {
+                percentage = 100;
+                successMsg.classList.remove('hidden');
+                progressBar.classList.remove('bg-blue-500');
+                progressBar.classList.add('bg-teal-500');
+            } else {
+                successMsg.classList.add('hidden');
+                progressBar.classList.remove('bg-teal-500');
+                progressBar.classList.add('bg-blue-500');
+            }
+
+            progressBar.style.width = percentage + '%';
+        }
+
+        function addWater(amount) {
+            if (selectedDate !== todayStr) return; // 오늘만 수정 가능
+            state.water.current += amount;
+            saveData();
+            renderWater();
+        }
+
+        function openWaterGoalModal() {
+            if (selectedDate !== todayStr) return;
+            document.getElementById('waterGoalInput').value = state.water.goal;
+            openModal('waterGoalModal');
+        }
+
+        function saveWaterGoal() {
+            if (selectedDate !== todayStr) return;
+            const input = parseInt(document.getElementById('waterGoalInput').value);
+            if (input && input > 0) {
+                state.water.goal = input;
+                saveData();
+                renderWater();
+                closeModal('waterGoalModal');
+            }
+        }
+
+        function openWaterCustomModal() {
+            if (selectedDate !== todayStr) return;
+            document.getElementById('waterCustomInput').value = '';
+            openModal('waterCustomModal');
+        }
+
+        function saveCustomWater() {
+            if (selectedDate !== todayStr) return;
+            const input = parseInt(document.getElementById('waterCustomInput').value);
+            if (input && input > 0) {
+                addWater(input);
+                closeModal('waterCustomModal');
+            }
+        }
+
+        // --- Supplement Logic ---
+        function renderSupplements() {
+            const times = ['morning', 'lunch', 'dinner'];
+            const emptyState = document.getElementById('supplementsEmptyState');
+            const timeline = document.getElementById('supplementsTimeline');
+            const isToday = (selectedDate === todayStr);
+
+            if (state.supplements.length === 0) {
+                emptyState.classList.remove('hidden');
+                timeline.classList.add('hidden');
+                
+                // 과거 날짜 빈 화면 문구 처리
+                const emptyTitle = emptyState.querySelector('h3');
+                const emptyDesc = emptyState.querySelector('p');
+                if (isToday) {
+                    emptyTitle.textContent = "첫 영양제를 등록해보세요!";
+                    emptyDesc.innerHTML = "매일 챙겨 먹는 영양제나 약을 등록하면<br>시간대별로 잊지 않고 관리할 수 있어요.";
+                } else {
+                    emptyTitle.textContent = "기록된 영양제가 없습니다.";
+                    emptyDesc.innerHTML = "이 날은 등록된 복용 기록이 없네요.";
+                }
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+                timeline.classList.remove('hidden');
+            }
+            
+            times.forEach(time => {
+                const listEl = document.getElementById(`list-${time}`);
+                listEl.innerHTML = '';
+                
+                const items = state.supplements.filter(s => s.time === time);
+                
+                if (items.length === 0) {
+                    listEl.innerHTML = `<li class="py-4 text-center text-sm text-slate-400 bg-slate-50/50">등록된 영양제가 없습니다.</li>`;
+                    return;
+                }
+
+                items.forEach(item => {
+                    const li = document.createElement('li');
+                    li.className = "py-3 px-2 flex items-center justify-between group";
+                    
+                    const cursorClass = isToday ? 'cursor-pointer' : 'cursor-default';
+                    const toggleAction = isToday ? `onclick="toggleSupplement('${item.id}')"` : '';
+                    const actionsHTML = isToday ? `
+                        <div class="flex items-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                            <button onclick="openSupplementModal('edit', '${item.id}')" class="p-2 text-slate-400 hover:text-blue-500 transition rounded-lg hover:bg-slate-50">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                            </button>
+                            <button onclick="confirmDelete('${item.id}')" class="p-2 text-slate-400 hover:text-red-500 transition rounded-lg hover:bg-slate-50">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>
+                    ` : '';
+
+                    li.innerHTML = `
+                        <div class="flex items-center gap-3 flex-1 ${cursorClass}" ${toggleAction}>
+                            <div class="w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${item.taken ? 'bg-green-500 border-green-500' : 'border-slate-300'}">
+                                ${item.taken ? '<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : ''}
+                            </div>
+                            <div>
+                                <p class="font-medium ${item.taken ? 'text-slate-400 line-through' : 'text-slate-800'}">${item.name}</p>
+                                <p class="text-xs ${item.taken ? 'text-slate-300' : 'text-slate-500'}">${item.dosage}</p>
+                            </div>
+                        </div>
+                        ${actionsHTML}
+                    `;
+                    listEl.appendChild(li);
+                });
+            });
+        }
+
+        function toggleSupplement(id) {
+            if (selectedDate !== todayStr) return; // 오늘만 수정 가능
+            const item = state.supplements.find(s => s.id === id);
+            if (item) {
+                item.taken = !item.taken;
+                saveData();
+                renderSupplements();
+            }
+        }
+
+        function openSupplementModal(mode, id = null) {
+            if (selectedDate !== todayStr) return;
+            document.getElementById('suppName').value = '';
+            document.getElementById('suppDosage').value = '';
+            
+            if (mode === 'add') {
+                document.getElementById('suppModalTitle').textContent = '영양제 등록';
+                document.getElementById('suppId').value = '';
+                document.querySelector(`input[name="suppTime"][value="morning"]`).checked = true;
+            } else if (mode === 'edit') {
+                document.getElementById('suppModalTitle').textContent = '영양제 수정';
+                const item = state.supplements.find(s => s.id === id);
+                if (item) {
+                    document.getElementById('suppId').value = item.id;
+                    document.getElementById('suppName').value = item.name;
+                    document.getElementById('suppDosage').value = item.dosage;
+                    document.querySelector(`input[name="suppTime"][value="${item.time}"]`).checked = true;
+                }
+            }
+            openModal('supplementModal');
+        }
+
+        function saveSupplement() {
+            if (selectedDate !== todayStr) return; // 오늘만 수정 가능
+            const id = document.getElementById('suppId').value;
+            const name = document.getElementById('suppName').value.trim();
+            const dosage = document.getElementById('suppDosage').value.trim();
+            const time = document.querySelector('input[name="suppTime"]:checked').value;
+
+            if (!name || !dosage) return;
+
+            if (id) {
+                const index = state.supplements.findIndex(s => s.id === id);
+                if (index > -1) {
+                    state.supplements[index].name = name;
+                    state.supplements[index].dosage = dosage;
+                    state.supplements[index].time = time;
+                }
+            } else {
+                const newItem = {
+                    id: Date.now().toString(),
+                    time: time,
+                    name: name,
+                    dosage: dosage,
+                    taken: false
+                };
+                state.supplements.push(newItem);
+            }
+
+            saveData();
+            renderSupplements();
+            closeModal('supplementModal');
+        }
+
+        function confirmDelete(id) {
+            if (selectedDate !== todayStr) return; // 오늘만 수정 가능
+            const btn = document.getElementById('confirmBtn');
+            btn.onclick = function() {
+                state.supplements = state.supplements.filter(s => s.id !== id);
+                saveData();
+                renderSupplements();
+                closeModal('confirmModal');
+            };
+            openModal('confirmModal');
+        }
+
+        // --- Modal Utility ---
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            const content = modal.querySelector('div');
+            
+            modal.classList.remove('hidden');
+            void modal.offsetWidth; // Trigger reflow
+            
+            modal.classList.remove('opacity-0');
+            content.classList.remove('scale-95');
+            content.classList.add('scale-100');
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            const content = modal.querySelector('div');
+            
+            modal.classList.add('opacity-0');
+            content.classList.remove('scale-100');
+            content.classList.add('scale-95');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        // 오버레이 클릭 시 모달 닫기
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeModal(this.id);
+                }
+            });
+        });
+
+        // Start app
+        init();
+    </script>
+</body>
+</html>

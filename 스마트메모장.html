@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>스마트 메모장</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Markdown parsing library -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+
+    body {
+        font-family: 'Pretendard', sans-serif;
+        background-color: #f1f5f9;
+        min-height: 100vh;
+    }
+
+    /* Desktop specific height control - Focus on Top Area */
+    @media (min-width: 768px) {
+        .top-area {
+            height: 75vh;
+            min-height: 550px;
+        }
+    }
+
+    .memo-item {
+        transition: all 0.2s ease;
+        border-top: 4px solid transparent;
+        display: flex;
+        flex-direction: column;
+    }
+    .memo-item.active { border-top-color: #6366f1; }
+
+    .memo-content-wrapper {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* 확장 시 충분한 높이와 하단 여백 확보 */
+    .memo-item.active .memo-content-wrapper {
+        max-height: 2000px;
+        padding-top: 12px;
+        padding-bottom: 20px;
+    }
+
+    /* Draggable style */
+    .memo-item[draggable="true"] { cursor: grab; }
+    .dragging { opacity: 0.4; transform: scale(0.95); }
+
+    /* Drop zone highlighting */
+    #aiOutput.drag-over {
+        border-color: #6366f1;
+        background-color: #eef2ff;
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    .loader {
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid #6366f1;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* AI Markdown Styles */
+    #aiContent h2 { font-size: 1.1rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.5rem; color: #4338ca; display: flex; align-items: center; }
+    #aiContent h2:first-child { margin-top: 0; }
+    #aiContent p { line-height: 1.6; color: #334155; margin-bottom: 0.75rem; }
+    #aiContent ul { margin-bottom: 1rem; padding-left: 1.2rem; }
+    #aiContent li { position: relative; margin-bottom: 0.4rem; color: #475569; list-style-type: disc; }
+    #aiContent strong { color: #1e1b4b; }
+
+    .btn-action { opacity: 0.8; transition: all 0.2s; }
+    .btn-action:hover { opacity: 1; transform: scale(1.05); }
+  </style>
+</head>
+<body class="p-4 md:p-6">
+<div class="max-w-[1600px] mx-auto w-full flex flex-col gap-8">
+  <!-- Header -->
+  <header class="flex flex-col md:flex-row justify-between items-center px-2 gap-4">
+    <h1 class="text-2xl font-black text-slate-800 tracking-tight">스마트 메모장</h1>
+    <div class="text-slate-500 text-sm font-medium bg-white/50 px-4 py-2 rounded-full border border-white">
+      작성한 메모를 저장하고, 아래에서 끌어올려 AI 분석을 시작하세요
+    </div>
+  </header>
+
+  <!-- Top Row: Editor & AI Result (MAIN AREA) -->
+  <div class="top-area grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0">
+    <!-- New Memo Section -->
+    <section class="h-full flex flex-col min-h-0">
+      <div id="editorCard" class="bg-white rounded-3xl shadow-md border border-slate-200 h-full flex flex-col overflow-hidden transition-all duration-300">
+        <div class="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/30 flex-shrink-0">
+          <h2 id="editorTitle" class="font-bold text-slate-800 text-lg">✍️ 새 메모 작성</h2>
+          <button id="cancelEditBtn" onclick="cancelEdit()" class="hidden text-xs text-slate-400 hover:text-red-500 font-bold">수정 취소</button>
+        </div>
+        <div class="flex-grow flex flex-col p-6 gap-4 overflow-hidden min-h-0">
+          <input type="text" id="memoTitleInput"
+                 class="w-full text-xl font-bold p-2 bg-transparent border-b border-slate-100 focus:border-indigo-500 focus:outline-none transition-all placeholder:text-slate-300"
+                 placeholder="제목을 입력하세요 (선택)">
+          <textarea id="memoInput"
+                    class="w-full flex-grow p-4 bg-slate-50/50 rounded-2xl border border-slate-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all resize-none text-slate-700 leading-relaxed overflow-y-auto"
+                    placeholder="강의 내용, 떠오르는 생각 등을 자유롭게 작성하세요..."></textarea>
+          <button id="saveMemoBtn" onclick="saveMemo()"
+                  class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 mt-2 flex-shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            <span id="saveBtnText">메모 저장하기</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI Result Section -->
+    <section class="h-full flex flex-col min-h-0">
+      <div class="bg-white rounded-3xl shadow-xl border border-slate-200 h-full flex flex-col overflow-hidden transition-all duration-300">
+        <div class="p-5 border-b border-slate-100 flex justify-between items-center bg-indigo-50/30 flex-shrink-0">
+          <h2 class="font-bold text-indigo-700 text-lg flex items-center gap-2">
+            <span class="animate-pulse">✨</span> AI 요약 결과
+          </h2>
+          <button id="summarizeBtn" onclick="summarizeMemos()"
+                  class="bg-white border border-indigo-100 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-2">
+            전체 요약
+          </button>
+        </div>
+        <div id="aiOutput"
+             class="flex-grow p-8 overflow-y-auto relative transition-all min-h-0"
+             ondragover="handleDragOver(event)"
+             ondragleave="handleDragLeave(event)"
+             ondrop="handleDrop(event)">
+
+          <!-- Placeholder -->
+          <div id="aiPlaceholder" class="h-full flex flex-col items-center justify-center text-center text-slate-400 space-y-4">
+            <div class="bg-slate-50 p-6 rounded-full">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <p class="text-lg font-medium">분석할 메모를 여기에 떨어뜨리세요</p>
+            <p class="text-sm">보관함에서 메모를 드래그하여 위로 가져오거나<br>'전체 요약'을 통해 모든 메모를 한 번에 정리하세요.</p>
+          </div>
+
+          <!-- Content Rendered as HTML -->
+          <div id="aiContent" class="hidden prose prose-slate max-w-none"></div>
+
+          <!-- Loading -->
+          <div id="loadingIndicator" class="hidden h-full flex flex-col items-center justify-center space-y-4">
+            <div class="loader"></div>
+            <p class="text-indigo-600 font-bold animate-pulse">AI 전문가가 요약 중입니다...</p>
+          </div>
+        </div>
+        <!-- Error Message Display Area -->
+        <div id="errorMessage" class="hidden p-4 bg-red-50 text-red-600 text-sm border-t border-red-100 flex-shrink-0">
+          오류가 발생했습니다. 다시 시도해 주세요.
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Bottom Row: Saved Memos (Archive) -->
+  <section class="w-full flex flex-col items-center gap-4 pb-12">
+    <div class="w-full bg-white/60 backdrop-blur-sm rounded-3xl border border-white shadow-sm flex flex-col overflow-hidden min-h-[300px]">
+      <div class="p-5 border-b border-slate-100 flex justify-between items-center bg-white/40">
+        <h2 class="font-bold text-slate-700 flex items-center gap-2 text-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+          보관함
+        </h2>
+        <button onclick="showDeleteConfirm()" class="text-sm text-slate-400 hover:text-red-500 transition-colors font-semibold">전체 삭제</button>
+      </div>
+
+      <div id="memoList" class="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <!-- Memos will be injected here -->
+      </div>
+
+      <!-- Centered Empty Message Container -->
+      <div id="emptyMessage" class="hidden flex-grow flex flex-col items-center justify-center py-20 text-center text-slate-400">
+        <p class="text-lg font-bold">보관함이 비어있습니다.</p>
+        <p class="text-sm mt-1">메모를 작성하고 저장해 보세요.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Custom Confirm Modal -->
+<div id="confirmModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 hidden p-4">
+  <div class="bg-white p-8 rounded-3xl max-w-sm w-full shadow-2xl border border-slate-100">
+    <h3 class="text-xl font-bold mb-3 text-slate-800">전체 삭제</h3>
+    <p class="text-slate-600 mb-8 leading-relaxed">저장된 모든 메모가 사라집니다. 정말 초기화하시겠습니까?</p>
+    <div class="flex gap-3">
+      <button onclick="closeDeleteConfirm()" class="flex-1 py-3 rounded-2xl bg-slate-100 font-bold hover:bg-slate-200 transition-all text-slate-600">취소</button>
+      <button onclick="clearMemos()" class="flex-1 py-3 rounded-2xl bg-red-500 text-white font-bold hover:bg-red-600 transition-all shadow-lg shadow-red-100">삭제</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let memos = [];
+  let editingMemoId = null;
+  const apiKey = "";
+
+  function saveMemo() {
+      const titleInput = document.getElementById('memoTitleInput');
+      const contentInput = document.getElementById('memoInput');
+
+      const title = titleInput.value.trim();
+      const content = contentInput.value.trim();
+
+      if (!content) return;
+
+      if (editingMemoId !== null) {
+          const index = memos.findIndex(m => m.id === editingMemoId);
+          if (index !== -1) {
+              memos[index].title = title || (content.length > 15 ? content.substring(0, 15) + "..." : content);
+              memos[index].content = content;
+              memos[index].timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (수정됨)";
+          }
+          editingMemoId = null;
+          resetEditor();
+      } else {
+          const memoObj = {
+              id: Date.now(),
+              title: title || (content.length > 15 ? content.substring(0, 15) + "..." : content),
+              content: content,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isOpen: false
+          };
+          memos.unshift(memoObj);
+          titleInput.value = '';
+          contentInput.value = '';
+      }
+
+      renderMemos();
+  }
+
+  function editMemo(id) {
+      const memo = memos.find(m => m.id === id);
+      if (!memo) return;
+
+      editingMemoId = id;
+      document.getElementById('memoTitleInput').value = memo.title === memo.content.substring(0, 15) + "..." ? "" : memo.title;
+      document.getElementById('memoInput').value = memo.content;
+
+      document.getElementById('editorTitle').innerText = "📝 메모 수정 중";
+      document.getElementById('saveBtnText').innerText = "수정 완료";
+      document.getElementById('cancelEditBtn').classList.remove('hidden');
+      document.getElementById('editorCard').classList.add('ring-2', 'ring-indigo-400');
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function cancelEdit() {
+      editingMemoId = null;
+      resetEditor();
+  }
+
+  function resetEditor() {
+      document.getElementById('memoTitleInput').value = '';
+      document.getElementById('memoInput').value = '';
+      document.getElementById('editorTitle').innerText = "✍️ 새 메모 작성";
+      document.getElementById('saveBtnText').innerText = "메모 저장하기";
+      document.getElementById('cancelEditBtn').classList.add('hidden');
+      document.getElementById('editorCard').classList.remove('ring-2', 'ring-indigo-400');
+  }
+
+  function toggleMemo(id) {
+      memos = memos.map(m => {
+          if (m.id === id) return { ...m, isOpen: !m.isOpen };
+          return { ...m, isOpen: false };
+      });
+      renderMemos();
+  }
+
+  function renderMemos() {
+      const list = document.getElementById('memoList');
+      const emptyMsg = document.getElementById('emptyMessage');
+
+      if (!list) return;
+      list.innerHTML = '';
+
+      if (memos.length === 0) {
+          if (emptyMsg) {
+              emptyMsg.classList.remove('hidden');
+              emptyMsg.classList.add('flex');
+          }
+          return;
+      } else {
+          if (emptyMsg) {
+              emptyMsg.classList.add('hidden');
+              emptyMsg.classList.remove('flex');
+          }
+      }
+
+      memos.forEach(memo => {
+          const div = document.createElement('div');
+          div.className = `memo-item bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md h-fit ${memo.isOpen ? 'active ring-1 ring-indigo-500' : ''}`;
+          div.setAttribute('draggable', 'true');
+          div.setAttribute('ondragstart', `handleDragStart(event, ${memo.id})`);
+          div.setAttribute('ondragend', `handleDragEnd(event)`);
+
+          div.innerHTML = `
+              <div class="p-4 cursor-pointer" onclick="toggleMemo(${memo.id})">
+                  <div class="flex items-center justify-between mb-1 gap-2">
+                      <h3 class="font-bold text-slate-700 truncate text-sm flex-grow">${memo.title}</h3>
+                      <span class="text-[10px] text-slate-400 shrink-0">${memo.timestamp}</span>
+                  </div>
+                  <p class="text-xs text-slate-500 line-clamp-2 ${memo.isOpen ? 'hidden' : ''}">${memo.content}</p>
+
+                  <div class="memo-content-wrapper">
+                      <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-3">
+                          <p class="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">${memo.content}</p>
+                      </div>
+                      <div class="flex items-center justify-between border-t border-slate-100 pt-4 pb-1">
+                          <div class="flex gap-4">
+                              <button onclick="event.stopPropagation(); editMemo(${memo.id})" class="btn-action text-xs font-bold text-indigo-600 flex items-center gap-1">
+                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                  수정
+                              </button>
+                              <button onclick="event.stopPropagation(); deleteMemo(${memo.id})" class="btn-action text-xs font-bold text-red-500 flex items-center gap-1">
+                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                  삭제
+                              </button>
+                          </div>
+                          <span class="text-[9px] text-indigo-300 font-bold uppercase tracking-tighter">분석하려면 드래그</span>
+                      </div>
+                  </div>
+              </div>
+          `;
+          list.appendChild(div);
+      });
+  }
+
+  function deleteMemo(id) {
+      if (editingMemoId === id) cancelEdit();
+      memos = memos.filter(m => m.id !== id);
+      renderMemos();
+  }
+
+  function showDeleteConfirm() {
+      if (memos.length === 0) return;
+      const modal = document.getElementById('confirmModal');
+      if (modal) modal.classList.remove('hidden');
+  }
+
+  function closeDeleteConfirm() {
+      const modal = document.getElementById('confirmModal');
+      if (modal) modal.classList.add('hidden');
+  }
+
+  function clearMemos() {
+      memos = [];
+      cancelEdit();
+      renderMemos();
+      const content = document.getElementById('aiContent');
+      const placeholder = document.getElementById('aiPlaceholder');
+      if (content) {
+          content.innerHTML = '';
+          content.classList.add('hidden');
+      }
+      if (placeholder) placeholder.classList.remove('hidden');
+      closeDeleteConfirm();
+  }
+
+  function handleDragStart(e, id) {
+      e.dataTransfer.setData("text/plain", id);
+      e.currentTarget.classList.add('dragging');
+  }
+
+  function handleDragEnd(e) {
+      e.currentTarget.classList.remove('dragging');
+  }
+
+  function handleDragOver(e) {
+      e.preventDefault();
+      const output = document.getElementById('aiOutput');
+      if (output) output.classList.add('drag-over');
+  }
+
+  function handleDragLeave(e) {
+      const output = document.getElementById('aiOutput');
+      if (output) output.classList.remove('drag-over');
+  }
+
+  function handleDrop(e) {
+      e.preventDefault();
+      const output = document.getElementById('aiOutput');
+      if (output) output.classList.remove('drag-over');
+
+      const memoId = e.dataTransfer.getData("text/plain");
+      const targetMemo = memos.find(m => m.id == memoId);
+
+      if (targetMemo) {
+          processMemosForAI([targetMemo], "detailed");
+      }
+  }
+
+  async function fetchAIResponse(prompt, mode) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+      const detailedInstruction = `당신은 사용자의 파편화된 메모를 가공하는 전문가입니다. 아래 형식으로만 답변하세요:
+1. ## 📝 내용 다듬기
+(사용자가 휘갈겨 쓴 내용을 매끄럽고 논리적인 문장으로 재구성한 버전)
+
+2. ## 💡 핵심 포인트
+- (메모에서 추출한 가장 중요한 정보 3개 이내)
+
+3. ## ✅ 할일 추천
+- (이 메모를 바탕으로 사용자가 지금 바로 실천하면 좋을 액션 2~3가지)
+한국어로 깔끔하게 작성하세요.`;
+
+      const conciseInstruction = "각 메모의 [제목]을 적고, 그 아래에 본문의 핵심 내용을 2~3줄 내외로 아주 간결하게 불렛포인트로 요약하세요. 한국어로 답변하세요.";
+
+      const payload = {
+          contents: [{ parts: [{ text: prompt }] }],
+          systemInstruction: { parts: [{ text: mode === "detailed" ? detailedInstruction : conciseInstruction }] }
+      };
+
+      const maxRetries = 5;
+      const retryDelays = [1000, 2000, 4000, 8000, 16000];
+
+      for (let i = 0; i < maxRetries; i++) {
+          try {
+              const response = await fetch(url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+              });
+              if (!response.ok) throw new Error('API Error');
+              const data = await response.json();
+              return data.candidates?.[0]?.content?.parts?.[0]?.text;
+          } catch (error) {
+              if (i === maxRetries - 1) throw error;
+              await new Promise(r => setTimeout(r, retryDelays[i]));
+          }
+      }
+  }
+
+  async function processMemosForAI(memosToProcess, mode) {
+      const placeholder = document.getElementById('aiPlaceholder');
+      const content = document.getElementById('aiContent');
+      const loader = document.getElementById('loadingIndicator');
+      const errorBox = document.getElementById('errorMessage');
+
+      if (placeholder) placeholder.classList.add('hidden');
+      if (content) content.classList.add('hidden');
+      if (loader) loader.classList.remove('hidden');
+      if (errorBox) errorBox.classList.add('hidden');
+
+      const fullText = memosToProcess.map(m => `[메모 제목: ${m.title}]\n내용: ${m.content}`).join('\n\n---\n\n');
+      const prompt = mode === "detailed"
+          ? `이 메모를 스마트하게 정리해줘:\n\n${fullText}`
+          : `전체 메모를 리스트 형태로 요약해줘:\n\n${fullText}`;
+
+      try {
+          const result = await fetchAIResponse(prompt, mode);
+          if (content) {
+              content.innerHTML = marked.parse(result);
+              content.classList.remove('hidden');
+          }
+      } catch (error) {
+          if (errorBox) errorBox.classList.remove('hidden');
+          if (placeholder) placeholder.classList.remove('hidden');
+      } finally {
+          if (loader) loader.classList.add('hidden');
+      }
+  }
+
+  function summarizeMemos() {
+      if (memos.length === 0) return;
+      processMemosForAI(memos, "concise");
+  }
+
+  window.onload = renderMemos;
+</script>
+</body>
+</html>

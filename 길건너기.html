@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>길건너기 게임</title>
+    <style>
+        :root {
+            --bg-color: #388e3c; /* 마인크래프트 잔디색 */
+            --road-color: #424242; /* 아스팔트 회색 */
+            --stripe-color: #f1c40f;
+            --panel-bg: #212121;
+            --font-family: 'Pretendard', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: #000;
+            font-family: var(--font-family);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            height: 100%;
+            background-color: var(--bg-color);
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 상단 UI 대시보드 */
+        #game-header {
+            background-color: var(--panel-bg);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 4px solid #000;
+            z-index: 10;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 80px;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #9e9e9e;
+            font-weight: 800;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 1.3rem;
+            color: #fff;
+            font-weight: 900;
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        #stage-container {
+            background-color: #f1c40f;
+            padding: 4px 15px;
+            border: 3px solid #000;
+            box-shadow: inset -4px -4px 0px rgba(0,0,0,0.2);
+        }
+
+        #stage-container .stat-label { color: #5f4b00; }
+        #stage-container .stat-value { color: #000; text-shadow: none; }
+
+        canvas {
+            display: block;
+            flex: 1;
+            width: 100%;
+            image-rendering: pixelated;
+        }
+
+        #countdown-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 10rem;
+            font-weight: 900;
+            color: #fff;
+            text-shadow: 4px 4px 0px #000, 8px 8px 0px #f1c40f;
+            z-index: 25;
+            display: none;
+            pointer-events: none;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            text-align: center;
+            z-index: 30;
+            padding: 20px;
+        }
+
+        #overlay h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            color: #f1c40f;
+            text-shadow: 4px 4px 0px #000;
+        }
+
+        #overlay p {
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+            line-height: 1.6;
+            white-space: pre-line;
+        }
+
+        .success-title { color: #4caf50 !important; }
+        .fail-title { color: #f44336 !important; }
+
+        button {
+            padding: 15px 40px;
+            font-size: 1.4rem;
+            font-weight: 900;
+            background: #f1c40f;
+            border: 4px solid #000;
+            color: #000;
+            cursor: pointer;
+            box-shadow: 6px 6px 0px #000;
+            transition: all 0.1s;
+        }
+
+        button:active {
+            transform: translate(3px, 3px);
+            box-shadow: 2px 2px 0px #000;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <header id="game-header">
+        <div class="stat-item">
+            <span class="stat-label">SCORE</span>
+            <span id="score" class="stat-value">0</span>
+        </div>
+
+        <div id="stage-container" class="stat-item">
+            <span class="stat-label">STAGE</span>
+            <span id="stage-val" class="stat-value">1</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">BEST</span>
+            <span id="high-score" class="stat-value">0</span>
+        </div>
+    </header>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="countdown-display">3</div>
+
+    <div id="overlay">
+        <h1 id="msg-title">길건너기 게임</h1>
+        <p id="msg-desc">다양한 자동차들을 피해 도로를 건너세요.<br>안전지대까지 무사히 도달해야 합니다!</p>
+        <button id="start-btn">시작하기</button>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const stageEl = document.getElementById('stage-val');
+    const highScoreEl = document.getElementById('high-score');
+    const overlay = document.getElementById('overlay');
+    const countdownEl = document.getElementById('countdown-display');
+    const startBtn = document.getElementById('start-btn');
+    const msgTitle = document.getElementById('msg-title');
+    const msgDesc = document.getElementById('msg-desc');
+
+    let score = 0;
+    let gameLevel = 1;
+    const MAX_LEVEL = 5;
+    let highScore = localStorage.getItem('pixelDeerBest') || 0;
+    highScoreEl.innerText = highScore;
+
+    let gameActive = false;
+    let isWaitingCountdown = false;
+    let animationId;
+
+    const LANE_COUNT = 15;
+    const TOP_GRASS_ROWS = 1.2;
+    const BOTTOM_GRASS_ROWS = 1.2;
+    const TOTAL_ROWS = TOP_GRASS_ROWS + LANE_COUNT + BOTTOM_GRASS_ROWS;
+    const COLS = 12;
+
+    const CAR_TYPES = ['sedan', 'sports', 'police', 'ambulance', 'truck'];
+    const CAR_COLORS = {
+        sedan: ['#e91e63', '#2196f3', '#ffeb3b', '#4caf50'],
+        sports: ['#f44336', '#ffc107'],
+        truck: ['#795548', '#607d8b']
+    };
+
+    const player = {
+        x: 0, y: 0, width: 0, height: 0,
+        targetX: 0, targetY: 0, speed: 0.3
+    };
+
+    let cars = [];
+    let lanes = [];
+    let difficulty = { speed: 1, delay: 1, minGap: 150, maxCars: 3 };
+
+    function init() {
+        const header = document.getElementById('game-header');
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight - header.offsetHeight;
+
+        const cellW = canvas.width / COLS;
+        const cellH = canvas.height / TOTAL_ROWS;
+
+        player.width = cellW * 0.8;
+        player.height = cellH * 0.8;
+        resetPlayer();
+
+        if (gameLevel === 1) { difficulty.speed = 0.9; difficulty.delay = 1.8; difficulty.minGap = 220; difficulty.maxCars = 3; }
+        else if (gameLevel === 2) { difficulty.speed = 1.1; difficulty.delay = 1.4; difficulty.minGap = 180; difficulty.maxCars = 3; }
+        else if (gameLevel === 3) { difficulty.speed = 1.5; difficulty.delay = 0.9; difficulty.minGap = 150; difficulty.maxCars = 4; }
+        else if (gameLevel === 4) { difficulty.speed = 1.8; difficulty.delay = 0.7; difficulty.minGap = 130; difficulty.maxCars = 5; }
+        else { difficulty.speed = 2.2; difficulty.delay = 0.55; difficulty.minGap = 100; difficulty.maxCars = 6; }
+
+        lanes = [];
+        for (let i = 0; i < LANE_COUNT; i++) {
+            const laneY = (TOP_GRASS_ROWS + i) * cellH;
+            lanes.push({
+                y: laneY, height: cellH,
+                speed: (Math.random() * 0.4 + 1.2) * (i % 2 === 0 ? 1 : -1) * difficulty.speed,
+                lastSpawn: 0,
+                spawnDelay: (500 + Math.random() * 1500) * difficulty.delay
+            });
+        }
+        stageEl.innerText = gameLevel;
+    }
+
+    function resetPlayer() {
+        const cellW = canvas.width / COLS;
+        const cellH = canvas.height / TOTAL_ROWS;
+        player.x = (COLS / 2) * cellW - cellW / 2;
+        player.y = (TOTAL_ROWS - 0.7) * cellH - player.height / 2;
+        player.targetX = player.x;
+        player.targetY = player.y;
+    }
+
+    function drawPixelDeer(x, y, w, h) {
+        ctx.save();
+        ctx.translate(x, y);
+
+        const bodyColor = '#8d6e63';
+        const bellyColor = '#d7ccc8';
+        const darkColor = '#4e342e';
+        const noseColor = '#3e2723';
+
+        // 몸통
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(w*0.2, h*0.3, w*0.6, h*0.5);
+        // 배
+        ctx.fillStyle = bellyColor;
+        ctx.fillRect(w*0.3, h*0.7, w*0.4, h*0.1);
+
+        // 머리
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(w*0.5, h*0.05, w*0.35, h*0.35);
+
+        // 뿔 (Minecraft 스타일로 더 돋보이게)
+        ctx.fillStyle = darkColor;
+        ctx.fillRect(w*0.6, -h*0.12, w*0.06, h*0.22);
+        ctx.fillRect(w*0.54, -h*0.15, w*0.06, h*0.1);
+        ctx.fillRect(w*0.66, -h*0.08, w*0.06, h*0.12);
+
+        ctx.fillRect(w*0.78, -h*0.12, w*0.06, h*0.22);
+        ctx.fillRect(w*0.72, -h*0.08, w*0.06, h*0.12);
+        ctx.fillRect(w*0.84, -h*0.15, w*0.06, h*0.1);
+
+        // 귀
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(w*0.44, h*0.05, w*0.06, h*0.15);
+        ctx.fillRect(w*0.84, h*0.05, w*0.06, h*0.15);
+
+        // 다리
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(w*0.25, h*0.8, w*0.1, h*0.2);
+        ctx.fillRect(w*0.45, h*0.8, w*0.1, h*0.2);
+        ctx.fillRect(w*0.65, h*0.8, w*0.1, h*0.2);
+        ctx.fillRect(w*0.85, h*0.8, w*0.1, h*0.2);
+        // 발굽
+        ctx.fillStyle = darkColor;
+        ctx.fillRect(w*0.25, h*0.95, w*0.1, h*0.05);
+        ctx.fillRect(w*0.45, h*0.95, w*0.1, h*0.05);
+        ctx.fillRect(w*0.65, h*0.95, w*0.1, h*0.05);
+        ctx.fillRect(w*0.85, h*0.95, w*0.1, h*0.05);
+
+        // 얼굴 디테일
+        ctx.fillStyle = '#000';
+        ctx.fillRect(w*0.74, h*0.15, w*0.06, w*0.06); // 눈
+        ctx.fillStyle = noseColor;
+        ctx.fillRect(w*0.84, h*0.25, w*0.06, w*0.06); // 코
+
+        ctx.restore();
+    }
+
+    function drawPixelCar(x, y, w, h, type, color, direction) {
+        ctx.save();
+        ctx.translate(x, y);
+        if (direction > 0) {
+            ctx.translate(w, 0);
+            ctx.scale(-1, 1);
+        }
+
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(w*0.05, h*0.85, w*0.9, h*0.15);
+
+        switch(type) {
+            case 'sports': drawSportsCar(w, h, color); break;
+            case 'police': drawPoliceCar(w, h); break;
+            case 'ambulance': drawAmbulance(w, h); break;
+            case 'truck': drawTruck(w, h, color); break;
+            default: drawSedan(w, h, color); break;
+        }
+        ctx.restore();
+    }
+
+    function drawSedan(w, h, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, h*0.3, w, h*0.5);
+        ctx.fillStyle = color; ctx.globalAlpha = 0.8;
+        ctx.fillRect(w*0.2, h*0.1, w*0.5, h*0.3);
+        ctx.globalAlpha = 1.0;
+        ctx.fillStyle = '#81d4fa';
+        ctx.fillRect(w*0.25, h*0.15, w*0.2, h*0.15);
+        drawWheels(w, h);
+        ctx.fillStyle = '#ffeb3b'; ctx.fillRect(0, h*0.4, w*0.05, h*0.1);
+    }
+
+    function drawSportsCar(w, h, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(w*0.05, h*0.35, w*0.95, h*0.45);
+        ctx.fillStyle = color; ctx.globalAlpha = 0.8;
+        ctx.fillRect(w*0.25, h*0.15, w*0.4, h*0.25);
+        ctx.globalAlpha = 1.0;
+        ctx.fillStyle = '#81d4fa';
+        ctx.fillRect(w*0.3, h*0.2, w*0.15, h*0.1);
+        drawWheels(w, h);
+        ctx.fillStyle = '#ffeb3b'; ctx.fillRect(0, h*0.45, w*0.05, h*0.1);
+        ctx.fillStyle = color;
+        ctx.fillRect(w*0.85, h*0.25, w*0.1, h*0.05);
+        ctx.fillRect(w*0.85, h*0.3, w*0.02, h*0.05);
+    }
+
+    function drawPoliceCar(w, h) {
+        ctx.fillStyle = '#1976d2';
+        ctx.fillRect(0, h*0.3, w, h*0.5);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(w*0.3, h*0.3, w*0.4, h*0.5);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(w*0.2, h*0.1, w*0.5, h*0.2);
+        ctx.fillStyle = '#81d4fa';
+        ctx.fillRect(w*0.25, h*0.15, w*0.2, h*0.15);
+        ctx.fillStyle = '#f44336'; ctx.fillRect(w*0.35, 0, w*0.1, h*0.1);
+        ctx.fillStyle = '#2196f3'; ctx.fillRect(w*0.45, 0, w*0.1, h*0.1);
+        drawWheels(w, h);
+    }
+
+    function drawAmbulance(w, h) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, h*0.2, w, h*0.6);
+        ctx.fillStyle = '#81d4fa';
+        ctx.fillRect(w*0.1, h*0.3, w*0.25, h*0.2);
+        // 십자가 마크
+        ctx.fillStyle = '#f44336';
+        ctx.fillRect(w*0.6, h*0.35, w*0.1, h*0.3);
+        ctx.fillRect(w*0.45, h*0.45, w*0.4, h*0.1);
+        // 경광등
+        ctx.fillStyle = '#f44336'; ctx.fillRect(w*0.3, 0, w*0.15, h*0.1);
+        ctx.fillStyle = '#f44336'; ctx.fillRect(w*0.55, 0, w*0.15, h*0.1);
+        drawWheels(w, h);
+    }
+
+    function drawTruck(w, h, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, h*0.2, w*0.3, h*0.6);
+        ctx.fillStyle = '#81d4fa';
+        ctx.fillRect(w*0.05, h*0.25, w*0.15, h*0.2);
+        ctx.fillStyle = '#5d4037';
+        ctx.fillRect(w*0.35, h*0.1, w*0.65, h*0.7);
+        ctx.fillStyle = '#212121';
+        ctx.fillRect(w*0.05, h*0.7, w*0.25, h*0.25);
+        ctx.fillRect(w*0.4, h*0.7, w*0.25, h*0.25);
+        ctx.fillRect(w*0.7, h*0.7, w*0.25, h*0.25);
+    }
+
+    function drawWheels(w, h) {
+        ctx.fillStyle = '#212121';
+        ctx.fillRect(w*0.1, h*0.7, w*0.2, h*0.2);
+        ctx.fillRect(w*0.7, h*0.7, w*0.2, h*0.2);
+    }
+
+    class Car {
+        constructor(laneIdx) {
+            const lane = lanes[laneIdx];
+            const cellW = canvas.width / COLS;
+            this.type = CAR_TYPES[Math.floor(Math.random() * CAR_TYPES.length)];
+            this.laneIdx = laneIdx;
+            this.speed = lane.speed;
+            this.direction = lane.speed > 0 ? 1 : -1;
+
+            if (this.type === 'truck') {
+                this.width = cellW * 2.2;
+                this.height = lane.height * 0.9;
+                this.color = CAR_COLORS.truck[Math.floor(Math.random() * CAR_COLORS.truck.length)];
+            } else if (this.type === 'sports') {
+                this.width = cellW * 1.8;
+                this.height = lane.height * 0.75;
+                this.color = CAR_COLORS.sports[Math.floor(Math.random() * CAR_COLORS.sports.length)];
+            } else if (this.type === 'ambulance') {
+                this.width = cellW * 1.1;
+                this.height = lane.height * 0.85;
+                this.color = '#ffffff';
+            } else {
+                this.width = cellW * 1.6;
+                this.height = lane.height * 0.8;
+                this.color = this.type === 'police' ? null : CAR_COLORS.sedan[Math.floor(Math.random() * CAR_COLORS.sedan.length)];
+            }
+
+            this.y = lane.y + (lane.height - this.height) / 2;
+            this.x = this.direction > 0 ? -this.width : canvas.width;
+        }
+        update() { this.x += this.speed; }
+        draw() { drawPixelCar(this.x, this.y, this.width, this.height, this.type, this.color, this.direction); }
+    }
+
+    function spawnCars(timestamp) {
+        lanes.forEach((lane, index) => {
+            if (timestamp - lane.lastSpawn > lane.spawnDelay) {
+                const laneCars = cars.filter(c => c.laneIdx === index);
+                if (laneCars.length >= difficulty.maxCars) return;
+                let canSpawn = true;
+                laneCars.forEach(c => {
+                    if (lane.speed > 0) { if (c.x < difficulty.minGap) canSpawn = false; }
+                    else { if (c.x > canvas.width - difficulty.minGap) canSpawn = false; }
+                });
+                if (canSpawn) {
+                    cars.push(new Car(index));
+                    lane.lastSpawn = timestamp;
+                    lane.spawnDelay = (1000 + Math.random() * 2000) * difficulty.delay;
+                }
+            }
+        });
+    }
+
+    function drawBackground() {
+        const cellH = canvas.height / TOTAL_ROWS;
+
+        ctx.fillStyle = '#2e7d32';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#1b5e20';
+        for(let i=0; i<canvas.width; i+=20) {
+            for(let j=0; j<TOP_GRASS_ROWS*cellH; j+=20) {
+                if((i+j)%40===0) ctx.fillRect(i, j, 10, 10);
+            }
+            for(let j=(TOP_GRASS_ROWS+LANE_COUNT)*cellH; j<canvas.height; j+=20) {
+                if((i+j)%40===0) ctx.fillRect(i, j, 10, 10);
+            }
+        }
+
+        ctx.fillStyle = '#424242';
+        ctx.fillRect(0, TOP_GRASS_ROWS * cellH, canvas.width, LANE_COUNT * cellH);
+
+        ctx.lineWidth = 2;
+        for (let i = 0; i <= LANE_COUNT; i++) {
+            const currentY = (TOP_GRASS_ROWS + i) * cellH;
+            const isEdge = (i === 0 || i === LANE_COUNT);
+            ctx.strokeStyle = isEdge ? '#bdbdbd' : 'rgba(251, 192, 45, 0.4)';
+            ctx.setLineDash(isEdge ? [] : [20, 20]);
+            ctx.beginPath();
+            ctx.moveTo(0, currentY);
+            ctx.lineTo(canvas.width, currentY);
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = '900 28px "Pretendard"';
+        ctx.fillStyle = '#fff';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 2;
+        ctx.fillText("안전지대", canvas.width/2, (TOP_GRASS_ROWS * 0.5) * cellH);
+        ctx.restore();
+    }
+
+    function update(timestamp) {
+        if (!gameActive) return;
+        if (!isWaitingCountdown) {
+            player.x += (player.targetX - player.x) * player.speed;
+            player.y += (player.targetY - player.y) * player.speed;
+        }
+        spawnCars(timestamp);
+        cars.forEach((car, index) => {
+            car.update();
+            if (checkCollision(player, car)) gameOver();
+            if (car.x > canvas.width + 400 || car.x < -400) cars.splice(index, 1);
+        });
+        const cellH = canvas.height / TOTAL_ROWS;
+        const progress = Math.floor(( (TOTAL_ROWS - 1) * cellH - player.y ) / cellH);
+        if (!isWaitingCountdown && progress * 10 > (score % 1000)) {
+            score = (Math.floor(score / 1000) * 1000) + (progress * 10);
+            scoreEl.innerText = score;
+        }
+        if (!isWaitingCountdown && player.y < (TOP_GRASS_ROWS - 0.2) * cellH) gameWin();
+        draw();
+        animationId = requestAnimationFrame(update);
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawBackground();
+        cars.forEach(car => car.draw());
+        drawPixelDeer(player.x, player.y, player.width, player.height);
+    }
+
+    function checkCollision(p, c) {
+        const pW = p.width * 0.5; const pH = p.height * 0.5;
+        const pX = p.x + (p.width - pW) / 2; const pY = p.y + (p.height - pH) / 2 + p.height*0.2;
+        const cW = c.width * 0.9; const cH = c.height * 0.8;
+        const cX = c.x + (c.width - cW) / 2; const cY = c.y + (c.height - cH) / 2;
+        return (pX < cX + cW && pX + pW > cX && pY < cY + cH && pY + pH > cY);
+    }
+
+    function movePlayer(dir) {
+        if (!gameActive || isWaitingCountdown) return;
+        const cellW = canvas.width / COLS;
+        const cellH = canvas.height / TOTAL_ROWS;
+        switch(dir) {
+            case 'ArrowUp': if (player.targetY > cellH * 0.4) player.targetY -= cellH; break;
+            case 'ArrowDown': if (player.targetY < canvas.height - cellH * 1.2) player.targetY += cellH; break;
+            case 'ArrowLeft': if (player.targetX > cellW * 0.5) player.targetX -= cellW; break;
+            case 'ArrowRight': if (player.targetX < canvas.width - cellW * 1.5) player.targetX += cellW; break;
+        }
+    }
+
+    function gameOver() {
+        gameActive = false; isWaitingCountdown = false;
+        cancelAnimationFrame(animationId);
+        if (score > highScore) {
+            highScore = score; localStorage.setItem('pixelDeerBest', highScore);
+            highScoreEl.innerText = highScore;
+        }
+        msgTitle.innerText = "GAME OVER"; msgTitle.className = "fail-title";
+        msgDesc.innerText = `사고가 발생했습니다!\n최종 스코어: ${score}점\n스테이지 ${gameLevel}에서 실패했습니다.`;
+        gameLevel = 1; startBtn.innerText = "처음부터 다시 시작";
+        overlay.style.display = 'flex'; countdownEl.style.display = 'none';
+    }
+
+    function gameWin() {
+        gameActive = false; isWaitingCountdown = false;
+        cancelAnimationFrame(animationId);
+        score = (Math.floor(score / 1000) + 1) * 1000;
+        scoreEl.innerText = score;
+        if (gameLevel >= MAX_LEVEL) {
+            msgTitle.innerText = "CHAMPION!"; msgTitle.className = "final-title";
+            msgDesc.innerText = `축하합니다! 5단계를 정복했습니다!\n당신은 진정한 고라니 마스터입니다.\n최종 점수: ${score}점`;
+            gameLevel = 1; startBtn.innerText = "다시 도전하기";
+        } else {
+            gameLevel++;
+            msgTitle.innerText = "STAGE CLEAR!"; msgTitle.className = "success-title";
+            msgDesc.innerText = `무사히 도로를 건넜습니다!\n현재 점수: ${score}점\n\n[다음 도전: ${gameLevel}단계]\n자동차가 더 빨라지고 간격이 좁아집니다!`;
+            startBtn.innerText = `${gameLevel}단계 도전`;
+        }
+        overlay.style.display = 'flex'; countdownEl.style.display = 'none';
+    }
+
+    function startCountdown() {
+        isWaitingCountdown = true;
+        let count = 3;
+        countdownEl.innerText = count;
+        countdownEl.style.display = 'block';
+        const timer = setInterval(() => {
+            count--;
+            if (count > 0) countdownEl.innerText = count;
+            else { clearInterval(timer); countdownEl.style.display = 'none'; isWaitingCountdown = false; }
+        }, 1000);
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            e.preventDefault(); movePlayer(e.key);
+        }
+    });
+
+    startBtn.addEventListener('click', () => {
+        overlay.style.display = 'none';
+        if (gameLevel === 1) score = 0;
+        scoreEl.innerText = score;
+        cars = [];
+        init();
+        gameActive = true;
+        requestAnimationFrame(update);
+        startCountdown();
+    });
+
+    window.addEventListener('resize', () => { init(); draw(); });
+    window.onload = init;
+</script>
+</body>
+</html>

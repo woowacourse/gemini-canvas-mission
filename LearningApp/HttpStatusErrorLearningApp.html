@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REST Status Master</title>
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        /* 부드러운 화면 전환을 위한 애니메이션 */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* JSON 코드 하이라이팅 스타일 */
+        .json-key { color: #c678dd; }
+        .json-string { color: #98c379; }
+        .json-number { color: #d19a66; }
+        .json-boolean { color: #e5c07b; }
+        .json-null { color: #5c6370; }
+
+        /* 로딩 스피너 애니메이션 */
+        .loader {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex items-center justify-center p-4">
+
+<!-- 메인 컨테이너 -->
+<div id="app-container" class="max-w-2xl w-full bg-white rounded-2xl shadow-xl overflow-hidden relative min-h-[500px] flex flex-col">
+
+    <!-- 헤더 -->
+    <header class="bg-indigo-600 text-white p-6 text-center">
+        <h1 class="text-2xl font-bold flex items-center justify-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            REST Status Master
+        </h1>
+        <p class="text-indigo-200 text-sm mt-2">상황에 맞는 올바른 상태 코드를 맞춰보세요!</p>
+    </header>
+
+    <div class="p-6 flex-grow flex flex-col relative">
+
+        <!-- 1. 시작 화면 (설정) -->
+        <div id="screen-setup" class="fade-in flex flex-col items-center justify-center flex-grow">
+            <h2 class="text-xl font-semibold mb-6">퀴즈 설정</h2>
+            <div class="w-full max-w-sm">
+                <label for="question-count" class="block text-sm font-medium text-slate-700 mb-2">풀이할 문제 개수 (1~10개)</label>
+                <input type="number" id="question-count" min="1" max="10" value="5" class="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all mb-6 text-center text-lg font-bold">
+                <button id="btn-start" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-md transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                    <span>AI로 새로운 퀴즈 출제하기</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"></path><path d="M12 18v4"></path><path d="M4.93 4.93l2.83 2.83"></path><path d="M16.24 16.24l2.83 2.83"></path><path d="M2 12h4"></path><path d="M18 12h4"></path><path d="M4.93 19.07l2.83-2.83"></path><path d="M16.24 7.76l2.83-2.83"></path></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- AI 로딩 모달 (오버레이) -->
+        <div id="modal-loading" class="hidden absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex flex-col items-center justify-center text-center fade-in">
+            <div class="bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center max-w-sm w-[90%] mx-auto">
+                <div class="loader mb-6 border-indigo-100 border-t-indigo-600"></div>
+                <h2 class="text-xl font-bold text-slate-800 mb-2">AI 문제 생성 중...</h2>
+                <p class="text-slate-500 text-sm">새로운 실무 시나리오를 만들고 있어요.<br>(약 3~5초 소요)</p>
+            </div>
+        </div>
+
+        <!-- 3. 퀴즈 화면 -->
+        <div id="screen-quiz" class="hidden fade-in flex-col flex-grow">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <span id="quiz-progress" class="text-sm font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">문제 1 / 5</span>
+                <span id="quiz-score" class="text-sm font-bold text-slate-500">점수: 0</span>
+            </div>
+
+            <div class="flex-grow flex flex-col justify-center mb-8">
+                <p class="text-slate-500 text-sm mb-2 text-center">다음 상황에서 서버가 반환해야 할 HTTP 상태 코드는 무엇일까요?</p>
+                <div class="bg-slate-100 p-6 rounded-xl border border-slate-200 text-center shadow-inner">
+                    <h3 id="question-text" class="text-2xl font-bold text-slate-800 break-keep leading-snug">
+                        "회원가입 성공"
+                    </h3>
+                </div>
+            </div>
+
+            <div id="options-container" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-auto">
+                <!-- 버튼들이 자바스크립트로 생성됩니다 -->
+            </div>
+        </div>
+
+        <!-- 4. 결과 피드백 모달 (오버레이) -->
+        <div id="screen-feedback" class="hidden absolute inset-0 bg-white/95 backdrop-blur-sm z-10 fade-in flex flex-col p-6 overflow-y-auto">
+            <div class="flex-grow flex flex-col max-w-xl w-full mx-auto pb-4">
+                <div id="feedback-badge" class="inline-block px-4 py-2 rounded-full font-bold text-lg text-center mb-4 mx-auto w-32">
+                    정답!
+                </div>
+
+                <h3 id="feedback-title" class="text-3xl font-extrabold text-center mb-2">201 Created</h3>
+
+                <div class="bg-slate-100 rounded-lg p-4 mb-6 border-l-4 border-indigo-500">
+                    <p id="feedback-desc" class="text-slate-700 leading-relaxed font-medium">
+                        요청이 성공적으로 처리되었으며, 그 결과로 새로운 리소스가 생성되었습니다.
+                    </p>
+                </div>
+
+                <h4 class="font-bold text-slate-700 mb-2 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    실제 REST 예시 응답
+                </h4>
+                <div class="bg-[#282c34] rounded-lg p-4 overflow-x-auto shadow-inner mb-6 flex-grow">
+                    <pre><code id="feedback-json" class="text-sm font-mono leading-relaxed text-slate-300"></code></pre>
+                </div>
+
+                <button id="btn-next" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 px-6 rounded-xl transition-colors shadow-lg mt-auto">
+                    다음 문제로
+                </button>
+            </div>
+        </div>
+
+        <!-- 5. 최종 결과 화면 -->
+        <div id="screen-result" class="hidden fade-in flex-col items-center justify-center flex-grow text-center">
+            <div class="w-24 h-24 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-6 mx-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            </div>
+            <h2 class="text-2xl font-bold mb-2">퀴즈 완료!</h2>
+            <p class="text-slate-500 mb-6">당신의 HTTP 상태코드 지식 수준은?</p>
+
+            <div class="bg-slate-50 rounded-2xl p-6 w-full max-w-sm mx-auto mb-8 border border-slate-200 shadow-sm">
+                <div class="text-5xl font-extrabold text-indigo-600 mb-2">
+                    <span id="final-score">80</span><span class="text-2xl text-slate-400">점</span>
+                </div>
+                <p id="final-message" class="text-slate-600 font-medium">훌륭합니다! 백엔드 개발자 수준이네요.</p>
+            </div>
+
+            <div class="flex gap-3 w-full max-w-sm mx-auto">
+                <button id="btn-review" class="flex-1 bg-white border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 font-bold py-3 rounded-xl transition-colors shadow-sm">
+                    결과 리뷰
+                </button>
+                <button id="btn-restart" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors shadow-md">
+                    다시 시작
+                </button>
+            </div>
+        </div>
+
+        <!-- 6. 오답 및 결과 리뷰 화면 -->
+        <div id="screen-review" class="hidden fade-in flex-col flex-grow h-full">
+            <div class="flex justify-between items-center mb-4 border-b pb-4 shrink-0">
+                <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    퀴즈 결과 리뷰
+                </h2>
+                <button id="btn-close-review" class="text-sm bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-1.5 px-3 rounded-lg transition-colors">
+                    결과로 돌아가기
+                </button>
+            </div>
+            <div id="review-list" class="flex-grow overflow-y-auto pr-2 space-y-4 pb-4">
+                <!-- 자바스크립트로 리뷰 항목들이 추가됩니다 -->
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    // API 연동을 위한 전역 설정
+    const apiKey = ""; // 런타임에 주입됨
+
+    // 만약 AI 출제에 실패했을 경우를 대비한 기본 폴백(Fallback) 데이터셋
+    const fallbackScenarios = [
+        { code: 200, situation: "게시글 목록 정상 조회", title: "200 OK", explanation: "요청이 성공적으로 되었습니다.", json: '{\n  "status": "success",\n  "data": []\n}' },
+        { code: 201, situation: "회원가입 성공", title: "201 Created", explanation: "새로운 리소스가 성공적으로 생성되었습니다.", json: '{\n  "message": "User created"\n}' },
+        { code: 400, situation: "필수 파라미터 누락", title: "400 Bad Request", explanation: "클라이언트의 요청이 유효하지 않습니다.", json: '{\n  "error": "Bad Request"\n}' },
+        { code: 401, situation: "유효하지 않은 토큰으로 접근", title: "401 Unauthorized", explanation: "인증 자격이 없습니다.", json: '{\n  "error": "Unauthorized"\n}' },
+        { code: 403, situation: "관리자 페이지에 일반 유저 접근", title: "403 Forbidden", explanation: "접근 권한이 없습니다.", json: '{\n  "error": "Forbidden"\n}' },
+        { code: 404, situation: "존재하지 않는 페이지 조회", title: "404 Not Found", explanation: "리소스를 찾을 수 없습니다.", json: '{\n  "error": "Not Found"\n}' },
+        { code: 500, situation: "서버 DB 연결 오류", title: "500 Internal Server Error", explanation: "서버 내부에 예기치 않은 오류가 발생했습니다.", json: '{\n  "error": "Server Error"\n}' }
+    ];
+
+    // 기본 상태코드 풀 (선택지 생성용)
+    const baseOptionsPool = [200, 201, 204, 400, 401, 403, 404, 409, 422, 500, 503];
+
+    // 앱 상태 변수
+    let quizScenarios = [];
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let totalQuestions = 5;
+    let userAnswers = []; // 사용자 답안 저장용 배열
+
+    // DOM 요소 캐싱
+    const screens = {
+        setup: document.getElementById('screen-setup'),
+        quiz: document.getElementById('screen-quiz'),
+        feedback: document.getElementById('screen-feedback'),
+        result: document.getElementById('screen-result'),
+        review: document.getElementById('screen-review')
+    };
+    const dom = {
+        inputCount: document.getElementById('question-count'),
+        btnStart: document.getElementById('btn-start'),
+        modalLoading: document.getElementById('modal-loading'),
+        quizProgress: document.getElementById('quiz-progress'),
+        quizScore: document.getElementById('quiz-score'),
+        questionText: document.getElementById('question-text'),
+        optionsContainer: document.getElementById('options-container'),
+
+        feedbackBadge: document.getElementById('feedback-badge'),
+        feedbackTitle: document.getElementById('feedback-title'),
+        feedbackDesc: document.getElementById('feedback-desc'),
+        feedbackJson: document.getElementById('feedback-json'),
+        btnNext: document.getElementById('btn-next'),
+
+        finalScore: document.getElementById('final-score'),
+        finalMessage: document.getElementById('final-message'),
+        btnRestart: document.getElementById('btn-restart'),
+        btnReview: document.getElementById('btn-review'),
+        btnCloseReview: document.getElementById('btn-close-review'),
+        reviewList: document.getElementById('review-list')
+    };
+
+    // 지수 백오프(Exponential Backoff)를 적용한 Fetch 함수
+    async function fetchWithRetry(url, options, retries = 5) {
+        const delays = [1000, 2000, 4000, 8000, 16000];
+        for (let i = 0; i < retries; i++) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return await response.json();
+            } catch (e) {
+                if (i === retries - 1) throw e;
+                await new Promise(res => setTimeout(res, delays[i]));
+            }
+        }
+    }
+
+    // Gemini API를 사용하여 동적 문제 생성
+    async function generateAIQuestions(count) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        const promptText = `당신은 웹 개발 교육 전문가입니다. HTTP 상태 코드 퀴즈를 위한 실무 시나리오 ${count}개를 생성해주세요.
+200, 201, 204, 400, 401, 403, 404, 409, 429, 500, 502, 503 등 실무에서 쓰이는 상태코드 중 중복 없이 다양하게 선택하세요.
+상황(situation)은 "만료된 JWT 토큰으로 API 접근 시도", "이메일 중복 가입 시도", "서버 과부하로 인한 일시적 장애" 처럼 아주 구체적이고 현장감 있게 한글로 작성해주세요.
+json 필드는 실제 REST API에서 반환할 법한 JSON 응답 본문을 들여쓰기가 포함된 보기 좋은 문자열로 만들어주세요.`;
+
+        const payload = {
+            contents: [{ parts: [{ text: promptText }] }],
+            systemInstruction: { parts: [{ text: "당신은 정확한 HTTP 상태코드 지식을 가진 서버 엔지니어입니다." }] },
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                        scenarios: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    code: { type: "INTEGER" },
+                                    situation: { type: "STRING" },
+                                    title: { type: "STRING" },
+                                    explanation: { type: "STRING" },
+                                    json: { type: "STRING" }
+                                },
+                                required: ["code", "situation", "title", "explanation", "json"]
+                            }
+                        }
+                    },
+                    required: ["scenarios"]
+                }
+            }
+        };
+
+        const data = await fetchWithRetry(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!responseText) throw new Error("Invalid API response format");
+        return JSON.parse(responseText).scenarios;
+    }
+
+    // 화면 전환 함수
+    function showScreen(screenName) {
+        Object.values(screens).forEach(screen => screen.classList.add('hidden'));
+        screens[screenName].classList.remove('hidden');
+    }
+
+    // 배열 셔플 (Fisher-Yates)
+    function shuffleArray(array) {
+        const arr = [...array];
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    }
+
+    // 정답을 포함하여 보기 8개를 동적으로 생성
+    function generateOptionsForQuestion(correctCode) {
+        const options = new Set([correctCode]);
+        // 기본 옵션 풀을 섞어서 부족한 개수 채우기
+        const shuffledPool = shuffleArray(baseOptionsPool);
+        for (let code of shuffledPool) {
+            if (options.size >= 8) break;
+            options.add(code);
+        }
+        // 오름차순 정렬하여 반환
+        return Array.from(options).sort((a, b) => a - b);
+    }
+
+    // JSON Syntax Highlighter
+    function syntaxHighlight(jsonStr) {
+        if (jsonStr.startsWith('//')) return `<span class="json-null">${jsonStr}</span>`;
+        let formatted = jsonStr.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return formatted.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+            let cls = 'json-string';
+            if (/^"/.test(match)) {
+                if (/:$/.test(match)) cls = 'json-key';
+            } else if (/true|false/.test(match)) {
+                cls = 'json-boolean';
+            } else if (/null/.test(match)) {
+                cls = 'json-null';
+            } else {
+                cls = 'json-number';
+            }
+            return '<span class="' + cls + '">' + match + '</span>';
+        });
+    }
+
+    // 퀴즈 초기화 및 시작 (AI 호출)
+    dom.btnStart.addEventListener('click', async () => {
+        const count = parseInt(dom.inputCount.value);
+        if (count < 1 || count > 10) {
+            alert(`1부터 10 사이의 숫자를 입력해주세요.`);
+            return;
+        }
+
+        totalQuestions = count;
+        dom.modalLoading.classList.remove('hidden'); // 모달 표시
+
+        try {
+            // AI에게 동적으로 문제 생성 요청
+            quizScenarios = await generateAIQuestions(totalQuestions);
+
+            // 콘솔에 AI가 생성한 문제 데이터 출력
+            console.log("🤖 AI가 성공적으로 생성한 문제 데이터:");
+            console.log(quizScenarios);
+        } catch (error) {
+            console.error("AI 출제 실패, 기본 문제로 대체합니다.", error);
+            // 오류 시 Fallback 데이터로 전환
+            quizScenarios = shuffleArray(fallbackScenarios).slice(0, totalQuestions);
+            // 만약 fallback 데이터가 요청한 개수보다 적으면 남은 개수 맞추기
+            if (quizScenarios.length < totalQuestions) totalQuestions = quizScenarios.length;
+        } finally {
+            dom.modalLoading.classList.add('hidden'); // 모달 숨김
+        }
+
+        currentQuestionIndex = 0;
+        score = 0;
+        userAnswers = []; // 답안 초기화
+
+        dom.quizScore.textContent = `점수: 0`;
+        renderQuestion();
+        showScreen('quiz');
+    });
+
+    // 문제 화면 렌더링
+    function renderQuestion() {
+        const currentData = quizScenarios[currentQuestionIndex];
+
+        dom.quizProgress.textContent = `문제 ${currentQuestionIndex + 1} / ${totalQuestions}`;
+        dom.questionText.textContent = `"${currentData.situation}"`;
+        dom.optionsContainer.innerHTML = '';
+
+        // 현재 문제의 정답 코드를 포함하여 선택지 동적 생성
+        const currentOptions = generateOptionsForQuestion(currentData.code);
+
+        currentOptions.forEach(code => {
+            const btn = document.createElement('button');
+            btn.className = "bg-white border-2 border-slate-200 hover:border-indigo-500 hover:text-indigo-600 text-slate-700 font-bold py-3 px-2 rounded-xl transition-all shadow-sm hover:shadow-md";
+            btn.textContent = code;
+            btn.onclick = () => handleAnswer(code, currentData);
+            dom.optionsContainer.appendChild(btn);
+        });
+    }
+
+    // 답변 처리
+    function handleAnswer(selectedCode, currentData) {
+        const isCorrect = selectedCode === currentData.code;
+
+        // 사용자 답안 기록
+        userAnswers.push({
+            data: currentData,
+            selected: selectedCode,
+            isCorrect: isCorrect
+        });
+
+        if (isCorrect) {
+            score++;
+            dom.quizScore.textContent = `점수: ${Math.round(score * (100 / totalQuestions))}`;
+
+            dom.feedbackBadge.textContent = "정답!";
+            dom.feedbackBadge.className = "inline-block px-4 py-2 rounded-full font-bold text-lg text-center mb-4 mx-auto w-32 bg-green-100 text-green-700";
+        } else {
+            dom.feedbackBadge.textContent = "오답!";
+            dom.feedbackBadge.className = "inline-block px-4 py-2 rounded-full font-bold text-lg text-center mb-4 mx-auto w-32 bg-red-100 text-red-700";
+        }
+
+        dom.feedbackTitle.textContent = currentData.title || `${currentData.code} Status`;
+        dom.feedbackDesc.textContent = currentData.explanation;
+        dom.feedbackJson.innerHTML = syntaxHighlight(currentData.json);
+
+        screens.feedback.classList.remove('hidden');
+    }
+
+    // 다음 문제 진행
+    dom.btnNext.addEventListener('click', () => {
+        screens.feedback.classList.add('hidden');
+
+        currentQuestionIndex++;
+
+        if (currentQuestionIndex < totalQuestions) {
+            renderQuestion();
+        } else {
+            showResult();
+        }
+    });
+
+    // 최종 결과 화면 표시
+    function showResult() {
+        const finalScoreVal = Math.round(score * (100 / totalQuestions));
+        dom.finalScore.textContent = finalScoreVal;
+
+        let msg = "";
+        if (finalScoreVal === 100) msg = "완벽합니다! 백엔드 마스터시군요 🚀";
+        else if (finalScoreVal >= 80) msg = "훌륭합니다! 핵심을 잘 알고 계시네요 👏";
+        else if (finalScoreVal >= 50) msg = "좋은 시도입니다! 조금만 더 복습해볼까요? 북마크 필수 📚";
+        else msg = "기본부터 차근차근 다시 알아가봐요! 파이팅 💪";
+
+        dom.finalMessage.textContent = msg;
+        showScreen('result');
+    }
+
+    // 다시 시작
+    dom.btnRestart.addEventListener('click', () => {
+        showScreen('setup');
+    });
+
+    // 결과 리뷰 화면 렌더링
+    dom.btnReview.addEventListener('click', () => {
+        dom.reviewList.innerHTML = '';
+
+        userAnswers.forEach((ans, idx) => {
+            const item = document.createElement('div');
+            item.className = "bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-sm";
+
+            const statusBadge = ans.isCorrect
+                ? `<span class="inline-block bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded mb-2">정답</span>`
+                : `<span class="inline-block bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded mb-2">오답</span>`;
+
+            const answerComparison = ans.isCorrect
+                ? `<p class="text-sm font-bold text-green-600 mb-3">제출한 답: ${ans.selected}</p>`
+                : `<div class="flex items-center gap-3 mb-3">
+                         <span class="text-sm font-bold text-red-500 line-through">제출한 답: ${ans.selected}</span>
+                         <span class="text-sm font-bold text-indigo-600">실제 정답: ${ans.data.code}</span>
+                       </div>`;
+
+            item.innerHTML = `
+                    ${statusBadge}
+                    <h4 class="text-lg font-bold text-slate-800 mb-2 leading-snug">Q${idx + 1}. "${ans.data.situation}"</h4>
+                    ${answerComparison}
+                    <div class="bg-white rounded-lg p-3 text-sm text-slate-600 border border-slate-100 mb-3 shadow-sm">
+                        <strong class="text-slate-800 font-bold">해설:</strong> ${ans.data.explanation}
+                    </div>
+                    <div class="bg-[#282c34] rounded-lg p-3 overflow-x-auto shadow-inner">
+                        <pre><code class="text-xs font-mono leading-relaxed text-slate-300">${syntaxHighlight(ans.data.json)}</code></pre>
+                    </div>
+                `;
+            dom.reviewList.appendChild(item);
+        });
+
+        showScreen('review');
+    });
+
+    // 리뷰 화면에서 결과 화면으로 돌아가기
+    dom.btnCloseReview.addEventListener('click', () => {
+        showScreen('result');
+    });
+
+</script>
+</body>
+</html>

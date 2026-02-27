@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PlateMaster - Baseball Umpire v23</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        
+        body {
+            font-family: 'Inter', 'Pretendard', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            overflow-x: hidden;
+            overscroll-behavior: none;
+        }
+
+        .diamond-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .diamond-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 85px; 
+            aspect-ratio: 1 / 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 5px auto;
+        }
+
+        @media (min-width: 640px) {
+            .diamond-wrapper {
+                max-width: 140px;
+                margin: 20px auto;
+            }
+        }
+
+        .base-diamond {
+            position: relative;
+            width: 70%;
+            height: 70%;
+            transform: rotate(45deg);
+        }
+
+        .base {
+            position: absolute;
+            width: 35%;
+            height: 35%;
+            background-color: #1e293b;
+            border: 2px solid #475569;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .base.active {
+            background-color: #facc15;
+            border-color: #fef08a;
+            box-shadow: 0 0 15px rgba(250, 204, 21, 0.8);
+            transform: scale(1.15);
+            z-index: 10;
+        }
+
+        .base-1 { top: 0; right: 0; }
+        .base-2 { top: 0; left: 0; }
+        .base-3 { bottom: 0; left: 0; }
+        .base-home { 
+            bottom: -3%; 
+            right: -3%; 
+            width: 28%; 
+            height: 28%; 
+            background-color: #f8fafc; 
+            opacity: 0.95; 
+            cursor: default; 
+            transform: rotate(-45deg); 
+            clip-path: polygon(50% 100%, 100% 60%, 100% 0, 0 0, 0 60%); 
+            border: none; 
+            border-radius: 2px;
+        }
+
+        .count-active {
+            transform: scale(1.2);
+            filter: brightness(1.3);
+            box-shadow: 0 0 12px currentColor;
+        }
+
+        .btn-press:active { transform: scale(0.95); opacity: 0.8; }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+
+        .modal-enter { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-2 sm:p-4">
+
+    <!-- 100dvh로 변경하여 모바일 주소창 이슈 해결 -->
+    <div class="w-full max-w-md flex flex-col gap-2.5 sm:gap-4 h-[calc(100dvh-1rem)] sm:h-auto">
+        
+        <!-- 스코어보드 반응형 최적화 -->
+        <div class="flex justify-between items-center bg-slate-800 p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-slate-700 shadow-xl">
+            <div class="flex flex-col gap-1.5 sm:gap-2">
+                <div class="flex items-center gap-2 sm:gap-3">
+                    <span class="text-[10px] sm:text-xs font-black text-white w-10 sm:w-12 uppercase tracking-widest">AWAY</span>
+                    <div class="flex items-center bg-black/50 rounded-lg sm:rounded-xl px-1">
+                        <button onclick="changeScore('away', -1)" class="text-slate-400 px-2 sm:px-3 py-1 text-base sm:text-lg font-bold">-</button>
+                        <span id="score-away" class="text-base sm:text-xl font-black text-white w-6 sm:w-8 text-center">0</span>
+                        <button onclick="changeScore('away', 1)" class="text-blue-400 px-2 sm:px-3 py-1 text-base sm:text-lg font-bold">+</button>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 sm:gap-3">
+                    <span class="text-[10px] sm:text-xs font-black text-white w-10 sm:w-12 uppercase tracking-widest">HOME</span>
+                    <div class="flex items-center bg-black/50 rounded-lg sm:rounded-xl px-1">
+                        <button onclick="changeScore('home', -1)" class="text-slate-400 px-2 sm:px-3 py-1 text-base sm:text-lg font-bold">-</button>
+                        <span id="score-home" class="text-base sm:text-xl font-black text-white w-6 sm:w-8 text-center">0</span>
+                        <button onclick="changeScore('home', 1)" class="text-blue-500 px-2 sm:px-3 py-1 text-base sm:text-lg font-bold">+</button>
+                    </div>
+                </div>
+            </div>
+            <div class="text-right flex flex-col items-end">
+                <div class="bg-blue-600/40 px-2 sm:px-3 py-1 rounded-full border border-blue-300/50 mb-1">
+                    <span id="inning-text" class="text-xs sm:text-sm font-black text-blue-100 italic">1회 초</span>
+                </div>
+                <p class="text-[9px] sm:text-[10px] text-slate-300 font-mono font-bold" id="date-display"></p>
+            </div>
+        </div>
+
+        <!-- 주자 상황 및 BSO -->
+        <div class="grid grid-cols-2 gap-2 sm:gap-4 bg-slate-900 p-3 sm:p-6 rounded-[1.5rem] sm:rounded-[2.5rem] border border-slate-700 shadow-2xl relative overflow-hidden">
+            <div class="diamond-container border-r border-slate-800">
+                <div class="diamond-wrapper">
+                    <div class="base-diamond">
+                        <div id="base-2" onclick="toggleBase(1)" class="base base-2" title="2루"></div>
+                        <div id="base-1" onclick="toggleBase(0)" class="base base-1" title="1루"></div>
+                        <div id="base-3" onclick="toggleBase(2)" class="base base-3" title="3루"></div>
+                        <div class="base base-home"></div>
+                    </div>
+                </div>
+                <button onclick="clearRunnersManually()" class="text-[9px] sm:text-[11px] font-black text-blue-300 hover:text-red-400 transition-colors mt-1 sm:mt-2 uppercase tracking-widest px-1 sm:px-2 py-1">
+                    Clear
+                </button>
+            </div>
+
+            <!-- BSO 동그라미 반응형 크기 조절 (w-4 h-4) -->
+            <div class="flex flex-col justify-center gap-3 sm:gap-6 pl-2 sm:pl-4">
+                <div class="flex items-center justify-between">
+                    <span class="text-xl sm:text-2xl font-black text-green-500 italic">B</span>
+                    <div class="flex gap-1.5 sm:gap-2" id="ball-dots">
+                        <div class="w-4 h-4 sm:w-6 sm:h-6 rounded-full border-2 border-slate-700"></div>
+                        <div class="w-4 h-4 sm:w-6 sm:h-6 rounded-full border-2 border-slate-700"></div>
+                        <div class="w-4 h-4 sm:w-6 sm:h-6 rounded-full border-2 border-slate-700"></div>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-xl sm:text-2xl font-black text-yellow-400 italic">S</span>
+                    <div class="flex gap-1.5 sm:gap-2" id="strike-dots">
+                        <div class="w-4 h-4 sm:w-6 sm:h-6 rounded-full border-2 border-slate-700"></div>
+                        <div class="w-4 h-4 sm:w-6 sm:h-6 rounded-full border-2 border-slate-700"></div>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-xl sm:text-2xl font-black text-red-500 italic">O</span>
+                    <div class="flex gap-1.5 sm:gap-2" id="out-dots">
+                        <div class="w-4 h-4 sm:w-6 sm:h-6 rounded-full border-2 border-slate-700"></div>
+                        <div class="w-4 h-4 sm:w-6 sm:h-6 rounded-full border-2 border-slate-700"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 메인 카운트 버튼 -->
+        <div class="grid grid-cols-3 gap-2 sm:gap-3">
+            <button onclick="handleCount('ball')" class="btn-press h-16 sm:h-20 bg-green-600 rounded-[1.25rem] sm:rounded-3xl flex flex-col items-center justify-center shadow-lg border-b-4 border-green-900">
+                <span class="text-[10px] sm:text-xs font-bold text-white/80">BALL</span>
+                <span class="text-xl sm:text-2xl font-black text-white">+1</span>
+            </button>
+            <button onclick="handleCount('strike')" class="btn-press h-16 sm:h-20 bg-yellow-500 rounded-[1.25rem] sm:rounded-3xl flex flex-col items-center justify-center shadow-lg border-b-4 border-yellow-700 text-slate-900">
+                <span class="text-[10px] sm:text-xs font-bold opacity-80">STRIKE</span>
+                <span class="text-xl sm:text-2xl font-black">+1</span>
+            </button>
+            <button onclick="handleCount('out')" class="btn-press h-16 sm:h-20 bg-red-600 rounded-[1.25rem] sm:rounded-3xl flex flex-col items-center justify-center shadow-lg border-b-4 border-red-900">
+                <span class="text-[10px] sm:text-xs font-bold text-white/80">OUT</span>
+                <span class="text-xl sm:text-2xl font-black text-white">+1</span>
+            </button>
+        </div>
+
+        <!-- 인플레이 버튼 좁은 영역 깨짐 방지 -->
+        <div class="bg-slate-800/40 p-2.5 sm:p-4 rounded-[1.25rem] sm:rounded-3xl border border-slate-700/50">
+            <div class="grid grid-cols-4 gap-1.5 sm:gap-2">
+                <button onclick="handleHitAction(1)" class="btn-press py-2 sm:py-3 bg-slate-700 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black hover:bg-slate-600 px-0.5 whitespace-nowrap">1루타</button>
+                <button onclick="handleHitAction(2)" class="btn-press py-2 sm:py-3 bg-slate-700 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black hover:bg-slate-600 px-0.5 whitespace-nowrap">2루타</button>
+                <button onclick="handleHitAction(3)" class="btn-press py-2 sm:py-3 bg-slate-700 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black hover:bg-slate-600 px-0.5 whitespace-nowrap">3루타</button>
+                <button onclick="processSpecificHit(4, [false, false, false], 1)" class="btn-press py-2 sm:py-3 bg-blue-600 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black hover:bg-blue-500 px-0.5 whitespace-nowrap">홈런</button>
+                
+                <button onclick="triggerChoice('땅볼')" class="btn-press py-2 sm:py-3 bg-slate-800 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold border border-slate-700 hover:bg-slate-700 px-0.5 whitespace-nowrap">땅볼</button>
+                <button onclick="triggerChoice('플라이')" class="btn-press py-2 sm:py-3 bg-slate-800 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold border border-slate-700 hover:bg-slate-700 px-0.5 whitespace-nowrap">플라이</button>
+                <!-- 긴 텍스트의 경우 tracking 좁히기 적용 -->
+                <button onclick="triggerChoice('특수/실책')" class="btn-press py-2 sm:py-3 bg-slate-800 rounded-lg sm:rounded-xl text-[9px] sm:text-xs font-bold border border-slate-700 text-yellow-400 hover:bg-slate-700 px-0.5 tracking-tighter sm:tracking-normal whitespace-nowrap">특수/실책</button>
+                <button onclick="resetBatter()" class="btn-press py-2 sm:py-3 bg-black rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black text-slate-400 border border-slate-800 hover:bg-slate-900 px-0.5">C</button>
+            </div>
+        </div>
+
+        <!-- 로그 리스트 -->
+        <div class="flex-1 min-h-0">
+            <div id="history-list" class="bg-black/40 rounded-[1.25rem] sm:rounded-3xl border border-slate-800/50 h-full overflow-y-auto custom-scrollbar p-3 sm:p-4 flex flex-col gap-2 shadow-inner">
+                <p class="text-slate-500 text-[10px] sm:text-[11px] text-center py-4 italic">기록 대기 중...</p>
+            </div>
+        </div>
+
+        <!-- 하단 액션 -->
+        <div class="grid grid-cols-2 gap-2 sm:gap-3 pb-1 sm:pb-2">
+            <button onclick="showSummary()" class="btn-press py-3 sm:py-4 bg-indigo-600 rounded-xl sm:rounded-2xl font-black text-[11px] sm:text-sm shadow-xl hover:bg-indigo-500 uppercase tracking-tighter">
+                Match Report
+            </button>
+            <button onclick="confirmInningManual()" class="btn-press py-3 sm:py-4 bg-slate-800 rounded-xl sm:rounded-2xl font-bold text-[11px] sm:text-sm border border-slate-600 hover:bg-slate-700 uppercase tracking-tighter">
+                Next Inning
+            </button>
+        </div>
+    </div>
+
+    <!-- 상황 선택 모달 -->
+    <div id="choice-modal" class="fixed inset-0 bg-black/90 z-[100] hidden items-center justify-center p-4 sm:p-6 backdrop-blur-md">
+        <div class="bg-slate-900 w-full max-w-sm rounded-[2rem] sm:rounded-[2.5rem] border border-slate-700 p-5 sm:p-8 modal-enter shadow-2xl flex flex-col max-h-[90dvh]">
+            <h3 id="choice-title" class="text-lg sm:text-xl font-black text-center mb-4 sm:mb-6 text-white uppercase italic tracking-tighter border-b border-slate-800 pb-3 sm:pb-4 flex-shrink-0">상황 판정</h3>
+            <div id="choice-options" class="flex flex-col gap-2 max-h-full overflow-y-auto custom-scrollbar pr-1 flex-1"></div>
+            <button onclick="closeChoice()" class="mt-4 sm:mt-8 w-full py-2 text-[10px] sm:text-xs font-bold text-slate-500 uppercase hover:text-white transition-colors tracking-widest flex-shrink-0">Cancel</button>
+        </div>
+    </div>
+
+    <!-- 전체 요약 모달 -->
+    <div id="summary-modal" class="fixed inset-0 bg-black/95 z-[110] hidden flex items-center justify-center p-4 backdrop-blur-xl">
+        <div class="bg-slate-900 w-full max-w-md rounded-[2.5rem] sm:rounded-[3rem] border border-slate-700 flex flex-col max-h-[85dvh] shadow-2xl">
+            <div class="p-5 sm:p-6 border-b border-slate-800 flex justify-between items-center">
+                <h2 class="text-lg sm:text-xl font-black text-blue-400 italic tracking-tighter uppercase">Official Match Log</h2>
+                <button onclick="closeSummary()" class="text-slate-500 hover:text-white font-black text-xl">×</button>
+            </div>
+            <div class="p-4 sm:p-6 overflow-y-auto custom-scrollbar bg-black/30 flex-1">
+                <pre id="summary-content" class="text-[9px] sm:text-[11px] text-slate-200 font-mono whitespace-pre-wrap leading-relaxed"></pre>
+            </div>
+            <div class="p-4 sm:p-6 border-t border-slate-800 grid grid-cols-2 gap-3 sm:gap-4">
+                <button onclick="copyToClipboard()" class="bg-slate-700 py-3 sm:py-4 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs uppercase text-white hover:bg-slate-600">Copy</button>
+                <button onclick="downloadLog()" class="bg-blue-600 py-3 sm:py-4 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs uppercase text-white hover:bg-blue-500">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-6 sm:bottom-10 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-full shadow-2xl transition-all duration-300 opacity-0 pointer-events-none translate-y-4 font-black z-[200] text-xs sm:text-sm italic whitespace-nowrap">
+        기록 완료
+    </div>
+
+    <script>
+        let gameState = {
+            score: { away: 0, home: 0 },
+            balls: 0,
+            strikes: 0,
+            outs: 0,
+            inning: 1,
+            isBottom: false,
+            runners: [false, false, false],
+            history: []
+        };
+
+        const STORAGE_KEY = 'baseball_umpire_v22_state';
+
+        window.onload = () => {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) gameState = JSON.parse(saved);
+            document.getElementById('date-display').innerText = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+            updateUI();
+        };
+
+        function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState)); }
+
+        function updateUI() {
+            document.getElementById('score-away').innerText = gameState.score.away;
+            document.getElementById('score-home').innerText = gameState.score.home;
+            document.getElementById('inning-text').innerText = `${gameState.inning}회 ${gameState.isBottom ? '말' : '초'}`;
+
+            gameState.runners.forEach((on, i) => {
+                const el = document.getElementById(`base-${i+1}`);
+                if (on) el.classList.add('active');
+                else el.classList.remove('active');
+            });
+
+            updateDots('ball-dots', gameState.balls, 3, 'bg-green-500');
+            updateDots('strike-dots', gameState.strikes, 2, 'bg-yellow-400');
+            updateDots('out-dots', gameState.outs, 2, 'bg-red-500');
+
+            renderHistory();
+            save();
+        }
+
+        function updateDots(id, count, max, cls) {
+            const dots = document.getElementById(id).querySelectorAll('div');
+            dots.forEach((dot, i) => {
+                // JS에서도 모바일 크기 반응형 w-4 h-4 적용
+                dot.className = 'w-4 h-4 sm:w-6 sm:h-6 rounded-full border-2 border-slate-700 transition-all duration-300';
+                if (i < count) {
+                    dot.classList.add(cls, 'border-transparent', 'count-active');
+                }
+            });
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-list');
+            if (gameState.history.length === 0) {
+                container.innerHTML = `<p class="text-slate-500 text-[10px] text-center py-4 italic">기록 대기 중...</p>`;
+                return;
+            }
+            container.innerHTML = gameState.history.map(h => {
+                const timeStr = h.time.includes(',') ? h.time.split(',')[1].trim() : h.time;
+                return `
+                    <div class="flex items-start gap-2 sm:gap-3 border-l-2 border-slate-700 pl-2 sm:pl-3 py-1.5 sm:py-2">
+                        <span class="text-[8px] sm:text-[9px] text-slate-500 font-mono mt-0.5">${timeStr}</span>
+                        <div class="flex-1">
+                            <span class="text-[9px] sm:text-[10px] font-black text-indigo-400">[${h.inning}]</span>
+                            <span class="text-[10px] sm:text-[11px] text-slate-100 font-bold">${h.action}</span>
+                            <span class="text-[8px] sm:text-[9px] text-slate-500 ml-1 italic">(B${h.count.b} S${h.count.s} O${h.count.o} / R:${h.runners})</span>
+                        </div>
+                    </div>
+                `}).reverse().join('');
+        }
+
+        function addScore(pts) {
+            if (gameState.isBottom) gameState.score.home += pts;
+            else gameState.score.away += pts;
+        }
+
+        function processSpecificHit(batterBase, runnerStatesAfter, ptsToAdd, customMsg = "") {
+            gameState.runners = [...runnerStatesAfter];
+            if (batterBase > 0 && batterBase < 4) gameState.runners[batterBase - 1] = true;
+            if (ptsToAdd > 0) addScore(ptsToAdd);
+            const hitNames = ["1루타", "2루타", "3루타", "홈런"];
+            const actionMsg = customMsg || (batterBase === 4 ? "홈런" : hitNames[batterBase-1]);
+            recordPlay(`${actionMsg} (${ptsToAdd}득점)`);
+            updateUI();
+        }
+
+        function processHit(bases) {
+            let pts = 0; let curr = [...gameState.runners]; let next = [false, false, false];
+            for (let i = 2; i >= 0; i--) { if (curr[i]) { if (i + bases >= 3) pts++; else next[i + bases] = true; } }
+            if (bases < 4) next[bases - 1] = true; else pts++;
+            gameState.runners = next; if (pts > 0) addScore(pts);
+            const hitNames = ["1루타", "2루타", "3루타", "홈런"];
+            recordPlay(hitNames[bases-1]); updateUI();
+        }
+
+        function handleHitAction(bases) {
+            const r = gameState.runners;
+            const isBaseEmpty = !r[0] && !r[1] && !r[2];
+            const is1BOnly = r[0] && !r[1] && !r[2];
+            const is2BOnly = !r[0] && r[1] && !r[2];
+            const is3BOnly = !r[0] && !r[1] && r[2];
+            const is1B2B = r[0] && r[1] && !r[2];
+            const isBasesLoaded = r[0] && r[1] && r[2];
+
+            const modal = document.getElementById('choice-modal');
+            const optionsContainer = document.getElementById('choice-options');
+            optionsContainer.innerHTML = '';
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+            document.getElementById('choice-title').innerText = `[${bases}루타] 상황 판정`;
+
+            const choices = [];
+
+            if (bases === 1) {
+                if (isBaseEmpty) {
+                    choices.push({ label: '1루타 (기본)', action: () => processSpecificHit(1, [false, false, false], 0) });
+                    choices.push({ label: '1루타 + 실책 동반 (2루 도달)', action: () => processSpecificHit(2, [false, false, false], 0, '1루타+실책(2루)') });
+                    choices.push({ label: '1루타 + 실책 동반 (3루 도달)', action: () => processSpecificHit(3, [false, false, false], 0, '1루타+실책(3루)') });
+                } else if (is1BOnly) {
+                    choices.push({ label: '기본: 주자 1·2루 진루', action: () => processSpecificHit(1, [false, true, false], 0) });
+                    choices.push({ label: '타구 깊음: 1루 주자 3루 도달 (1·3루)', action: () => processSpecificHit(1, [false, false, true], 0) });
+                    choices.push({ label: '2아웃/홈인 도전: 1루 주자 홈 득점', action: () => processSpecificHit(1, [false, false, false], 1) });
+                    choices.push({ label: '수비 송구: 선행주자 아웃 (FC)', action: () => { applyOut(1); processSpecificHit(1, [false, false, false], 0, 'FC (선행주자 아웃)'); } });
+                } else if (is2BOnly) {
+                    choices.push({ label: '기본: 2루 주자 득점 (+1점)', action: () => processSpecificHit(1, [false, false, false], 1) });
+                    choices.push({ label: '짧은 타구: 2루 주자 3루 정지 (1·3루)', action: () => processSpecificHit(1, [false, false, true], 0) });
+                } else if (is3BOnly) {
+                    choices.push({ label: '기본: 3루 주자 득점 (+1점)', action: () => processSpecificHit(1, [false, false, false], 1) });
+                    choices.push({ label: '홈 송구 빠름: 3루 주자 태그아웃', action: () => { applyOut(1); processSpecificHit(1, [false, false, false], 0, '1루타 및 홈아웃'); } });
+                } else if (is1B2B) {
+                    choices.push({ label: '기본: 모두 한 루 진루 (만루)', action: () => processSpecificHit(1, [false, true, true], 0) });
+                    choices.push({ label: '타구 깊음: 2루 주자 득점 (1·3루)', action: () => processSpecificHit(1, [false, false, true], 1) });
+                    choices.push({ label: '매우 깊음/2아웃: 모두 득점 (+2점)', action: () => processSpecificHit(1, [false, false, false], 2) });
+                    choices.push({ label: '수비 선택 (FC): 3루 송구 아웃', action: () => { applyOut(1); processSpecificHit(1, [false, true, false], 0, 'FC (3루 아웃)'); } });
+                } else if (isBasesLoaded) {
+                    choices.push({ label: '기본: 3루 주자 득점 (만루 유지)', action: () => processSpecificHit(1, [false, true, true], 1) });
+                    choices.push({ label: '홈 포스 아웃 (득점 무효/만루 유지)', action: () => { applyOut(1); processSpecificHit(1, [false, true, true], 0, '단타 (홈 포스아웃)'); } });
+                    choices.push({ label: '2아웃+깊음: 2명 득점 (1·3루)', action: () => processSpecificHit(1, [false, false, true], 2) });
+                    choices.push({ label: '2아웃+매우 깊음: 3명 득점', action: () => processSpecificHit(1, [false, false, false], 3) });
+                } else {
+                    choices.push({ label: '기본: 선행 주자 득점', action: () => processHit(1) });
+                }
+            } else if (bases === 2) {
+                if (isBaseEmpty) {
+                    choices.push({ label: '2루타 (기본)', action: () => processSpecificHit(2, [false, false, false], 0) });
+                    choices.push({ label: '실책 동반: 3루 진루', action: () => processSpecificHit(3, [false, false, false], 0, '2루타+실책(3루)') });
+                    choices.push({ label: '실책 동반: 홈인', action: () => processSpecificHit(4, [false, false, false], 1, '2루타+실책(홈)') });
+                } else if (is1BOnly) {
+                    choices.push({ label: '기본 / 그라운드룰 더블 (3루 정지)', action: () => processSpecificHit(2, [false, false, true], 0, '2루타 (2·3루)') });
+                    choices.push({ label: '타구 코너·깊음: 1루 주자 득점', action: () => processSpecificHit(2, [false, false, false], 1) });
+                } else if (is2BOnly) {
+                    choices.push({ label: '기본: 2루 주자 득점 (+1점)', action: () => processSpecificHit(2, [false, false, false], 1) });
+                    choices.push({ label: '짧은 타구: 3루 정지 (2·3루)', action: () => processSpecificHit(2, [false, false, true], 0) });
+                } else if (is1B2B) {
+                    choices.push({ label: '기본: 2루 주자 득점, 1루 주자 3루', action: () => processSpecificHit(2, [false, false, true], 1) });
+                    choices.push({ label: '2아웃+깊음: 두 주자 모두 득점 (+2점)', action: () => processSpecificHit(2, [false, false, false], 2) });
+                    choices.push({ label: '보수적 주루 (만루 처리)', action: () => processSpecificHit(1, [false, true, true], 0, '단타 처리 (보수적 주루)') });
+                } else if (isBasesLoaded) {
+                    choices.push({ label: '기본/GRD: 선행 둘 득점', action: () => processSpecificHit(2, [false, false, true], 2, '2루타 (2득점)') });
+                    choices.push({ label: '실책 동반: 추가 득점 (싹쓸이)', action: () => processSpecificHit(2, [false, false, false], 3, '2루타+실책 (싹쓸이)') });
+                } else {
+                    choices.push({ label: '기본: 선행 주자 득점', action: () => processHit(2) });
+                }
+            } else if (bases === 3) {
+                if (isBaseEmpty) {
+                    choices.push({ label: '3루타 (기본)', action: () => processSpecificHit(3, [false, false, false], 0) });
+                    choices.push({ label: '실책 시: 홈인 (+1점)', action: () => processSpecificHit(4, [false, false, false], 1, '3루타+실책(홈인)') });
+                } else if (is1BOnly) {
+                    choices.push({ label: '기본: 1루 주자 득점 (+1점)', action: () => processSpecificHit(3, [false, false, false], 1) });
+                    choices.push({ label: '선행주자 3루 정지 (기록: 2루타)', action: () => processSpecificHit(2, [false, false, true], 0, '2루타 (선행주자 3루)') });
+                } else if (isBasesLoaded) {
+                    choices.push({ label: '기본: 싹쓸이 3득점', action: () => processSpecificHit(3, [false, false, false], 3) });
+                    choices.push({ label: '홈 아웃 (2명만 득점)', action: () => { applyOut(1); processSpecificHit(3, [false, false, false], 2, '3루타 및 홈아웃'); }});
+                } else {
+                    choices.push({ label: '기본: 모든 주자 득점', action: () => {
+                        let pts = (r[0]?1:0) + (r[1]?1:0) + (r[2]?1:0);
+                        processSpecificHit(3, [false, false, false], pts);
+                    }});
+                    choices.push({ label: '관중 간섭 (2루타 처리)', action: () => processSpecificHit(2, [false, true, false], 0, '어워드 제한 (2루타)') });
+                }
+            }
+
+            renderChoices(choices, optionsContainer);
+        }
+
+        function handleSteal(baseIdx) {
+            let next = [...gameState.runners];
+            next[baseIdx] = false;
+            if (baseIdx === 2) addScore(1);
+            else next[baseIdx + 1] = true;
+            gameState.runners = next;
+            recordPlay(`${baseIdx + 1}루 주자 도루 성공`, false);
+            updateUI();
+        }
+
+        function handleCS(baseIdx) {
+            let next = [...gameState.runners];
+            next[baseIdx] = false;
+            gameState.runners = next;
+            applyOut(1);
+            recordPlay(`${baseIdx + 1}루 주자 아웃(견제/도루실패)`, false);
+            updateUI();
+        }
+
+        function triggerChoice(type) {
+            const r = gameState.runners;
+            const hasRunners = r.some(v => v);
+            const modal = document.getElementById('choice-modal');
+            const optionsContainer = document.getElementById('choice-options');
+            optionsContainer.innerHTML = '';
+            
+            if (type === '특수/실책') {
+                modal.classList.remove('hidden'); modal.classList.add('flex');
+                document.getElementById('choice-title').innerText = "실책 & 특수 이벤트";
+                
+                const choices = [];
+                choices.push({ label: '포구 실책 출루 (타자 1루 진루)', action: () => { processRunnersAdvance(1, true); recordPlay('포구 실책 출루'); } });
+                
+                if (hasRunners) {
+                    choices.push({ label: '견제 실책 (Pickoff E)', action: () => { processRunnersAdvance(1, false); recordPlay('견제 실책', false); } });
+                    choices.push({ label: '보크 (Balk)', action: () => { processRunnersAdvance(1, false); recordPlay('보크 (Balk)', false); } });
+                    choices.push({ label: '폭투/패스트볼 (WP/PB)', action: () => { processRunnersAdvance(1, false); recordPlay('폭투/패스트볼', false); } });
+                    
+                    r.forEach((on, i) => {
+                        if (on) {
+                            choices.push({ label: `${i+1}루 주자 도루 성공`, action: () => handleSteal(i) });
+                            choices.push({ label: `${i+1}루 주자 아웃 (견제/CS)`, action: () => handleCS(i) });
+                        }
+                    });
+                    
+                    choices.push({ label: '주루/야수방해 (어워드 진루)', action: () => { processRunnersAdvance(1, false); recordPlay('방해/간섭 어워드', false); } });
+                    choices.push({ label: '어필 플레이 아웃 (베이스 미스 등)', action: () => { applyOut(1); recordPlay('어필 아웃'); } });
+                }
+                renderChoices(choices, optionsContainer);
+                return;
+            }
+
+            if (!hasRunners) { applyOut(1); recordPlay(`${type} 아웃`); return; }
+
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+            document.getElementById('choice-title').innerText = `${type} 득점 및 판정`;
+            
+            const choices = [];
+            
+            if (type === '땅볼') {
+                choices.push({ label: '타자 아웃 (주자 진루)', action: () => { 
+                    if (gameState.outs < 2) processRunnersAdvance(1, false); 
+                    applyOut(1); recordPlay('땅볼 아웃 (진루)'); 
+                }});
+                choices.push({ label: '선행 주자 아웃 (FC)', action: () => { 
+                    if (gameState.outs < 2) { removeLeadRunner(); gameState.runners[0] = true; } 
+                    applyOut(1); recordPlay('FC (선행주자아웃)'); 
+                }});
+                
+                if (r[0] && r[1] && r[2]) {
+                    choices.push({ label: '홈 포스 아웃 (득점 무효)', action: () => { 
+                        if (gameState.outs < 2) gameState.runners = [true, true, true]; 
+                        applyOut(1); recordPlay('홈 포스아웃'); updateUI(); 
+                    }});
+                } else if (r[2]) {
+                    choices.push({ label: '홈 태그 아웃 (득점 무효)', action: () => { 
+                        if (gameState.outs < 2) { gameState.runners[2] = false; gameState.runners[0] = true; }
+                        applyOut(1); recordPlay('홈 태그아웃'); updateUI(); 
+                    }});
+                }
+
+                if (gameState.outs < 2 && r[0]) {
+                    choices.push({ label: '병살타 (Double Play)', action: () => { 
+                        removeLeadRunner(); applyOut(2); recordPlay('병살타'); 
+                    }});
+                }
+            } else if (type === '플라이') {
+                choices.push({ label: '플라이 아웃 (주자 잔류)', action: () => { applyOut(1); recordPlay('플라이 아웃'); } });
+                if (r[2]) {
+                    choices.push({ label: '희생 플라이 (득점 인정)', action: () => { 
+                        if (gameState.outs < 2) { gameState.runners[2] = false; addScore(1); }
+                        applyOut(1); recordPlay('희생 플라이'); 
+                    }});
+                    if (gameState.outs < 2) {
+                        choices.push({ label: '희생 플라이 실패 (홈 아웃/병살)', action: () => { 
+                            gameState.runners[2] = false; applyOut(2); recordPlay('플라이 및 홈아웃'); 
+                        }});
+                    }
+                }
+            }
+            
+            renderChoices(choices, optionsContainer);
+        }
+
+        function renderChoices(choices, container) {
+            choices.forEach(c => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full py-3.5 sm:py-4 bg-slate-800 hover:bg-indigo-600 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-bold border border-slate-700 text-left px-4 sm:px-5 text-white active:scale-95 transition-all shadow-sm break-keep';
+                btn.innerText = c.label; btn.onclick = () => { c.action(); closeChoice(); };
+                container.appendChild(btn);
+            });
+        }
+
+        function confirmInningManual() {
+            const modal = document.getElementById('choice-modal');
+            const container = document.getElementById('choice-options');
+            container.innerHTML = '';
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+            document.getElementById('choice-title').innerText = "이닝 교체";
+            const btn = document.createElement('button');
+            btn.className = 'w-full py-4 sm:py-5 bg-red-600 rounded-2xl sm:rounded-3xl text-xs sm:text-sm font-black text-white active:scale-95 shadow-xl uppercase italic';
+            btn.innerText = "Switch Sides Now";
+            btn.onclick = () => { nextInning(); closeChoice(); };
+            container.appendChild(btn);
+        }
+
+        function closeChoice() { document.getElementById('choice-modal').classList.add('hidden'); }
+
+        function processRunnersAdvance(bases, includeBatter = true) {
+            let next = [false, false, false]; let pts = 0;
+            for(let i=2; i>=0; i--) { if(gameState.runners[i]) { if(i+bases >= 3) pts++; else next[i+bases] = true; } }
+            if(includeBatter && bases > 0 && bases <= 3) next[bases-1] = true;
+            else if(includeBatter && bases > 3) pts++;
+            gameState.runners = next; if(pts > 0) addScore(pts); updateUI();
+        }
+
+        function removeLeadRunner() { for(let i=2; i>=0; i--) { if(gameState.runners[i]) { gameState.runners[i] = false; break; } } }
+
+        function applyOut(count) {
+            gameState.outs += count; 
+            if (gameState.outs >= 3) { 
+                gameState.outs = 3; 
+                updateUI(); 
+                setTimeout(nextInning, 500); 
+            } else {
+                updateUI();
+            }
+        }
+
+        function handleCount(type) {
+            if (type === 'ball') { gameState.balls++; if (gameState.balls >= 4) processWalk(); }
+            else if (type === 'strike') { gameState.strikes++; if (gameState.strikes >= 3) { gameState.outs++; recordPlay("삼진"); if (gameState.outs >= 3) { updateUI(); setTimeout(nextInning, 500); return; } } }
+            else if (type === 'out') { gameState.outs++; recordPlay("아웃"); if (gameState.outs >= 3) { updateUI(); setTimeout(nextInning, 500); return; } }
+            updateUI();
+        }
+
+        function toggleBase(i) { gameState.runners[i] = !gameState.runners[i]; updateUI(); }
+        function clearRunnersManually() { gameState.runners = [false, false, false]; updateUI(); }
+
+        function recordPlay(action, resetCount = true) {
+            const runnerStr = gameState.runners.map((r, i) => r ? (i + 1) : '').filter(Boolean).join(',') || 'None';
+            gameState.history.push({
+                time: new Date().toLocaleString(),
+                inning: `${gameState.inning}${gameState.isBottom ? '말' : '초'}`,
+                action,
+                count: { b: gameState.balls, s: gameState.strikes, o: gameState.outs },
+                runners: runnerStr
+            });
+            if (resetCount) { gameState.balls = 0; gameState.strikes = 0; }
+            updateUI();
+        }
+
+        function changeScore(team, d) { gameState.score[team] = Math.max(0, gameState.score[team] + d); updateUI(); }
+        function resetBatter() { gameState.balls = 0; gameState.strikes = 0; updateUI(); }
+
+        function nextInning() {
+            gameState.balls = 0; gameState.strikes = 0; gameState.outs = 0; gameState.runners = [false, false, false];
+            if (gameState.isBottom) { gameState.inning++; gameState.isBottom = false; } else gameState.isBottom = true;
+            showToast("공수 교대"); updateUI();
+        }
+
+        function showSummary() {
+            let s = `[PLATEMASTER - OFFICIAL MATCH LOG]\nAway ${gameState.score.away} : ${gameState.score.home} Home\n---\n`;
+            gameState.history.forEach(h => s += `${h.inning} | ${h.action} | B${h.count.b}S${h.count.s}O${h.count.o} | R:${h.runners}\n`);
+            document.getElementById('summary-content').innerText = s;
+            document.getElementById('summary-modal').classList.remove('hidden');
+        }
+
+        function closeSummary() { document.getElementById('summary-modal').classList.add('hidden'); }
+        function copyToClipboard() {
+            const el = document.createElement('textarea'); el.value = document.getElementById('summary-content').innerText;
+            document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+            showToast("Copied!");
+        }
+        function downloadLog() {
+            const blob = new Blob([document.getElementById('summary-content').innerText], {type: 'text/plain'});
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `match_log_${Date.now()}.txt`; a.click();
+        }
+        function showToast(m) {
+            const t = document.getElementById('toast'); t.innerText = m;
+            t.classList.remove('opacity-0', 'translate-y-4', 'pointer-events-none');
+            setTimeout(() => t.classList.add('opacity-0', 'translate-y-4', 'pointer-events-none'), 2000);
+        }
+    </script>
+</body>
+</html>

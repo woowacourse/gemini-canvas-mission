@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>피듶북(PDFBook) - AI 인터랙티브 PDF 학습 도구</title>
+    <!-- pdf.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Tesseract.js CDN (OCR 엔진) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --bg-gray: #f3f4f6;
+            --sidebar-width: 80px;
+            --header-h: 64px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-gray);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        header {
+            height: var(--header-h);
+            background: #fff;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.5rem;
+            z-index: 50;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .header-tools {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        /* Page Navigation */
+        .page-nav {
+            display: none;
+            align-items: center;
+            gap: 0.75rem;
+            background: #f9fafb;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+        }
+
+        .page-jump-container {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding-right: 0.75rem;
+            border-right: 1px solid #e5e7eb;
+            margin-right: 0.25rem;
+        }
+
+        .page-jump-container input {
+            width: 45px;
+            padding: 0.3rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.25rem;
+            text-align: center;
+            font-weight: 600;
+            outline: none;
+        }
+
+        .page-jump-container input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+        }
+
+        .page-jump-container span {
+            font-size: 0.85rem;
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+        .page-nav button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.25rem;
+            font-weight: 600;
+            color: #374151;
+            transition: background 0.2s;
+        }
+
+        .page-nav button:hover:not(:disabled) {
+            background: #e5e7eb;
+        }
+        
+        .page-nav button:disabled {
+            color: #d1d5db;
+            cursor: not-allowed;
+        }
+
+        #page-indicator {
+            font-weight: 700;
+            color: var(--primary);
+            min-width: 50px;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+
+        /* Layout */
+        main {
+            display: flex;
+            flex: 1;
+            height: calc(100vh - var(--header-h));
+            overflow: hidden;
+        }
+
+        /* Left: PDF Viewer (Book Mode) */
+        #viewer-container {
+            flex: 1;
+            overflow: auto; 
+            background: #9ca3af;
+            position: relative; 
+            perspective: 3000px; 
+        }
+
+        /* 레이아웃 공백 버그 수정: top, bottom, left, right를 0으로 주어 화면을 완벽히 채우도록 수정 */
+        #placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #ffffff;
+            z-index: 20;
+        }
+
+        .placeholder-content {
+            text-align: center;
+            padding: 4rem;
+            border-radius: 1rem;
+            background: #f9fafb;
+            border: 3px dashed #d1d5db;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        #placeholder.drag-over .placeholder-content {
+            border-color: var(--primary);
+            background: #eef2ff;
+        }
+
+        #book-container {
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transform-style: preserve-3d;
+            transition: width 0.3s ease, height 0.3s ease, margin 0.3s ease;
+        }
+
+        .page-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            transform-origin: left center;
+            transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            backface-visibility: hidden;
+        }
+
+        .page-wrapper.flip {
+            transform: rotateY(-180deg);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        canvas.pdf-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas.drawing-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: default; 
+        }
+
+        .drawing-layer.view-mode { cursor: grab; }
+        .drawing-layer.view-mode:active { cursor: grabbing; }
+
+        /* Right: Sidebar */
+        aside {
+            width: var(--sidebar-width);
+            background: white;
+            border-left: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1rem 0.5rem;
+            gap: 1.5rem;
+            overflow-y: auto;
+            box-shadow: -4px 0 15px rgba(0,0,0,0.03);
+            z-index: 10;
+        }
+
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            gap: 0.5rem;
+        }
+
+        .section-title {
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #9ca3af;
+            text-align: center;
+            margin-bottom: 0.25rem;
+        }
+
+        .tool-group {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            gap: 0.5rem;
+        }
+
+        .btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.25rem;
+            padding: 0.5rem 0.25rem;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #4b5563;
+            width: 100%;
+        }
+
+        .btn .icon { font-size: 1.25rem; }
+        .btn .label { font-size: 0.65rem; font-weight: 700; white-space: nowrap; }
+
+        .btn:hover:not(:disabled) { background: #f9fafb; border-color: #d1d5db; }
+        .btn.active { background: #eef2ff; color: var(--primary); border-color: var(--primary); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .btn-ai { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+        .btn-ai.active, .btn-ai:hover:not(:disabled) { background: #dcfce7; }
+        .btn-danger { color: #ef4444; border-color: #fecaca; background: #fef2f2; }
+        .btn-danger:hover:not(:disabled) { background: #fee2e2; }
+
+        .tool-options {
+            display: none;
+            flex-direction: column;
+            gap: 0.5rem;
+            background: #f9fafb;
+            padding: 0.5rem 0.25rem;
+            border-radius: 0.5rem;
+            width: 100%;
+            border: 1px solid #e5e7eb;
+        }
+        .tool-options.show { display: flex; }
+        .option-row { display: flex; justify-content: space-around; align-items: center; width: 100%; }
+        .color-dot { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+        .color-dot.active { border-color: #6b7280; transform: scale(1.1); box-shadow: 0 0 0 1px white inset; }
+        .thick-dot { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .thick-dot.active { background: #e0e7ff; }
+        .thick-dot span { background: #4b5563; border-radius: 50%; }
+
+        #file-input { display: none; }
+
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        .zoom-controls button { border: none; background: transparent; padding: 0.5rem 0.75rem; cursor: pointer; font-weight: bold; color: #374151; }
+        .zoom-controls button:hover { background: #e5e7eb; }
+        .zoom-controls span { padding: 0 0.5rem; font-size: 0.875rem; font-weight: 600; min-width: 55px; text-align: center; }
+
+        @media (max-width: 768px) {
+            main { flex-direction: column; }
+            aside { width: 100%; height: auto; border-left: none; border-top: 1px solid #e5e7eb; padding: 0.75rem; flex-direction: row; justify-content: space-around; align-items: flex-start; gap: 1rem; }
+            .sidebar-section { gap: 0.25rem; }
+            .tool-group { flex-direction: row; justify-content: center; gap: 0.5rem; }
+            .section-title, .logo span, .page-jump-container { display: none; }
+            .btn { padding: 0.5rem 0.75rem; width: auto; }
+            #viewer-container { padding: 1rem; }
+        }
+
+        #toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; background: rgba(31, 41, 55, 0.9); color: white; border-radius: 0.5rem; display: none; z-index: 100; font-weight: 500; box-shadow: 0 4px 6px rgba(0,0,0,0.1); animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+            <span>피듶북(PDFBook)</span>
+        </div>
+        <div class="header-tools">
+            <div class="page-nav" id="page-nav">
+                <div class="page-jump-container">
+                    <input type="number" id="jump-input" min="1" placeholder="입력">
+                    <span>/</span>
+                    <span id="total-pages-view">0</span>
+                </div>
+                <button id="prev-page" disabled>◀ 이전</button>
+                <span id="page-indicator">0 / 0</span>
+                <button id="next-page">다음 ▶</button>
+            </div>
+            <div class="btn" style="width: auto; padding: 0.5rem 1rem; flex-direction: row; gap: 0.5rem;" onclick="document.getElementById('file-input').click()">
+                📂 파일 열기
+                <input type="file" id="file-input" accept="application/pdf">
+            </div>
+            <div class="zoom-controls">
+                <button id="zoom-out">−</button>
+                <span id="zoom-val">맞춤</span>
+                <button id="zoom-in">+</button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div id="viewer-container">
+            <div id="placeholder">
+                <div class="placeholder-content" onclick="document.getElementById('file-input').click()">
+                    <svg style="margin: 0 auto 1rem auto;" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    <p style="font-size: 1.25rem; font-weight: bold; color: #374151;">학습할 PDF 파일을 업로드해주세요.</p>
+                    <p style="font-size: 0.95rem; margin-top: 0.5rem; color: #6b7280;">클릭하거나 파일을 이곳에 드래그 앤 드롭하세요.</p>
+                </div>
+            </div>
+            <div id="book-container" style="display: none;"></div>
+        </div>
+
+        <aside>
+            <div class="sidebar-section">
+                <div class="section-title">도구</div>
+                <div class="tool-group">
+                    <button class="btn active" id="tool-view" data-tool="view" title="뷰어 모드">
+                        <span class="icon">👆</span><span class="label">뷰어</span>
+                    </button>
+                    <div class="tool-item-container">
+                        <button class="btn" id="tool-pen" data-tool="pen" title="펜 모드">
+                            <span class="icon">✏️</span><span class="label">펜</span>
+                        </button>
+                        <div class="tool-options" id="options-pen">
+                            <div class="option-row">
+                                <div class="color-dot active" data-color="rgba(0,0,0,0.8)" style="background: #000000;"></div>
+                                <div class="color-dot" data-color="rgba(37,99,235,0.8)" style="background: #2563eb;"></div>
+                                <div class="color-dot" data-color="rgba(220,38,38,0.8)" style="background: #dc2626;"></div>
+                            </div>
+                            <div class="option-row" style="margin-top: 4px;">
+                                <div class="thick-dot" data-tool="pen" data-thick="2"><span style="width:4px;height:4px;"></span></div>
+                                <div class="thick-dot active" data-tool="pen" data-thick="4"><span style="width:8px;height:8px;"></span></div>
+                                <div class="thick-dot" data-tool="pen" data-thick="8"><span style="width:14px;height:14px;"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tool-item-container">
+                        <button class="btn" id="tool-eraser" data-tool="eraser" title="지우개 모드">
+                            <span class="icon">🧹</span><span class="label">지우개</span>
+                        </button>
+                        <div class="tool-options" id="options-eraser">
+                            <div class="option-row">
+                                <div class="thick-dot" data-tool="eraser" data-thick="20"><span style="width:10px;height:10px;"></span></div>
+                                <div class="thick-dot active" data-tool="eraser" data-thick="40"><span style="width:16px;height:16px;"></span></div>
+                                <div class="thick-dot" data-tool="eraser" data-thick="60"><span style="width:24px;height:24px;"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-danger" id="tool-clear" title="현재 페이지 필기 삭제">
+                        <span class="icon">🗑️</span><span class="label">삭제</span>
+                    </button>
+                </div>
+            </div>
+            <div class="sidebar-section">
+                <div class="section-title">AI</div>
+                <div class="tool-group">
+                    <button class="btn btn-ai" id="ai-core" title="핵심 문장 추출"><span class="icon">💡</span><span class="label">핵심</span></button>
+                    <button class="btn btn-ai" id="ai-underline" title="AI 자동 밑줄 생성"><span class="icon">🖋️</span><span class="label">밑줄</span></button>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <div id="toast"></div>
+
+    <script>
+        const apiKey = ""; 
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const state = {
+            pdfDoc: null, pageNum: 1, totalPages: 0, pdfScale: 2.0, zoomLevel: 1.0, tool: 'view',
+            penColor: 'rgba(0,0,0,0.8)', penThickness: 4, eraserThickness: 40,
+            isDrawing: false, isPanning: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0,
+            pages: {}, fullPdfTextCache: null, isTextExtracted: false
+        };
+
+        const viewer = document.getElementById('viewer-container'), bookContainer = document.getElementById('book-container'),
+              fileInput = document.getElementById('file-input'), zoomVal = document.getElementById('zoom-val'),
+              toast = document.getElementById('toast'), pageIndicator = document.getElementById('page-indicator'),
+              btnPrev = document.getElementById('prev-page'), btnNext = document.getElementById('next-page'),
+              jumpInput = document.getElementById('jump-input'), totalPagesView = document.getElementById('total-pages-view');
+
+        function showToast(msg) { toast.innerText = msg; toast.style.display = 'block'; setTimeout(() => { toast.style.display = 'none'; }, 3000); }
+
+        function updateCursor() {
+            document.querySelectorAll('.drawing-layer').forEach(c => {
+                c.classList.remove('view-mode');
+                if (state.tool === 'view') c.classList.add('view-mode');
+                else if (state.tool === 'pen') c.style.cursor = 'crosshair';
+                else if (state.tool === 'eraser') c.style.cursor = 'cell';
+            });
+        }
+
+        function changeTool(toolName) {
+            state.tool = toolName;
+            document.querySelectorAll('.tool-group .btn[data-tool]').forEach(b => b.classList.remove('active'));
+            document.getElementById(`tool-${toolName}`).classList.add('active');
+            document.querySelectorAll('.tool-options').forEach(el => el.classList.remove('show'));
+            const optionsEl = document.getElementById(`options-${toolName}`);
+            if (optionsEl) optionsEl.classList.add('show');
+            updateCursor();
+        }
+
+        document.querySelectorAll('.color-dot').forEach(dot => {
+            dot.addEventListener('click', (e) => {
+                document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+                e.target.classList.add('active'); state.penColor = e.target.dataset.color; changeTool('pen');
+            });
+        });
+
+        document.querySelectorAll('.thick-dot').forEach(dot => {
+            dot.addEventListener('click', (e) => {
+                const target = e.currentTarget, tool = target.dataset.tool;
+                document.querySelectorAll(`.thick-dot[data-tool="${tool}"]`).forEach(d => d.classList.remove('active'));
+                target.classList.add('active');
+                if (tool === 'pen') { state.penThickness = parseInt(target.dataset.thick); changeTool('pen'); }
+                else if (tool === 'eraser') { state.eraserThickness = parseInt(target.dataset.thick); changeTool('eraser'); }
+            });
+        });
+
+        function handlePdfFile(file) {
+            if (!file || file.type !== 'application/pdf') { showToast('PDF 파일만 가능합니다.'); return; }
+            document.getElementById('placeholder').style.display = 'none';
+            bookContainer.style.display = 'block'; document.getElementById('page-nav').style.display = 'flex';
+            const reader = new FileReader();
+            reader.onload = async function() {
+                showToast('로딩 중...');
+                const typedarray = new Uint8Array(this.result);
+                
+                // 🔥 폰트(특히 한글) 깨짐을 방지하는 핵심 변경 사항
+                // disableFontFace: true 설정으로 웹폰트 렌더링 실패 시 시스템 기본 폰트로 강제 대체합니다.
+                const loadingTask = pdfjsLib.getDocument({
+                    data: typedarray,
+                    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', // jsdelivr CDN으로 안정성 상향
+                    cMapPacked: true,
+                    disableFontFace: true, 
+                    standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/'
+                });
+                state.pdfDoc = await loadingTask.promise;
+                
+                state.totalPages = state.pdfDoc.numPages; state.pageNum = 1; state.zoomLevel = 1.0;
+                totalPagesView.innerText = state.totalPages; jumpInput.max = state.totalPages;
+                await initBook(); prefetchFullPdfText();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        fileInput.addEventListener('change', (e) => handlePdfFile(e.target.files[0]));
+        const ph = document.getElementById('placeholder');
+        ph.addEventListener('dragover', (e) => { e.preventDefault(); ph.classList.add('drag-over'); });
+        ph.addEventListener('dragleave', (e) => { e.preventDefault(); ph.classList.remove('drag-over'); });
+        ph.addEventListener('drop', (e) => { e.preventDefault(); ph.classList.remove('drag-over'); handlePdfFile(e.dataTransfer.files[0]); });
+
+        async function initBook() {
+            bookContainer.innerHTML = ''; state.pages = {}; updateZoomDisplay();
+            await renderPage(state.pageNum); if (state.pageNum < state.totalPages) await renderPage(state.pageNum + 1);
+            updateBookSize(); updateNavUI(); changeTool('view'); showToast('로드 완료!');
+        }
+
+        window.addEventListener('resize', () => { if (state.pdfDoc) updateBookSize(); });
+
+        function updateBookSize() {
+            const pageData = state.pages[state.pageNum]; if (!pageData) return;
+            const unscaled = pageData.pdfPage.getViewport({ scale: 1.0 }), vr = viewer.getBoundingClientRect();
+            const minMargin = 16, aw = vr.width - (minMargin * 2), ah = vr.height - (minMargin * 2);
+            const fs = Math.min(aw / unscaled.width, ah / unscaled.height) * state.zoomLevel;
+            const bw = unscaled.width * fs, bh = unscaled.height * fs;
+            bookContainer.style.width = `${bw}px`; bookContainer.style.height = `${bh}px`;
+            bookContainer.style.marginLeft = `${Math.max(minMargin, (viewer.clientWidth - bw) / 2)}px`;
+            bookContainer.style.marginTop = `${Math.max(minMargin, (viewer.clientHeight - bh) / 2)}px`;
+        }
+
+        async function renderPage(num) {
+            if (state.pages[num]) return;
+            const page = await state.pdfDoc.getPage(num), vp = page.getViewport({ scale: state.pdfScale });
+            const wrapper = document.createElement('div'); wrapper.className = 'page-wrapper';
+            wrapper.dataset.page = num; wrapper.style.zIndex = 10000 - num;
+            const canvas = document.createElement('canvas'); canvas.className = 'pdf-canvas';
+            canvas.width = vp.width; canvas.height = vp.height; canvas.style.width = '100%'; canvas.style.height = '100%';
+            const drawCanvas = document.createElement('canvas'); drawCanvas.className = 'drawing-layer';
+            drawCanvas.width = vp.width; drawCanvas.height = vp.height; drawCanvas.style.width = '100%'; drawCanvas.style.height = '100%';
+            wrapper.appendChild(canvas); wrapper.appendChild(drawCanvas); bookContainer.appendChild(wrapper);
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+            initDrawing(drawCanvas, drawCanvas.getContext('2d'));
+            state.pages[num] = { num, pdfPage: page, wrapper, drawCanvas, drawCtx: drawCanvas.getContext('2d') };
+            updateCursor();
+        }
+
+        function updateNavUI() {
+            pageIndicator.innerText = `${state.pageNum} / ${state.totalPages}`;
+            btnPrev.disabled = state.pageNum <= 1; btnNext.disabled = state.pageNum >= state.totalPages;
+            jumpInput.value = state.pageNum;
+        }
+
+        // --- Fast Navigation (Jump) ---
+        async function jumpToPage(targetNum) {
+            if (targetNum < 1 || targetNum > state.totalPages) {
+                showToast(`1에서 ${state.totalPages} 사이를 입력하세요.`);
+                jumpInput.value = state.pageNum;
+                return;
+            }
+            if (targetNum === state.pageNum) return;
+            
+            showToast(`${targetNum}페이지로 이동 중...`);
+            
+            if (targetNum > state.pageNum) {
+                for (let i = state.pageNum; i < targetNum; i++) {
+                    await renderPage(i);
+                    state.pages[i].wrapper.classList.add('flip');
+                }
+            } else {
+                for (let i = targetNum; i < state.pageNum; i++) {
+                    if (state.pages[i]) state.pages[i].wrapper.classList.remove('flip');
+                }
+            }
+            
+            state.pageNum = targetNum;
+            await renderPage(state.pageNum);
+            if (state.pageNum < state.totalPages) await renderPage(state.pageNum + 1);
+            
+            updateNavUI(); updateBookSize();
+        }
+
+        jumpInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') jumpToPage(parseInt(e.target.value));
+        });
+
+        btnNext.onclick = async () => {
+            if (state.pageNum >= state.totalPages) return;
+            state.pages[state.pageNum].wrapper.classList.add('flip');
+            state.pageNum++; updateNavUI(); updateBookSize();
+            if (state.pageNum + 1 <= state.totalPages) await renderPage(state.pageNum + 1);
+        };
+
+        btnPrev.onclick = () => {
+            if (state.pageNum <= 1) return;
+            state.pageNum--; state.pages[state.pageNum].wrapper.classList.remove('flip');
+            updateNavUI(); updateBookSize();
+        };
+
+        function initDrawing(canvas, ctx) {
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            const start = (e) => {
+                if (canvas.parentElement.classList.contains('flip')) return;
+                if (state.tool === 'view') {
+                    state.isPanning = true; state.startX = e.pageX || (e.touches && e.touches[0].pageX);
+                    state.startY = e.pageY || (e.touches && e.touches[0].pageY);
+                    state.scrollLeft = viewer.scrollLeft; state.scrollTop = viewer.scrollTop;
+                } else { state.isDrawing = true; interact(e, true); }
+            };
+            const interact = (e, isStart = false) => {
+                if (state.tool === 'view') {
+                    if (!state.isPanning) return; e.preventDefault();
+                    const x = e.pageX || (e.touches && e.touches[0].pageX), y = e.pageY || (e.touches && e.touches[0].pageY);
+                    viewer.scrollLeft = state.scrollLeft - (x - state.startX);
+                    viewer.scrollTop = state.scrollTop - (y - state.startY);
+                    return;
+                }
+                if (!state.isDrawing) return; e.preventDefault();
+                const rect = canvas.getBoundingClientRect(), sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+                const cx = e.clientX || (e.touches && e.touches[0].clientX), cy = e.clientY || (e.touches && e.touches[0].clientY);
+                const x = (cx - rect.left) * sx, y = (cy - rect.top) * sy;
+                if (state.tool === 'pen') { ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = state.penColor; ctx.lineWidth = state.penThickness * (state.pdfScale / 1.5); }
+                else if (state.tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.lineWidth = state.eraserThickness * (state.pdfScale / 1.5); }
+                if (isStart) { ctx.beginPath(); ctx.moveTo(x, y); } else { ctx.lineTo(x, y); ctx.stroke(); }
+            };
+            const stop = () => { state.isPanning = false; if (state.isDrawing) { ctx.closePath(); state.isDrawing = false; } };
+            canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', interact);
+            window.addEventListener('mouseup', stop); canvas.addEventListener('mouseleave', stop);
+            canvas.addEventListener('touchstart', start, {passive: false}); canvas.addEventListener('touchmove', interact, {passive: false}); canvas.addEventListener('touchend', stop);
+        }
+
+        document.getElementById('tool-view').onclick = () => changeTool('view');
+        document.getElementById('tool-pen').onclick = () => changeTool('pen');
+        document.getElementById('tool-eraser').onclick = () => changeTool('eraser');
+        document.getElementById('tool-clear').onclick = () => {
+            const cp = state.pages[state.pageNum]; if (cp) { cp.drawCtx.clearRect(0, 0, cp.drawCanvas.width, cp.drawCanvas.height); showToast('필기 삭제 완료'); }
+        };
+
+        function updateZoomDisplay() {
+            zoomVal.innerText = state.zoomLevel === 1.0 ? '맞춤' : `${Math.round(state.zoomLevel * 100)}%`;
+            updateBookSize();
+        }
+        document.getElementById('zoom-in').onclick = () => { if (state.pdfDoc) { state.zoomLevel = Math.min(state.zoomLevel + 0.25, 3.0); updateZoomDisplay(); } };
+        document.getElementById('zoom-out').onclick = () => { if (state.pdfDoc) { state.zoomLevel = Math.max(state.zoomLevel - 0.25, 0.5); updateZoomDisplay(); } };
+
+        async function fetchGeminiAPI(prompt) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", responseSchema: { type: "ARRAY", items: { type: "STRING" } } } };
+            
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    const data = await res.json(); 
+                    if (!res.ok) throw new Error(data.error?.message || "AI 서버 일시적 지연");
+                    if (data.error) throw new Error(data.error.message);
+                    
+                    let text = data.candidates[0].content.parts[0].text;
+                    text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+                    return JSON.parse(text);
+                } catch (err) { 
+                    if (i === 4) throw new Error(err.message || "AI 서버 응답이 없습니다. 잠시 후 시도해주세요.");
+                    await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i))); 
+                }
+            }
+        }
+
+        async function prefetchFullPdfText() {
+            try {
+                let fullText = ""; const mp = Math.min(state.totalPages, 20); showToast('AI 분석 준비 중...');
+                for(let i = 1; i <= mp; i++) {
+                    const page = await state.pdfDoc.getPage(i); const content = await page.getTextContent();
+                    fullText += content.items.map(it => it.str).join(' ');
+                }
+                state.fullPdfTextCache = fullText; state.isTextExtracted = true;
+            } catch(e) {}
+        }
+
+        async function getFullPdfText() { if (state.fullPdfTextCache) return state.fullPdfTextCache; await prefetchFullPdfText(); return state.fullPdfTextCache; }
+
+        async function renderAiStyles(pageNum, targetSentences, styleType, ocrData = null) {
+            const p = state.pages[pageNum]; 
+            p.drawCtx.globalCompositeOperation = 'source-over';
+
+            if (ocrData) {
+                // OCR 모드: Tesseract의 바운딩 박스를 활용
+                let spacelessText = "", spacelessToWord = [];
+                ocrData.words.forEach(word => {
+                    for(let i=0; i<word.text.length; i++) {
+                        const c = word.text[i]; 
+                        if(c !== ' ' && c !== '\n' && c !== '\r') { spacelessText += c; spacelessToWord.push(word); }
+                    }
+                });
+
+                targetSentences.forEach(sentence => {
+                    const target = sentence.replace(/[\s\n\r]/g, ''); if(!target) return;
+                    const idx = spacelessText.indexOf(target);
+                    if (idx !== -1) {
+                        const matchedWords = new Set(); 
+                        for(let i = idx; i <= idx + target.length - 1; i++) matchedWords.add(spacelessToWord[i]);
+                        matchedWords.forEach(word => {
+                            const b = word.bbox; // 캔버스 픽셀 기반 좌표
+                            if (styleType === 'highlight') { 
+                                p.drawCtx.fillStyle = 'rgba(253, 224, 71, 0.4)'; 
+                                p.drawCtx.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0); 
+                            } else if (styleType === 'underline') { 
+                                p.drawCtx.strokeStyle = 'rgba(239, 68, 68, 0.7)'; 
+                                p.drawCtx.lineWidth = 3 * (state.pdfScale / 1.5); 
+                                p.drawCtx.beginPath(); 
+                                p.drawCtx.moveTo(b.x0, b.y1 + 2); 
+                                p.drawCtx.lineTo(b.x1, b.y1 + 2); 
+                                p.drawCtx.stroke(); 
+                            }
+                        });
+                    }
+                });
+            } else {
+                // 일반 PDF.js 텍스트 레이어 모드
+                const textContent = await p.pdfPage.getTextContent();
+                let spacelessText = "", spacelessToItem = [];
+                textContent.items.forEach(item => {
+                    for(let i=0; i<item.str.length; i++) {
+                        const c = item.str[i]; if(c !== ' ' && c !== '\n' && c !== '\r') { spacelessText += c; spacelessToItem.push(item); }
+                    }
+                });
+                const vp = p.pdfPage.getViewport({ scale: state.pdfScale }); 
+                targetSentences.forEach(sentence => {
+                    const target = sentence.replace(/[\s\n\r]/g, ''); if(!target) return;
+                    const idx = spacelessText.indexOf(target);
+                    if (idx !== -1) {
+                        const matched = new Set(); for(let i = idx; i <= idx + target.length - 1; i++) matched.add(spacelessToItem[i]);
+                        matched.forEach(item => {
+                            const tr = pdfjsLib.Util.transform(vp.transform, item.transform);
+                            if (styleType === 'highlight') { p.drawCtx.fillStyle = 'rgba(253, 224, 71, 0.4)'; p.drawCtx.fillRect(tr[4], tr[5] - (item.height * state.pdfScale), item.width * state.pdfScale, item.height * state.pdfScale * 1.2); }
+                            else if (styleType === 'underline') { p.drawCtx.strokeStyle = 'rgba(239, 68, 68, 0.7)'; p.drawCtx.lineWidth = 3 * (state.pdfScale / 1.5); p.drawCtx.beginPath(); p.drawCtx.moveTo(tr[4], tr[5] + 2); p.drawCtx.lineTo(tr[4] + item.width * state.pdfScale, tr[5] + 2); p.drawCtx.stroke(); }
+                        });
+                    }
+                });
+            }
+        }
+
+        async function handleAIAction(buttonId, actionType) {
+            if (!state.pdfDoc) return showToast('PDF를 업로드하세요.');
+            const p = state.pages[state.pageNum], btn = document.getElementById(buttonId), original = btn.innerHTML;
+            btn.innerHTML = '<span class="icon">⏳</span><span class="label">분석중</span>'; btn.disabled = true;
+            try {
+                let full = await getFullPdfText(); 
+                const content = await p.pdfPage.getTextContent();
+                let current = content.items.map(it => it.str).join(' '); 
+                let ocrData = null;
+                
+                // 텍스트가 부족할 경우 이미지(OCR) 스캔 시도
+                if (current.trim().length < 20) {
+                    showToast("이미지형 PDF 감지: OCR 엔진으로 텍스트 추출 중... (최대 10초 소요)");
+                    const pdfCanvas = p.wrapper.querySelector('.pdf-canvas');
+                    
+                    try {
+                        const result = await Tesseract.recognize(pdfCanvas, 'kor+eng');
+                        current = result.data.text;
+                        ocrData = result.data;
+                        
+                        if (current.trim().length < 20) {
+                            throw new Error("OCR 스캔 후에도 추출 가능한 텍스트가 부족합니다.");
+                        }
+                        showToast("OCR 추출 완료! AI가 분석을 시작합니다.");
+                    } catch (e) {
+                        throw new Error(e.message || "OCR 처리 중 오류가 발생했습니다.");
+                    }
+                } else {
+                    showToast(`페이지(${state.pageNum}p) 분석 중...`);
+                }
+                
+                let instr = actionType === 'core' ? "가장 핵심이 되는 중요한 문장 3개" : "이 문서에서 가장 중요하게 다뤄지는 핵심 키워드나 전문 용어, 개념어 5~8개";
+                const pr = `문서 분석 전문가입니다.\n[전체 맥락]: ${full.substring(0, 25000)}\n[현재 페이지]: ${current}\n${instr}를 원문 그대로 추출하여 JSON 배열로 반환하세요.`;
+                
+                const sents = await fetchGeminiAPI(pr);
+                if (sents && sents.length > 0) { 
+                    await renderAiStyles(state.pageNum, sents, actionType === 'core' ? 'highlight' : 'underline', ocrData); 
+                    showToast('AI 적용이 완료되었습니다!'); 
+                } else {
+                    throw new Error("AI가 강조할 문장을 찾지 못했습니다.");
+                }
+            } catch (error) { 
+                console.error(error);
+                showToast("오류: " + (error.message || "알 수 없는 오류가 발생했습니다.")); 
+            } finally { 
+                btn.innerHTML = original; btn.disabled = false; 
+            }
+        }
+
+        document.getElementById('ai-core').onclick = () => handleAIAction('ai-core', 'core');
+        document.getElementById('ai-underline').onclick = () => handleAIAction('ai-underline', 'underline');
+    </script>
+</body>
+</html>

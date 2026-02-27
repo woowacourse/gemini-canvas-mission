@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlgoEasy - 알고리즘 시각화 학습 플랫폼</title>
+    <style>
+        /* ==========================================================================
+           1. CSS 변수 및 기본 설정 (다크모드 지원)
+           ========================================================================== */
+        :root {
+            /* Light Theme */
+            --bg-body: #f8fafc;
+            --bg-sidebar: #ffffff;
+            --bg-card: #ffffff;
+            --bg-panel: #f1f5f9;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --secondary: #8b5cf6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            
+            /* Visualization Colors */
+            --vis-default: #93c5fd;     /* 기본 막대/노드 */
+            --vis-compare: #fde047;     /* 비교 중 */
+            --vis-swap: #fca5a5;        /* 스왑/강조 */
+            --vis-sorted: #86efac;      /* 완료/정렬됨 */
+            --vis-pivot: #c084fc;       /* 피벗/특수기준 */
+            --vis-visited: #6ee7b7;     /* 그래프 방문됨 */
+            --vis-queue: #fcd34d;       /* 큐/스택 대기 */
+
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+
+        [data-theme="dark"] {
+            --bg-body: #0f172a;
+            --bg-sidebar: #1e293b;
+            --bg-card: #1e293b;
+            --bg-panel: #334155;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            
+            --vis-default: #3b82f6;
+            --vis-compare: #eab308;
+            --vis-swap: #ef4444;
+            --vis-sorted: #10b981;
+            --vis-pivot: #a855f7;
+            --vis-visited: #059669;
+            --vis-queue: #d97706;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--font-sans); background-color: var(--bg-body); color: var(--text-main); line-height: 1.6; transition: background-color 0.3s, color 0.3s; overflow-x: hidden; }
+        a { text-decoration: none; color: inherit; }
+        ul { list-style: none; }
+        button, input, select { font-family: inherit; }
+
+        /* ==========================================================================
+           2. 레이아웃 구조 (사이드바 + 메인 콘텐츠)
+           ========================================================================== */
+        #app { display: flex; height: 100vh; overflow: hidden; }
+
+        /* Sidebar */
+        #sidebar { width: 260px; background-color: var(--bg-sidebar); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; transition: transform 0.3s ease; z-index: 50; }
+        .sidebar-header { padding: 20px; font-size: 1.5rem; font-weight: bold; border-bottom: 1px solid var(--border-color); color: var(--primary); display: flex; justify-content: space-between; align-items: center; }
+        .nav-group { padding: 15px 0; }
+        .nav-group-title { padding: 0 20px 10px; font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em; }
+        .nav-item { display: block; padding: 10px 20px; color: var(--text-main); cursor: pointer; transition: background 0.2s; border-left: 3px solid transparent; }
+        .nav-item:hover { background-color: var(--bg-panel); }
+        .nav-item.active { background-color: var(--bg-panel); border-left-color: var(--primary); font-weight: 600; color: var(--primary); }
+        .sidebar-nav { flex: 1; overflow-y: auto; }
+
+        /* Main Content */
+        #main-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        #header { height: 60px; background-color: var(--bg-card); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
+        .header-controls { display: flex; align-items: center; gap: 15px; }
+        .icon-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--text-main); padding: 5px; border-radius: 5px; }
+        .icon-btn:hover { background-color: var(--bg-panel); }
+        
+        #content { flex: 1; overflow-y: auto; padding: 24px; display: grid; grid-template-columns: 1fr; gap: 24px; max-width: 1400px; margin: 0 auto; width: 100%; }
+        @media (min-width: 1200px) { #content { grid-template-columns: 3fr 2fr; } }
+
+        /* ==========================================================================
+           3. UI 컴포넌트 (카드, 패널, 툴팁 등)
+           ========================================================================== */
+        .card { background-color: var(--bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm); border: 1px solid var(--border-color); min-width: 0; }
+        .card-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
+        
+        /* Typography & Badges */
+        h1.algo-title { font-size: 2rem; margin-bottom: 10px; color: var(--primary); }
+        .one-liner { font-size: 1.1rem; color: var(--text-muted); margin-bottom: 20px; font-style: italic; border-left: 4px solid var(--secondary); padding-left: 10px; }
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; background-color: var(--bg-panel); color: var(--text-main); margin-right: 5px; }
+        .badge.success { background-color: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .badge.warning { background-color: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .badge.danger { background-color: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
+        /* Tooltip */
+        [data-tooltip] { position: relative; cursor: help; text-decoration: underline dotted var(--text-muted); }
+        [data-tooltip]:hover::after { content: attr(data-tooltip); position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); background-color: var(--text-main); color: var(--bg-body); padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; white-space: nowrap; z-index: 100; opacity: 1; box-shadow: var(--shadow-md); pointer-events: none; }
+
+        /* Lists */
+        .info-list { margin-left: 20px; list-style-type: disc; margin-bottom: 15px; }
+        .info-list li { margin-bottom: 5px; }
+
+        /* Complexity Table */
+        .complexity-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.95rem; }
+        .complexity-table th, .complexity-table td { padding: 10px; border: 1px solid var(--border-color); text-align: left; }
+        .complexity-table th { background-color: var(--bg-panel); font-weight: 600; width: 30%; }
+
+        /* Code Tabs */
+        .tabs { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 10px; }
+        .tab-btn { padding: 8px 16px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-weight: 600; border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+        .code-block { background-color: #1e293b; color: #f8fafc; padding: 15px; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 0.9rem; overflow-x: auto; overflow-y: auto; height: 320px; display: none; }
+        .code-block.active { display: block; }
+        .code-comment { color: #6ee7b7; }
+        .code-keyword { color: #c084fc; }
+
+        /* ==========================================================================
+           4. 시각화 엔진 영역 (렌더러 및 컨트롤러)
+           ========================================================================== */
+        .vis-container { display: flex; flex-direction: column; gap: 15px; grid-column: 1 / -1; min-width: 0; }
+        .info-container { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+        @media (min-width: 1200px) { .vis-container { grid-column: 1 / 2; } }
+
+        /* Visualization Screen */
+        .vis-screen { width: 100%; height: 400px; background-color: var(--bg-panel); border-radius: var(--radius-md); border: 1px solid var(--border-color); position: relative; overflow: hidden; display: flex; align-items: flex-end; justify-content: center; padding: 20px; }
+        
+        /* Array Bars */
+        .array-bar-container { display: flex; align-items: flex-end; justify-content: center; width: 100%; height: 100%; gap: 2px; }
+        .array-bar { background-color: var(--vis-default); border-radius: 4px 4px 0 0; transition: height 0.2s, background-color 0.2s, transform 0.2s; position: relative; display: flex; justify-content: center; align-items: flex-start; color: #000; font-size: 0.75rem; font-weight: bold; padding-top: 5px; }
+        
+        /* Grid (Prefix Sum) */
+        .grid-container { display: flex; flex-direction: column; gap: 20px; width: 100%; height: 100%; justify-content: center; align-items: center; overflow: auto;}
+        .grid-row { display: flex; gap: 5px; }
+        .grid-cell { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background-color: var(--bg-card); border: 2px solid var(--border-color); border-radius: 4px; font-weight: bold; transition: all 0.2s; position: relative; flex-shrink: 0;}
+        .grid-cell::before { content: attr(data-index); position: absolute; top: -20px; font-size: 0.7rem; color: var(--text-muted); }
+        .grid-label { width: 80px; display: flex; align-items: center; font-weight: bold; color: var(--text-muted); flex-shrink: 0;}
+
+        /* Canvas (Graph/Tree) */
+        #vis-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+
+        /* Message Box */
+        .vis-message { min-height: 48px; padding: 12px 15px; background-color: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); border-radius: 4px; font-weight: 600; font-size: 1.05rem; display: flex; align-items: center; }
+
+        /* Controls Panel */
+        .vis-controls { display: flex; flex-wrap: wrap; gap: 15px; background-color: var(--bg-card); padding: 15px; border-radius: var(--radius-md); border: 1px solid var(--border-color); align-items: center; }
+        .control-group { display: flex; align-items: center; gap: 8px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background-color 0.2s, transform 0.1s; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+        .btn:active { transform: scale(0.95); }
+        .btn-primary { background-color: var(--primary); color: white; }
+        .btn-primary:hover { background-color: var(--primary-hover); }
+        .btn-secondary { background-color: var(--bg-panel); color: var(--text-main); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background-color: var(--border-color); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        
+        .slider-container { display: flex; flex-direction: column; font-size: 0.8rem; color: var(--text-muted); }
+        input[type="range"] { accent-color: var(--primary); }
+        .input-text { padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background-color: var(--bg-body); color: var(--text-main); width: 150px; }
+
+        /* Mobile Adjustments */
+        .hamburger { display: none; }
+        @media (max-width: 768px) {
+            .hamburger { display: block; }
+            #sidebar { position: fixed; transform: translateX(-100%); height: 100%; }
+            #sidebar.open { transform: translateX(0); }
+            #content { grid-template-columns: 1fr; }
+            .vis-controls { justify-content: center; }
+        }
+
+        /* Utility */
+        .hidden { display: none !important; }
+        
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <span>AlgoEasy</span>
+                <button class="icon-btn hamburger" id="close-sidebar">✕</button>
+            </div>
+            <div class="sidebar-nav" id="nav-container">
+                <!-- Navigation injected by JS -->
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <div id="main-wrapper">
+            <header id="header">
+                <div class="header-controls">
+                    <button class="icon-btn hamburger" id="open-sidebar">☰</button>
+                    <div id="current-category" style="font-weight: 600; color: var(--text-muted);">알고리즘 선택</div>
+                </div>
+                <div class="header-controls">
+                    <button class="icon-btn" id="theme-toggle" aria-label="다크모드 토글">🌙</button>
+                </div>
+            </header>
+
+            <main id="content">
+                <!-- Left Column: Visualization & Controls -->
+                <div class="vis-container">
+                    <div>
+                        <h1 class="algo-title" id="algo-title">알고리즘 제목</h1>
+                        <p class="one-liner" id="algo-oneliner">한 줄 요약이 여기에 표시됩니다.</p>
+                    </div>
+
+                    <div class="vis-screen" id="vis-screen">
+                        <!-- DOM Renderer Container -->
+                        <div id="dom-renderer" class="array-bar-container"></div>
+                        <!-- Canvas Renderer (Graphs/Trees) -->
+                        <canvas id="vis-canvas"></canvas>
+                    </div>
+
+                    <div class="vis-message" id="vis-message">
+                        시작하려면 재생 버튼을 누르거나 새 데이터를 생성하세요.
+                    </div>
+
+                    <div class="vis-controls">
+                        <div class="control-group">
+                            <button class="btn btn-secondary" id="btn-prev" aria-label="이전 단계">⏮ Prev</button>
+                            <button class="btn btn-primary" id="btn-play" aria-label="재생/일시정지">▶ Play</button>
+                            <button class="btn btn-secondary" id="btn-next" aria-label="다음 단계">Step ⏭</button>
+                        </div>
+                        <div class="control-group">
+                            <button class="btn btn-secondary" id="btn-reset" aria-label="초기화">🔄 Reset</button>
+                            <button class="btn btn-secondary" id="btn-random" aria-label="랜덤 데이터">🔀 Random</button>
+                        </div>
+                        <div class="control-group">
+                            <input type="text" id="input-data" class="input-text" placeholder="ex: 5,2,9,1,5" title="쉼표로 구분된 숫자 입력">
+                        </div>
+                        <div class="slider-container">
+                            <label for="speed-slider">Speed</label>
+                            <input type="range" id="speed-slider" min="0.25" max="4" step="0.25" value="1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Info & Code -->
+                <div class="info-container">
+                    <!-- Characteristics Card -->
+                    <div class="card">
+                        <div class="card-title">✨ 특징 및 용도</div>
+                        <p><strong>언제 쓰나요?</strong></p>
+                        <ul class="info-list" id="algo-usecases"></ul>
+                        <p><strong>⚠️ 주의/함정:</strong></p>
+                        <ul class="info-list" id="algo-mistakes"></ul>
+                    </div>
+
+                    <!-- Complexity Card -->
+                    <div class="card">
+                        <div class="card-title">⏱️ 복잡도 (Complexity)</div>
+                        <table class="complexity-table">
+                            <tbody id="algo-complexity">
+                                <!-- Injected by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Code Card -->
+                    <div class="card" style="flex: 1;">
+                        <div class="card-title">💻 구현 코드</div>
+                        <div class="tabs">
+                            <button class="tab-btn active" data-lang="js">JavaScript</button>
+                            <button class="tab-btn" data-lang="py">Python</button>
+                            <button class="tab-btn" data-lang="java">Java</button>
+                            <button class="tab-btn" data-lang="cpp">C++</button>
+                        </div>
+                        <div id="code-js" class="code-block active"></div>
+                        <div id="code-py" class="code-block"></div>
+                        <div id="code-java" class="code-block"></div>
+                        <div id="code-cpp" class="code-block"></div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ==========================================================================
+         * 1. 데이터 베이스 (알고리즘 메타데이터, 내용, 코드)
+         * ==========================================================================
+         */
+        const ALGORITHMS = {
+            'sorting-bubble': {
+                id: 'sorting-bubble', category: '정렬', title: '버블 정렬 (Bubble Sort)', type: 'array',
+                oneLiner: '인접한 두 원소를 비교하여 큰 값을 뒤로 보내는 과정을 반복하는 직관적인 정렬',
+                useCases: ['데이터 크기가 매우 작을 때', '거의 정렬된 데이터에서 인접한 요소의 스왑만 필요할 때'],
+                mistakes: ['실무에서 큰 배열에 사용하면 성능이 매우 저하됨', '이미 정렬된 상태를 파악하지 못하고 끝까지 반복하는 실수'],
+                complexity: { best: 'Ω(N)', avg: 'Θ(N²)', worst: 'O(N²)', space: 'O(1) <span class="badge">In-place</span>', stability: 'Yes <span class="badge success">Stable</span>' },
+                code: {
+                    js: `function bubbleSort(arr) {\n  for (let i = 0; i < arr.length - 1; i++) {\n    for (let j = 0; j < arr.length - i - 1; j++) {\n      if (arr[j] > arr[j + 1]) [arr[j], arr[j+1]] = [arr[j+1], arr[j]];\n    }\n  }\n  return arr;\n}`,
+                    py: `def bubble_sort(arr):\n    for i in range(len(arr) - 1):\n        for j in range(len(arr) - i - 1):\n            if arr[j] > arr[j + 1]:\n                arr[j], arr[j+1] = arr[j+1], arr[j]\n    return arr`,
+                    java: `public void bubbleSort(int[] arr) {\n    for (int i = 0; i < arr.length - 1; i++) {\n        for (int j = 0; j < arr.length - i - 1; j++) {\n            if (arr[j] > arr[j+1]) {\n                int temp = arr[j]; arr[j] = arr[j+1]; arr[j+1] = temp;\n            }\n        }\n    }\n}`,
+                    cpp: `void bubbleSort(vector<int>& arr) {\n    for(int i = 0; i < arr.size() - 1; i++) {\n        for(int j = 0; j < arr.size() - i - 1; j++) {\n            if(arr[j] > arr[j+1]) swap(arr[j], arr[j+1]);\n        }\n    }\n}`
+                }
+            },
+            'sorting-insertion': {
+                id: 'sorting-insertion', category: '정렬', title: '삽입 정렬 (Insertion Sort)', type: 'array',
+                oneLiner: '앞에서부터 차례대로 이미 정렬된 부분과 비교하여 자신의 위치를 찾아 삽입하는 정렬',
+                useCases: ['배열이 거의 정렬되어 있는 경우 (매우 빠름)', '실시간으로 데이터가 추가될 때 정렬을 유지하기 위해'],
+                mistakes: ['역순으로 정렬된 배열에서는 O(N²)으로 매우 느려짐'],
+                complexity: { best: 'Ω(N)', avg: 'Θ(N²)', worst: 'O(N²)', space: 'O(1) <span class="badge">In-place</span>', stability: 'Yes <span class="badge success">Stable</span>' },
+                code: {
+                    js: `function insertionSort(arr) {\n  for (let i = 1; i < arr.length; i++) {\n    let key = arr[i], j = i - 1;\n    while (j >= 0 && arr[j] > key) { arr[j + 1] = arr[j]; j--; }\n    arr[j + 1] = key;\n  }\n  return arr;\n}`,
+                    py: `def insertion_sort(arr):\n    for i in range(1, len(arr)):\n        key, j = arr[i], i - 1\n        while j >= 0 and arr[j] > key:\n            arr[j + 1] = arr[j]\n            j -= 1\n        arr[j + 1] = key\n    return arr`,
+                    java: `public void insertionSort(int[] arr) {\n    for (int i = 1; i < arr.length; i++) {\n        int key = arr[i]; int j = i - 1;\n        while (j >= 0 && arr[j] > key) { arr[j + 1] = arr[j]; j--; }\n        arr[j + 1] = key;\n    }\n}`,
+                    cpp: `void insertionSort(vector<int>& arr) {\n    for(int i = 1; i < arr.size(); i++) {\n        int key = arr[i]; int j = i - 1;\n        while(j >= 0 && arr[j] > key) { arr[j+1] = arr[j]; j--; }\n        arr[j+1] = key;\n    }\n}`
+                }
+            },
+            'sorting-quick': {
+                id: 'sorting-quick', category: '정렬', title: '퀵 정렬 (Quick Sort)', type: 'array',
+                oneLiner: '피벗(Pivot)을 기준으로 배열을 분할하고 재귀적으로 정렬하는 대표적인 분할 정복 알고리즘',
+                useCases: ['일반적인 상황에서 가장 빠르고 효율적인 정렬이 필요할 때'],
+                mistakes: ['피벗을 항상 첫 번째나 마지막으로 잡으면 이미 정렬된 배열에서 O(N²)이 됨'],
+                complexity: { best: 'Ω(N log N)', avg: 'Θ(N log N)', worst: 'O(N²)', space: 'O(log N)', stability: 'No <span class="badge danger">Unstable</span>' },
+                code: {
+                    js: `function quickSort(arr, l=0, r=arr.length-1) {\n  if(l >= r) return;\n  let p = arr[r], i = l-1;\n  for(let j=l; j<r; j++) if(arr[j]<=p) [arr[++i], arr[j]] = [arr[j], arr[i]];\n  [arr[i+1], arr[r]] = [arr[r], arr[i+1]];\n  quickSort(arr, l, i);\n  quickSort(arr, i+2, r);\n}`,
+                    py: `def quick_sort(arr, low, high):\n    if low < high:\n        p, i = arr[high], low - 1\n        for j in range(low, high):\n            if arr[j] <= p: i += 1; arr[i], arr[j] = arr[j], arr[i]\n        arr[i+1], arr[high] = arr[high], arr[i+1]\n        quick_sort(arr, low, i)\n        quick_sort(arr, i+2, high)`,
+                    java: `void quickSort(int[] a, int l, int r) {\n    if (l >= r) return;\n    int p = a[r], i = l - 1;\n    for (int j=l; j<r; j++) if (a[j] <= p) { i++; int t=a[i]; a[i]=a[j]; a[j]=t; }\n    int t=a[i+1]; a[i+1]=a[r]; a[r]=t;\n    quickSort(a, l, i);\n    quickSort(a, i+2, r);\n}`,
+                    cpp: `void quickSort(vector<int>& a, int l, int r) {\n    if (l >= r) return;\n    int p = a[r], i = l - 1;\n    for(int j=l; j<r; j++) if(a[j] <= p) swap(a[++i], a[j]);\n    swap(a[i+1], a[r]);\n    quickSort(a, l, i);\n    quickSort(a, i+2, r);\n}`
+                }
+            },
+            'sorting-merge': {
+                id: 'sorting-merge', category: '정렬', title: '병합 정렬 (Merge Sort)', type: 'array',
+                oneLiner: '배열을 절반씩 분할한 뒤, 정렬하면서 병합하여 O(N log N)을 보장하는 알고리즘',
+                useCases: ['데이터 크기에 상관없이 항상 안정적인 성능이 필요할 때', '연결 리스트(Linked List)를 정렬할 때 효율적임'],
+                mistakes: ['배열을 병합할 때 임시 배열(메모리)을 사용해야 하므로 메모리 제한이 빡빡한 곳에서는 불리함'],
+                complexity: { best: 'Ω(N log N)', avg: 'Θ(N log N)', worst: 'O(N log N)', space: 'O(N)', stability: 'Yes <span class="badge success">Stable</span>' },
+                code: {
+                    js: `function mergeSort(arr) {\n  if(arr.length < 2) return arr;\n  let mid = Math.floor(arr.length / 2);\n  let left = mergeSort(arr.slice(0, mid));\n  let right = mergeSort(arr.slice(mid));\n  let res = [], i = 0, j = 0;\n  while(i < left.length && j < right.length)\n    res.push(left[i] <= right[j] ? left[i++] : right[j++]);\n  return [...res, ...left.slice(i), ...right.slice(j)];\n}`,
+                    py: `def merge_sort(arr):\n    if len(arr) < 2: return arr\n    mid = len(arr) // 2\n    left, right = merge_sort(arr[:mid]), merge_sort(arr[mid:])\n    res, i, j = [], 0, 0\n    while i < len(left) and j < len(right):\n        if left[i] <= right[j]: res.append(left[i]); i+=1\n        else: res.append(right[j]); j+=1\n    return res + left[i:] + right[j:]`,
+                    java: `public void mergeSort(int[] a, int[] temp, int l, int r) {\n    if (l >= r) return;\n    int m = (l + r) / 2;\n    mergeSort(a, temp, l, m);\n    mergeSort(a, temp, m+1, r);\n    int i=l, j=m+1, k=l;\n    while(i<=m && j<=r) temp[k++] = (a[i]<=a[j]) ? a[i++] : a[j++];\n    while(i<=m) temp[k++] = a[i++];\n    for(int idx=l; idx<=r; idx++) a[idx] = temp[idx];\n}`,
+                    cpp: `void mergeSort(vector<int>& a, vector<int>& tmp, int l, int r) {\n    if(l >= r) return;\n    int m = l + (r-l)/2;\n    mergeSort(a, tmp, l, m); mergeSort(a, tmp, m+1, r);\n    int i=l, j=m+1, k=l;\n    while(i<=m && j<=r) tmp[k++] = (a[i]<=a[j])? a[i++] : a[j++];\n    while(i<=m) tmp[k++] = a[i++];\n    for(int x=l; x<=r; x++) a[x] = tmp[x];\n}`
+                }
+            },
+            'sorting-heap': {
+                id: 'sorting-heap', category: '정렬', title: '힙 정렬 (Heap Sort)', type: 'array',
+                oneLiner: '배열을 최대 힙(Max Heap) 구조로 만든 뒤, 루트(최댓값)를 뽑아 배열 끝으로 보내며 정렬하는 방식',
+                useCases: ['메모리 추가 할당 없이 O(N log N) 성능이 필요할 때', '실시간으로 가장 큰(혹은 작은) K개의 원소를 뽑을 때'],
+                mistakes: ['트리 인덱싱(2*i+1, 2*i+2) 계산을 잘못하면 무한루프나 범위 오류 발생'],
+                complexity: { best: 'Ω(N log N)', avg: 'Θ(N log N)', worst: 'O(N log N)', space: 'O(1) <span class="badge">In-place</span>', stability: 'No <span class="badge danger">Unstable</span>' },
+                code: {
+                    js: `function heapSort(arr) {\n  let n = arr.length;\n  for(let i = Math.floor(n/2)-1; i>=0; i--) heapify(arr, n, i);\n  for(let i = n-1; i>0; i--) {\n    [arr[0], arr[i]] = [arr[i], arr[0]];\n    heapify(arr, i, 0);\n  }\n}\nfunction heapify(arr, n, i) {\n  let max = i, l = 2*i+1, r = 2*i+2;\n  if(l<n && arr[l]>arr[max]) max = l;\n  if(r<n && arr[r]>arr[max]) max = r;\n  if(max != i) { [arr[i], arr[max]] = [arr[max], arr[i]]; heapify(arr, n, max); }\n}`,
+                    py: `def heapify(arr, n, i):\n    max_idx = i\n    l, r = 2*i+1, 2*i+2\n    if l < n and arr[l] > arr[max_idx]: max_idx = l\n    if r < n and arr[r] > arr[max_idx]: max_idx = r\n    if max_idx != i:\n        arr[i], arr[max_idx] = arr[max_idx], arr[i]\n        heapify(arr, n, max_idx)\ndef heap_sort(arr):\n    n = len(arr)\n    for i in range(n//2-1, -1, -1): heapify(arr, n, i)\n    for i in range(n-1, 0, -1):\n        arr[0], arr[i] = arr[i], arr[0]\n        heapify(arr, i, 0)`,
+                    java: `public void heapSort(int[] arr) {\n    int n = arr.length;\n    for (int i = n/2-1; i >= 0; i--) heapify(arr, n, i);\n    for (int i = n-1; i > 0; i--) {\n        int temp = arr[0]; arr[0] = arr[i]; arr[i] = temp;\n        heapify(arr, i, 0);\n    }\n}`,
+                    cpp: `void heapify(vector<int>& arr, int n, int i) {\n    int mx = i, l = 2*i+1, r = 2*i+2;\n    if(l<n && arr[l]>arr[mx]) mx = l;\n    if(r<n && arr[r]>arr[mx]) mx = r;\n    if(mx != i) { swap(arr[i], arr[mx]); heapify(arr, n, mx); }\n}\nvoid heapSort(vector<int>& arr) {\n    int n = arr.size();\n    for(int i = n/2-1; i>=0; i--) heapify(arr, n, i);\n    for(int i = n-1; i>0; i--) { swap(arr[0], arr[i]); heapify(arr, i, 0); }\n}`
+                }
+            },
+            'search-binary': {
+                id: 'search-binary', category: '탐색', title: '이분 탐색 (Binary Search)', type: 'array',
+                oneLiner: '정렬된 배열에서 탐색 범위를 절반씩 줄여가며 원하는 값을 빠르게 찾는 알고리즘',
+                useCases: ['데이터가 이미 정렬되어 있을 때 특정 값의 존재 여부를 찾을 때'],
+                mistakes: ['배열이 정렬되어 있지 않은데 사용하는 실수', 'mid 계산 시 오버플로우 방지 (low + (high-low)/2) 누락'],
+                complexity: { best: 'Ω(1)', avg: 'Θ(log N)', worst: 'O(log N)', space: 'O(1)', stability: 'N/A' },
+                code: {
+                    js: `function binarySearch(arr, target) {\n  let l = 0, r = arr.length - 1;\n  while (l <= r) {\n    let m = Math.floor((l + r) / 2);\n    if (arr[m] === target) return m;\n    if (arr[m] < target) l = m + 1;\n    else r = m - 1;\n  }\n  return -1;\n}`,
+                    py: `def binary_search(arr, target):\n    l, r = 0, len(arr) - 1\n    while l <= r:\n        m = (l + r) // 2\n        if arr[m] == target: return m\n        elif arr[m] < target: l = m + 1\n        else: r = m - 1\n    return -1`,
+                    java: `public int binarySearch(int[] arr, int target) {\n    int l = 0, r = arr.length - 1;\n    while (l <= r) {\n        int m = l + (r - l) / 2;\n        if (arr[m] == target) return m;\n        if (arr[m] < target) l = m + 1;\n        else r = m - 1;\n    }\n    return -1;\n}`,
+                    cpp: `int binarySearch(vector<int>& arr, int target) {\n    int l = 0, r = arr.size() - 1;\n    while(l <= r) {\n        int m = l + (r - l)/2;\n        if(arr[m] == target) return m;\n        if(arr[m] < target) l = m + 1;\n        else r = m - 1;\n    }\n    return -1;\n}`
+                }
+            },
+            'prefix-1d': {
+                id: 'prefix-1d', category: '누적합', title: '1차원 누적합 (1D Prefix Sum)', type: 'grid',
+                oneLiner: '배열의 인덱스까지의 합을 미리 구해두어, 특정 구간의 합을 O(1)에 구하는 테크닉',
+                useCases: ['배열이 변경되지 않고 구간의 합을 반복해서 여러 번 구해야 할 때'],
+                mistakes: ['인덱스 에러 방지를 위해 Prefix Sum 배열의 크기를 N+1로 잡는 것을 잊어버림'],
+                complexity: { best: 'Ω(N) <span class="badge">전처리</span>', avg: 'Θ(1) <span class="badge">쿼리</span>', worst: 'O(1)', space: 'O(N)', stability: 'N/A' },
+                code: {
+                    js: `function build(arr) {\n  let psum = new Array(arr.length+1).fill(0);\n  for(let i=0; i<arr.length; i++) psum[i+1] = psum[i] + arr[i];\n  return psum;\n}\nfunction rangeSum(psum, L, R) { return psum[R+1] - psum[L]; }`,
+                    py: `def build(arr):\n    psum = [0]*(len(arr)+1)\n    for i in range(len(arr)): psum[i+1] = psum[i] + arr[i]\n    return psum\n\ndef range_sum(psum, L, R): return psum[R+1] - psum[L]`,
+                    java: `int[] build(int[] arr) {\n    int[] psum = new int[arr.length + 1];\n    for(int i=0; i<arr.length; i++) psum[i+1] = psum[i] + arr[i];\n    return psum;\n}\nint rangeSum(int[] psum, int L, int R) { return psum[R+1] - psum[L]; }`,
+                    cpp: `vector<int> build(vector<int>& arr) {\n    vector<int> psum(arr.size()+1, 0);\n    for(int i=0; i<arr.size(); i++) psum[i+1] = psum[i] + arr[i];\n    return psum;\n}\nint rangeSum(vector<int>& psum, int L, int R) { return psum[R+1] - psum[L]; }`
+                }
+            },
+            'prefix-2d': {
+                id: 'prefix-2d', category: '누적합', title: '2차원 누적합 (2D Prefix Sum)', type: 'grid2d',
+                oneLiner: '2차원 행렬에서 특정 사각형 영역의 합을 O(1)에 구하는 확장된 누적합 기법',
+                useCases: ['이미지 처리(박스 블러), 2D 보드 게임(체스판 합) 등에서 사각형 쿼리를 여러 번 할 때'],
+                mistakes: ['P[i][j] 공식을 작성할 때 교집합 영역(P[i-1][j-1])을 빼주는 것을 누락함'],
+                complexity: { best: 'Ω(NM) <span class="badge">전처리</span>', avg: 'Θ(1) <span class="badge">쿼리</span>', worst: 'O(1)', space: 'O(NM)', stability: 'N/A' },
+                code: {
+                    js: `function build2D(mat) {\n  let r = mat.length, c = mat[0].length;\n  let p = Array.from({length:r+1}, ()=>Array(c+1).fill(0));\n  for(let i=1; i<=r; i++) for(let j=1; j<=c; j++)\n    p[i][j] = mat[i-1][j-1] + p[i-1][j] + p[i][j-1] - p[i-1][j-1];\n  return p;\n}\n// (r1,c1) 부터 (r2,c2) 까지\nfunction query(p, r1, c1, r2, c2) {\n  return p[r2+1][c2+1] - p[r1][c2+1] - p[r2+1][c1] + p[r1][c1];\n}`,
+                    py: `def build2D(mat):\n    R, C = len(mat), len(mat[0])\n    p = [[0]*(C+1) for _ in range(R+1)]\n    for i in range(1, R+1):\n        for j in range(1, C+1):\n            p[i][j] = mat[i-1][j-1] + p[i-1][j] + p[i][j-1] - p[i-1][j-1]\n    return p`,
+                    java: `int[][] build2D(int[][] mat) {\n    int R = mat.length, C = mat[0].length;\n    int[][] p = new int[R+1][C+1];\n    for(int i=1; i<=R; i++) for(int j=1; j<=C; j++)\n        p[i][j] = mat[i-1][j-1] + p[i-1][j] + p[i][j-1] - p[i-1][j-1];\n    return p;\n}`,
+                    cpp: `vector<vector<int>> build2D(vector<vector<int>>& mat) {\n    int R = mat.size(), C = mat[0].size();\n    vector<vector<int>> p(R+1, vector<int>(C+1, 0));\n    for(int i=1; i<=R; i++) for(int j=1; j<=C; j++)\n        p[i][j] = mat[i-1][j-1] + p[i-1][j] + p[i][j-1] - p[i-1][j-1];\n    return p;\n}`
+                }
+            },
+            'graph-bfs': {
+                id: 'graph-bfs', category: '그래프', title: '너비 우선 탐색 (BFS)', type: 'graph',
+                oneLiner: '시작 노드에서 가까운 노드부터 큐(Queue)를 이용해 계층적으로 탐색하는 알고리즘 (※ 시각화는 항상 노드 0에서 시작합니다)',
+                useCases: ['가중치가 없는 그래프에서 최단 경로 찾기', '웹 크롤링, 퍼즐 게임 최소 이동 횟수'],
+                mistakes: ['큐에 넣을 때 방문 처리(visited)를 하지 않고 꺼낼 때 하면 메모리 초과 발생'],
+                complexity: { best: 'Ω(V + E)', avg: 'Θ(V + E)', worst: 'O(V + E)', space: 'O(V)', stability: 'N/A' },
+                code: {
+                    js: `function BFS(graph, start) {\n  let visited = new Set([start]);\n  let queue = [start];\n  while (queue.length > 0) {\n    let node = queue.shift();\n    for (let neighbor of graph[node]) {\n      if (!visited.has(neighbor)) {\n        visited.add(neighbor); queue.push(neighbor);\n      }\n    }\n  }\n}`,
+                    py: `from collections import deque\ndef BFS(graph, start):\n    visited = set([start])\n    queue = deque([start])\n    while queue:\n        node = queue.popleft()\n        for nxt in graph[node]:\n            if nxt not in visited: visited.add(nxt); queue.append(nxt)`,
+                    java: `void BFS(List<List<Integer>> graph, int start) {\n    boolean[] visited = new boolean[graph.size()];\n    Queue<Integer> q = new LinkedList<>();\n    visited[start] = true; q.offer(start);\n    while(!q.isEmpty()) {\n        int curr = q.poll();\n        for(int nxt : graph.get(curr)) {\n            if(!visited[nxt]) { visited[nxt] = true; q.offer(nxt); }\n        }\n    }\n}`,
+                    cpp: `void BFS(vector<vector<int>>& graph, int start) {\n    vector<bool> visited(graph.size(), false);\n    queue<int> q;\n    visited[start] = true; q.push(start);\n    while(!q.empty()) {\n        int curr = q.front(); q.pop();\n        for(int nxt : graph[curr]) {\n            if(!visited[nxt]) { visited[nxt] = true; q.push(nxt); }\n        }\n    }\n}`
+                }
+            },
+            'graph-dfs': {
+                id: 'graph-dfs', category: '그래프', title: '깊이 우선 탐색 (DFS)', type: 'graph',
+                oneLiner: '갈 수 있는 만큼 깊게 파고들다 막히면 되돌아오는 백트래킹 기반 탐색 (※ 시각화는 항상 노드 0에서 시작합니다)',
+                useCases: ['미로 찾기, 위상 정렬, 사이클 탐지', '조건을 만족하는 조합/순열 찾기'],
+                mistakes: ['재귀 깊이가 너무 깊어져서 Stack Overflow 발생'],
+                complexity: { best: 'Ω(V + E)', avg: 'Θ(V + E)', worst: 'O(V + E)', space: 'O(V)', stability: 'N/A' },
+                code: {
+                    js: `function DFS(graph, start, visited = new Set()) {\n  visited.add(start);\n  for (let neighbor of graph[start])\n    if (!visited.has(neighbor)) DFS(graph, neighbor, visited);\n}`,
+                    py: `def DFS(graph, start, visited=None):\n    if visited is None: visited = set()\n    visited.add(start)\n    for nxt in graph[start]:\n        if nxt not in visited: DFS(graph, nxt, visited)`,
+                    java: `void DFS(List<List<Integer>> graph, int start, boolean[] visited) {\n    visited[start] = true;\n    for(int nxt : graph.get(start)) {\n        if(!visited[nxt]) DFS(graph, nxt, visited);\n    }\n}`,
+                    cpp: `void DFS(vector<vector<int>>& graph, int start, vector<bool>& visited) {\n    visited[start] = true;\n    for(int nxt : graph[start]) {\n        if(!visited[nxt]) DFS(graph, nxt, visited);\n    }\n}`
+                }
+            },
+            'graph-dijkstra': {
+                id: 'graph-dijkstra', category: '최단 경로', title: '다익스트라 (Dijkstra)', type: 'graph_weighted',
+                oneLiner: '음의 가중치가 없는 그래프에서 한 정점에서 다른 모든 정점까지의 최단 거리를 구하는 알고리즘 (※ 시각화는 항상 노드 0에서 시작합니다)',
+                useCases: ['지도 앱의 길찾기 알고리즘의 기초', '네트워크 라우팅 프로토콜(OSPF)'],
+                mistakes: ['음수 가중치가 있는 간선이 존재할 때 사용하면 무한루프나 오답 발생'],
+                complexity: { best: 'Ω(E log V)', avg: 'Θ(E log V)', worst: 'O(E log V)', space: 'O(V + E)', stability: 'N/A' },
+                code: {
+                    js: `// JS는 기본 Priority Queue가 없어 배열 탐색으로 예시표현\nfunction dijkstra(graph, start, n) {\n  let dist = Array(n).fill(Infinity), visited = Array(n).fill(false);\n  dist[start] = 0;\n  for(let i=0; i<n; i++) {\n    let u = getMinNode(dist, visited); visited[u] = true;\n    for(let edge of graph[u]) {\n      if(dist[u] + edge.w < dist[edge.v]) dist[edge.v] = dist[u] + edge.w;\n    }\n  }\n}`,
+                    py: `import heapq\ndef dijkstra(graph, start, n):\n    dist = [float('inf')] * n\n    dist[start] = 0; pq = [(0, start)]\n    while pq:\n        d, u = heapq.heappop(pq)\n        if d > dist[u]: continue\n        for v, w in graph[u]:\n            if d + w < dist[v]:\n                dist[v] = d + w\n                heapq.heappush(pq, (dist[v], v))\n    return dist`,
+                    java: `int[] dijkstra(List<List<Node>> graph, int start, int n) {\n    int[] dist = new int[n]; Arrays.fill(dist, Integer.MAX_VALUE);\n    dist[start] = 0; \n    PriorityQueue<Node> pq = new PriorityQueue<>((a,b)->a.w-b.w);\n    pq.offer(new Node(start, 0));\n    while(!pq.isEmpty()) {\n        Node curr = pq.poll();\n        if(curr.w > dist[curr.v]) continue;\n        for(Node nxt : graph.get(curr.v)) {\n            if(dist[curr.v] + nxt.w < dist[nxt.v]) {\n                dist[nxt.v] = dist[curr.v] + nxt.w;\n                pq.offer(new Node(nxt.v, dist[nxt.v]));\n            }\n        }\n    }\n    return dist;\n}`,
+                    cpp: `vector<int> dijkstra(vector<vector<pair<int,int>>>& graph, int start, int n) {\n    vector<int> dist(n, INT_MAX); dist[start] = 0;\n    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<>> pq;\n    pq.push({0, start});\n    while(!pq.empty()) {\n        auto [d, u] = pq.top(); pq.pop();\n        if(d > dist[u]) continue;\n        for(auto& [v, w] : graph[u]) {\n            if(dist[u] + w < dist[v]) {\n                dist[v] = dist[u] + w; pq.push({dist[v], v});\n            }\n        }\n    }\n    return dist;\n}`
+                }
+            }
+        };
+
+        const CATEGORIES = {
+            '정렬': ['sorting-bubble', 'sorting-insertion', 'sorting-quick', 'sorting-merge', 'sorting-heap'],
+            '누적합': ['prefix-1d', 'prefix-2d'],
+            '탐색': ['search-binary'],
+            '그래프': ['graph-bfs', 'graph-dfs'],
+            '최단 경로': ['graph-dijkstra']
+        };
+
+        /**
+         * ==========================================================================
+         * 2. 알고리즘 로직 및 Step Generator (핵심 시각화 엔진 데이터 생성)
+         * ==========================================================================
+         */
+        const Generators = {
+            // -- 배열 복사 유틸 --
+            copyArray: (arr) => [...arr],
+
+            // 1. 버블 정렬
+            bubbleSort: (inputArray) => {
+                let arr = [...inputArray];
+                let steps = [{ type: 'init', array: [...arr], message: '버블 정렬 시작' }];
+                let n = arr.length;
+                for (let i = 0; i < n - 1; i++) {
+                    let swapped = false;
+                    for (let j = 0; j < n - i - 1; j++) {
+                        steps.push({ type: 'compare', indices: [j, j+1], array: [...arr], message: `비교: ${arr[j]} 와 ${arr[j+1]}` });
+                        if (arr[j] > arr[j + 1]) {
+                            steps.push({ type: 'swap', indices: [j, j+1], array: [...arr], message: `${arr[j]} > ${arr[j+1]} 이므로 스왑` });
+                            let temp = arr[j];
+                            arr[j] = arr[j + 1];
+                            arr[j + 1] = temp;
+                            steps.push({ type: 'swapped', indices: [j, j+1], array: [...arr], message: `스왑 완료` });
+                            swapped = true;
+                        }
+                    }
+                    steps.push({ type: 'sorted_idx', index: n - i - 1, array: [...arr], message: `${arr[n-i-1]} 정렬 확정` });
+                    if (!swapped) {
+                        steps.push({ type: 'finish', array: [...arr], message: '스왑이 발생하지 않아 정렬 완료!' });
+                        return steps;
+                    }
+                }
+                steps.push({ type: 'finish', array: [...arr], message: '정렬 완료!' });
+                return steps;
+            },
+
+            // 2. 삽입 정렬
+            insertionSort: (inputArray) => {
+                let arr = [...inputArray];
+                let steps = [{ type: 'init', array: [...arr], message: '삽입 정렬 시작. 첫 원소는 정렬된 것으로 간주.' }];
+                for (let i = 1; i < arr.length; i++) {
+                    let key = arr[i];
+                    steps.push({ type: 'pivot', indices: [i], array: [...arr], message: `${key}을(를) 삽입할 위치 탐색` });
+                    let j = i - 1;
+                    while (j >= 0 && arr[j] > key) {
+                        steps.push({ type: 'compare', indices: [j, j+1], array: [...arr], message: `${arr[j]} > ${key} 이므로 뒤로 이동` });
+                        arr[j + 1] = arr[j];
+                        steps.push({ type: 'shift', indices: [j, j+1], array: [...arr], message: `이동` });
+                        j = j - 1;
+                    }
+                    arr[j + 1] = key;
+                    steps.push({ type: 'insert', indices: [j+1], array: [...arr], message: `빈 자리에 ${key} 삽입` });
+                }
+                steps.push({ type: 'finish', array: [...arr], message: '정렬 완료!' });
+                return steps;
+            },
+
+            // 3. 퀵 정렬
+            quickSort: (inputArray) => {
+                let arr = [...inputArray];
+                let steps = [{ type: 'init', array: [...arr], message: '퀵 정렬 시작' }];
+                
+                function partition(low, high) {
+                    let pivot = arr[high];
+                    steps.push({ type: 'pivot', indices: [high], array: [...arr], message: `피벗 선택: ${pivot} (범위: [${low}~${high}])` });
+                    let i = low - 1;
+                    for (let j = low; j < high; j++) {
+                        steps.push({ type: 'compare', indices: [j, high], array: [...arr], message: `비교: ${arr[j]} 와 피벗 ${pivot}` });
+                        if (arr[j] <= pivot) {
+                            i++;
+                            if(i !== j) {
+                                let temp = arr[i]; arr[i] = arr[j]; arr[j] = temp;
+                                steps.push({ type: 'swap', indices: [i, j], array: [...arr], message: `${arr[j]} <= 피벗 이므로 스왑` });
+                            }
+                        }
+                    }
+                    let temp = arr[i + 1]; arr[i + 1] = arr[high]; arr[high] = temp;
+                    steps.push({ type: 'swap', indices: [i+1, high], array: [...arr], message: `피벗을 제자리로 이동` });
+                    steps.push({ type: 'sorted_idx', index: i+1, array: [...arr], message: `피벗 ${pivot} 정렬 확정` });
+                    return i + 1;
+                }
+
+                function qs(low, high) {
+                    if (low < high) {
+                        let pi = partition(low, high);
+                        qs(low, pi - 1);
+                        qs(pi + 1, high);
+                    } else if (low === high) {
+                        steps.push({ type: 'sorted_idx', index: low, array: [...arr], message: `원소가 1개이므로 정렬 확정` });
+                    }
+                }
+                qs(0, arr.length - 1);
+                steps.push({ type: 'finish', array: [...arr], message: '정렬 완료!' });
+                return steps;
+            },
+
+            // 4. 이분 탐색
+            binarySearch: (inputArray) => {
+                let arr = [...inputArray].sort((a,b)=>a-b);
+                let target = Math.random() > 0.2 ? arr[Math.floor(Math.random() * arr.length)] : Math.floor(Math.random() * 100);
+                
+                let steps = [{ type: 'init', array: [...arr], message: `이분 탐색 시작. 찾는 값: ${target}` }];
+                let left = 0;
+                let right = arr.length - 1;
+
+                while (left <= right) {
+                    let mid = Math.floor((left + right) / 2);
+                    steps.push({ type: 'range', indices: [left, right], mid: mid, array: [...arr], message: `탐색 범위: 인덱스 ${left} ~ ${right}, Mid는 ${mid}(값: ${arr[mid]})` });
+                    
+                    if (arr[mid] === target) {
+                        steps.push({ type: 'found', indices: [mid], array: [...arr], message: `값 ${target} 을(를) 인덱스 ${mid} 에서 찾았습니다!` });
+                        return steps;
+                    } else if (arr[mid] < target) {
+                        steps.push({ type: 'compare', indices: [mid], array: [...arr], message: `${arr[mid]} < ${target} 이므로 오른쪽 반 탐색` });
+                        left = mid + 1;
+                    } else {
+                        steps.push({ type: 'compare', indices: [mid], array: [...arr], message: `${arr[mid]} > ${target} 이므로 왼쪽 반 탐색` });
+                        right = mid - 1;
+                    }
+                }
+                steps.push({ type: 'not_found', array: [...arr], message: `배열에 ${target} 이(가) 없습니다.` });
+                return steps;
+            },
+
+            // 5. 1D Prefix Sum
+            prefixSum: (inputArray) => {
+                let arr = [...inputArray];
+                let psum = [0];
+                let steps = [{ type: 'init', array: arr, psum: [...psum], message: '누적합 배열 P[0] = 0 으로 초기화' }];
+                
+                for (let i = 0; i < arr.length; i++) {
+                    let sum = psum[i] + arr[i];
+                    psum.push(sum);
+                    steps.push({ type: 'calc', idx: i, array: arr, psum: [...psum], message: `P[${i+1}] = P[${i}](${psum[i]}) + A[${i}](${arr[i]}) = ${sum}` });
+                }
+                
+                let L = 1, R = arr.length > 3 ? 3 : arr.length - 1;
+                let ans = psum[R+1] - psum[L];
+                steps.push({ type: 'query', array: arr, psum: [...psum], L: L, R: R, message: `구간합 [${L}~${R}] 쿼리: P[${R+1}] - P[${L}] = ${psum[R+1]} - ${psum[L]} = ${ans}` });
+                
+                return steps;
+            },
+
+            // 샘플 그래프 생성
+            getSampleGraph: (weighted = false) => {
+                const nodes = [
+                    { id: 0, x: 250, y: 50, label: '0' },
+                    { id: 1, x: 100, y: 150, label: '1' },
+                    { id: 2, x: 400, y: 150, label: '2' },
+                    { id: 3, x: 100, y: 300, label: '3' },
+                    { id: 4, x: 250, y: 250, label: '4' },
+                    { id: 5, x: 400, y: 300, label: '5' }
+                ];
+                let edges = [
+                    { u: 0, v: 1, w: 2 }, { u: 0, v: 2, w: 4 },
+                    { u: 1, v: 3, w: 7 }, { u: 1, v: 4, w: 1 },
+                    { u: 2, v: 4, w: 3 }, { u: 2, v: 5, w: 5 },
+                    { u: 4, v: 5, w: 2 }, { u: 3, v: 4, w: 2 }
+                ];
+                if (!weighted) edges = edges.map(e => ({u:e.u, v:e.v, w:1}));
+                
+                let adj = Array(6).fill(null).map(()=>[]);
+                edges.forEach(e => {
+                    adj[e.u].push({node: e.v, weight: e.w});
+                    adj[e.v].push({node: e.u, weight: e.w});
+                });
+                return { nodes, edges, adj };
+            },
+
+            // 랜덤 그래프 생성 (추가됨!)
+            generateRandomGraph: (weighted = false) => {
+                const numNodes = Math.floor(Math.random() * 3) + 5; // 5~7 노드
+                const nodes = [];
+                const radius = 120;
+                const centerX = 250;
+                const centerY = 175;
+                
+                for(let i=0; i<numNodes; i++) {
+                    const angle = (i / numNodes) * 2 * Math.PI - Math.PI/2;
+                    nodes.push({
+                        id: i,
+                        x: centerX + radius * Math.cos(angle),
+                        y: centerY + radius * Math.sin(angle),
+                        label: String(i)
+                    });
+                }
+                
+                let edges = [];
+                let adj = Array(numNodes).fill(null).map(()=>[]);
+                
+                // 연결 보장을 위한 스패닝 트리 구성
+                let connected = new Set([0]);
+                let unvisited = new Set(Array.from({length: numNodes-1}, (_, i) => i+1));
+                
+                while(unvisited.size > 0) {
+                    let uArr = Array.from(connected);
+                    let u = uArr[Math.floor(Math.random() * uArr.length)];
+                    let vArr = Array.from(unvisited);
+                    let v = vArr[Math.floor(Math.random() * vArr.length)];
+                    let w = weighted ? Math.floor(Math.random() * 9) + 1 : 1;
+                    
+                    edges.push({u, v, w});
+                    adj[u].push({node: v, weight: w});
+                    adj[v].push({node: u, weight: w});
+                    
+                    connected.add(v);
+                    unvisited.delete(v);
+                }
+                
+                // 추가 간선 무작위 배치
+                const extraEdges = Math.floor(Math.random() * 3) + 1;
+                for(let i=0; i<extraEdges; i++) {
+                    let u = Math.floor(Math.random() * numNodes);
+                    let v = Math.floor(Math.random() * numNodes);
+                    if (u !== v) {
+                        const exists = edges.some(e => (e.u === u && e.v === v) || (e.u === v && e.v === u));
+                        if (!exists) {
+                            let w = weighted ? Math.floor(Math.random() * 9) + 1 : 1;
+                            edges.push({u, v, w});
+                            adj[u].push({node: v, weight: w});
+                            adj[v].push({node: u, weight: w});
+                        }
+                    }
+                }
+                return { nodes, edges, adj };
+            },
+
+            // 6. BFS (전달받은 graph 파라미터 사용)
+            bfs: (graph) => {
+                if(!graph) graph = Generators.getSampleGraph(false);
+                let steps = [{ type: 'init', graph, visited: [], queue: [], current: null, message: 'BFS 시작. 시작 노드: 0' }];
+                let visited = new Set();
+                let queue = [0];
+                visited.add(0);
+                steps.push({ type: 'queue', graph, visited: Array.from(visited), queue: [...queue], current: null, message: '노드 0 방문 체크 및 큐에 삽입' });
+
+                while(queue.length > 0) {
+                    let u = queue.shift();
+                    steps.push({ type: 'visit', graph, visited: Array.from(visited), queue: [...queue], current: u, message: `큐에서 노드 ${u} 꺼냄. 이웃 확인` });
+                    
+                    for (let edge of graph.adj[u]) {
+                        let v = edge.node;
+                        steps.push({ type: 'check', graph, visited: Array.from(visited), queue: [...queue], current: u, target: v, message: `노드 ${u} 의 이웃 ${v} 확인` });
+                        if (!visited.has(v)) {
+                            visited.add(v);
+                            queue.push(v);
+                            steps.push({ type: 'queue', graph, visited: Array.from(visited), queue: [...queue], current: u, target: v, message: `노드 ${v} 미방문이므로 큐에 삽입` });
+                        }
+                    }
+                }
+                steps.push({ type: 'finish', graph, visited: Array.from(visited), queue: [], current: null, message: 'BFS 탐색 완료!' });
+                return steps;
+            },
+
+            // 7. DFS (전달받은 graph 파라미터 사용)
+            dfs: (graph) => {
+                if(!graph) graph = Generators.getSampleGraph(false);
+                let visited = new Set();
+                let steps = [{ type: 'init', graph, visited: [], current: null, message: 'DFS 시작. 시작 노드: 0' }];
+                
+                function dfsRec(u, p) {
+                    visited.add(u);
+                    steps.push({ type: 'visit', graph, visited: Array.from(visited), current: u, parent: p, message: `노드 ${u} 방문` });
+                    
+                    for (let edge of graph.adj[u]) {
+                        let v = edge.node;
+                        if (!visited.has(v)) {
+                            steps.push({ type: 'check', graph, visited: Array.from(visited), current: u, target: v, message: `노드 ${u} 에서 이웃 ${v} (으)로 깊이 탐색 진행` });
+                            dfsRec(v, u);
+                        } else if (v !== p) {
+                            steps.push({ type: 'already', graph, visited: Array.from(visited), current: u, target: v, message: `노드 ${v} 는 이미 방문함 (백트래킹/스킵)` });
+                        }
+                    }
+                    steps.push({ type: 'backtrack', graph, visited: Array.from(visited), current: u, message: `노드 ${u} 탐색 종료. 호출한 곳으로 돌아감` });
+                }
+                dfsRec(0, null);
+                steps.push({ type: 'finish', graph, visited: Array.from(visited), message: 'DFS 탐색 완료!' });
+                return steps;
+            },
+
+            // 8. 다익스트라 (전달받은 graph 파라미터 사용)
+            dijkstra: (graph) => {
+                if(!graph) graph = Generators.getSampleGraph(true);
+                let n = graph.nodes.length;
+                let distances = Array(n).fill(Infinity);
+                distances[0] = 0;
+                let visited = Array(n).fill(false);
+                let steps = [{ type: 'init', graph, distances: [...distances], visited: [...visited], current: null, message: '다익스트라 시작. 시작 노드(0) 거리 0, 나머지 무한대' }];
+
+                for (let i = 0; i < n; i++) {
+                    let minDist = Infinity;
+                    let u = -1;
+                    for(let j=0; j<n; j++) {
+                        if(!visited[j] && distances[j] < minDist) {
+                            minDist = distances[j];
+                            u = j;
+                        }
+                    }
+                    if(u === -1) break;
+
+                    visited[u] = true;
+                    steps.push({ type: 'select', graph, distances: [...distances], visited: [...visited], current: u, message: `미방문 중 최단거리 노드 ${u}(거리:${distances[u]}) 선택` });
+
+                    for (let edge of graph.adj[u]) {
+                        let v = edge.node;
+                        if(!visited[v]) {
+                            steps.push({ type: 'check', graph, distances: [...distances], visited: [...visited], current: u, target: v, message: `이웃 노드 ${v} 확인. 가중치: ${edge.weight}` });
+                            if (distances[u] + edge.weight < distances[v]) {
+                                let oldDist = distances[v];
+                                distances[v] = distances[u] + edge.weight;
+                                steps.push({ type: 'update', graph, distances: [...distances], visited: [...visited], current: u, target: v, message: `거리 갱신! ${v}까지의 거리: ${oldDist === Infinity ? '∞' : oldDist} -> ${distances[v]}` });
+                            }
+                        }
+                    }
+                }
+                steps.push({ type: 'finish', graph, distances: [...distances], visited: [...visited], current: null, message: '모든 노드 최단 거리 계산 완료!' });
+                return steps;
+            },
+
+            // 9. 병합 정렬
+            mergeSort: (inputArray) => {
+                let arr = [...inputArray];
+                let steps = [{ type: 'init', array: [...arr], message: '병합 정렬 시작' }];
+                function sort(l, r) {
+                    if(l >= r) return;
+                    let m = Math.floor((l+r)/2);
+                    sort(l, m);
+                    sort(m+1, r);
+                    merge(l, m, r);
+                }
+                function merge(l, m, r) {
+                    let temp = [];
+                    let i = l, j = m+1;
+                    steps.push({ type: 'range', indices: [l, r], mid: m, array: [...arr], message: `부분 배열 [${l}~${m}] 과 [${m+1}~${r}] 병합 시작` });
+                    while(i <= m && j <= r) {
+                        steps.push({ type: 'compare', indices: [i, j], array: [...arr], message: `비교: ${arr[i]} 와 ${arr[j]}` });
+                        if(arr[i] <= arr[j]) temp.push(arr[i++]);
+                        else temp.push(arr[j++]);
+                    }
+                    while(i <= m) temp.push(arr[i++]);
+                    while(j <= r) temp.push(arr[j++]);
+                    for(let k = 0; k < temp.length; k++) {
+                        arr[l+k] = temp[k];
+                        steps.push({ type: 'insert', indices: [l+k], array: [...arr], message: `병합 중: 인덱스 ${l+k} 에 ${temp[k]} 배치` });
+                    }
+                }
+                sort(0, arr.length - 1);
+                steps.push({ type: 'finish', array: [...arr], message: '병합 정렬 완료!' });
+                return steps;
+            },
+
+            // 10. 힙 정렬
+            heapSort: (inputArray) => {
+                let arr = [...inputArray];
+                let steps = [{ type: 'init', array: [...arr], message: '힙 정렬 시작 (최대 힙 구성)' }];
+                let n = arr.length;
+                
+                function heapify(sz, i) {
+                    let largest = i;
+                    let l = 2*i + 1, r = 2*i + 2;
+                    if(l < sz) {
+                        steps.push({ type: 'compare', indices: [largest, l], array: [...arr], message: `부모 ${arr[largest]} 와 왼쪽 자식 ${arr[l]} 비교` });
+                        if(arr[l] > arr[largest]) largest = l;
+                    }
+                    if(r < sz) {
+                        steps.push({ type: 'compare', indices: [largest, r], array: [...arr], message: `현재 최대값 ${arr[largest]} 와 오른쪽 자식 ${arr[r]} 비교` });
+                        if(arr[r] > arr[largest]) largest = r;
+                    }
+                    if(largest !== i) {
+                        steps.push({ type: 'swap', indices: [i, largest], array: [...arr], message: `부모가 자식보다 작으므로 스왑` });
+                        let t = arr[i]; arr[i] = arr[largest]; arr[largest] = t;
+                        heapify(sz, largest);
+                    }
+                }
+
+                for(let i = Math.floor(n/2)-1; i>=0; i--) heapify(n, i);
+                steps.push({ type: 'init', array: [...arr], message: '최대 힙 구성 완료. 추출 시작.' });
+                
+                for(let i = n-1; i>0; i--) {
+                    steps.push({ type: 'swap', indices: [0, i], array: [...arr], message: `루트 ${arr[0]} 와 마지막 원소 ${arr[i]} 스왑` });
+                    let t = arr[0]; arr[0] = arr[i]; arr[i] = t;
+                    steps.push({ type: 'sorted_idx', index: i, array: [...arr], message: `값 ${arr[i]} 정렬 확정` });
+                    heapify(i, 0);
+                }
+                steps.push({ type: 'sorted_idx', index: 0, array: [...arr], message: `값 ${arr[0]} 정렬 확정` });
+                steps.push({ type: 'finish', array: [...arr], message: '힙 정렬 완료!' });
+                return steps;
+            },
+
+            // 11. 2D Prefix Sum
+            prefixSum2D: (inputArray) => {
+                let sz = Math.ceil(Math.sqrt(inputArray.length));
+                if(sz < 2) sz = 2; if(sz > 4) sz = 4;
+                let arr = Array.from({length: sz}, () => Array(sz).fill(0));
+                let idx = 0;
+                for(let i=0; i<sz; i++) for(let j=0; j<sz; j++) {
+                    arr[i][j] = inputArray[idx] || 0; idx++;
+                }
+
+                let psum = Array.from({length: sz+1}, () => Array(sz+1).fill(0));
+                let steps = [{ type: 'init', array: arr, psum: psum.map(r=>[...r]), message: '2차원 누적합 배열(크기 N+1 x M+1) 0으로 초기화' }];
+
+                for(let i=0; i<sz; i++) {
+                    for(let j=0; j<sz; j++) {
+                        psum[i+1][j+1] = arr[i][j] + psum[i][j+1] + psum[i+1][j] - psum[i][j];
+                        steps.push({ 
+                            type: 'calc', r: i, c: j, array: arr, psum: psum.map(r=>[...r]), 
+                            message: `P[${i+1}][${j+1}] = A(${arr[i][j]}) + P[${i}][${j+1}](${psum[i][j+1]}) + P[${i+1}][${j}](${psum[i+1][j]}) - 중복P[${i}][${j}](${psum[i][j]}) = ${psum[i+1][j+1]}` 
+                        });
+                    }
+                }
+                steps.push({ type: 'finish', array: arr, psum: psum.map(r=>[...r]), message: '2차원 누적합 계산 완료! 구간합 쿼리를 O(1)에 수행 가능' });
+                return steps;
+            }
+        };
+
+        /**
+         * ==========================================================================
+         * 3. 렌더러 (Visualizer Engine)
+         * ==========================================================================
+         */
+        class Visualizer {
+            constructor() {
+                this.domContainer = document.getElementById('dom-renderer');
+                this.canvas = document.getElementById('vis-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.msgBox = document.getElementById('vis-message');
+                
+                this.steps = [];
+                this.currentStep = 0;
+                this.timer = null;
+                this.speed = 1000;
+                this.isPlaying = false;
+                
+                this.currentType = 'array';
+
+                this.resizeCanvas = () => {
+                    this.canvas.width = this.canvas.parentElement.clientWidth;
+                    this.canvas.height = this.canvas.parentElement.clientHeight;
+                    if(this.currentType === 'graph' || this.currentType === 'graph_weighted') this.renderGraphStep();
+                };
+                window.addEventListener('resize', this.resizeCanvas);
+            }
+
+            loadSteps(type, steps) {
+                this.currentType = type;
+                this.steps = steps;
+                this.currentStep = 0;
+                this.pause();
+                
+                if(type === 'array' || type === 'grid' || type === 'grid2d') {
+                    this.domContainer.style.display = 'flex';
+                    this.canvas.style.display = 'none';
+                } else {
+                    this.domContainer.style.display = 'none';
+                    this.canvas.style.display = 'block';
+                    this.resizeCanvas();
+                }
+                
+                this.render();
+            }
+
+            render() {
+                if(!this.steps || this.steps.length === 0) return;
+                const step = this.steps[this.currentStep];
+                this.msgBox.innerHTML = step.message;
+
+                if (this.currentType === 'array') this.renderArrayStep(step);
+                else if (this.currentType === 'grid') this.renderGridStep(step);
+                else if (this.currentType === 'grid2d') this.renderGrid2DStep(step);
+                else if (this.currentType === 'graph' || this.currentType === 'graph_weighted') this.renderGraphStep(step);
+            }
+
+            renderArrayStep(step) {
+                this.domContainer.innerHTML = '';
+                this.domContainer.className = 'array-bar-container';
+                const maxVal = Math.max(...step.array, 10);
+                
+                step.array.forEach((val, idx) => {
+                    const bar = document.createElement('div');
+                    bar.className = 'array-bar';
+                    const hPercent = (val / maxVal) * 90 + 10;
+                    bar.style.height = `${hPercent}%`;
+                    bar.style.width = `${Math.max(20, 100 / step.array.length - 2)}px`;
+                    bar.innerText = val;
+
+                    if (step.indices && step.indices.includes(idx)) {
+                        if (step.type === 'compare') bar.style.backgroundColor = 'var(--vis-compare)';
+                        else if (step.type === 'swap' || step.type === 'swapped') bar.style.backgroundColor = 'var(--vis-swap)';
+                        else if (step.type === 'pivot') bar.style.backgroundColor = 'var(--vis-pivot)';
+                        else if (step.type === 'insert') bar.style.backgroundColor = 'var(--vis-sorted)';
+                        else if (step.type === 'found') bar.style.backgroundColor = 'var(--vis-sorted)';
+                    }
+                    if (step.type === 'range' && idx >= step.indices[0] && idx <= step.indices[1]) {
+                        bar.style.opacity = 1;
+                        if(idx === step.mid) bar.style.backgroundColor = 'var(--vis-pivot)';
+                    } else if (step.type === 'range') {
+                        bar.style.opacity = 0.3;
+                    }
+                    if (step.type === 'sorted_idx' && idx >= step.index) {
+                        bar.style.backgroundColor = 'var(--vis-sorted)';
+                    }
+                    if (step.type === 'finish') {
+                        bar.style.backgroundColor = 'var(--vis-sorted)';
+                    }
+
+                    this.domContainer.appendChild(bar);
+                });
+            }
+
+            renderGridStep(step) {
+                this.domContainer.innerHTML = '';
+                this.domContainer.className = 'grid-container';
+                
+                const row1 = document.createElement('div');
+                row1.className = 'grid-row';
+                let lbl1 = document.createElement('div'); lbl1.className = 'grid-label'; lbl1.innerText = 'Array A'; row1.appendChild(lbl1);
+                step.array.forEach((v, i) => {
+                    let cell = document.createElement('div'); cell.className = 'grid-cell'; cell.dataset.index = i; cell.innerText = v;
+                    if(step.type === 'calc' && i === step.idx) cell.style.backgroundColor = 'var(--vis-compare)';
+                    if(step.type === 'query' && i >= step.L && i <= step.R) cell.style.backgroundColor = 'var(--vis-swap)';
+                    row1.appendChild(cell);
+                });
+
+                const row2 = document.createElement('div');
+                row2.className = 'grid-row';
+                let lbl2 = document.createElement('div'); lbl2.className = 'grid-label'; lbl2.innerText = 'Prefix P'; row2.appendChild(lbl2);
+                step.psum.forEach((v, i) => {
+                    let cell = document.createElement('div'); cell.className = 'grid-cell'; cell.dataset.index = i; cell.innerText = v;
+                    if(step.type === 'calc' && i === step.idx + 1) cell.style.backgroundColor = 'var(--vis-sorted)';
+                    if(step.type === 'query' && (i === step.L || i === step.R + 1)) cell.style.backgroundColor = 'var(--vis-pivot)';
+                    row2.appendChild(cell);
+                });
+
+                this.domContainer.appendChild(row1);
+                this.domContainer.appendChild(row2);
+            }
+
+            renderGrid2DStep(step) {
+                this.domContainer.innerHTML = '';
+                this.domContainer.className = 'grid-container';
+                this.domContainer.style.flexDirection = 'row';
+                this.domContainer.style.alignItems = 'flex-start';
+                
+                const createTable = (data, title, highlightFn) => {
+                    let wrap = document.createElement('div');
+                    wrap.style.display = 'flex'; wrap.style.flexDirection = 'column'; wrap.style.gap = '5px';
+                    let titleEl = document.createElement('div');
+                    titleEl.className = 'grid-label'; titleEl.innerText = title; titleEl.style.width = '100%'; titleEl.style.textAlign = 'center'; titleEl.style.marginBottom = '10px';
+                    wrap.appendChild(titleEl);
+                    
+                    data.forEach((row, r) => {
+                        let rowEl = document.createElement('div'); rowEl.className = 'grid-row';
+                        row.forEach((v, c) => {
+                            let cell = document.createElement('div'); cell.className = 'grid-cell';
+                            cell.innerText = v;
+                            if(highlightFn) highlightFn(cell, r, c);
+                            rowEl.appendChild(cell);
+                        });
+                        wrap.appendChild(rowEl);
+                    });
+                    return wrap;
+                };
+
+                let t1 = createTable(step.array, 'Array A', (cell, r, c) => {
+                    if(step.type === 'calc' && r === step.r && c === step.c) cell.style.backgroundColor = 'var(--vis-compare)';
+                });
+                
+                let t2 = createTable(step.psum, 'Prefix P', (cell, r, c) => {
+                    if(step.type === 'calc' && r === step.r+1 && c === step.c+1) cell.style.backgroundColor = 'var(--vis-sorted)';
+                    if(step.type === 'calc') {
+                       if((r === step.r && c === step.c+1) || (r === step.r+1 && c === step.c)) cell.style.backgroundColor = 'var(--vis-pivot)';
+                       if(r === step.r && c === step.c) cell.style.backgroundColor = 'var(--vis-swap)';
+                    }
+                });
+                this.domContainer.appendChild(t1);
+                this.domContainer.appendChild(t2);
+            }
+
+            renderGraphStep(step) {
+                if(!step) step = this.steps[this.currentStep];
+                const { graph, current, target, visited, distances, via } = step;
+                const ctx = this.ctx;
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                
+                ctx.clearRect(0, 0, w, h);
+                if(!graph) return;
+
+                const offsetX = w/2 - 250; 
+                const offsetY = h/2 - 175;
+
+                graph.edges.forEach(e => {
+                    const n1 = graph.nodes[e.u];
+                    const n2 = graph.nodes[e.v];
+                    ctx.beginPath();
+                    ctx.moveTo(n1.x + offsetX, n1.y + offsetY);
+                    ctx.lineTo(n2.x + offsetX, n2.y + offsetY);
+                    
+                    if ((current === e.u && target === e.v) || (current === e.v && target === e.u)) {
+                        ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 4;
+                    } else if (via !== undefined && ((current === e.u && via === e.v) || (current === e.v && via === e.u) || (target === e.u && via === e.v) || (target === e.v && via === e.u))) {
+                        ctx.strokeStyle = '#a855f7'; ctx.lineWidth = 4;
+                    } else {
+                        ctx.strokeStyle = document.body.classList.contains('dark') ? '#475569' : '#cbd5e1';
+                        ctx.lineWidth = 2;
+                    }
+                    ctx.stroke();
+
+                    if (this.currentType === 'graph_weighted') {
+                        const mx = (n1.x + n2.x)/2 + offsetX;
+                        const my = (n1.y + n2.y)/2 + offsetY - 10;
+                        ctx.fillStyle = document.body.classList.contains('dark') ? '#f8fafc' : '#0f172a';
+                        ctx.font = '14px sans-serif';
+                        ctx.fillText(e.w, mx, my);
+                    }
+                });
+
+                graph.nodes.forEach(n => {
+                    const nx = n.x + offsetX;
+                    const ny = n.y + offsetY;
+                    
+                    ctx.beginPath();
+                    ctx.arc(nx, ny, 20, 0, Math.PI * 2);
+                    
+                    if (via === n.id) {
+                        ctx.fillStyle = '#a855f7'; 
+                    } else if (current === n.id) {
+                        ctx.fillStyle = '#eab308'; 
+                    } else if (target === n.id) {
+                        ctx.fillStyle = '#ef4444'; 
+                    } else if (visited && (Array.isArray(visited) ? visited.includes(n.id) : visited[n.id])) {
+                        ctx.fillStyle = '#10b981'; 
+                    } else {
+                        ctx.fillStyle = '#3b82f6'; 
+                    }
+                    
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 16px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(n.label, nx, ny);
+
+                    if (distances) {
+                        const d = distances[n.id];
+                        const text = d === Infinity ? '∞' : d;
+                        ctx.fillStyle = document.body.classList.contains('dark') ? '#fca5a5' : '#ef4444';
+                        ctx.font = 'bold 14px sans-serif';
+                        ctx.fillText(`Dist: ${text}`, nx, ny + 35);
+                    }
+                });
+            }
+
+            play() {
+                if (this.currentStep >= this.steps.length - 1) {
+                    this.currentStep = 0; 
+                }
+                this.isPlaying = true;
+                document.getElementById('btn-play').innerHTML = '⏸ Pause';
+                this.loop();
+            }
+
+            pause() {
+                this.isPlaying = false;
+                clearTimeout(this.timer);
+                document.getElementById('btn-play').innerHTML = '▶ Play';
+            }
+
+            loop() {
+                if (!this.isPlaying) return;
+                this.render();
+                if (this.currentStep < this.steps.length - 1) {
+                    this.currentStep++;
+                    this.timer = setTimeout(() => this.loop(), this.speed);
+                } else {
+                    this.pause();
+                }
+            }
+
+            nextStep() {
+                this.pause();
+                if (this.currentStep < this.steps.length - 1) {
+                    this.currentStep++;
+                    this.render();
+                }
+            }
+
+            prevStep() {
+                this.pause();
+                if (this.currentStep > 0) {
+                    this.currentStep--;
+                    this.render();
+                }
+            }
+
+            setSpeed(val) {
+                this.speed = 1000 / val;
+            }
+        }
+
+        /**
+         * ==========================================================================
+         * 4. App Controller (UI 라우팅 및 이벤트 바인딩)
+         * ==========================================================================
+         */
+        const App = {
+            vis: new Visualizer(),
+            currentAlgoId: null,
+            currentGraph: null,
+
+            init() {
+                this.renderSidebar();
+                this.bindEvents();
+                
+                const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if(isDark) document.body.setAttribute('data-theme', 'dark');
+
+                const hash = window.location.hash.replace('#', '') || 'sorting-bubble';
+                this.loadAlgorithm(hash);
+            },
+
+            renderSidebar() {
+                const nav = document.getElementById('nav-container');
+                nav.innerHTML = '';
+                for (const [cat, ids] of Object.entries(CATEGORIES)) {
+                    let group = `<div class="nav-group"><div class="nav-group-title">${cat}</div>`;
+                    ids.forEach(id => {
+                        group += `<a class="nav-item" href="#${id}" data-id="${id}">${ALGORITHMS[id].title}</a>`;
+                    });
+                    group += `</div>`;
+                    nav.innerHTML += group;
+                }
+            },
+
+            loadAlgorithm(id) {
+                if (!ALGORITHMS[id]) id = 'sorting-bubble';
+                this.currentAlgoId = id;
+                this.currentGraph = null;
+                const data = ALGORITHMS[id];
+                window.location.hash = id;
+
+                document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+                const activeNav = document.querySelector(`.nav-item[data-id="${id}"]`);
+                if(activeNav) activeNav.classList.add('active');
+
+                document.getElementById('current-category').innerText = `${data.category} > ${data.title}`;
+                document.getElementById('algo-title').innerText = data.title;
+                document.getElementById('algo-oneliner').innerText = data.oneLiner;
+                
+                document.getElementById('algo-usecases').innerHTML = data.useCases.map(u => `<li>${u}</li>`).join('');
+                document.getElementById('algo-mistakes').innerHTML = data.mistakes.map(m => `<li>${m}</li>`).join('');
+                
+                let compHtml = `
+                    <tr><th>Best(Ω) / Avg(Θ) / Worst(O)</th><td>${data.complexity.best} / ${data.complexity.avg} / ${data.complexity.worst}</td></tr>
+                    <tr><th>Space Complexity</th><td>${data.complexity.space}</td></tr>
+                    <tr><th>Stability / Type</th><td>${data.complexity.stability}</td></tr>
+                `;
+                document.getElementById('algo-complexity').innerHTML = compHtml;
+
+                document.getElementById('code-js').innerHTML = `<pre>${data.code.js}</pre>`;
+                document.getElementById('code-py').innerHTML = `<pre>${data.code.py}</pre>`;
+                document.getElementById('code-java').innerHTML = `<pre>${data.code.java || '// 제공되지 않음'}</pre>`;
+                document.getElementById('code-cpp').innerHTML = `<pre>${data.code.cpp || '// 제공되지 않음'}</pre>`;
+
+                const inputEl = document.getElementById('input-data');
+                if(data.type.includes('graph')) {
+                    inputEl.disabled = true;
+                    inputEl.value = 'Fixed Sample Graph';
+                } else {
+                    inputEl.disabled = false;
+                    this.generateRandomData(); 
+                }
+
+                this.runVisualization(data);
+                document.getElementById('sidebar').classList.remove('open');
+            },
+
+            generateRandomData() {
+                const inputEl = document.getElementById('input-data');
+                if (this.currentAlgoId === 'prefix-2d') {
+                    const arr = Array.from({length: 9}, () => Math.floor(Math.random() * 20) + 1);
+                    inputEl.value = arr.join(',');
+                    return arr;
+                }
+                const arr = Array.from({length: 10}, () => Math.floor(Math.random() * 90) + 10);
+                inputEl.value = arr.join(',');
+                return arr;
+            },
+
+            getParsedInput() {
+                const val = document.getElementById('input-data').value;
+                if(!val || val === 'Fixed Sample Graph' || val === 'Random Generated Graph') return null;
+                return val.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+            },
+
+            runVisualization(data, isRandom = false) {
+                let steps = [];
+                let input = this.getParsedInput();
+
+                if (data.type.includes('graph')) {
+                    if (isRandom) {
+                        this.currentGraph = Generators.generateRandomGraph(data.type === 'graph_weighted');
+                        document.getElementById('input-data').value = 'Random Generated Graph';
+                    } else if (!this.currentGraph) {
+                        this.currentGraph = Generators.getSampleGraph(data.type === 'graph_weighted');
+                        document.getElementById('input-data').value = 'Fixed Sample Graph';
+                    }
+                }
+
+                switch(data.id) {
+                    case 'sorting-bubble': steps = Generators.bubbleSort(input || [5,3,8,4,2]); break;
+                    case 'sorting-insertion': steps = Generators.insertionSort(input || [5,3,8,4,2]); break;
+                    case 'sorting-quick': steps = Generators.quickSort(input || [5,3,8,4,2]); break;
+                    case 'sorting-merge': steps = Generators.mergeSort(input || [5,3,8,4,2,7,1,6]); break;
+                    case 'sorting-heap': steps = Generators.heapSort(input || [5,3,8,4,2,7,1,6]); break;
+                    case 'search-binary': steps = Generators.binarySearch(input || [2,4,6,8,10,12,14,16]); break;
+                    case 'prefix-1d': steps = Generators.prefixSum(input || [1,3,-2,4,5]); break;
+                    case 'prefix-2d': steps = Generators.prefixSum2D(input || [1,2,3,4,5,6,7,8,9]); break;
+                    case 'graph-bfs': steps = Generators.bfs(this.currentGraph); break;
+                    case 'graph-dfs': steps = Generators.dfs(this.currentGraph); break;
+                    case 'graph-dijkstra': steps = Generators.dijkstra(this.currentGraph); break;
+                }
+                
+                this.vis.loadSteps(data.type, steps);
+            },
+
+            bindEvents() {
+                window.addEventListener('hashchange', () => {
+                    const hash = window.location.hash.replace('#', '');
+                    this.loadAlgorithm(hash);
+                });
+
+                document.getElementById('theme-toggle').addEventListener('click', () => {
+                    const body = document.body;
+                    if (body.getAttribute('data-theme') === 'dark') {
+                        body.removeAttribute('data-theme');
+                    } else {
+                        body.setAttribute('data-theme', 'dark');
+                    }
+                    this.vis.render(); 
+                });
+
+                document.getElementById('open-sidebar').addEventListener('click', () => {
+                    document.getElementById('sidebar').classList.add('open');
+                });
+                document.getElementById('close-sidebar').addEventListener('click', () => {
+                    document.getElementById('sidebar').classList.remove('open');
+                });
+
+                document.getElementById('btn-play').addEventListener('click', () => {
+                    if (this.vis.isPlaying) this.vis.pause();
+                    else this.vis.play();
+                });
+                document.getElementById('btn-next').addEventListener('click', () => this.vis.nextStep());
+                document.getElementById('btn-prev').addEventListener('click', () => this.vis.prevStep());
+                document.getElementById('btn-reset').addEventListener('click', () => {
+                    this.vis.pause();
+                    this.vis.currentStep = 0;
+                    this.vis.render();
+                });
+                document.getElementById('btn-random').addEventListener('click', () => {
+                    const data = ALGORITHMS[this.currentAlgoId];
+                    if(!data.type.includes('graph')) {
+                        this.generateRandomData();
+                    }
+                    this.runVisualization(data, true);
+                });
+
+                document.getElementById('speed-slider').addEventListener('input', (e) => {
+                    this.vis.setSpeed(e.target.value);
+                });
+
+                document.getElementById('input-data').addEventListener('change', () => {
+                    this.runVisualization(ALGORITHMS[this.currentAlgoId]);
+                });
+
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                        document.querySelectorAll('.code-block').forEach(b => b.classList.remove('active'));
+                        e.target.classList.add('active');
+                        document.getElementById(`code-${e.target.dataset.lang}`).classList.add('active');
+                    });
+                });
+
+                document.addEventListener('keydown', (e) => {
+                    if(e.code === 'Space' && e.target.tagName !== 'INPUT') {
+                        e.preventDefault();
+                        document.getElementById('btn-play').click();
+                    } else if (e.code === 'ArrowRight') {
+                        document.getElementById('btn-next').click();
+                    } else if (e.code === 'ArrowLeft') {
+                        document.getElementById('btn-prev').click();
+                    }
+                });
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            App.init();
+        });
+
+    </script>
+</body>
+</html>

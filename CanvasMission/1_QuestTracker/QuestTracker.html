@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>퀘스트 트래커</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif; }
+        input:focus, select:focus { outline: none; }
+        
+        /* 커스텀 스크롤바 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8">
+
+    <!-- 삭제 확인 모달 -->
+    <div id="delete-modal" style="display: none;" class="fixed inset-0 bg-slate-900/40 z-[100] flex items-center justify-center p-4 backdrop-blur-sm transition-opacity">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-transform">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-500">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <h3 class="text-xl font-bold text-slate-800">게임 삭제</h3>
+            </div>
+            <p class="text-slate-600 mb-6 leading-relaxed">이 게임과 모든 숙제 목록을 영구적으로 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
+            <div class="flex justify-end gap-3">
+                <button onclick="window.closeDeleteModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-medium transition-colors">취소</button>
+                <button onclick="window.confirmDelete()" class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors shadow-lg shadow-red-200">삭제하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 데이터 로딩 중 표시 화면 (처음엔 보여주고 상황에 따라 숨김) -->
+    <div id="loading-overlay" class="fixed inset-0 bg-slate-50 z-50 flex flex-col items-center justify-center text-slate-500 gap-4">
+        <i class="fa-solid fa-gamepad text-5xl animate-pulse text-indigo-400"></i>
+        <p>환경을 설정하고 데이터를 불러오는 중입니다...</p>
+    </div>
+
+    <div class="max-w-6xl mx-auto" id="app-content" style="display: none;">
+        <!-- 헤더 영역 -->
+        <header class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+            <div>
+                <h1 class="text-3xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-gamepad text-indigo-600"></i>
+                    퀘스트 트래커 <span id="mode-badge" class="text-sm font-normal text-slate-400 bg-slate-200 px-2 py-1 rounded-md ml-2 transition-all">준비 중</span>
+                </h1>
+                <p class="text-slate-500 mt-1">잊기 쉬운 게임 숙제를 한곳에서 관리하세요.</p>
+            </div>
+            <button onclick="addGame()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-semibold transition-all shadow-lg shadow-indigo-200 active:scale-95">
+                <i class="fa-solid fa-plus"></i>
+                새 게임 추가
+            </button>
+        </header>
+
+        <!-- 게임 목록 컨테이너 -->
+        <div id="games-container" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- JS 렌더링 영역 -->
+        </div>
+        
+        <!-- 빈 상태 표시 공간 -->
+        <div id="empty-state" class="hidden col-span-full py-20 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-3xl mt-6">
+            <i class="fa-solid fa-table-cells-large text-5xl mb-4 opacity-20"></i>
+            <p>추가된 게임이 없습니다. 상단의 버튼을 눌러 시작하세요!</p>
+        </div>
+
+        <!-- 푸터 (사용 설명서) -->
+        <footer class="mt-12 pt-8 border-t border-slate-200 text-slate-500 text-sm">
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 text-left max-w-3xl mx-auto shadow-sm">
+                <h4 class="font-bold text-slate-700 mb-4 flex items-center gap-2 text-base">
+                    <i class="fa-solid fa-book-open text-indigo-500"></i> 사용 설명서
+                </h4>
+                <ul class="space-y-3 list-disc list-inside text-slate-600 leading-relaxed">
+                    <li><strong class="text-slate-700">"새 게임 추가"</strong> 버튼을 통해 원하는 만큼 게임을 추가할 수 있습니다.</li>
+                    <li><strong class="text-slate-700">"숙제 항목 추가"</strong> 버튼을 통해 각 게임별로 원하는 만큼 숙제목록을 늘릴 수 있습니다.</li>
+                    <li>상태 체크박스를 클릭하면 완료 표시로 바뀌며, <strong class="text-slate-700">일정 주기 이후에 미완료 상태로 초기화</strong>됩니다.
+                        <ul class="list-none pl-6 mt-2 space-y-1.5 text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            <li><span class="font-semibold text-slate-600">일일 :</span> 매일 00시</li>
+                            <li><span class="font-semibold text-slate-600">주간 :</span> 매주 월요일 00시</li>
+                            <li><span class="font-semibold text-slate-600">월간 :</span> 매달 1일 00시</li>
+                        </ul>
+                    </li>
+                    <li><strong class="text-slate-700">"숙제 목록"</strong>에서 숙제 텍스트를 클릭해 내용을 변경할 수 있습니다.</li>
+                    <li>카드 좌측 상단의 <strong class="text-slate-700">그립 아이콘(<i class="fa-solid fa-grip-vertical mx-1"></i>)</strong>을 드래그하여 게임 카드의 순서를 변경할 수 있습니다.</li>
+                </ul>
+            </div>
+            
+            <div class="flex justify-center gap-4 mt-6">
+                <span class="flex items-center gap-1"><i class="fa-regular fa-circle"></i> 미완료</span>
+                <span class="flex items-center gap-1 text-emerald-500"><i class="fa-solid fa-circle-check"></i> 완료</span>
+            </div>
+        </footer>
+    </div>
+
+    <script type="module">
+        // 1. 하이브리드 상태 관리 (클라우드 & 로컬 모두 커버)
+        window.games = [];
+        window.lastCheckTime = Date.now();
+        window.isCloudMode = false;
+        
+        // 클라우드용 변수들
+        let db = null;
+        let docRefFunc = null;
+        let setDocFunc = null;
+        let currentUser = null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // 2. 초기화 로직 (환경 파악)
+        async function initApp() {
+            const configString = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+            
+            // 공유 링크 환경 (클라우드 접속 정보가 있을 때)
+            if (configString && configString.trim() !== '') {
+                try {
+                    // Firebase 모듈을 인터넷에서 즉석으로 다운로드하여 연결 (Dynamic Import)
+                    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
+                    const { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                    const { getFirestore, doc, setDoc, onSnapshot } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+                    
+                    const firebaseConfig = JSON.parse(configString);
+                    const app = initializeApp(firebaseConfig);
+                    const auth = getAuth(app);
+                    
+                    db = getFirestore(app);
+                    docRefFunc = doc;
+                    setDocFunc = setDoc;
+                    window.isCloudMode = true;
+
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    // 로그인 성공 시 클라우드 데이터 구독
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            currentUser = user;
+                            const docRef = docRefFunc(db, 'artifacts', appId, 'users', currentUser.uid, 'questData', 'main');
+                            
+                            onSnapshot(docRef, (snapshot) => {
+                                // 로딩 화면 해제 및 뱃지 업데이트 (문구 수정됨)
+                                document.getElementById('loading-overlay').style.display = 'none';
+                                document.getElementById('app-content').style.display = 'block';
+                                document.getElementById('mode-badge').textContent = '동기화 완료';
+                                document.getElementById('mode-badge').className = 'text-sm font-normal text-indigo-600 bg-indigo-100 px-2 py-1 rounded-md ml-2 transition-all';
+
+                                if (snapshot.exists()) {
+                                    const data = snapshot.data();
+                                    window.games = data.games || [];
+                                    window.lastCheckTime = data.lastCheckTime || Date.now();
+                                } else {
+                                    initEmptyData();
+                                }
+                                window.checkResets();
+                                window.render();
+                            });
+                        }
+                    });
+                } catch(e) {
+                    console.error("클라우드 접속 실패, 로컬 모드로 자동 전환합니다.", e);
+                    initLocalMode();
+                }
+            } else {
+                // 내 컴퓨터 직접 실행 환경 (클라우드 정보가 없을 때)
+                initLocalMode();
+            }
+        }
+
+        // 로컬 모드 초기화 함수
+        function initLocalMode() {
+            window.isCloudMode = false;
+            
+            // 로딩 화면 해제 및 뱃지 업데이트
+            document.getElementById('loading-overlay').style.display = 'none';
+            document.getElementById('app-content').style.display = 'block';
+            document.getElementById('mode-badge').textContent = '로컬 저장소 (내 PC)';
+            document.getElementById('mode-badge').className = 'text-sm font-normal text-slate-500 bg-slate-200 px-2 py-1 rounded-md ml-2 transition-all';
+
+            // 로컬 스토리지에서 데이터 꺼내기
+            window.games = JSON.parse(localStorage.getItem('questTrackerGames_local')) || [];
+            window.lastCheckTime = parseInt(localStorage.getItem('questTrackerLastCheck_local')) || Date.now();
+
+            if (window.games.length === 0) {
+                initEmptyData();
+            }
+            window.checkResets();
+            window.render();
+        }
+
+        // 빈 데이터 생성 함수
+        function initEmptyData() {
+            window.games = [{
+                id: Date.now(),
+                title: '새로운 게임',
+                tasks: [
+                    { id: Date.now() + 1, name: '새 숙제', completed: false, interval: '일일' },
+                    { id: Date.now() + 2, name: '새 숙제', completed: false, interval: '주간' }
+                ]
+            }];
+            window.saveDataOnly();
+        }
+
+        // 3. 통합 데이터 저장 함수 (현재 환경이 클라우드인지 로컬인지 스스로 판단하여 저장)
+        window.saveDataOnly = function() {
+            if (window.isCloudMode && currentUser && db) {
+                const docRef = docRefFunc(db, 'artifacts', appId, 'users', currentUser.uid, 'questData', 'main');
+                setDocFunc(docRef, { games: window.games, lastCheckTime: window.lastCheckTime }, { merge: true });
+            } else {
+                localStorage.setItem('questTrackerGames_local', JSON.stringify(window.games));
+                localStorage.setItem('questTrackerLastCheck_local', window.lastCheckTime.toString());
+            }
+        }
+
+        window.saveAndRender = function() {
+            window.saveDataOnly();
+            window.render();
+        }
+
+        // 4. 주기적 초기화 로직 (일일/주간/월간)
+        window.checkResets = function() {
+            const now = new Date();
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            
+            const day = now.getDay();
+            const diffToMonday = day === 0 ? -6 : 1 - day;
+            const startOfThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday).getTime();
+            
+            const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+            const needsDaily = window.lastCheckTime < startOfToday;
+            const needsWeekly = window.lastCheckTime < startOfThisWeek;
+            const needsMonthly = window.lastCheckTime < startOfThisMonth;
+
+            if (needsDaily || needsWeekly || needsMonthly) {
+                let isChanged = false;
+                window.games = window.games.map(game => {
+                    const updatedTasks = game.tasks.map(task => {
+                        let shouldReset = false;
+                        if (needsDaily && task.interval === '일일') shouldReset = true;
+                        if (needsWeekly && task.interval === '주간') shouldReset = true;
+                        if (needsMonthly && task.interval === '월간') shouldReset = true;
+                        
+                        if (shouldReset && task.completed) {
+                            isChanged = true;
+                            return { ...task, completed: false };
+                        }
+                        return task;
+                    });
+                    return { ...game, tasks: updatedTasks };
+                });
+
+                window.lastCheckTime = now.getTime();
+                if (isChanged) window.saveAndRender();
+                else window.saveDataOnly();
+            } else if (now.getTime() - window.lastCheckTime > 60000) {
+                window.lastCheckTime = now.getTime();
+                window.saveDataOnly();
+            }
+        }
+
+        // 5. 액션 함수들 (window 객체에 붙여서 HTML에서 클릭 시 인식되도록 함)
+        window.addGame = function() {
+            window.games.push({
+                id: Date.now(),
+                title: '새로운 게임',
+                tasks: [
+                    { id: Date.now() + 1, name: '새 숙제', completed: false, interval: '일일' },
+                    { id: Date.now() + 2, name: '새 숙제', completed: false, interval: '일일' }
+                ]
+            });
+            window.saveAndRender();
+        }
+
+        // --- 삭제 모달 관련 로직 ---
+        window.gameToDelete = null;
+
+        window.deleteGame = function(gameId) {
+            window.gameToDelete = gameId;
+            document.getElementById('delete-modal').style.display = 'flex';
+        }
+
+        window.closeDeleteModal = function() {
+            window.gameToDelete = null;
+            document.getElementById('delete-modal').style.display = 'none';
+        }
+
+        window.confirmDelete = function() {
+            if (window.gameToDelete) {
+                window.games = window.games.filter(g => g.id !== window.gameToDelete);
+                window.saveAndRender();
+                window.closeDeleteModal();
+            }
+        }
+
+        // --- 드래그 앤 드롭 로직 ---
+        window.draggedGameId = null;
+
+        window.handleDragStart = function(e, id) {
+            window.draggedGameId = id;
+            e.dataTransfer.effectAllowed = 'move';
+            // 고스트 이미지가 생성될 수 있도록 약간의 딜레이 후 투명도 적용
+            setTimeout(() => {
+                e.target.classList.add('opacity-40', 'scale-95');
+            }, 10);
+        }
+
+        window.handleDragEnd = function(e) {
+            e.target.classList.remove('opacity-40', 'scale-95');
+            e.target.setAttribute('draggable', 'false'); // 드래그 종료 시 다시 비활성화 (텍스트 선택 보호)
+            window.draggedGameId = null;
+        }
+
+        window.handleDragOver = function(e) {
+            e.preventDefault(); // 드롭을 허용하려면 필수
+            e.dataTransfer.dropEffect = 'move';
+            const card = e.target.closest('.game-card');
+            if (card && window.draggedGameId) {
+                card.classList.add('border-indigo-500', 'shadow-md');
+            }
+        }
+
+        window.handleDragLeave = function(e) {
+            const card = e.target.closest('.game-card');
+            if (card) {
+                card.classList.remove('border-indigo-500', 'shadow-md');
+            }
+        }
+
+        window.handleDrop = function(e, targetId) {
+            e.preventDefault();
+            const card = e.target.closest('.game-card');
+            if (card) {
+                card.classList.remove('border-indigo-500', 'shadow-md');
+            }
+
+            if (window.draggedGameId && window.draggedGameId !== targetId) {
+                const draggedIndex = window.games.findIndex(g => g.id === window.draggedGameId);
+                const targetIndex = window.games.findIndex(g => g.id === targetId);
+
+                if (draggedIndex > -1 && targetIndex > -1) {
+                    // 배열 순서 변경
+                    const [draggedGame] = window.games.splice(draggedIndex, 1);
+                    window.games.splice(targetIndex, 0, draggedGame);
+                    window.saveAndRender();
+                }
+            }
+            window.draggedGameId = null;
+        }
+
+        window.addTask = function(gameId) {
+            const game = window.games.find(g => g.id === gameId);
+            if (game) {
+                game.tasks.push({ id: Date.now(), name: '새 숙제', completed: false, interval: '일일' });
+                window.saveAndRender();
+            }
+        }
+
+        window.deleteTask = function(gameId, taskId) {
+            const game = window.games.find(g => g.id === gameId);
+            if (game) {
+                game.tasks = game.tasks.filter(t => t.id !== taskId);
+                window.saveAndRender();
+            }
+        }
+
+        window.toggleTask = function(gameId, taskId) {
+            const game = window.games.find(g => g.id === gameId);
+            if (game) {
+                const task = game.tasks.find(t => t.id === taskId);
+                if (task) {
+                    task.completed = !task.completed;
+                    window.saveAndRender();
+                }
+            }
+        }
+
+        window.updateGameTitle = function(gameId, newTitle) {
+            const game = window.games.find(g => g.id === gameId);
+            if (game) {
+                game.title = newTitle;
+            }
+        }
+
+        window.updateTaskName = function(gameId, taskId, newName) {
+            const game = window.games.find(g => g.id === gameId);
+            if (game) {
+                const task = game.tasks.find(t => t.id === taskId);
+                if (task) {
+                    task.name = newName;
+                }
+            }
+        }
+
+        window.updateTaskInterval = function(gameId, taskId, newInterval) {
+            const game = window.games.find(g => g.id === gameId);
+            if (game) {
+                const task = game.tasks.find(t => t.id === taskId);
+                if (task) {
+                    task.interval = newInterval;
+                    window.saveDataOnly();
+                }
+            }
+        }
+
+        // 6. 화면 그리기 (렌더링)
+        window.render = function() {
+            const container = document.getElementById('games-container');
+            const emptyState = document.getElementById('empty-state');
+            
+            if (window.games.length === 0) {
+                container.innerHTML = '';
+                emptyState.style.display = 'flex';
+                return;
+            } else {
+                emptyState.style.display = 'none';
+            }
+
+            let html = '';
+            window.games.forEach(game => {
+                let tasksHtml = '';
+                game.tasks.forEach(task => {
+                    const iconClass = task.completed 
+                        ? 'fa-solid fa-circle-check text-emerald-500' 
+                        : 'fa-regular fa-circle text-slate-300 hover:text-slate-400';
+                    
+                    const textClass = task.completed
+                        ? 'text-slate-400 line-through'
+                        : 'text-slate-700';
+
+                    const rowBgClass = task.completed ? 'bg-emerald-50/30' : '';
+
+                    tasksHtml += `
+                        <tr class="group border-b border-slate-50 last:border-0 transition-colors ${rowBgClass}">
+                            <td class="py-3 px-3 w-14">
+                                <button onclick="toggleTask(${game.id}, ${task.id})" class="text-2xl transition-all transform active:scale-90 flex items-center justify-center w-full">
+                                    <i class="${iconClass}"></i>
+                                </button>
+                            </td>
+                            <td class="py-3 px-3">
+                                <input type="text" value="${task.name}" oninput="updateTaskName(${game.id}, ${task.id}, this.value)" onchange="window.saveDataOnly()" class="w-full bg-transparent focus:border-b focus:border-indigo-300 py-1 transition-all ${textClass}" placeholder="숙제 내용">
+                            </td>
+                            <td class="py-3 px-3 w-28">
+                                <select onchange="updateTaskInterval(${game.id}, ${task.id}, this.value)" class="text-sm bg-slate-100 text-slate-600 rounded-lg px-2 py-1 w-full border-r-8 border-transparent cursor-pointer">
+                                    <option value="일일" ${task.interval === '일일' ? 'selected' : ''}>일일</option>
+                                    <option value="주간" ${task.interval === '주간' ? 'selected' : ''}>주간</option>
+                                    <option value="월간" ${task.interval === '월간' ? 'selected' : ''}>월간</option>
+                                </select>
+                            </td>
+                            <td class="py-3 px-3 w-10 text-right">
+                                <button onclick="deleteTask(${game.id}, ${task.id})" class="text-slate-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                    <div ondragstart="handleDragStart(event, ${game.id})" 
+                         ondragend="handleDragEnd(event)"
+                         ondragover="handleDragOver(event)" 
+                         ondragleave="handleDragLeave(event)" 
+                         ondrop="handleDrop(event, ${game.id})"
+                         class="game-card bg-white rounded-2xl shadow-sm border-2 border-transparent overflow-hidden flex flex-col transition-all hover:shadow-md">
+                        <div class="bg-slate-50 p-4 border-b border-slate-200 flex items-center justify-between">
+                            <!-- 드래그 핸들 (그립 아이콘) -->
+                            <div class="cursor-grab active:cursor-grabbing px-2 text-slate-300 hover:text-indigo-400 transition-colors shrink-0" 
+                                 title="드래그하여 순서 변경"
+                                 onmousedown="this.closest('.game-card').setAttribute('draggable', 'true')"
+                                 onmouseup="this.closest('.game-card').setAttribute('draggable', 'false')"
+                                 onmouseleave="this.closest('.game-card').setAttribute('draggable', 'false')">
+                                <i class="fa-solid fa-grip-vertical pointer-events-none"></i>
+                            </div>
+                            <input type="text" value="${game.title}" oninput="updateGameTitle(${game.id}, this.value)" onchange="window.saveDataOnly()" class="bg-transparent font-bold text-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 rounded px-2 py-1 w-full mx-2" placeholder="게임 이름 입력">
+                            <button onclick="deleteGame(${game.id})" class="text-slate-400 hover:text-red-500 transition-colors p-2 shrink-0" title="게임 삭제">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                        <div class="p-4 overflow-x-auto">
+                            <table class="w-full text-left border-collapse min-w-[300px]">
+                                <thead>
+                                    <tr class="border-b border-slate-100">
+                                        <th class="py-2 px-3 w-14 whitespace-nowrap text-xs font-semibold text-slate-400 uppercase tracking-wider text-center">상태</th>
+                                        <th class="py-2 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">숙제 목록</th>
+                                        <th class="py-2 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">주기</th>
+                                        <th class="py-2 px-3"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${tasksHtml}
+                                </tbody>
+                            </table>
+                            <button onclick="addTask(${game.id})" class="mt-4 w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:text-indigo-500 hover:border-indigo-200 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 text-sm font-medium">
+                                <i class="fa-solid fa-plus"></i> 숙제 항목 추가
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // 7. 프로그램 시작
+        initApp();
+        
+        // 1분(60000ms)마다 자정이 넘어갔는지 체크
+        setInterval(() => window.checkResets && window.checkResets(), 60000);
+
+    </script>
+</body>
+</html>

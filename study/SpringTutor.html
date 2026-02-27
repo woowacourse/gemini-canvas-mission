@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spring Boot 인포그래픽 튜터 & AI 면접관</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        spring: '#6DB33F',
+                        springDark: '#5a9634',
+                        dark: '#1e293b',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; overflow: hidden; }
+        .loader {
+            border: 4px solid #f3f3f3; border-top: 4px solid #6DB33F; border-radius: 50%;
+            width: 30px; height: 30px; animation: spin 1s linear infinite; display: inline-block;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Interactive Viewer Transitions (Block Layout UI) */
+        .step-el { 
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); 
+            opacity: 0.15; 
+            filter: grayscale(100%);
+            transform: scale(0.95); 
+            pointer-events: none; 
+        }
+        .step-el.active { 
+            opacity: 1; 
+            filter: grayscale(0%);
+            transform: scale(1); 
+            pointer-events: auto; 
+        }
+
+        /* 뷰어 캔버스 배경 (도트 무늬) */
+        .bg-dots {
+            background-color: #f8fafc;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* 드래그 앤 드롭 커서 스타일 추가 및 텍스트 선택 방지 */
+        #viewer-canvas { cursor: grab; user-select: none; }
+        #viewer-canvas:active { cursor: grabbing; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-dark text-white shadow-md z-50 shrink-0">
+        <div class="px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center gap-3">
+                    <i class="fa-brands fa-envira text-spring text-2xl"></i>
+                    <span class="font-bold text-xl tracking-tight">Spring 튜터 <span class="text-xs text-spring ml-1 bg-gray-800 px-2 py-1 rounded border border-gray-600">V5.2 (Flex Bug Fixed)</span></span>
+                </div>
+                <!-- Navigation -->
+                <nav class="flex space-x-2">
+                    <button onclick="switchTab('basics')" id="nav-basics" class="nav-btn px-4 py-2 rounded-md text-sm font-medium bg-spring text-white transition-colors">🌱 기초</button>
+                    <button onclick="switchTab('core')" id="nav-core" class="nav-btn px-4 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 transition-colors">⚙️ 핵심</button>
+                    <button onclick="switchTab('data')" id="nav-data" class="nav-btn px-4 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 transition-colors">💾 데이터</button>
+                    <button onclick="switchTab('ai')" id="nav-ai" class="nav-btn px-4 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 transition-colors border border-spring text-spring ml-4">🤖 AI 튜터</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex overflow-hidden min-w-0">
+        
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-80 bg-white border-r border-gray-200 flex flex-col shrink-0 transition-all z-10 shadow-[4px_0_10px_rgba(0,0,0,0.03)]">
+            <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                <h2 id="sidebar-title" class="font-bold text-gray-700">목차</h2>
+            </div>
+            <ul id="concept-list" class="flex-1 overflow-y-auto p-2 space-y-1"></ul>
+        </aside>
+
+        <!-- Right Main Area (min-w-0 추가: Flex 팽창 버그 방지) -->
+        <section id="main-area" class="flex-1 flex flex-col relative bg-[#f8fafc] min-w-0">
+            
+            <!-- Learning/Viewer Area -->
+            <!-- min-w-0, min-h-0 추가: 버튼이 화면 밖으로 밀려나는 현상 방지 -->
+            <div id="viewer-container" class="flex-1 flex flex-col hidden overflow-hidden min-w-0 min-h-0">
+                <div class="h-16 border-b border-gray-200 bg-white flex justify-between items-center px-6 shrink-0 shadow-sm z-20">
+                    <h3 id="viewer-title" class="text-xl font-bold text-dark flex items-center gap-2 truncate"></h3>
+                    <div id="viewer-controls" class="flex gap-2 shrink-0 ml-4">
+                        <button onclick="prevStep()" id="btn-prev" class="px-5 py-2 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 disabled:opacity-30 transition-colors">이전</button>
+                        <button onclick="nextStep()" id="btn-next" class="px-5 py-2 bg-indigo-500 text-white rounded-lg font-bold hover:bg-indigo-600 shadow transition-colors flex items-center gap-2">다음 단계 <i class="fa-solid fa-angle-right text-xs"></i></button>
+                    </div>
+                </div>
+
+                <!-- 캔버스 영역: 스크롤 클리핑 방지를 위해 순수 블록 레벨 컨테이너로 설정 -->
+                <div id="viewer-canvas" class="flex-1 overflow-auto bg-dots relative p-4 lg:p-12 min-w-0 min-h-0"></div>
+
+                <div id="viewer-footer" class="bg-dark text-white p-6 shrink-0 shadow-[0_-4px_15px_rgba(0,0,0,0.15)] z-20 transition-all">
+                    <p id="step-desc" class="text-lg font-medium tracking-wide"></p>
+                </div>
+            </div>
+
+            <!-- AI Tutor Area -->
+            <div id="ai-container" class="flex-1 flex flex-col hidden overflow-y-auto p-6 lg:p-10 bg-gray-50 min-w-0 min-h-0">
+                <div class="max-w-5xl mx-auto w-full">
+                    <div class="flex border-b border-gray-200 mb-6 bg-white rounded-t-xl px-4 pt-4 shadow-sm">
+                        <button onclick="switchAISubTab('ai-viz')" id="sub-nav-ai-viz" class="py-3 px-6 text-spring border-b-2 border-spring font-bold">🎨 AI 개념 시각화</button>
+                        <button onclick="switchAISubTab('ai-interview')" id="sub-nav-ai-interview" class="py-3 px-6 text-gray-500 hover:text-gray-700 font-medium">🗣️ AI 모의 면접관</button>
+                    </div>
+
+                    <!-- AI Sub 1: 시각화 -->
+                    <div id="ai-viz-section" class="space-y-6">
+                        <div class="bg-white p-8 rounded-xl rounded-tl-none shadow-sm border border-gray-200">
+                            <h3 class="text-xl font-bold mb-2">어떤 백엔드 개념을 시각화할까요?</h3>
+                            <p class="text-gray-500 mb-6 text-sm">에러 없는 자체 Block UI 엔진을 통해 직관적이고 아름다운 단계별 인포그래픽을 만들어 드립니다.</p>
+                            <div class="flex flex-col sm:flex-row gap-3">
+                                <input type="text" id="ai-viz-input" placeholder="예: 스프링 시큐리티 필터 체인 흐름, OAuth 2.0 인가 코드 흐름 등" class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-spring focus:border-transparent outline-none transition-all">
+                                <button onclick="generateAIVisualization()" class="bg-spring hover:bg-springDark text-white px-6 py-3 rounded-lg font-bold transition-colors shadow-md flex items-center justify-center gap-2 min-w-[120px]">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> 시각화 생성
+                                </button>
+                            </div>
+                            
+                            <div id="ai-viz-loading" class="hidden mt-10 text-center py-12 bg-gray-50 rounded-xl border border-gray-100">
+                                <div class="loader mb-4"></div>
+                                <p class="text-gray-600 font-bold animate-pulse text-lg">AI가 맞춤형 UI 블록을 설계하고 조립하는 중입니다...</p>
+                                <p class="text-gray-400 text-sm mt-2">안전하고 팽창하지 않는 레이아웃을 계산합니다.</p>
+                            </div>
+
+                            <div id="ai-viz-result" class="hidden mt-10 border-t border-gray-100 pt-8">
+                                <h4 class="text-xl font-bold mb-4 text-dark flex items-center gap-2"><i class="fa-solid fa-check-circle text-green-500"></i> <span id="ai-viz-title"></span></h4>
+                                
+                                <!-- 자체 엔진 렌더링 컨테이너 (Preview) -->
+                                <div class="bg-dots rounded-xl border border-gray-200 overflow-auto relative min-h-[300px] shadow-inner p-4" id="ai-viz-graph-container">
+                                </div>
+
+                                <!-- 단계별 요약 설명 영역 -->
+                                <div class="mt-6 bg-indigo-50 p-6 rounded-xl text-gray-800 border border-indigo-100 shadow-sm">
+                                    <div id="ai-viz-explanation"></div>
+                                </div>
+                                
+                                <div class="mt-6 flex flex-col sm:flex-row items-center gap-4 bg-gray-50 p-5 rounded-xl border border-gray-200 w-full justify-between" id="ai-viz-save-area">
+                                    <span class="text-sm font-bold text-gray-700">💡 완벽하게 렌더링되었습니다! 목록에 추가하여 단계별로 학습해보세요.</span>
+                                    <div class="flex gap-2 w-full sm:w-auto shrink-0">
+                                        <select id="ai-viz-save-target" class="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm bg-white outline-none focus:border-spring focus:ring-2 focus:ring-spring/50 font-medium">
+                                            <option value="basics">🌱 기초</option>
+                                            <option value="core">⚙️ 핵심</option>
+                                            <option value="data">💾 데이터</option>
+                                        </select>
+                                        <button onclick="saveVisualization()" class="bg-dark text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-gray-700 transition-colors shadow-md whitespace-nowrap">저장 후 이동</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Sub 2: 모의 면접관 -->
+                    <div id="ai-interview-section" class="hidden space-y-6">
+                        <div class="bg-white p-8 rounded-xl rounded-tl-none shadow-sm border border-gray-200">
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+                                <div>
+                                    <h3 class="text-xl font-bold">모의 면접 주제 입력</h3>
+                                    <p class="text-gray-500 text-sm mt-1">학습한 개념을 바탕으로 면접 연습을 해보세요.</p>
+                                </div>
+                                <button onclick="recommendInterviewQuestion()" class="text-sm text-spring bg-green-50 px-4 py-2 rounded-lg hover:bg-green-100 transition-colors border border-green-200 font-bold"><i class="fa-solid fa-lightbulb"></i> 빈출 문제 추천</button>
+                            </div>
+                            <div class="flex flex-col sm:flex-row gap-3">
+                                <input type="text" id="ai-int-concept" placeholder="예: 의존성 주입, N+1 문제" class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-spring outline-none transition-all">
+                                <button onclick="startInterview()" class="bg-dark hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-bold transition-colors shadow-md min-w-[120px]">
+                                    면접 시작 <i class="fa-solid fa-arrow-right ml-1"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="ai-int-interaction" class="hidden bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                            <div id="ai-int-loading" class="hidden text-center py-8">
+                                <div class="loader mb-3"></div>
+                                <p class="text-gray-500 text-sm font-bold">우테코 수석 면접관이 질문을 준비중입니다...</p>
+                            </div>
+
+                            <div id="ai-int-qna-area" class="hidden">
+                                <div class="flex gap-4 mb-6">
+                                    <div class="w-12 h-12 rounded-full bg-indigo-500 flex items-center justify-center text-white shrink-0 shadow-md text-xl"><i class="fa-solid fa-user-tie"></i></div>
+                                    <div class="bg-indigo-50 border border-indigo-100 p-5 rounded-2xl rounded-tl-none text-gray-800 shadow-sm relative w-full">
+                                        <p class="text-xs text-indigo-600 font-black mb-2">수석 면접관</p>
+                                        <p id="ai-int-question-text" class="font-bold text-lg leading-relaxed"></p>
+                                    </div>
+                                </div>
+
+                                <div id="ai-int-answer-box" class="ml-16 mb-4">
+                                    <textarea id="ai-int-user-answer" rows="5" placeholder="면접관에게 말하듯이 당신의 답변을 자신감 있게 작성해주세요..." class="w-full px-5 py-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-spring outline-none resize-none shadow-inner"></textarea>
+                                    <div class="flex justify-end mt-3">
+                                        <button onclick="submitInterviewAnswer()" class="bg-spring text-white px-8 py-3 rounded-lg font-bold hover:bg-springDark transition-colors shadow-md">답변 제출하기</button>
+                                    </div>
+                                </div>
+
+                                <div id="ai-int-feedback-area" class="hidden ml-16 mt-8 space-y-4">
+                                    <div class="p-8 rounded-2xl border border-gray-200 bg-white shadow-lg">
+                                        <div class="flex items-center gap-3 mb-6 pb-5 border-b border-gray-100">
+                                            <span class="text-4xl font-black text-dark" id="ai-int-score"></span>
+                                            <span class="text-gray-400 font-bold text-lg">/ 100점</span>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div class="bg-green-50 p-6 rounded-xl border border-green-200">
+                                                <h5 class="font-black text-green-700 mb-3 flex items-center gap-2"><i class="fa-regular fa-face-smile text-xl"></i> 긍정적인 평가</h5>
+                                                <p id="ai-int-good" class="text-sm text-gray-700 whitespace-pre-line leading-relaxed font-medium"></p>
+                                            </div>
+                                            <div class="bg-red-50 p-6 rounded-xl border border-red-200">
+                                                <h5 class="font-black text-red-700 mb-3 flex items-center gap-2"><i class="fa-solid fa-bullseye text-xl"></i> 보완해야 할 점</h5>
+                                                <p id="ai-int-bad" class="text-sm text-gray-700 whitespace-pre-line leading-relaxed font-medium"></p>
+                                            </div>
+                                        </div>
+                                        <div class="mt-6 bg-gray-50 p-6 rounded-xl border border-gray-300">
+                                            <h5 class="font-black text-dark mb-3 flex items-center gap-2"><i class="fa-solid fa-star text-yellow-500 text-xl"></i> 면접관의 모범 답안</h5>
+                                            <p id="ai-int-model" class="text-sm text-gray-700 leading-relaxed whitespace-pre-line font-medium"></p>
+                                        </div>
+                                    </div>
+                                    <div class="flex justify-end mt-4">
+                                        <button onclick="resetInterview()" class="text-gray-500 hover:text-dark font-bold underline text-sm transition-colors">새로운 면접 시작하기</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="flex-1 flex flex-col items-center justify-center text-gray-400 hidden bg-dots min-w-0 min-h-0">
+                <i class="fa-solid fa-arrow-pointer text-5xl mb-4 text-gray-300"></i>
+                <p class="font-bold text-lg text-gray-500">좌측 목록에서 학습할 개념을 선택해주세요.</p>
+            </div>
+
+        </section>
+    </main>
+
+    <script>
+        // --- API & Config ---
+        const apiKey = ""; 
+        const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
+        
+        // --- 자체 구축 HTML/CSS Block Layout Engine ---
+        const colorMap = {
+            blue: { bg: 'bg-blue-50', border: 'border-blue-300', text: 'text-blue-800', icon: 'text-blue-500', shadow: 'shadow-blue-100' },
+            green: { bg: 'bg-green-50', border: 'border-green-400', text: 'text-green-800', icon: 'text-green-600', shadow: 'shadow-green-100' },
+            purple: { bg: 'bg-purple-50', border: 'border-purple-300', text: 'text-purple-800', icon: 'text-purple-500', shadow: 'shadow-purple-100' },
+            orange: { bg: 'bg-orange-50', border: 'border-orange-300', text: 'text-orange-800', icon: 'text-orange-500', shadow: 'shadow-orange-100' },
+            gray: { bg: 'bg-gray-50', border: 'border-gray-300', text: 'text-gray-700', icon: 'text-gray-500', shadow: 'shadow-gray-200' },
+            red: { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-800', icon: 'text-red-500', shadow: 'shadow-red-100' }
+        };
+
+        // 재귀 호출을 위한 순수 아이템 렌더링 함수 분리
+        function renderItems(items) {
+            if (!items || !Array.isArray(items)) return '';
+            let html = '';
+            
+            items.forEach(item => {
+                const safeId = String(item.id || '').trim();
+                if (item.type === 'block') {
+                    const c = colorMap[item.color] || colorMap.gray;
+                    html += `
+                        <div id="${safeId}" class="step-el flex flex-col items-center justify-center w-40 h-48 ${c.bg} border-2 ${c.border} rounded-2xl ${c.shadow} z-10 shrink-0 p-4 text-center transition-all">
+                            <i class="fa-solid ${item.icon || 'fa-cube'} text-4xl ${c.icon} mb-4"></i>
+                            <span class="font-black ${c.text} text-sm">${item.title || ''}</span>
+                            ${item.subtitle ? `<span class="text-[11px] font-bold ${c.text} mt-2 opacity-80 bg-white/60 px-2.5 py-1 rounded-md border ${c.border} border-opacity-50 inline-block truncate max-w-full">${item.subtitle}</span>` : ''}
+                        </div>
+                    `;
+                } else if (item.type === 'arrow') {
+                    html += `
+                        <div id="${safeId}" class="step-el flex flex-col items-center shrink-0 w-12 lg:w-20 my-4 lg:my-0 transition-all">
+                            <span class="text-[10px] text-gray-500 font-bold mb-1 text-center whitespace-nowrap bg-[#f8fafc] px-2 rounded">${item.title || ''}</span>
+                            <div class="h-1 w-full bg-gray-300 relative rounded-full">
+                                <div class="absolute right-0 -top-[4px] w-3 h-3 border-t-[3px] border-r-[3px] border-gray-300 transform rotate-45 rounded-sm"></div>
+                            </div>
+                        </div>
+                    `;
+                } else if (item.type === 'container') {
+                    const c = colorMap[item.color] || colorMap.gray;
+                    html += `
+                        <div id="${safeId}" class="step-el flex-1 min-w-[280px] ${c.bg} border-2 ${c.border} rounded-[2rem] p-8 pt-16 ${c.shadow} relative flex flex-col lg:flex-row items-center justify-center mt-8 lg:mt-0 gap-6 transition-all">
+                            <div class="absolute -top-5 bg-white px-5 py-2 rounded-full border-2 ${c.border} flex items-center gap-2 shadow-sm z-20">
+                                 <i class="fa-solid ${item.icon || 'fa-box'} ${c.icon} text-lg"></i>
+                                 <span class="font-black ${c.text} text-sm whitespace-nowrap">${item.title || ''}</span>
+                            </div>
+                            ${renderItems(item.children || [])}
+                        </div>
+                    `;
+                }
+            });
+            return html;
+        }
+
+        // 최상단 래퍼: 스크롤 클리핑 방지를 위해 w-max와 mx-auto의 조합 사용 
+        // -> 화면보다 작으면 중앙 정렬, 크면 좌측 정렬되면서 스크롤(Clipping 방지)
+        function generateHtmlFromSchema(items) {
+            return '<div class="w-max mx-auto flex flex-col lg:flex-row items-center gap-8 lg:gap-12 min-h-[400px] py-10 px-8 transition-all">' + renderItems(items) + '</div>';
+        }
+
+        // --- Data Structure for Contents ---
+        const contentData = {
+            basics: [
+                {
+                    id: 'mvc-flow',
+                    title: 'Spring MVC 요청-응답 흐름',
+                    icon: 'fa-route',
+                    type: 'ai-html',
+                    items: [
+                        { id: 'client', type: 'block', title: 'Client', subtitle: '웹 브라우저', icon: 'fa-laptop', color: 'gray' },
+                        { id: 'arr1', type: 'arrow', title: 'HTTP 요청' },
+                        { id: 'server', type: 'container', title: 'Spring Boot Application', icon: 'fa-server', color: 'blue', children: [
+                            { id: 'dispatcher', type: 'block', title: 'DispatcherServlet', subtitle: '프론트 컨트롤러', icon: 'fa-share-nodes', color: 'purple' },
+                            { id: 'arr2', type: 'arrow', title: '매핑' },
+                            { id: 'controller', type: 'block', title: 'Controller', subtitle: '@GetMapping', icon: 'fa-gamepad', color: 'green' }
+                        ]}
+                    ],
+                    steps: [
+                        { desc: "1. 클라이언트가 웹 브라우저를 통해 HTTP 요청을 보냅니다.", nodes: ['client', 'arr1'] },
+                        { desc: "2. DispatcherServlet이 가장 먼저 요청을 받습니다.", nodes: ['client', 'arr1', 'server', 'dispatcher'] },
+                        { desc: "3. 알맞은 Controller를 찾아 요청을 위임합니다.", nodes: ['client', 'arr1', 'server', 'dispatcher', 'arr2', 'controller'] }
+                    ]
+                }
+            ],
+            core: [
+                {
+                    id: 'ioc-di',
+                    title: 'IoC 컨테이너와 DI (의존성 주입)',
+                    icon: 'fa-cubes',
+                    type: 'ai-html',
+                    items: [
+                        { id: 'code', type: 'block', title: '개발자 코드', subtitle: '@Component', icon: 'fa-code', color: 'blue' },
+                        { id: 'arr1', type: 'arrow', title: '스캔 & 등록' },
+                        { id: 'container', type: 'container', title: 'Spring Container', icon: 'fa-box', color: 'green', children: [
+                            { id: 'beanA', type: 'block', title: 'Bean A', subtitle: 'Service', icon: 'fa-cube', color: 'gray' },
+                            { id: 'arr2', type: 'arrow', title: 'DI 주입' },
+                            { id: 'beanB', type: 'block', title: 'Bean B', subtitle: 'Repository', icon: 'fa-cube', color: 'gray' }
+                        ]}
+                    ],
+                    steps: [
+                        { desc: "1. 개발자가 작성한 소스 코드들(@Component 등)이 있습니다.", nodes: ['code'] },
+                        { desc: "2. Spring Application이 시작되면 코드를 스캔합니다.", nodes: ['code', 'arr1'] },
+                        { desc: "3. Spring Container에 Bean 객체들이 등록됩니다.", nodes: ['code', 'arr1', 'container', 'beanA', 'beanB'] },
+                        { desc: "4. 객체 간의 의존성 주입(DI)이 자동으로 연결됩니다.", nodes: ['code', 'arr1', 'container', 'beanA', 'arr2', 'beanB'] }
+                    ]
+                }
+            ],
+            data: [
+                {
+                    id: 'jpa-pc',
+                    title: 'JPA 영속성 컨텍스트 동작',
+                    icon: 'fa-database',
+                    type: 'ai-html',
+                    items: [
+                        { id: 'entity', type: 'block', title: 'Entity 객체', subtitle: '비영속 (New)', icon: 'fa-file-code', color: 'gray' },
+                        { id: 'arr1', type: 'arrow', title: 'persist()' },
+                        { id: 'context', type: 'container', title: '영속성 컨텍스트 (Managed)', icon: 'fa-memory', color: 'blue', children: [
+                            { id: 'cache', type: 'block', title: '1차 캐시', subtitle: '@Id: 1', icon: 'fa-sd-card', color: 'green' },
+                            { id: 'sql', type: 'block', title: '쓰기 지연 저장소', subtitle: 'INSERT INTO...', icon: 'fa-list', color: 'orange' }
+                        ]},
+                        { id: 'arr2', type: 'arrow', title: 'flush()' },
+                        { id: 'db', type: 'block', title: 'Database', icon: 'fa-database', color: 'gray' }
+                    ],
+                    steps: [
+                        { desc: "1. 새로운 Entity 객체를 생성합니다.", nodes: ['entity'] },
+                        { desc: "2. persist() 호출 시 영속성 컨텍스트의 1차 캐시에 저장됩니다.", nodes: ['entity', 'arr1', 'context', 'cache'] },
+                        { desc: "3. 동시에 쓰기 지연 SQL 저장소에 쿼리가 쌓입니다.", nodes: ['entity', 'arr1', 'context', 'cache', 'sql'] },
+                        { desc: "4. 트랜잭션 커밋 시 모아둔 쿼리가 DB로 날아갑니다.", nodes: ['entity', 'arr1', 'context', 'cache', 'sql', 'arr2', 'db'] }
+                    ]
+                }
+            ]
+        };
+
+        let currentTab = 'basics';
+        let activeItem = null;
+        let currentStep = 0;
+
+        function cleanText(text) {
+            if (!text) return "";
+            return text.replace(/[*#`_]/g, '').trim();
+        }
+
+        function switchTab(tabId) {
+            currentTab = tabId;
+            
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                if(btn.id === 'nav-ai') {
+                    btn.className = "nav-btn px-4 py-2 rounded-md text-sm font-bold text-gray-300 hover:text-white hover:bg-gray-700 transition-colors border border-spring text-spring ml-4";
+                } else {
+                    btn.className = "nav-btn px-4 py-2 rounded-md text-sm font-bold text-gray-300 hover:text-white hover:bg-gray-700 transition-colors";
+                }
+            });
+
+            const activeBtn = document.getElementById(`nav-${tabId}`);
+            if(tabId === 'ai') {
+                activeBtn.className = "nav-btn px-4 py-2 rounded-md text-sm font-bold bg-spring text-white transition-colors border border-spring ml-4 shadow-sm";
+                document.getElementById('sidebar').classList.add('hidden');
+                document.getElementById('viewer-container').classList.add('hidden');
+                document.getElementById('empty-state').classList.add('hidden');
+                document.getElementById('ai-container').classList.remove('hidden');
+            } else {
+                activeBtn.className = "nav-btn px-4 py-2 rounded-md text-sm font-bold bg-spring text-white transition-colors shadow-sm";
+                document.getElementById('sidebar').classList.remove('hidden');
+                document.getElementById('ai-container').classList.add('hidden');
+                
+                const titles = { basics: '🌱 기초 개념', core: '⚙️ 핵심 원리', data: '💾 데이터 베이스' };
+                document.getElementById('sidebar-title').innerText = titles[tabId];
+                
+                renderSidebarList();
+            }
+        }
+
+        function renderSidebarList() {
+            const listEl = document.getElementById('concept-list');
+            listEl.innerHTML = '';
+            
+            const items = contentData[currentTab] || [];
+            
+            if(items.length === 0) {
+                listEl.innerHTML = '<p class="text-sm text-gray-400 p-4 text-center font-medium">저장된 개념이 없습니다.</p>';
+                document.getElementById('viewer-container').classList.add('hidden');
+                document.getElementById('empty-state').classList.remove('hidden');
+                return;
+            }
+
+            items.forEach((item, index) => {
+                const li = document.createElement('li');
+                // id에 ai-가 포함되어 있으면 AI가 생성한 것으로 취급
+                const isAI = item.id.includes('ai-');
+                const badge = isAI ? `<span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full ml-2 shadow-sm font-black border border-blue-200 shrink-0">AI 생성</span>` : '';
+                
+                li.className = `p-3 rounded-xl cursor-pointer transition-all border border-transparent flex items-center gap-3 hover:bg-white hover:shadow-sm`;
+                li.innerHTML = `
+                    <div class="w-10 h-10 rounded-lg bg-white shadow-sm flex items-center justify-center shrink-0 border border-gray-100">
+                        <i class="fa-solid ${item.icon || 'fa-bolt'} text-${isAI ? 'blue' : 'gray'}-500 text-lg"></i>
+                    </div>
+                    <div class="flex-1 min-w-0 flex items-center">
+                        <h4 class="text-sm font-black text-gray-800 truncate">${item.title}</h4>
+                        ${badge}
+                    </div>
+                `;
+                li.onclick = () => loadConcept(item, li);
+                listEl.appendChild(li);
+
+                if (index === 0) loadConcept(item, li);
+            });
+        }
+
+        function loadConcept(item, liElement) {
+            activeItem = item;
+            currentStep = 0;
+
+            document.querySelectorAll('#concept-list li').forEach(li => {
+                li.classList.remove('bg-indigo-50', 'border-indigo-100', 'shadow-md');
+                li.classList.add('hover:bg-white');
+            });
+            if(liElement) {
+                liElement.classList.remove('hover:bg-white');
+                liElement.classList.add('bg-indigo-50', 'border-indigo-100', 'shadow-md');
+            }
+
+            document.getElementById('empty-state').classList.add('hidden');
+            document.getElementById('viewer-container').classList.remove('hidden');
+            document.getElementById('viewer-container').classList.add('flex');
+            document.getElementById('viewer-title').innerHTML = `<i class="fa-solid ${item.icon || 'fa-bolt'} text-${item.id.includes('ai-') ? 'blue-500' : 'spring'}"></i> ${item.title}`;
+
+            const canvas = document.getElementById('viewer-canvas');
+            const controls = document.getElementById('viewer-controls');
+            const footer = document.getElementById('viewer-footer');
+
+            controls.classList.remove('hidden');
+            footer.classList.remove('hidden');
+            
+            // 캔버스 정렬 위치 초기화
+            canvas.scrollLeft = 0;
+            canvas.scrollTop = 0;
+
+            canvas.innerHTML = generateHtmlFromSchema(item.items);
+            updateStepUI();
+        }
+
+        function updateStepUI() {
+            if(!activeItem || !activeItem.steps || activeItem.steps.length === 0) return;
+            const steps = activeItem.steps;
+            
+            document.getElementById('step-desc').innerHTML = `<span class="text-spring font-black mr-3 bg-white/20 px-3 py-1 rounded-full">Step ${currentStep + 1} / ${steps.length}</span> ${steps[currentStep].desc}`;
+            document.getElementById('btn-prev').disabled = currentStep === 0;
+            document.getElementById('btn-next').disabled = currentStep === steps.length - 1;
+
+            // 1. 활성화할 노드 ID 수집 (방어 로직: 콤마 문자열 대응 등)
+            let activeNodes = new Set();
+            for(let i = 0; i <= currentStep; i++) {
+                let stepNodes = steps[i].nodes;
+                let nodesArray = [];
+                if (Array.isArray(stepNodes)) {
+                    nodesArray = stepNodes;
+                } else if (typeof stepNodes === 'string') {
+                    nodesArray = stepNodes.split(',').map(s => s.trim());
+                }
+                nodesArray.forEach(nodeId => {
+                    if(nodeId) activeNodes.add(String(nodeId).trim());
+                });
+            }
+            
+            // 2. 초기화 (전부 흐릿하게)
+            document.querySelectorAll('#viewer-canvas .step-el').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            // 3. 자식이 활성화되면 부모 컨테이너도 전부 찾아서 활성화 (계층적 활성화 보장 로직)
+            try {
+                document.querySelectorAll('#viewer-canvas .step-el').forEach(el => {
+                    const elId = String(el.id).trim();
+                    if(activeNodes.has(elId)) {
+                        let current = el;
+                        while(current && current.classList && current.classList.contains('step-el')) {
+                            current.classList.add('active');
+                            // 위로 올라가며 부모 컨테이너 찾기
+                            if (current.parentElement) {
+                                current = current.parentElement.closest('.step-el');
+                            } else {
+                                current = null;
+                            }
+                        }
+                    }
+                });
+            } catch(e) {
+                console.error("노드 활성화 중 에러", e);
+            }
+        }
+
+        function nextStep() {
+            if (activeItem && currentStep < activeItem.steps.length - 1) { currentStep++; updateStepUI(); }
+        }
+
+        function prevStep() {
+            if (activeItem && currentStep > 0) { currentStep--; updateStepUI(); }
+        }
+
+        async function fetchWithRetry(url, options, maxRetries = 5) {
+            let delays = [1000, 2000, 4000, 8000, 16000];
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return await response.json();
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error;
+                    await new Promise(res => setTimeout(res, delays[i]));
+                }
+            }
+        }
+
+        async function callGemini(prompt) {
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+            try {
+                const result = await fetchWithRetry(`${GEMINI_API_URL}?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                return result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                alert("AI 응답을 가져오는데 실패했습니다.");
+                return null;
+            }
+        }
+
+        function switchAISubTab(subTabId) {
+            document.getElementById('ai-viz-section').classList.add('hidden');
+            document.getElementById('ai-interview-section').classList.add('hidden');
+            
+            document.getElementById('sub-nav-ai-viz').className = "py-3 px-6 text-gray-500 hover:text-gray-700 font-medium transition-colors";
+            document.getElementById('sub-nav-ai-interview').className = "py-3 px-6 text-gray-500 hover:text-gray-700 font-medium transition-colors";
+
+            if (subTabId === 'ai-viz') {
+                document.getElementById('ai-viz-section').classList.remove('hidden');
+                document.getElementById('sub-nav-ai-viz').className = "py-3 px-6 text-spring border-b-2 border-spring font-bold";
+            } else {
+                document.getElementById('ai-interview-section').classList.remove('hidden');
+                document.getElementById('sub-nav-ai-interview').className = "py-3 px-6 text-spring border-b-2 border-spring font-bold";
+            }
+        }
+
+        let currentGeneratedViz = null;
+
+        async function generateAIVisualization() {
+            const concept = document.getElementById('ai-viz-input').value.trim();
+            if (!concept) return alert("시각화할 개념을 입력해주세요.");
+
+            document.getElementById('ai-viz-result').classList.add('hidden');
+            document.getElementById('ai-viz-loading').classList.remove('hidden');
+
+            const prompt = `
+            너는 시니어 백엔드 개발자야. '${concept}' 개념에 대해 주니어가 이해하기 쉬운 **단계별** 시각화 자료를 오직 아래의 JSON 포맷으로만 응답해.
+            절대 마크다운 백틱(\`\`\`)을 붙이지 마.
+
+            [시각화 UI 컴포넌트 구조 작성 규칙]
+            1. 복잡한 다이어그램 그리기 도구 대신, 블록(block), 화살표(arrow), 컨테이너(container)를 조합하여 자체 HTML 렌더러 기반의 UI를 자동 생성할 거야.
+            2. 흐름은 왼쪽에서 오른쪽 방향으로 전개된다고 생각하고 항목을 순서대로 배열에 넣어.
+            3. 각 아이템 속성 정의:
+               - id: 영어 소문자 및 숫자만 조합한 고유값 (공백, 특수문자 절대 금지. 예: client_app, req_arrow1, filter1)
+               - type: "block", "arrow", "container" 중 하나
+               - title: 표시될 제목
+               - subtitle: 부가 설명 (type이 block일때만 선택적 사용, 핵심 키워드 1~2개)
+               - icon: FontAwesome 무료 클래스명 (예: fa-laptop, fa-server, fa-database, fa-shield-halved, fa-key, fa-lock, fa-gears, fa-code, fa-box, fa-route 등)
+               - color: "blue", "green", "purple", "orange", "gray", "red" 중 하나
+               - children: type이 "container"일 경우 내부에 포함될 아이템 배열 (block이나 arrow)
+            4. steps 배열: 흐름을 3~5단계로 나누어 설명해.
+
+            [중요 - 에러 방지 규칙]
+            - steps 배열의 nodes 에는 현재 단계에서 강조(활성화)할 노드들의 id들을 문자열 배열로 넣어. (예: ["client_app", "arr1", "filter_chain"])
+            - 주의: 컨테이너 내부의 요소를 활성화할 때는, 해당 요소의 id뿐만 아니라 그것을 감싸고 있는 컨테이너(부모)의 id도 nodes 배열에 함께 포함시키는 것이 안전해.
+
+            [JSON 응답 예시 - 스프링 필터 체인]
+            {
+                "title": "스프링 시큐리티 필터 체인 흐름",
+                "items": [
+                    { "id": "user", "type": "block", "title": "Client", "subtitle": "요청", "icon": "fa-laptop", "color": "blue" },
+                    { "id": "arr1", "type": "arrow", "title": "HTTP 요청" },
+                    { "id": "security_chain", "type": "container", "title": "Security Filter Chain", "icon": "fa-shield-halved", "color": "green", "children": [
+                        { "id": "auth_filter", "type": "block", "title": "인증 필터", "subtitle": "UsernamePassword", "icon": "fa-key", "color": "purple" },
+                        { "id": "arr2", "type": "arrow", "title": "" },
+                        { "id": "authz_filter", "type": "block", "title": "인가 필터", "subtitle": "Authorization", "icon": "fa-lock", "color": "orange" }
+                    ]},
+                    { "id": "arr3", "type": "arrow", "title": "위임" },
+                    { "id": "dispatcher", "type": "block", "title": "DispatcherServlet", "icon": "fa-share-nodes", "color": "gray" }
+                ],
+                "steps": [
+                    { "desc": "1. 클라이언트가 서버로 보호된 자원을 요청합니다.", "nodes": ["user", "arr1"] },
+                    { "desc": "2. 요청은 가장 먼저 Security Filter Chain의 인증 필터를 거칩니다.", "nodes": ["user", "arr1", "security_chain", "auth_filter"] },
+                    { "desc": "3. 인증이 성공하면 인가 필터에서 권한을 확인합니다.", "nodes": ["user", "arr1", "security_chain", "auth_filter", "arr2", "authz_filter"] },
+                    { "desc": "4. 모든 필터를 통과하면 DispatcherServlet으로 요청이 전달됩니다.", "nodes": ["user", "arr1", "security_chain", "auth_filter", "arr2", "authz_filter", "arr3", "dispatcher"] }
+                ]
+            }
+            `;
+
+            const resText = await callGemini(prompt);
+            document.getElementById('ai-viz-loading').classList.add('hidden');
+
+            if (resText) {
+                try {
+                    const jsonMatch = resText.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) throw new Error("JSON 형태가 아닙니다.");
+                    
+                    const data = JSON.parse(jsonMatch[0]);
+                    
+                    currentGeneratedViz = {
+                        id: 'ai-' + Date.now(),
+                        title: cleanText(data.title),
+                        type: 'ai-html',
+                        items: data.items,
+                        steps: (data.steps || []).map(s => {
+                            let n = s.nodes;
+                            if (typeof n === 'string') n = n.split(',');
+                            else if (!Array.isArray(n)) n = [];
+                            return {
+                                desc: cleanText(s.desc),
+                                nodes: n.map(x => String(x).trim())
+                            };
+                        }),
+                        icon: 'fa-wand-magic-sparkles'
+                    };
+                    
+                    document.getElementById('ai-viz-title').innerText = currentGeneratedViz.title;
+                    
+                    const explanationHtml = `
+                        <div class="font-black mb-4 flex items-center gap-2 text-indigo-900"><i class="fa-solid fa-list-ol"></i> AI가 분석한 ${currentGeneratedViz.steps.length}단계 흐름 요약</div>
+                        <ul class="space-y-3">
+                            ${currentGeneratedViz.steps.map((s, idx) => `
+                                <li class="flex gap-3 text-sm">
+                                    <span class="bg-indigo-200 text-indigo-800 font-black rounded-lg w-6 h-6 flex items-center justify-center shrink-0 shadow-sm">${idx+1}</span>
+                                    <span class="font-medium pt-0.5">${s.desc}</span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    `;
+                    document.getElementById('ai-viz-explanation').innerHTML = explanationHtml;
+                    
+                    const container = document.getElementById('ai-viz-graph-container');
+                    container.innerHTML = generateHtmlFromSchema(data.items);
+                    
+                    // 미리보기용 전체 활성화
+                    container.querySelectorAll('.step-el').forEach(el => el.classList.add('active'));
+
+                    document.getElementById('ai-viz-result').classList.remove('hidden');
+                } catch (e) { 
+                    console.error("AI Visualization Parse Error", e);
+                    alert("인포그래픽 생성 중 오류가 발생했습니다. AI가 반환한 형식이 맞지 않습니다. 다른 개념으로 다시 시도해주세요."); 
+                }
+            }
+        }
+
+        function saveVisualization() {
+            if (!currentGeneratedViz) return;
+            const targetTab = document.getElementById('ai-viz-save-target').value;
+            contentData[targetTab].unshift(currentGeneratedViz);
+            currentGeneratedViz = null;
+            
+            document.getElementById('ai-viz-input').value = '';
+            document.getElementById('ai-viz-result').classList.add('hidden');
+            switchTab(targetTab); 
+        }
+
+        // --- Mock Interview Logic ---
+        let interviewState = { question: '' };
+
+        function recommendInterviewQuestion() {
+            const qList = ["JVM 메모리 구조 (Runtime Data Area)", "Spring Bean 생명주기", "JPA N+1 문제 원인 및 해결", "트랜잭션 전파 속성 (Propagation)", "CORS 에러의 원인과 해결방안", "의존성 주입(DI)의 장점", "Redis 캐싱 전략 (Look aside 등)"];
+            document.getElementById('ai-int-concept').value = qList[Math.floor(Math.random() * qList.length)];
+        }
+
+        async function startInterview() {
+            const concept = document.getElementById('ai-int-concept').value.trim();
+            if(!concept) return alert("주제를 입력해주세요.");
+
+            document.getElementById('ai-int-interaction').classList.remove('hidden');
+            document.getElementById('ai-int-qna-area').classList.add('hidden');
+            document.getElementById('ai-int-feedback-area').classList.add('hidden');
+            document.getElementById('ai-int-loading').classList.remove('hidden');
+            document.getElementById('ai-int-user-answer').value = '';
+
+            const prompt = `너는 우테코 백엔드 최종 코테용 가이드에 맞춘 시니어 자바 백엔드 면접관이야.
+            지원자가 '${concept}'에 대해 면접을 요청했어.
+            마크다운 기호(**, *, # 등)를 절대 사용하지 말고, 자연스럽고 정중한 면접관의 말투로 핵심 질문 딱 1개만 평문으로 던져줘.`;
+            
+            const qText = await callGemini(prompt);
+            
+            document.getElementById('ai-int-loading').classList.add('hidden');
+            if(qText) {
+                interviewState.question = cleanText(qText);
+                document.getElementById('ai-int-question-text').innerText = interviewState.question;
+                document.getElementById('ai-int-qna-area').classList.remove('hidden');
+                document.getElementById('ai-int-answer-box').classList.remove('hidden');
+            }
+        }
+
+        async function submitInterviewAnswer() {
+            const answer = document.getElementById('ai-int-user-answer').value.trim();
+            if(!answer) return alert("답변을 작성해주세요.");
+
+            document.getElementById('ai-int-answer-box').classList.add('hidden');
+            document.getElementById('ai-int-loading').classList.remove('hidden');
+
+            const prompt = `
+            너는 우테코 백엔드 최종 코테용 가이드에 정통한 시니어 면접관이야.
+            면접 질문: "${interviewState.question}"
+            지원자 답변: "${answer}"
+            
+            평가 결과를 오직 순수 JSON으로 반환해. 절대 마크다운 백틱(\`\`\`)을 포함하지 마.
+            또한, good_points, areas_to_improve, model_answer 내부의 텍스트에서도 마크다운 기호(**, *)를 사용하지 말고 평문으로 자연스럽게 작성해.
+            {
+                "score": 숫자 (0~100),
+                "good_points": "잘한 점 (평문 2~3줄)",
+                "areas_to_improve": "보완할 점 (평문 2~3줄)",
+                "model_answer": "가이드라인을 준수한 시니어의 모범 답안 (평문으로 작성)"
+            }`;
+
+            const resText = await callGemini(prompt);
+            document.getElementById('ai-int-loading').classList.add('hidden');
+
+            if(resText) {
+                try {
+                    const jsonMatch = resText.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) throw new Error("JSON 형태가 아닙니다.");
+                    
+                    const data = JSON.parse(jsonMatch[0]);
+                    
+                    const scoreEl = document.getElementById('ai-int-score');
+                    scoreEl.innerText = data.score;
+                    scoreEl.className = "text-5xl font-black " + (data.score >= 80 ? 'text-spring' : (data.score >= 60 ? 'text-yellow-500' : 'text-red-500'));
+                    
+                    document.getElementById('ai-int-good').innerText = cleanText(data.good_points);
+                    document.getElementById('ai-int-bad').innerText = cleanText(data.areas_to_improve);
+                    document.getElementById('ai-int-model').innerText = cleanText(data.model_answer);
+                    
+                    document.getElementById('ai-int-feedback-area').classList.remove('hidden');
+                } catch (e) { 
+                    console.error("Evaluation Parse Error", e);
+                    alert("AI 평가 결과를 분석하는데 실패했습니다. 다시 시도해주세요."); 
+                    document.getElementById('ai-int-answer-box').classList.remove('hidden'); 
+                }
+            }
+        }
+
+        function resetInterview() {
+            document.getElementById('ai-int-interaction').classList.add('hidden');
+            document.getElementById('ai-int-concept').value = '';
+            document.getElementById('ai-int-concept').focus();
+        }
+
+        // --- Drag to Scroll Logic for Canvas ---
+        const canvas = document.getElementById('viewer-canvas');
+        let isDown = false;
+        let startX;
+        let startY;
+        let scrollLeft;
+        let scrollTop;
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDown = true;
+            startX = e.pageX - canvas.offsetLeft;
+            startY = e.pageY - canvas.offsetTop;
+            scrollLeft = canvas.scrollLeft;
+            scrollTop = canvas.scrollTop;
+            canvas.style.cursor = 'grabbing';
+        });
+
+        canvas.addEventListener('mouseleave', () => { isDown = false; canvas.style.cursor = 'grab'; });
+        canvas.addEventListener('mouseup', () => { isDown = false; canvas.style.cursor = 'grab'; });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDown) return;
+            e.preventDefault();
+            const x = e.pageX - canvas.offsetLeft;
+            const y = e.pageY - canvas.offsetTop;
+            const walkX = (x - startX) * 1.5;
+            const walkY = (y - startY) * 1.5;
+            canvas.scrollLeft = scrollLeft - walkX;
+            canvas.scrollTop = scrollTop - walkY;
+        });
+
+        window.onload = () => { switchTab('basics'); };
+
+    </script>
+</body>
+</html>

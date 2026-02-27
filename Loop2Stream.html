@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loop2Stream</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* 미니멀 디자인을 위한 커스텀 스크롤바 */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f9fafb;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #e5e7eb;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #d1d5db;
+    }
+    /* 텍스트 영역 폰트 미세 조정 */
+    textarea {
+      tab-size: 4;
+    }
+  </style>
+</head>
+<body class="bg-white font-sans text-gray-900 h-screen overflow-hidden selection:bg-gray-200">
+<div id="app" class="h-full w-full"></div>
+
+<script>
+  // --- Gemini API Configuration ---
+  const apiKey = ""; // The execution environment provides the key at runtime.
+
+  const fetchGemini = async (prompt, schema, retries = 5) => {
+    const delays = [1000, 2000, 4000, 8000, 16000];
+
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: {
+        parts: [{
+          text: "당신은 10년 차 시니어 Java 백엔드 개발자입니다. 주니어 백엔드 개발자의 Stream API 학습을 돕습니다. 실무적인 관점, 가독성, 성능의 트레이드오프를 고려하여 명확하고 '간결하게' 답변합니다. 코드를 반환할 때는 반드시 적절한 줄바꿈(\\n)과 들여쓰기를 지켜주세요."
+        }]
+      },
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: schema
+      }
+    };
+
+    for (let i = 0; i < retries; i++) {
+      try {
+        const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                }
+        );
+
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        return JSON.parse(data.candidates[0].content.parts[0].text);
+      } catch (error) {
+        if (i === retries - 1) throw error;
+        await new Promise(resolve => setTimeout(resolve, delays[i]));
+      }
+    }
+  };
+
+  // --- Schemas ---
+  const questionSchema = {
+    type: "ARRAY",
+    items: {
+      type: "OBJECT",
+      properties: {
+        title: { type: "STRING", description: "문제의 핵심을 나타내는 짧은 제목" },
+        description: { type: "STRING", description: "1~2줄의 아주 간결하고 명확한 요구사항 설명" },
+        parameters: {
+          type: "ARRAY",
+          items: { type: "STRING" },
+          description: "인자 목록 (예: 'List<String> strings - 원본 문자열 리스트')"
+        },
+        returnValue: { type: "STRING", description: "반환값 설명 (예: 'List<String> - 길이가 5 이상인 문자열 리스트')" },
+        methodStub: {
+          type: "STRING",
+          description: "주석 없이 순수한 Java 메서드 시그니처와 return null; 뼈대 (예: public static List<String> filter(List<String> strings) {\\n    return null;\\n})"
+        }
+      },
+      required: ["title", "description", "parameters", "returnValue", "methodStub"]
+    }
+  };
+
+  const evaluationSchema = {
+    type: "OBJECT",
+    properties: {
+      accuracyRate: { type: "INTEGER" },
+      feedbacks: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            isCorrect: { type: "BOOLEAN" },
+            analysis: { type: "STRING", description: "글머리 기호(- )를 사용한 2~3줄의 간결한 피드백 (가독성/트레이드오프 위주)" },
+            bestPractice: { type: "STRING", description: "반드시 여러 줄(\\n)과 들여쓰기를 적용한 깔끔한 Stream 코드" }
+          },
+          required: ["isCorrect", "analysis", "bestPractice"]
+        }
+      },
+      conclusion: { type: "STRING", description: "단락과 글머리 기호를 활용하여 가독성 좋게 작성한 총평 및 학습 조언" }
+    },
+    required: ["accuracyRate", "feedbacks", "conclusion"]
+  };
+
+  // --- State Management ---
+  let gameState = 'SETUP'; // SETUP, LOADING_QUESTIONS, PLAYING, LOADING_REPORT, REPORT
+  let config = { count: 10, difficulty: '중' };
+  let questions = [];
+  let currentIndex = 0;
+  let answers = [];
+  let currentAnswer = '';
+  let report = null;
+  let errorMsg = null;
+
+  // --- Utility Functions ---
+  const escapeHtml = (unsafe) => {
+    return (unsafe || '').toString()
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+  };
+
+  const renderText = (text) => {
+    if (!text) return '';
+    let escaped = escapeHtml(text);
+    escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-black">$1</strong>');
+    return escaped;
+  };
+
+  // --- Actions ---
+  const updateCount = (val) => {
+    config.count = val === '' ? '' : parseInt(val);
+  };
+
+  const updateDifficulty = (level) => {
+    config.difficulty = level;
+    render();
+  };
+
+  const updateAnswer = (val) => {
+    currentAnswer = val;
+  };
+
+  const startQuiz = async () => {
+    gameState = 'LOADING_QUESTIONS';
+    errorMsg = null;
+    render();
+
+    const questionCount = typeof config.count === 'number' && config.count > 0 ? config.count : 10;
+
+    try {
+      const prompt = `
+          주니어 백엔드 개발자를 위한 Java Stream API 실전 문제 ${questionCount}개를 생성해주세요.
+          난이도는 '${config.difficulty}' 입니다. (하: 단일 연산, 중: 복합 연산 및 변환, 상: 그룹핑/통계/FlatMap)
+
+          [중요: 무작위성 보장]
+          현재 요청 고유값(Seed): ${new Date().getTime()}_${Math.random()}
+          매번 요청할 때마다 완전히 새롭고 다른 도메인(예: 이커머스 주문 처리, 물류 배송, SNS 피드, 금융 결제, 사내 인사관리 등)의 상황을 무작위로 선택하여 문제를 출제해주세요.
+
+          [요구사항]
+          문제는 Javadoc 주석을 쓰지 마세요. 스키마에 맞춰 제목, 설명, 파라미터 배열, 리턴값, 그리고 순수 메서드 뼈대(methodStub)를 엄격히 분리해서 반환하세요.
+          설명은 1~2줄로 매우 간결하게 작성하고, 파라미터와 반환값은 'List<String> names - 이름 목록' 처럼 짧고 명확하게 작성하세요.
+          methodStub에는 반드시 적절한 들여쓰기(\\n, 공백)를 포함하세요.
+        `;
+      questions = await fetchGemini(prompt, questionSchema);
+      currentIndex = 0;
+      answers = [];
+      currentAnswer = questions[currentIndex].methodStub;
+      gameState = 'PLAYING';
+    } catch (err) {
+      console.error(err);
+      errorMsg = "문제 생성에 실패했습니다. API 키 및 네트워크 상태를 확인해주세요.";
+      gameState = 'SETUP';
+    }
+    render();
+  };
+
+  const handleNext = async () => {
+    answers.push(currentAnswer);
+
+    if (currentIndex < questions.length - 1) {
+      currentIndex++;
+      currentAnswer = questions[currentIndex].methodStub;
+      render();
+    } else {
+      await generateReport();
+    }
+  };
+
+  const generateReport = async () => {
+    gameState = 'LOADING_REPORT';
+    errorMsg = null;
+    render();
+
+    try {
+      let evalPrompt = "사용자가 작성한 Java Stream 코드입니다. 평가 기준(정답 여부, 가독성, 불필요한 연산 여부, 실무적 관점)에 따라 리뷰해주세요.\n\n";
+      questions.forEach((q, idx) => {
+        evalPrompt += `[문제 ${idx + 1}]\n문제 요구사항: ${q.description}\n제출한 코드:\n${answers[idx]}\n\n`;
+      });
+
+      evalPrompt += `
+          [형식 및 가독성 지시사항 - 매우 중요]
+          1. analysis (피드백): 절대 길게 줄글로 쓰지 마세요! 핵심만 2~3개의 글머리 기호(- )를 사용하여 아주 간결하게 작성하세요. (트레이드오프 언급 필수)
+          2. bestPractice: 반드시 줄바꿈(\\n)과 4칸 들여쓰기를 적용하여 여러 줄로 가독성 좋게 작성하세요. 한 줄로 뭉뚱그려 쓰면 감점입니다.
+          3. conclusion (학습 요약): 단락을 나누거나 글머리 기호(- )를 사용하여 가독성을 극대화하세요. 핵심만 짚어주세요.
+        `;
+
+      report = await fetchGemini(evalPrompt, evaluationSchema);
+      gameState = 'REPORT';
+    } catch (err) {
+      console.error(err);
+      errorMsg = "결과 분석에 실패했습니다. 다시 시도해주세요.";
+      gameState = 'SETUP';
+    }
+    render();
+  };
+
+  const resetQuiz = () => {
+    gameState = 'SETUP';
+    questions = [];
+    answers = [];
+    report = null;
+    currentIndex = 0;
+    render();
+  };
+
+  // --- Render Functions ---
+  const renderSetup = () => {
+    const difficultyLevels = ['하', '중', '상'];
+
+    let errorHtml = '';
+    if (errorMsg) {
+      errorHtml = `<div class="mb-8 p-4 text-sm text-red-600 bg-red-50 border border-red-100">${errorMsg}</div>`;
+    }
+
+    const diffButtons = difficultyLevels.map(level => {
+      const isActive = config.difficulty === level;
+      return `
+          <button onclick="updateDifficulty('${level}')"
+                  class="flex-1 py-2 text-sm transition-colors border-b-2 ${isActive ? 'border-black text-black font-semibold' : 'border-transparent text-gray-400 hover:text-gray-700 hover:border-gray-200'}">
+            ${level}
+          </button>
+        `;
+    }).join('');
+
+    return `
+        <div class="h-full flex items-center justify-center bg-gray-50">
+          <div class="w-full max-w-2xl bg-white p-12 shadow-sm border border-gray-100">
+            <div class="mb-12">
+              <h1 class="text-3xl font-bold tracking-tight text-black mb-2">Loop2Stream</h1>
+              <p class="text-gray-500 text-sm">Java Stream API 실전 훈련</p>
+            </div>
+
+            ${errorHtml}
+
+            <div class="space-y-10">
+              <div class="grid grid-cols-12 gap-8 items-center">
+                <div class="col-span-4">
+                  <label class="block text-sm font-semibold text-gray-900">문제 개수</label>
+                  <p class="text-xs text-gray-500 mt-1">풀이할 문제의 수를 지정하세요.</p>
+                </div>
+                <div class="col-span-8">
+                  <input type="number" min="1" max="20" value="${config.count}"
+                         oninput="updateCount(this.value)"
+                         class="w-full border-b border-gray-300 py-2 focus:outline-none focus:border-black transition-colors text-lg"
+                         placeholder="10" />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-12 gap-8 items-center">
+                <div class="col-span-4">
+                  <label class="block text-sm font-semibold text-gray-900">난이도</label>
+                  <p class="text-xs text-gray-500 mt-1">Stream 활용 문제 수준</p>
+                </div>
+                <div class="col-span-8 flex gap-4">
+                  ${diffButtons}
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-16 flex justify-end">
+              <button onclick="startQuiz()"
+                      class="px-8 py-3 bg-black hover:bg-gray-800 text-white text-sm font-medium transition-colors flex items-center gap-2">
+                시작하기 <i data-lucide="arrow-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+  };
+
+  const renderLoading = () => {
+    const text = gameState === 'LOADING_QUESTIONS' ? '문제를 구성하는 중입니다...' : '코드를 분석하는 중입니다...';
+    return `
+        <div class="h-full flex flex-col items-center justify-center bg-white">
+          <i data-lucide="loader" class="w-6 h-6 animate-spin mb-4 text-black"></i>
+          <p class="text-sm text-gray-500 tracking-wide">${text}</p>
+        </div>
+      `;
+  };
+
+  const renderPlaying = () => {
+    const q = questions[currentIndex];
+    const paramsHtml = q.parameters.map(p => `<div class="font-mono text-sm text-gray-800 bg-gray-50 px-2 py-1 border border-gray-100 inline-block">${escapeHtml(p)}</div>`).join('');
+    const isLast = currentIndex === questions.length - 1;
+    const btnText = isLast ? '제출 및 분석' : '다음 문제';
+
+    // 데스크톱 최적화: 좌우 2단 분할 레이아웃 (IDE 스타일)
+    return `
+        <div class="h-full flex flex-col bg-white">
+          <!-- Top Navigation -->
+          <header class="h-14 border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
+            <div class="flex items-center gap-4">
+              <span class="font-bold text-sm tracking-tight">Loop2Stream</span>
+              <div class="w-px h-4 bg-gray-300"></div>
+              <span class="text-sm text-gray-500">Problem ${currentIndex + 1} / ${questions.length}</span>
+            </div>
+            <div class="flex items-center gap-4">
+              <span class="text-xs text-gray-500 uppercase tracking-wider">Level: ${config.difficulty}</span>
+              <button onclick="handleNext()" class="px-5 py-1.5 bg-black hover:bg-gray-800 text-white text-sm transition-colors flex items-center gap-2">
+                ${btnText} <i data-lucide="${isLast ? 'check' : 'chevron-right'}" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </header>
+
+          <!-- Main Workspace -->
+          <main class="flex-1 flex overflow-hidden">
+
+            <!-- Left Panel: Problem Description -->
+            <section class="w-[40%] min-w-[400px] border-r border-gray-200 bg-white flex flex-col overflow-y-auto">
+              <div class="p-8 space-y-8">
+                <div>
+                  <h1 class="text-2xl font-bold text-gray-900 mb-4 leading-snug">${escapeHtml(q.title)}</h1>
+                  <p class="text-gray-700 leading-relaxed whitespace-pre-wrap">${escapeHtml(q.description)}</p>
+                </div>
+
+                <div class="space-y-6">
+                  <div>
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Input</h3>
+                    <div class="flex flex-col gap-2">
+                      ${paramsHtml}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Output</h3>
+                    <div class="font-mono text-sm text-gray-800 bg-gray-50 px-2 py-1 border border-gray-100 inline-block">
+                      ${escapeHtml(q.returnValue)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Right Panel: Code Editor -->
+            <section class="flex-1 flex flex-col bg-gray-50 relative">
+              <div class="h-10 bg-gray-100 border-b border-gray-200 flex items-center px-4 shrink-0">
+                <span class="text-xs font-mono text-gray-500">Solution.java</span>
+              </div>
+              <textarea
+                oninput="updateAnswer(this.value)"
+                class="flex-1 w-full bg-transparent p-6 font-mono text-sm leading-relaxed text-gray-900 focus:outline-none resize-none"
+                spellcheck="false"
+              >${escapeHtml(currentAnswer)}</textarea>
+            </section>
+
+          </main>
+        </div>
+      `;
+  };
+
+  const renderReport = () => {
+    const correctCount = Math.round(questions.length * (report.accuracyRate / 100));
+
+    const feedbacksHtml = report.feedbacks.map((fb, idx) => {
+      const isCorrect = fb.isCorrect;
+
+      // 데스크톱 공간 활용: 내 코드와 Best Practice를 좌우로 배치
+      return `
+          <div class="border-t border-gray-200 pt-10 pb-6">
+            <div class="flex items-center gap-3 mb-6">
+              <div class="w-6 h-6 rounded-full flex items-center justify-center ${isCorrect ? 'bg-black' : 'bg-red-500'}">
+                <i data-lucide="${isCorrect ? 'check' : 'x'}" class="w-3.5 h-3.5 text-white"></i>
+              </div>
+              <h3 class="text-lg font-bold text-gray-900">Problem ${idx + 1}</h3>
+            </div>
+
+            <div class="grid grid-cols-2 gap-6 mb-6">
+              <!-- Left: User Code -->
+              <div class="flex flex-col">
+                <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Your Code</h4>
+                <div class="flex-1 bg-gray-50 border border-gray-200 p-4 overflow-x-auto">
+                  <pre class="font-mono text-sm text-gray-800 whitespace-pre-wrap break-words"><code>${escapeHtml(answers[idx])}</code></pre>
+                </div>
+              </div>
+
+              <!-- Right: Best Practice -->
+              <div class="flex flex-col">
+                <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Best Practice</h4>
+                <div class="flex-1 bg-gray-900 border border-gray-900 p-4 overflow-x-auto">
+                  <pre class="font-mono text-sm text-gray-100 whitespace-pre-wrap break-words"><code>${escapeHtml(fb.bestPractice)}</code></pre>
+                </div>
+              </div>
+            </div>
+
+            <!-- Feedback Analysis -->
+            <div class="bg-gray-50 px-5 py-4 border-l-2 ${isCorrect ? 'border-black' : 'border-red-500'}">
+              <p class="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">${renderText(fb.analysis)}</p>
+            </div>
+          </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="h-full overflow-y-auto bg-white">
+          <div class="max-w-6xl mx-auto px-8 py-16">
+
+            <!-- Result Header -->
+            <div class="mb-16 border-b border-gray-200 pb-12 flex items-end justify-between">
+              <div>
+                <h1 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Analysis Report</h1>
+                <div class="text-5xl font-black text-black">
+                  ${report.accuracyRate}<span class="text-2xl text-gray-400 font-bold">%</span>
+                </div>
+              </div>
+              <div class="text-right">
+                <p class="text-lg text-gray-900">${questions.length}문제 중 <span class="font-bold">${correctCount}문제</span> 해결</p>
+              </div>
+            </div>
+
+            <!-- Conclusion -->
+            <div class="mb-16">
+              <h2 class="text-lg font-bold text-gray-900 mb-4">AI의 종합 리뷰</h2>
+              <div class="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap max-w-4xl">${renderText(report.conclusion)}</div>
+            </div>
+
+            <!-- Detail Feedbacks -->
+            <div class="space-y-4">
+              <h2 class="text-lg font-bold text-gray-900 mb-6">문제별 상세 분석</h2>
+              ${feedbacksHtml}
+            </div>
+
+            <div class="mt-16 pt-8 border-t border-gray-200 text-center">
+              <button onclick="resetQuiz()" class="px-8 py-3 bg-black hover:bg-gray-800 text-white text-sm font-medium transition-colors inline-flex items-center gap-2">
+                새로운 퀴즈 시작하기 <i data-lucide="arrow-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      `;
+  };
+
+  // --- Main Render Loop ---
+  const render = () => {
+    const app = document.getElementById('app');
+
+    switch (gameState) {
+      case 'SETUP':
+        app.innerHTML = renderSetup();
+        break;
+      case 'LOADING_QUESTIONS':
+      case 'LOADING_REPORT':
+        app.innerHTML = renderLoading();
+        break;
+      case 'PLAYING':
+        app.innerHTML = renderPlaying();
+        break;
+      case 'REPORT':
+        app.innerHTML = renderReport();
+        break;
+    }
+
+    lucide.createIcons();
+  };
+
+  // Initial Render
+  render();
+</script>
+</body>
+</html>

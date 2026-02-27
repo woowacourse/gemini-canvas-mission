@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowLog - 시간조각 트래커</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @keyframes bounce-short {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-15%); }
+        }
+        .animate-bounce-short {
+            animation: bounce-short 0.4s ease-in-out 1;
+        }
+        .view-section { display: none; }
+        .view-section.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+        .modal { display: none; }
+        .modal.active { display: flex; animation: fadeInModal 0.2s ease-out; }
+        @keyframes fadeInModal { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans min-h-screen selection:bg-blue-200 pb-24 sm:pb-8 sm:pt-24">
+
+<!-- Navigation -->
+<nav class="fixed bottom-0 w-full bg-white/80 backdrop-blur-md border-t border-gray-200 z-40 sm:top-0 sm:bottom-auto sm:border-t-0 sm:border-b">
+    <div class="max-w-md mx-auto sm:max-w-3xl flex justify-around p-3 sm:p-4">
+        <button onclick="app.switchView('tracker')" id="nav-tracker" class="flex flex-col items-center p-2 rounded-xl transition-all text-blue-600">
+            <i data-lucide="clock" class="w-6 h-6"></i>
+            <span class="text-xs font-medium mt-1">트래커</span>
+        </button>
+        <button onclick="app.switchView('stats')" id="nav-stats" class="flex flex-col items-center p-2 rounded-xl transition-all text-gray-400 hover:text-gray-600">
+            <i data-lucide="bar-chart-2" class="w-6 h-6"></i>
+            <span class="text-xs font-medium mt-1">통계</span>
+        </button>
+        <button onclick="app.switchView('report')" id="nav-report" class="flex flex-col items-center p-2 rounded-xl transition-all text-gray-400 hover:text-gray-600">
+            <i data-lucide="brain" class="w-6 h-6"></i>
+            <span class="text-xs font-medium mt-1">AI 보고서</span>
+        </button>
+    </div>
+</nav>
+
+<!-- Main Content -->
+<main class="pt-4 max-w-2xl mx-auto w-full">
+
+    <!-- Tracker View -->
+    <div id="view-tracker" class="view-section active p-6">
+        <div class="w-full max-w-md mx-auto bg-white rounded-3xl shadow-xl p-8 border border-gray-100">
+
+            <div class="text-center mb-8">
+                <p id="timer-status" class="text-sm text-gray-500 font-medium mb-2">무엇에 집중할 예정인가요?</p>
+                <div id="timer-display" class="text-6xl font-black text-gray-900 tracking-tight tabular-nums font-mono">00:00:00</div>
+            </div>
+
+            <!-- Start Controls -->
+            <div id="control-start" class="space-y-4">
+                <div class="relative">
+                    <input type="text" id="input-activity" placeholder="활동 유형을 입력하세요..."
+                           class="w-full pl-4 pr-12 py-4 bg-gray-50 border-none rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 transition-all text-lg outline-none"
+                           onkeydown="if(event.key === 'Enter') app.requestStartTimer()">
+                    <button onclick="app.requestStartTimer()" id="btn-start" disabled
+                            class="absolute right-2 top-2 bottom-2 aspect-square bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center transition-colors disabled:opacity-50">
+                        <i data-lucide="play" class="w-5 h-5 ml-1 fill-current"></i>
+                    </button>
+                </div>
+
+                <div class="pt-2">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-sm font-semibold text-gray-500">자주 하는 활동</span>
+                        <button onclick="app.toggleManageMode()" id="btn-manage" class="text-xs flex items-center space-x-1 px-2 py-1 rounded-md transition-colors text-gray-400 hover:text-gray-600">
+                            <i data-lucide="settings" class="w-3.5 h-3.5"></i>
+                            <span id="manage-text">편집하기</span>
+                        </button>
+                    </div>
+                    <div id="activities-container" class="flex flex-wrap gap-2"></div>
+                </div>
+            </div>
+
+            <!-- Stop Controls -->
+            <div id="control-stop" class="hidden">
+                <button onclick="app.stopTimer()" class="w-full py-4 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-lg flex items-center justify-center space-x-2 transition-all shadow-lg shadow-red-500/30">
+                    <i data-lucide="square" class="w-5 h-5 fill-current"></i>
+                    <span>기록 종료</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats View -->
+    <div id="view-stats" class="view-section p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-6">통계 기록</h2>
+
+        <div class="flex space-x-2 p-1 bg-gray-100 rounded-xl mb-8" id="stats-tabs">
+            <button onclick="app.setStatsTimeframe('day')" id="tab-day" class="flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white shadow-sm text-blue-600">일간</button>
+            <button onclick="app.setStatsTimeframe('week')" id="tab-week" class="flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-500 hover:text-gray-700">주간</button>
+            <button onclick="app.setStatsTimeframe('month')" id="tab-month" class="flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-500 hover:text-gray-700">월간</button>
+            <button onclick="app.setStatsTimeframe('year')" id="tab-year" class="flex-1 py-2 text-sm font-medium rounded-lg transition-all text-gray-500 hover:text-gray-700">연간</button>
+        </div>
+
+        <div id="stats-content" class="space-y-4"></div>
+    </div>
+
+    <!-- Report View -->
+    <div id="view-report" class="view-section p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-6">AI 주간 종합 보고서</h2>
+
+        <div class="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-3xl border border-blue-100 shadow-sm mb-6">
+            <p class="text-gray-600 leading-relaxed mb-6">최근 7일 동안의 기록을 바탕으로 학습 패턴과 집중도를 분석하여, 앞으로의 방향성과 개선 사항을 제안해 드립니다.</p>
+            <button onclick="app.generateReport()" id="btn-generate-report" class="w-full py-4 bg-gray-900 text-white rounded-xl font-semibold flex items-center justify-center space-x-2 transition-transform active:scale-[0.98]">
+                <i data-lucide="brain" class="w-5 h-5" id="report-icon-idle"></i>
+                <i data-lucide="loader-2" class="w-5 h-5 animate-spin hidden" id="report-icon-loading"></i>
+                <span id="report-btn-text">AI 평가 및 개선사항 받기</span>
+            </button>
+        </div>
+
+        <div class="mb-6 bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+            <h3 class="text-lg font-bold mb-4 flex items-center text-gray-800">
+                <i data-lucide="clock" class="w-5 h-5 mr-2 text-indigo-500"></i>최근 7일 요약
+            </h3>
+            <div class="flex flex-col sm:flex-row gap-6 items-center" id="report-summary-content"></div>
+        </div>
+
+        <div id="ai-report-content" class="space-y-6 hidden"></div>
+    </div>
+
+</main>
+
+<!-- Modals -->
+<!-- Create Confirm Modal -->
+<div id="modal-confirm" class="modal fixed inset-0 bg-black/50 backdrop-blur-sm z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-gray-100">
+        <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mb-4 text-blue-600">
+            <i data-lucide="plus" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-xl font-bold mb-2">새로운 활동 생성</h3>
+        <p class="text-gray-600 mb-6 leading-relaxed">
+            <strong class="text-gray-900" id="confirm-activity-name"></strong>은(는) 새로운 활동입니다.<br/>새 목록으로 추가하고 기록을 시작하시겠습니까?
+        </p>
+        <div class="flex space-x-3">
+            <button onclick="app.closeModal('confirm')" class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium">취소</button>
+            <button onclick="app.confirmStartTimer()" class="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium">생성 및 시작</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div id="modal-edit" class="modal fixed inset-0 bg-black/50 backdrop-blur-sm z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-gray-100">
+        <h3 class="text-xl font-bold mb-4">활동 이름 변경</h3>
+        <p class="text-sm text-gray-500 mb-4">변경 시 이전 기록들의 이름도 모두 함께 변경됩니다.</p>
+        <input type="text" id="edit-activity-input" class="w-full p-3 mb-6 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+        <div class="flex space-x-3">
+            <button onclick="app.closeModal('edit')" class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium">취소</button>
+            <button onclick="app.saveEditActivity()" class="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium">저장</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Modal -->
+<div id="modal-delete" class="modal fixed inset-0 bg-black/50 backdrop-blur-sm z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-gray-100">
+        <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4 text-red-600">
+            <i data-lucide="trash-2" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-xl font-bold mb-2">활동 삭제</h3>
+        <p class="text-gray-600 mb-6 leading-relaxed">
+            <strong class="text-gray-900" id="delete-activity-name"></strong> 활동을 목록에서 삭제하시겠습니까?<br/>(과거 시간 기록은 삭제되지 않습니다)
+        </p>
+        <div class="flex space-x-3">
+            <button onclick="app.closeModal('delete')" class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium">취소</button>
+            <button onclick="app.confirmDeleteActivity()" class="flex-1 py-3 bg-red-600 text-white rounded-xl font-medium">삭제</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- [State Management] ---
+    const state = {
+        viewMode: 'tracker',
+        activities: ['전공 공부', '알고리즘 문제 풀이', '독서', '프로젝트 개발'],
+        records: [],
+        activeTimer: null,
+        statsTimeframe: 'day',
+        isManageMode: false,
+        aiReportData: null,
+
+        // Temp modal states
+        pendingActivity: '',
+        editOldName: '',
+        deleteTarget: ''
+    };
+
+    let timerInterval = null;
+    const chartColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#84cc16', '#64748b'];
+    const apiKey = ""; // Gemini API Key
+
+    // --- [Domain Logic Utilities] ---
+    const utils = {
+        formatDuration: (ms) => {
+            if (ms < 0) return "00:00:00";
+            const totalSeconds = Math.floor(ms / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        },
+        formatDurationShort: (ms) => utils.formatDuration(ms).split(':').slice(0, 2).join(':'),
+        getStartOfDay: (date) => { const d = new Date(date); d.setHours(0, 0, 0, 0); return d; },
+        getEndOfDay: (date) => { const d = new Date(date); d.setHours(23, 59, 59, 999); return d; },
+        formatDateString: (date) => new Date(date).toISOString().split('T')[0],
+
+        formatAverageText: (ms, timeframe) => {
+            const now = new Date();
+            let daysPassed = 1;
+            if (timeframe === 'week') daysPassed = now.getDay() + 1;
+            else if (timeframe === 'month') daysPassed = now.getDate();
+            else if (timeframe === 'year') {
+                const start = new Date(now.getFullYear(), 0, 1);
+                daysPassed = Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1;
+            }
+            const avgMs = ms / daysPassed;
+            if (avgMs < 60000) return '1분 미만';
+            const totalMins = Math.floor(avgMs / 60000);
+            const h = Math.floor(totalMins / 60);
+            const m = totalMins % 60;
+            if (h > 0) return `${h}시간 ${m}분`;
+            return `${m}분`;
+        },
+        formatDiffText: (diffMs) => {
+            const absMs = Math.abs(diffMs);
+            if (absMs < 60000) return '1분 미만';
+            const totalMins = Math.floor(absMs / 60000);
+            const h = Math.floor(totalMins / 60);
+            const m = totalMins % 60;
+            if (h > 0 && m > 0) return `${h}시간 ${m}분`;
+            if (h > 0) return `${h}시간`;
+            return `${m}분`;
+        },
+        getTimeframePrefix: (tf) => {
+            if (tf === 'week') return '이번 주'; if (tf === 'month') return '이번 달'; if (tf === 'year') return '올해'; return '오늘';
+        },
+        getPrevTimeframePrefix: (tf) => {
+            if (tf === 'week') return '지난 주'; if (tf === 'month') return '지난 달'; if (tf === 'year') return '작년'; return '어제';
+        },
+        getRankColor: (index) => {
+            if (index === 0) return { bg: 'bg-blue-50', bar: 'bg-blue-500', text: 'text-blue-700', border: 'border-blue-200', medal: '🥇' };
+            if (index === 1) return { bg: 'bg-emerald-50', bar: 'bg-emerald-500', text: 'text-emerald-700', border: 'border-emerald-200', medal: '🥈' };
+            if (index === 2) return { bg: 'bg-amber-50', bar: 'bg-amber-500', text: 'text-amber-700', border: 'border-amber-200', medal: '🥉' };
+            return { bg: 'bg-gray-50', bar: 'bg-gray-400', text: 'text-gray-500', border: 'border-gray-200', medal: '' };
+        },
+        splitRecordsByDay: (activity, startTime, endTime) => {
+            const records = [];
+            let currentStart = new Date(startTime);
+            const finalEnd = new Date(endTime);
+            while (utils.getStartOfDay(currentStart).getTime() < utils.getStartOfDay(finalEnd).getTime()) {
+                const endOfCurrentDay = utils.getEndOfDay(currentStart);
+                records.push({ id: crypto.randomUUID(), activity, startTime: currentStart.getTime(), endTime: endOfCurrentDay.getTime(), duration: endOfCurrentDay.getTime() - currentStart.getTime(), date: utils.formatDateString(currentStart) });
+                currentStart = new Date(endOfCurrentDay.getTime() + 1);
+            }
+            records.push({ id: crypto.randomUUID(), activity, startTime: currentStart.getTime(), endTime: finalEnd.getTime(), duration: finalEnd.getTime() - currentStart.getTime(), date: utils.formatDateString(currentStart) });
+            return records;
+        },
+        formatTextWithNumbers: (text) => {
+            return text.replace(/(\d+(?:[,.]\d+)?(?:%|시간|분|초|일|개|가지|회|번)?)/g, '<span class="font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md mx-0.5">$1</span>');
+        }
+    };
+
+    // --- [Main Application Flow] ---
+    const app = {
+        init: () => {
+            app.loadData();
+            app.setupEventListeners();
+            app.renderActivities();
+            app.updateTimerUI();
+            app.switchView('tracker');
+            lucide.createIcons();
+        },
+
+        loadData: () => {
+            const savedActivities = localStorage.getItem('timeTracker_activities');
+            const savedRecords = localStorage.getItem('timeTracker_records');
+            const savedTimer = localStorage.getItem('timeTracker_activeTimer');
+
+            if (savedActivities) state.activities = JSON.parse(savedActivities);
+
+            if (savedRecords && JSON.parse(savedRecords).length > 0) {
+                state.records = JSON.parse(savedRecords);
+            } else {
+                // Dummy data generation
+                const dummyRecords = [];
+                const now = Date.now();
+                const dayMs = 24 * 60 * 60 * 1000;
+                const defaultActivities = ['전공 공부', '알고리즘 문제 풀이', '독서', '프로젝트 개발'];
+                for (let i = 0; i <= 40; i++) {
+                    defaultActivities.forEach(act => {
+                        if (Math.random() > 0.4) {
+                            const duration = Math.floor(Math.random() * 3 * 60 * 60 * 1000) + (30 * 60 * 1000);
+                            const startTime = now - (i * dayMs) - Math.floor(Math.random() * 8 * 60 * 60 * 1000);
+                            dummyRecords.push({ id: crypto.randomUUID(), activity: act, startTime, endTime: startTime + duration, duration, date: utils.formatDateString(startTime) });
+                        }
+                    });
+                }
+                state.records = dummyRecords;
+            }
+
+            if (savedTimer && savedTimer !== "null") {
+                const timer = JSON.parse(savedTimer);
+                if (timer && timer.startTime) {
+                    state.activeTimer = timer;
+                    app.startInterval();
+                }
+            }
+        },
+
+        saveData: () => {
+            localStorage.setItem('timeTracker_activities', JSON.stringify(state.activities));
+            localStorage.setItem('timeTracker_records', JSON.stringify(state.records));
+            localStorage.setItem('timeTracker_activeTimer', JSON.stringify(state.activeTimer));
+        },
+
+        setupEventListeners: () => {
+            const input = document.getElementById('input-activity');
+            const btn = document.getElementById('btn-start');
+            input.addEventListener('input', (e) => {
+                btn.disabled = e.target.value.trim() === '';
+            });
+        },
+
+        // Navigation
+        switchView: (viewId) => {
+            state.viewMode = viewId;
+            ['tracker', 'stats', 'report'].forEach(id => {
+                document.getElementById(`view-${id}`).classList.remove('active');
+                const navBtn = document.getElementById(`nav-${id}`);
+                navBtn.classList.remove('text-blue-600');
+                navBtn.classList.add('text-gray-400');
+
+                // lucide-react가 <i> 태그를 <svg> 태그로 교체하므로 범용 선택자를 사용합니다.
+                const oldIcon = navBtn.querySelector('svg, i');
+                if (oldIcon) oldIcon.classList.remove('animate-bounce-short');
+            });
+
+            document.getElementById(`view-${viewId}`).classList.add('active');
+            const activeNav = document.getElementById(`nav-${viewId}`);
+            activeNav.classList.remove('text-gray-400');
+            activeNav.classList.add('text-blue-600');
+
+            // Trigger reflow for animation
+            const icon = activeNav.querySelector('svg, i');
+            if (icon) {
+                icon.classList.remove('animate-bounce-short');
+                void icon.offsetWidth;
+                icon.classList.add('animate-bounce-short');
+            }
+
+            if (viewId === 'stats') app.renderStats();
+            if (viewId === 'report') app.renderReportSummary();
+        },
+
+        // Timer Logic
+        requestStartTimer: () => {
+            const input = document.getElementById('input-activity');
+            const activityName = input.value.trim();
+            if (!activityName) return;
+
+            if (!state.activities.includes(activityName)) {
+                state.pendingActivity = activityName;
+                document.getElementById('confirm-activity-name').textContent = `'${activityName}'`;
+                app.openModal('confirm');
+            } else {
+                app.startTimer(activityName);
+            }
+        },
+
+        startTimer: (activityName) => {
+            state.activeTimer = { activity: activityName, startTime: Date.now() };
+            document.getElementById('input-activity').value = '';
+            document.getElementById('btn-start').disabled = true;
+            app.saveData();
+            app.updateTimerUI();
+            app.startInterval();
+        },
+
+        confirmStartTimer: () => {
+            state.activities.push(state.pendingActivity);
+            app.renderActivities();
+            app.startTimer(state.pendingActivity);
+            app.closeModal('confirm');
+        },
+
+        stopTimer: () => {
+            if (!state.activeTimer) return;
+            const endTime = Date.now();
+            const newRecords = utils.splitRecordsByDay(state.activeTimer.activity, state.activeTimer.startTime, endTime);
+            state.records = [...state.records, ...newRecords];
+            state.activeTimer = null;
+            clearInterval(timerInterval);
+            app.saveData();
+            app.updateTimerUI();
+        },
+
+        startInterval: () => {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                const duration = Date.now() - state.activeTimer.startTime;
+                document.getElementById('timer-display').textContent = utils.formatDuration(duration);
+            }, 1000);
+        },
+
+        updateTimerUI: () => {
+            const startArea = document.getElementById('control-start');
+            const stopArea = document.getElementById('control-stop');
+            const statusText = document.getElementById('timer-status');
+            const display = document.getElementById('timer-display');
+
+            if (state.activeTimer) {
+                startArea.classList.add('hidden');
+                stopArea.classList.remove('hidden');
+                statusText.textContent = `현재 진행 중: ${state.activeTimer.activity}`;
+                display.textContent = utils.formatDuration(Date.now() - state.activeTimer.startTime);
+            } else {
+                startArea.classList.remove('hidden');
+                stopArea.classList.add('hidden');
+                statusText.textContent = "무엇에 집중할 예정인가요?";
+                display.textContent = "00:00:00";
+            }
+        },
+
+        // Manage Activities
+        toggleManageMode: () => {
+            state.isManageMode = !state.isManageMode;
+            const btn = document.getElementById('btn-manage');
+            document.getElementById('manage-text').textContent = state.isManageMode ? '편집 완료' : '편집하기';
+
+            if(state.isManageMode) {
+                btn.classList.add('bg-blue-100', 'text-blue-700');
+                btn.classList.remove('text-gray-400');
+            } else {
+                btn.classList.remove('bg-blue-100', 'text-blue-700');
+                btn.classList.add('text-gray-400');
+            }
+            app.renderActivities();
+        },
+
+        selectActivity: (act) => {
+            if (state.isManageMode) return;
+            document.getElementById('input-activity').value = act;
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('input-activity').focus();
+        },
+
+        renderActivities: () => {
+            const container = document.getElementById('activities-container');
+            container.innerHTML = state.activities.map(act => `
+          <div class="relative group flex items-center">
+            <button onclick="app.selectActivity('${act}')" class="px-3 py-1.5 text-sm rounded-full transition-all border ${state.isManageMode ? 'bg-gray-50 text-gray-400 pr-16 border-dashed border-gray-300 cursor-default' : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200 shadow-sm'}">
+              ${act}
+            </button>
+            ${state.isManageMode ? `
+              <div class="absolute right-1 flex space-x-1 animate-fadeIn">
+                <button onclick="app.openEditModal('${act}')" class="p-1.5 bg-white rounded-full text-blue-500 shadow hover:bg-blue-50 transition-colors"><i data-lucide="edit-2" class="w-3 h-3"></i></button>
+                <button onclick="app.openDeleteModal('${act}')" class="p-1.5 bg-white rounded-full text-red-500 shadow hover:bg-red-50 transition-colors"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+              </div>
+            ` : ''}
+          </div>
+        `).join('');
+            lucide.createIcons();
+        },
+
+        openEditModal: (act) => {
+            state.editOldName = act;
+            document.getElementById('edit-activity-input').value = act;
+            app.openModal('edit');
+        },
+
+        saveEditActivity: () => {
+            const newName = document.getElementById('edit-activity-input').value.trim();
+            if (!newName || newName === state.editOldName) {
+                app.closeModal('edit');
+                return;
+            }
+            state.activities = state.activities.map(a => a === state.editOldName ? newName : a);
+            state.records = state.records.map(r => r.activity === state.editOldName ? { ...r, activity: newName } : r);
+            app.saveData();
+            app.renderActivities();
+            app.closeModal('edit');
+        },
+
+        openDeleteModal: (act) => {
+            state.deleteTarget = act;
+            document.getElementById('delete-activity-name').textContent = `'${act}'`;
+            app.openModal('delete');
+        },
+
+        confirmDeleteActivity: () => {
+            state.activities = state.activities.filter(a => a !== state.deleteTarget);
+            app.saveData();
+            app.renderActivities();
+            app.closeModal('delete');
+        },
+
+        // Modals
+        openModal: (id) => document.getElementById(`modal-${id}`).classList.add('active'),
+        closeModal: (id) => document.getElementById(`modal-${id}`).classList.remove('active'),
+
+        // Stats
+        setStatsTimeframe: (tf) => {
+            state.statsTimeframe = tf;
+
+            const getStatsColor = (t) => {
+                switch(t) {
+                    case 'day': return 'text-blue-600';
+                    case 'week': return 'text-emerald-600';
+                    case 'month': return 'text-violet-600';
+                    case 'year': return 'text-amber-600';
+                    default: return 'text-gray-600';
+                }
+            };
+
+            ['day', 'week', 'month', 'year'].forEach(t => {
+                const btn = document.getElementById(`tab-${t}`);
+                btn.className = `flex-1 py-2 text-sm font-medium rounded-lg transition-all ${state.statsTimeframe === t ? `bg-white shadow-sm font-bold ${getStatsColor(t)}` : 'text-gray-500 hover:text-gray-700'}`;
+            });
+            app.renderStats();
+        },
+
+        getStatsData: () => {
+            const now = new Date();
+            const startOfToday = utils.getStartOfDay(now).getTime();
+            const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+
+            const startOfWeek = new Date(now);
+            startOfWeek.setDate(now.getDate() - now.getDay());
+            startOfWeek.setHours(0,0,0,0);
+            const startOfPrevWeek = new Date(startOfWeek);
+            startOfPrevWeek.setDate(startOfPrevWeek.getDate() - 7);
+
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+
+            const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
+            const startOfPrevYear = new Date(now.getFullYear() - 1, 0, 1).getTime();
+
+            let currStartLimit = 0, prevStartLimit = 0, prevEndLimit = 0;
+
+            if (state.statsTimeframe === 'day') { currStartLimit = startOfToday; prevStartLimit = startOfYesterday; prevEndLimit = startOfToday; }
+            else if (state.statsTimeframe === 'week') { currStartLimit = startOfWeek.getTime(); prevStartLimit = startOfPrevWeek.getTime(); prevEndLimit = startOfWeek.getTime(); }
+            else if (state.statsTimeframe === 'month') { currStartLimit = startOfMonth; prevStartLimit = startOfPrevMonth; prevEndLimit = startOfMonth; }
+            else if (state.statsTimeframe === 'year') { currStartLimit = startOfYear; prevStartLimit = startOfPrevYear; prevEndLimit = startOfYear; }
+
+            const currAgg = {}, prevAgg = {};
+            state.records.forEach(r => {
+                if (r.startTime >= currStartLimit) currAgg[r.activity] = (currAgg[r.activity] || 0) + r.duration;
+                else if (r.startTime >= prevStartLimit && r.startTime < prevEndLimit) prevAgg[r.activity] = (prevAgg[r.activity] || 0) + r.duration;
+            });
+
+            return { current: Object.entries(currAgg).sort((a, b) => b[1] - a[1]), previous: prevAgg };
+        },
+
+        renderStats: () => {
+            const { current: filteredStats, previous: previousStats } = app.getStatsData();
+            const container = document.getElementById('stats-content');
+
+            if (filteredStats.length === 0) {
+                container.innerHTML = `<div class="text-center py-12 text-gray-500 rounded-2xl border border-gray-200 bg-gray-50">기록된 데이터가 없습니다.</div>`;
+                return;
+            }
+
+            let html = '';
+            if (state.statsTimeframe === 'day') {
+                const totalMs = filteredStats.reduce((sum, [_, val]) => sum + val, 0);
+                html = filteredStats.map(([activity, ms], index) => {
+                    const percentage = Math.round((ms / totalMs) * 100);
+                    const rank = utils.getRankColor(index);
+                    return `
+              <div class="bg-white p-4 rounded-2xl border ${rank.border} flex flex-col space-y-3 shadow-sm transition-all hover:shadow-md">
+                <div class="flex justify-between items-end">
+                  <span class="font-semibold text-gray-800">${rank.medal ? `<span class="mr-2">${rank.medal}</span>` : ''}${activity}</span>
+                  <span class="font-mono font-bold ${rank.text}">${utils.formatDuration(ms)}</span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                  <div class="${rank.bar} h-3 rounded-full transition-all duration-1000" style="width: ${percentage}%"></div>
+                </div>
+              </div>
+            `;
+                }).join('');
+            } else {
+                // Chart Logic
+                const totalMs = filteredStats.reduce((sum, [_, val]) => sum + val, 0);
+                let svgContent = '';
+                let listContent = '';
+
+                filteredStats.forEach(([activity, ms], idx) => {
+                    // SVG Circle
+                    const previousMs = filteredStats.slice(0, idx).reduce((sum, item) => sum + item[1], 0);
+                    const radius = 40;
+                    const circumference = 2 * Math.PI * radius;
+                    const currentOffsetFraction = previousMs / totalMs;
+                    const fraction = ms / totalMs;
+                    const dasharray = `${fraction * circumference} ${circumference}`;
+                    const dashoffset = -currentOffsetFraction * circumference;
+                    const color = chartColors[idx % chartColors.length];
+
+                    svgContent += `<circle cx="50" cy="50" r="${radius}" fill="transparent" stroke="${color}" stroke-width="16" stroke-dasharray="${dasharray}" stroke-dashoffset="${dashoffset}" class="transition-all duration-1000 ease-out"></circle>`;
+
+                    // List Item
+                    const prevMs = previousStats[activity] || 0;
+                    let diffHtml = '';
+                    if (prevMs === 0) {
+                        diffHtml = `<span class="text-gray-400 font-normal">비교할 과거 기록 없음</span>`;
+                    } else {
+                        const diffMs = ms - prevMs;
+                        if (diffMs > 0) diffHtml = `<span class="text-red-500 flex items-center bg-red-50 px-1.5 py-0.5 rounded shadow-sm"><i data-lucide="trending-up" class="w-3 h-3 mr-1"></i> ${utils.formatDiffText(diffMs)} 증가</span>`;
+                        else if (diffMs < 0) diffHtml = `<span class="text-blue-500 flex items-center bg-blue-50 px-1.5 py-0.5 rounded shadow-sm"><i data-lucide="trending-down" class="w-3 h-3 mr-1"></i> ${utils.formatDiffText(diffMs)} 감소</span>`;
+                        else diffHtml = `<span class="text-gray-500 flex items-center bg-gray-100 px-1.5 py-0.5 rounded"><i data-lucide="minus" class="w-3 h-3 mr-1"></i> 변화 없음</span>`;
+                    }
+
+                    listContent += `
+              <div class="flex flex-col space-y-1">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 rounded-full" style="background-color: ${color}"></div>
+                    <span class="font-semibold text-gray-800">${activity}</span>
+                  </div>
+                  <span class="font-mono text-sm font-bold text-gray-600">${Math.round((ms / totalMs) * 100)}%</span>
+                </div>
+                <p class="text-sm text-gray-500 pl-5 break-keep">${utils.getTimeframePrefix(state.statsTimeframe)}에는 <strong class="text-gray-700">${activity}</strong>을(를) 하루 평균 <strong class="text-blue-600">${utils.formatAverageText(ms, state.statsTimeframe)}</strong>씩 했습니다.</p>
+                <div class="pl-5 pt-1 flex items-center text-xs font-semibold">
+                  <span class="text-gray-400 mr-2">${utils.getPrevTimeframePrefix(state.statsTimeframe)} 대비</span>
+                  ${diffHtml}
+                </div>
+              </div>
+            `;
+                });
+
+                html = `
+            <div class="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm w-full flex flex-col md:flex-row items-center gap-8">
+               <div class="relative w-48 h-48 flex-shrink-0">
+                 <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90 drop-shadow-md">${svgContent}</svg>
+                 <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span class="text-xs text-gray-500 font-medium">총 활동 시간</span>
+                    <span class="text-sm font-bold text-gray-800 mt-1">${utils.formatDurationShort(totalMs)}</span>
+                 </div>
+               </div>
+               <div class="flex-1 w-full space-y-4">${listContent}</div>
+            </div>
+          `;
+            }
+
+            container.innerHTML = html;
+            lucide.createIcons();
+        },
+
+        // AI Report
+        renderReportSummary: () => {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const recentRecords = state.records.filter(r => new Date(r.startTime) >= sevenDaysAgo);
+            const totalMs = recentRecords.reduce((sum, r) => sum + r.duration, 0);
+
+            const summary = recentRecords.reduce((acc, curr) => {
+                acc[curr.activity] = (acc[curr.activity] || 0) + curr.duration;
+                return acc;
+            }, {});
+            const sortedSummary = Object.entries(summary).sort((a, b) => b[1] - a[1]);
+
+            let listHtml = sortedSummary.length === 0 ? `<div class="text-gray-500 text-sm text-center py-2">최근 7일간의 기록이 없습니다.</div>` :
+                sortedSummary.slice(0, 3).map(([activity, ms], idx) => `
+            <div class="flex items-center justify-between text-sm">
+              <div class="flex items-center space-x-2 truncate pr-4">
+                <div class="w-2 h-2 rounded-full flex-shrink-0" style="background-color: ${chartColors[idx % chartColors.length]}"></div>
+                <span class="text-gray-700 truncate font-medium">${activity}</span>
+              </div>
+              <div class="flex items-center space-x-3 flex-shrink-0">
+                <span class="font-mono text-gray-500">${utils.formatDurationShort(ms)}</span>
+                <span class="font-bold text-gray-800 w-8 text-right">${Math.round((ms / totalMs) * 100)}%</span>
+              </div>
+            </div>
+          `).join('');
+
+            document.getElementById('report-summary-content').innerHTML = `
+          <div class="bg-indigo-50 px-6 py-4 rounded-2xl border border-indigo-100 text-center w-full sm:w-auto flex-shrink-0">
+            <div class="text-sm text-indigo-600 font-semibold mb-1">총 활동 시간</div>
+            <div class="text-2xl font-black text-indigo-700 font-mono">${utils.formatDurationShort(totalMs).replace(':', '시간 ')}분</div>
+          </div>
+          <div class="flex-1 w-full space-y-3">${listHtml}</div>
+        `;
+        },
+
+        generateReport: async () => {
+            const btn = document.getElementById('btn-generate-report');
+            document.getElementById('report-icon-idle').classList.add('hidden');
+            document.getElementById('report-icon-loading').classList.remove('hidden');
+            document.getElementById('report-btn-text').textContent = "보고서 생성 중...";
+            btn.disabled = true;
+            btn.classList.add('opacity-70');
+
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const recentRecords = state.records.filter(r => new Date(r.startTime) >= sevenDaysAgo);
+            const summary = recentRecords.reduce((acc, curr) => { acc[curr.activity] = (acc[curr.activity] || 0) + curr.duration; return acc; }, {});
+            const formattedSummary = Object.entries(summary).map(([activity, ms]) => ({ activity, hours: (ms / (1000 * 60 * 60)).toFixed(2) }));
+
+            let resultData = null;
+            try {
+                const prompt = `당신은 사용자의 성장과 동기부여를 돕는 AI 코치입니다.\n다음은 사용자의 최근 7일 동안의 활동 시간 기록(JSON)입니다.\n\n기록 데이터:\n${JSON.stringify(formattedSummary, null, 2)}\n\n이 데이터를 바탕으로 두 가지 항목으로 나누어 분석해주세요:\n1. 'analysis' (활동 분석): 이번 주 활동에 대한 긍정적인 평가, 요약, 그리고 활동 비율을 분석하여 편중된 부분에 대한 객관적인 평가.\n2. 'improvements' (개선 사항): 다음 주를 위한 구체적이고 실천 가능한 동기부여 조언.\n\n인사말 없이 내용만 작성해주세요. 줄바꿈은 \\n 으로 표현하세요.`;
+
+                let retries = 5, delay = 1000;
+                while (retries > 0 && !resultData) {
+                    try {
+                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: prompt }] }],
+                                generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { analysis: { type: "STRING" }, improvements: { type: "STRING" } } } }
+                            })
+                        });
+                        if (!res.ok) throw new Error('API Request Failed');
+                        const data = await res.json();
+                        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (textResponse) resultData = JSON.parse(textResponse);
+                    } catch (err) {
+                        retries--;
+                        if (retries === 0) resultData = { analysis: "AI 서버와 통신하는 중 문제가 발생했습니다.", improvements: "나중에 다시 시도해주세요." };
+                        await new Promise(r => setTimeout(r, delay)); delay *= 2;
+                    }
+                }
+            } catch (e) {
+                resultData = { analysis: "에러가 발생했습니다.", improvements: "다시 시도해주세요." };
+            }
+
+            const reportContainer = document.getElementById('ai-report-content');
+            if (resultData) {
+                reportContainer.innerHTML = `
+            <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden">
+              <div class="absolute top-0 left-0 w-1.5 h-full bg-blue-500 rounded-l-3xl"></div>
+              <h3 class="text-xl font-bold mb-4 flex items-center text-gray-800"><i data-lucide="bar-chart-2" class="w-6 h-6 mr-2 text-blue-500"></i>활동 분석</h3>
+              <div class="text-gray-700 leading-relaxed">${resultData.analysis.split('\n').map(line => utils.formatTextWithNumbers(line) + '<br/>').join('')}</div>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden">
+              <div class="absolute top-0 left-0 w-1.5 h-full bg-emerald-500 rounded-l-3xl"></div>
+              <h3 class="text-xl font-bold mb-4 flex items-center text-gray-800"><i data-lucide="check" class="w-6 h-6 mr-2 text-emerald-500"></i>다음 주 개선 조언</h3>
+              <div class="text-gray-700 leading-relaxed">${resultData.improvements.split('\n').map(line => utils.formatTextWithNumbers(line) + '<br/>').join('')}</div>
+            </div>
+          `;
+                reportContainer.classList.remove('hidden');
+                lucide.createIcons();
+            }
+
+            document.getElementById('report-icon-idle').classList.remove('hidden');
+            document.getElementById('report-icon-loading').classList.add('hidden');
+            document.getElementById('report-btn-text').textContent = "AI 평가 및 개선사항 받기";
+            btn.disabled = false;
+            btn.classList.remove('opacity-70');
+        }
+    };
+
+    // Initialize the app when the DOM is fully loaded
+    window.addEventListener('DOMContentLoaded', app.init);
+</script>
+</body>
+</html>

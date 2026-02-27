@@ -1,0 +1,1294 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trace: 런타임 수사대</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&family=Noto+Sans+KR:wght@400;700;900&display=swap');
+      body {
+        font-family: 'Noto Sans KR', sans-serif;
+        background: #000;
+        margin: 0;
+        overflow: hidden;
+        color: #e2e8f0;
+      }
+      .font-mono {
+        font-family: 'Fira Code', monospace;
+      }
+
+      @keyframes scanline {
+        0% {
+          transform: translateY(-100%);
+        }
+        100% {
+          transform: translateY(100vh);
+        }
+      }
+      .scanline-bg::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background:
+          linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+          linear-gradient(90deg, rgba(255, 0, 0, 0.04), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.04));
+        background-size:
+          100% 4px,
+          3px 100%;
+        pointer-events: none;
+        z-index: 50;
+      }
+      .scanbar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 15px;
+        background: rgba(6, 182, 212, 0.05);
+        box-shadow: 0 0 30px rgba(6, 182, 212, 0.3);
+        animation: scanline 15s linear infinite;
+        pointer-events: none;
+        z-index: 51;
+      }
+      @keyframes crt-flicker {
+        0% {
+          opacity: 0.98;
+        }
+        10% {
+          opacity: 0.99;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+      .crt-noise {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: url('https://upload.wikimedia.org/wikipedia/commons/7/76/1k_pnt_noise_static.png');
+        opacity: 0.03;
+        pointer-events: none;
+        z-index: 52;
+        animation: crt-flicker 0.2s infinite;
+      }
+      @keyframes glitch {
+        0% {
+          transform: translate(0);
+          text-shadow:
+            -1px 0 #0ff,
+            1px 0 #f0f;
+        }
+        5% {
+          transform: translate(-1px, 1px);
+        }
+        100% {
+          transform: translate(0);
+          text-shadow:
+            -1px 0 #0ff,
+            1px 0 #f0f;
+        }
+      }
+      .glitch-title {
+        animation: glitch 2s infinite linear alternate-reverse;
+      }
+      @keyframes shake {
+        0%,
+        100% {
+          transform: translateX(0);
+        }
+        25% {
+          transform: translateX(-4px);
+        }
+        50% {
+          transform: translateX(4px);
+        }
+        75% {
+          transform: translateX(-4px);
+        }
+      }
+      .animate-shake {
+        animation: shake 0.3s ease-in-out;
+      }
+      .code-input {
+        background: transparent;
+        border: none;
+        color: #a5f3fc;
+        font-family: 'Fira Code', monospace;
+        font-size: 1.1rem;
+        width: 100%;
+        outline: none;
+        padding: 2px 4px;
+        border-radius: 2px;
+      }
+      .code-input:focus {
+        background: rgba(6, 182, 212, 0.1);
+      }
+      .code-input.error {
+        color: #f87171;
+        background: rgba(127, 29, 29, 0.2);
+        text-shadow: 0 0 4px red;
+      }
+      .code-line-num {
+        color: #334155;
+        font-family: monospace;
+        font-size: 0.85rem;
+        text-align: right;
+        width: 32px;
+        margin-right: 16px;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app-container" class="min-h-screen relative flex flex-col items-center justify-center">
+      <div class="absolute inset-0 scanline-bg pointer-events-none"></div>
+      <div class="scanbar"></div>
+      <div class="crt-noise"></div>
+
+      <!-- Screen 1: Intro -->
+      <div id="screen-intro" class="z-10 text-center px-4 max-w-4xl">
+        <h1
+          class="text-8xl md:text-9xl font-black text-white glitch-title tracking-tighter drop-shadow-[0_0_20px_rgba(6,182,212,0.6)] uppercase"
+        >
+          Trace
+        </h1>
+        <p class="text-xl md:text-2xl text-cyan-500 mt-4 font-mono tracking-[0.4em] uppercase opacity-70">
+          Runtime Forensic Unit
+        </p>
+        <div class="h-0.5 w-32 bg-cyan-700 mx-auto mt-8 opacity-40"></div>
+        <button
+          onclick="startGame()"
+          class="mt-16 px-16 py-6 bg-transparent border-2 border-cyan-500 text-cyan-400 font-black rounded-none transition-all hover:bg-cyan-500 hover:text-white hover:shadow-[0_0_30px_rgba(6,182,212,0.6)] uppercase tracking-[0.3em] active:scale-95"
+        >
+          입장 인증
+        </button>
+      </div>
+
+      <!-- Screen 2: Case Selection -->
+      <div id="screen-case-select" class="z-10 w-full max-w-5xl px-6 flex flex-col gap-10 hidden">
+        <div class="flex justify-between items-start">
+          <button
+            onclick="changeState('intro')"
+            class="flex items-center gap-2 text-slate-500 hover:text-cyan-400 transition-colors uppercase font-black tracking-widest text-sm"
+          >
+            <i data-lucide="arrow-left" class="w-4 h-4"></i> Back
+          </button>
+          <div class="text-center flex-1 pr-12">
+            <h2 class="text-4xl font-black text-white tracking-tighter uppercase glitch-title">Case Selection</h2>
+            <p class="text-slate-500 font-mono mt-2 uppercase tracking-widest text-xs">
+              수사 대상과 위협 레벨을 설정하십시오.
+            </p>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="lang-buttons"></div>
+        <div class="bg-slate-950/50 border border-slate-800 p-8 flex flex-col gap-6">
+          <div class="flex justify-between items-center px-2">
+            <span class="text-xs font-black text-slate-600 uppercase tracking-widest">Threat Level</span>
+            <span id="diff-label" class="text-xs font-mono text-cyan-700 uppercase">LV.1 Basic</span>
+          </div>
+          <div class="flex gap-4" id="diff-buttons"></div>
+        </div>
+        <button
+          onclick="startOperation()"
+          class="w-full py-6 bg-cyan-700 hover:bg-cyan-600 text-white font-black uppercase tracking-[0.5em] shadow-xl active:scale-95 transition-all"
+        >
+          수사 개시
+        </button>
+      </div>
+
+      <!-- Screen 3: Gameplay -->
+      <div
+        id="screen-gameplay"
+        class="z-10 w-full max-w-6xl h-[85vh] flex flex-col bg-slate-950/80 border-2 border-slate-900 rounded-none shadow-2xl relative hidden"
+      >
+        <header class="p-6 bg-black border-b border-slate-900 flex justify-between items-center shrink-0">
+          <div class="flex items-center gap-4">
+            <i data-lucide="search-code" class="text-cyan-700 w-6 h-6"></i>
+            <h2 id="gp-title" class="font-black text-slate-300 uppercase tracking-tighter">Case #</h2>
+          </div>
+          <div class="flex gap-8 items-center">
+            <button
+              id="btn-hint"
+              onclick="triggerHint()"
+              class="hidden flex items-center gap-2 px-4 py-2 border border-yellow-600/50 text-yellow-500 hover:bg-yellow-900/30 text-xs font-bold uppercase tracking-widest transition-all"
+            >
+              <i data-lucide="lightbulb" class="w-3 h-3"></i> 단서 요청
+            </button>
+            <div class="text-right">
+              <div class="text-[9px] text-slate-600 uppercase font-black">Score</div>
+              <div id="gp-score" class="font-mono text-xl text-slate-100 leading-none">0</div>
+            </div>
+            <div class="text-right">
+              <div class="text-[9px] text-slate-600 uppercase font-black">Uptime</div>
+              <div id="gp-time" class="font-mono text-4xl font-black text-cyan-500 leading-none">0s</div>
+            </div>
+            <button
+              onclick="togglePauseMenu(true)"
+              class="p-2 border border-slate-800 hover:border-cyan-500 text-slate-500 hover:text-cyan-400 transition-all uppercase font-black text-[10px] tracking-widest"
+            >
+              MENU
+            </button>
+          </div>
+        </header>
+
+        <div id="top-bar-container" class="flex flex-col border-b border-cyan-900/50 bg-cyan-950/20 shrink-0">
+          <div class="p-4 px-8 flex items-center gap-4">
+            <i data-lucide="message-square" class="text-cyan-600 w-5 h-5 shrink-0"></i>
+            <p
+              id="gp-briefing-bar"
+              class="text-cyan-100 font-mono text-lg font-bold tracking-tight opacity-90 leading-tight"
+            ></p>
+          </div>
+          <div id="hint-bar" class="px-8 pb-4 flex items-center gap-4 hidden">
+            <i data-lucide="lightbulb" class="text-yellow-500 w-5 h-5 shrink-0"></i>
+            <p id="gp-hint-bar" class="text-yellow-400 font-mono text-sm tracking-tight opacity-90 leading-tight"></p>
+          </div>
+        </div>
+
+        <div class="flex-1 p-8 relative overflow-y-auto bg-black/40">
+          <div
+            id="overlay-briefing"
+            class="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center p-12 text-center backdrop-blur-sm"
+          >
+            <i data-lucide="terminal" class="text-cyan-800 mb-8 w-20 h-20"></i>
+            <h3 class="text-4xl font-black text-white mb-8 uppercase tracking-tight glitch-title">Case Briefing</h3>
+            <p
+              id="overlay-briefing-text"
+              class="text-slate-200 max-w-3xl font-mono text-2xl font-bold leading-relaxed"
+            ></p>
+            <button
+              onclick="enterField()"
+              class="mt-16 px-16 py-5 bg-transparent border-2 border-cyan-800 text-cyan-500 font-black uppercase hover:bg-cyan-900 hover:text-white transition-all"
+            >
+              현장 진입
+            </button>
+          </div>
+          <div class="font-mono ml-4 border-l border-slate-800 pl-4" id="editor-lines"></div>
+        </div>
+
+        <div
+          id="overlay-pause"
+          class="hidden absolute inset-0 bg-black/90 z-40 flex flex-col items-center justify-center p-12 text-center backdrop-blur-lg"
+        >
+          <i data-lucide="cpu" class="text-cyan-600 mb-8 w-20 h-20 animate-pulse"></i>
+          <h3 class="text-5xl font-black text-white mb-12 uppercase tracking-tighter glitch-title">System Paused</h3>
+          <div class="flex flex-col gap-6 w-full max-w-md">
+            <button
+              onclick="togglePauseMenu(false)"
+              class="w-full py-5 border-2 border-cyan-500 text-cyan-400 font-black uppercase hover:bg-cyan-500 hover:text-white transition-all"
+            >
+              수사 재개 (Resume)
+            </button>
+            <button
+              onclick="retryAssignment()"
+              class="w-full py-5 border-2 border-slate-700 text-slate-400 font-black uppercase hover:border-yellow-500 hover:text-yellow-400 transition-all"
+            >
+              사건 재시작 (Restart)
+            </button>
+            <button
+              onclick="goToCaseSelect()"
+              class="w-full py-5 border-2 border-slate-700 text-slate-400 font-black uppercase hover:border-red-600 hover:text-red-500 transition-all"
+            >
+              선택 화면으로 (Quit)
+            </button>
+          </div>
+        </div>
+
+        <footer class="p-8 bg-black/80 border-t border-slate-900 flex justify-center shrink-0 min-h-[110px]">
+          <button
+            id="btn-verify"
+            onclick="verifySequence()"
+            class="px-16 py-5 bg-cyan-700 hover:bg-cyan-600 text-white font-black rounded-none flex items-center gap-4 transition-all active:scale-95 shadow-lg uppercase tracking-widest"
+          >
+            <i data-lucide="check-circle-2" class="w-6 h-6"></i> Verify Sequence
+          </button>
+          <button
+            id="btn-retry-footer"
+            onclick="retryAssignment()"
+            class="hidden px-16 py-5 bg-red-700 hover:bg-red-600 text-white font-black uppercase transition-all active:scale-95 shadow-lg"
+          >
+            Retry Assignment
+          </button>
+        </footer>
+
+        <div
+          id="overlay-success"
+          class="hidden absolute inset-0 bg-green-950/95 z-40 flex flex-col items-center justify-center text-center backdrop-blur-md"
+        >
+          <i data-lucide="shield-check" class="text-green-500 w-24 h-24 mb-6"></i>
+          <h2 class="text-6xl font-black text-green-400 uppercase italic tracking-tighter">Cleaned</h2>
+          <button
+            onclick="nextAssignment()"
+            class="mt-12 px-12 py-4 bg-green-700 hover:bg-green-600 text-white font-black uppercase tracking-widest transition-all"
+          >
+            Next Assignment
+          </button>
+        </div>
+
+        <div
+          id="overlay-gameover-banner"
+          class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
+        >
+          <h2 class="text-9xl font-black text-red-600/20 uppercase italic tracking-tighter rotate-12 select-none">
+            FAILED
+          </h2>
+        </div>
+      </div>
+
+      <!-- Screen 4: Completed -->
+      <div id="screen-completed" class="z-10 text-center px-6 max-w-2xl w-full hidden">
+        <i
+          data-lucide="shield-check"
+          class="text-cyan-500 w-32 h-32 mx-auto mb-8 drop-shadow-[0_0_20px_rgba(6,182,212,0.8)] glitch-title"
+        ></i>
+        <h1 class="text-7xl font-black text-white tracking-tighter uppercase glitch-title">Investigation Closed</h1>
+        <p class="text-xl text-slate-500 mt-6 font-light italic">"결함 없는 코드는 가장 강력한 방어선입니다."</p>
+        <div class="mt-12 p-10 bg-slate-900/40 border-2 border-cyan-900 rounded-none relative">
+          <div class="text-slate-600 uppercase text-[10px] tracking-[1em] font-black mb-4">Total Integrity Score</div>
+          <div id="final-score" class="text-8xl font-black text-cyan-400 tracking-tighter leading-none">0</div>
+        </div>
+        <button
+          onclick="goToCaseSelect()"
+          class="mt-16 px-16 py-6 border-2 border-slate-700 hover:border-cyan-600 text-slate-600 hover:text-cyan-500 font-black rounded-none transition-all uppercase tracking-widest"
+        >
+          New Cases
+        </button>
+      </div>
+    </div>
+
+    <script>
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const playTone = (freq, type, duration, vol = 0.1) => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      };
+      const playSound = {
+        type: () => playTone(800 + Math.random() * 200, 'square', 0.05, 0.02),
+        select: () => playTone(600, 'sine', 0.1, 0.05),
+        error: () => playTone(150, 'sawtooth', 0.3, 0.1),
+        hint: () => {
+          playTone(880, 'sine', 0.1, 0.05);
+          setTimeout(() => playTone(1200, 'sine', 0.2, 0.05), 100);
+        },
+        success: () => {
+          playTone(440, 'sine', 0.1, 0.05);
+          setTimeout(() => playTone(660, 'sine', 0.2, 0.05), 100);
+          setTimeout(() => playTone(880, 'sine', 0.4, 0.05), 200);
+        },
+        heartbeat: () => {
+          playTone(80, 'sine', 0.2, 0.2);
+          setTimeout(() => playTone(80, 'sine', 0.2, 0.2), 250);
+        },
+      };
+      const shuffleArray = (array) => {
+        const newArr = [...array];
+        for (let i = newArr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+        }
+        return newArr;
+      };
+      const normalize = (str) => str.replace(/\s+/g, '');
+      const escapeHtml = (unsafe) =>
+        unsafe
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+
+      const buildSet = (lang, diff, items) =>
+        items.map((t, i) => ({
+          id: `${lang[0]}${diff}-${i}`,
+          title: `${lang.toUpperCase()} Case #${i + 1}`,
+          briefing: t[1],
+          hint: t[2],
+          time: t[3],
+          code: t[4].map((c, j) => ({ id: `l${j}`, text: c[0], fixed: c[1] || c[0], isBug: !!c[1] && c[0] !== c[1] })),
+        }));
+
+      const GAME_DATABASE = {
+        html: {
+          1: buildSet('html', 1, [
+            [
+              '본문 소멸',
+              '문서의 내용이 브라우저에 표시되지 않습니다. 핵심 바디 태그의 철자가 잘못되었습니다.',
+              '페이지의 본문을 담는 태그는 <body>입니다.',
+              40,
+              [
+                ['<html>'],
+                ['  <boddy>', '  <body>'],
+                ['    <h1>System Ready</h1>'],
+                ['  </boddy>', '  </body>'],
+                ['</html>'],
+              ],
+            ],
+            [
+              '이미지 미아',
+              '프로필 이미지가 깨진 아이콘으로 표시됩니다. 이미지 소스 경로의 속성명을 바로잡으십시오.',
+              '이미지 태그에서 파일을 불러오는 속성은 src입니다.',
+              40,
+              [["<img scr='user.png' altt='User'>", "<img src='user.png' alt='User'>"]],
+            ],
+            [
+              '링크 절단',
+              '메인으로 돌아가기 버튼이 작동하지 않습니다. 하이퍼링크 참조 속성명을 확인하십시오.',
+              '링크 태그의 속성명은 href입니다.',
+              40,
+              [["<a herf='/index'>Home</a>", "<a href='/index'>Home</a>"]],
+            ],
+            [
+              '암호 노출',
+              '비밀번호 입력 시 글자가 화면에 그대로 노출되어 보안에 위협이 됩니다. 타입을 변경하십시오.',
+              '보안 입력을 위한 타입은 password입니다.',
+              40,
+              [["<input type='texxt'>", "<input type='password'>"]],
+            ],
+            [
+              '제목 오작동',
+              '브라우저 제목 탭에 문서 제목이 나오지 않습니다. 헤더 내부의 제목 태그를 확인하십시오.',
+              '문서 제목은 <title> 태그를 사용합니다.',
+              40,
+              [['<head>'], ['  <titl>Trace</titl>', '  <title>Trace</title>'], ['</head>']],
+            ],
+          ]),
+          2: buildSet('html', 2, [
+            [
+              '따옴표 탈옥',
+              '속성값이 인접한 텍스트를 집어삼키고 있습니다. 닫히지 않은 따옴표를 찾아 수사하십시오.',
+              '속성값 끝에 닫는 따옴표를 추가하십시오.',
+              50,
+              [['<div class="active-box>Data</div>', '<div class="active-box">Data</div>']],
+            ],
+            [
+              '속성 융합',
+              '검색 기능이 먹통입니다. 속성들 사이에 공백이 없어 브라우저가 해석에 실패했습니다.',
+              'type과 name 속성 사이에 공백을 삽입하십시오.',
+              50,
+              [['<input type="search"name="q">', '<input type="search" name="q">']],
+            ],
+            [
+              '기호 오용',
+              'HTML 주석으로 처리한 기밀 코드가 화면에 그대로 출력됩니다. 주석 기호를 교정하십시오.',
+              'HTML 주석은 <!-- 코멘트 --> 형식입니다.',
+              50,
+              [['<-- SECRET_CODE -->', '<!-- SECRET_CODE -->']],
+            ],
+            [
+              '중복 식별자',
+              '스크립트가 요소를 찾지 못합니다. 하나의 태그에 동일한 id가 두 번 선언되었습니다.',
+              '두 번째 id를 삭제하거나 다른 속성으로 바꾸십시오.',
+              50,
+              [["<div id='a' id='b'></div>", "<div id='a' class='b'></div>"]],
+            ],
+            [
+              '엔티티 결함',
+              "문장 속의 '&' 기호가 문법 오류를 일으킵니다. 안전한 특수문자 표기법으로 수정하십시오.",
+              '& 기호는 &amp; 로 써야 안전합니다.',
+              50,
+              [['<p>Safe & Sound</p>', '<p>Safe &amp; Sound</p>']],
+            ],
+          ]),
+          3: buildSet('html', 3, [
+            [
+              '접근성 단절',
+              '입력창 레이블을 클릭해도 커서가 가지 않습니다. 레이블과 인풋의 연결 로직을 수정하십시오.',
+              'label의 for 값과 input의 id 값을 일치시키십시오.',
+              60,
+              [["<label for='uid'>ID:</label>"], ["<input id='userid'>", "<input id='uid'>"]],
+            ],
+            [
+              '의미론 위반',
+              '내비게이션 요소가 검색 엔진에 노출되지 않습니다. 시맨틱 태그로 구조를 개선하십시오.',
+              '단순 div 대신 <nav> 태그를 사용하는 것이 적절합니다.',
+              60,
+              [["<div class='nav'>", "<nav class='nav'>"], ['  <ul><li>...</li></ul>'], ['</div>', '</nav>']],
+            ],
+            [
+              '새로고침 폭주',
+              '버튼을 누를 때마다 페이지가 초기화됩니다. 폼 전송을 방지하도록 타입을 지정하십시오.',
+              "클릭용 버튼은 type='button'을 사용해야 합니다.",
+              60,
+              [['<form>'], ['  <button>닫기</button>', "  <button type='button'>닫기</button>"], ['</form>']],
+            ],
+            [
+              '표 구조 결함',
+              '데이터 표의 제목 행이 일반 데이터로 분류됩니다. 적합한 태그를 할당하십시오.',
+              '제목 셀에는 <th> 태그를 사용하십시오.',
+              60,
+              [['<tr>'], ['  <td>Header</td>', '  <th>Header</th>'], ['  <td>Data</td>'], ['</tr>']],
+            ],
+            [
+              '전송 보안',
+              '비공개 폼 데이터가 주소창에 노출됩니다. 데이터 전송 방식(Method)을 교정하십시오.',
+              '비밀 데이터 전송에는 POST 방식이 필요합니다.',
+              60,
+              [["<form type='POST'>", "<form method='POST'>"]],
+            ],
+          ]),
+          4: buildSet('html', 4, [
+            [
+              '중첩 역전',
+              '구조적 결함으로 렌더링이 중단되었습니다. 인라인 요소가 블록 요소를 감싼 모순을 해결하십시오.',
+              'span은 div를 감쌀 수 없습니다. 순서를 바꾸십시오.',
+              80,
+              [['<span><div>Content</div></span>', '<div><span>Content</span></div>']],
+            ],
+            [
+              '캡션 미아',
+              '표의 제목이 엉뚱한 곳에 위치합니다. <table> 표준 구조에 맞게 캡션 위치를 조정하십시오.',
+              '<caption>은 table의 첫 번째 자식이어야 합니다.',
+              80,
+              [
+                [
+                  '<table><tr><td>...</td></tr><caption>Title</caption></table>',
+                  '<table><caption>Title</caption><tr><td>...</td></tr></table>',
+                ],
+              ],
+            ],
+            [
+              '데이터 불통',
+              '자동완성 목록이 작동하지 않습니다. 인풋과 데이터 리스트의 연결 고리를 수사하십시오.',
+              'input의 list와 datalist의 id를 일치시키십시오.',
+              80,
+              [["<input list='opts'>"], ["<datalist id='items'>", "<datalist id='opts'>"]],
+            ],
+            [
+              '그림판 해상도',
+              '그래픽 캔버스 화면이 늘어나 보입니다. CSS가 아닌 HTML 고유 속성으로 고정하십시오.',
+              'canvas의 크기는 태그 내 width, height 속성으로 잡습니다.',
+              80,
+              [["<canvas style='width:300px'>", "<canvas width='300'>"]],
+            ],
+            [
+              'SVG 왜곡',
+              '아이콘의 비율이 깨집니다. 뷰박스 속성명의 대소문자 규격을 확인하십시오.',
+              'SVG 속성명은 viewBox 로 대소문자를 구분합니다.',
+              80,
+              [["<svg view-box='0 0 10 10'>", "<svg viewBox='0 0 10 10'>"]],
+            ],
+          ]),
+        },
+        css: {
+          1: buildSet('css', 1, [
+            [
+              '투명한 장벽',
+              '요소의 배경색이 바뀌지 않습니다. 속성 이름의 철자를 정확히 기재하십시오.',
+              'background-color 속성을 수정하십시오.',
+              40,
+              [['.box {'], ['  backgroud-color: red;', '  background-color: red;'], ['}']],
+            ],
+            [
+              '간격 실종',
+              '요소 아래에 여백이 생기지 않습니다. 마진 속성의 오타를 찾아내십시오.',
+              'margin-bottom 속성을 수정하십시오.',
+              40,
+              [['p {'], ['  margn-bottom: 20px;', '  margin-bottom: 20px;'], ['}']],
+            ],
+            [
+              '두께 결함',
+              '글자가 굵게 표시되지 않습니다. 폰트 두께 속성명의 오타를 제압하십시오.',
+              'font-weight 속성을 수정하십시오.',
+              40,
+              [['span {'], ['  font-weigth: bold;', '  font-weight: bold;'], ['}']],
+            ],
+            [
+              '중앙 정렬',
+              '텍스트가 정렬되지 않습니다. 텍스트 정렬 속성명을 교정하십시오.',
+              'text-align 속성을 수정하십시오.',
+              40,
+              [['h1 {'], ['  text-algin: center;', '  text-align: center;'], ['}']],
+            ],
+            [
+              '테두리 부재',
+              '상자의 경계선이 보이지 않습니다. 속성 이름의 오타를 수정하십시오.',
+              'border-color 속성을 수정하십시오.',
+              40,
+              [['div {'], ['  border-collor: #fff;', '  border-color: #fff;'], ['}']],
+            ],
+          ]),
+          2: buildSet('css', 2, [
+            [
+              '선택자 오류',
+              '클래스 스타일이 적용되지 않습니다. 선택자 선언 기호를 확인하십시오.',
+              '클래스 선택자 앞에는 마침표(.)가 필수입니다.',
+              50,
+              [['container {', ' .container {'], ['  color: cyan;'], ['}']],
+            ],
+            [
+              '구문 누수',
+              '특정 줄 이후의 모든 스타일이 동작하지 않습니다. 줄바꿈 시 누락된 기호를 찾으십시오.',
+              '속성 선언 끝에는 세미콜론(;)이 필수입니다.',
+              50,
+              [['a {'], ['  color: blue', '  color: blue;'], ['  padding: 10px;'], ['}']],
+            ],
+            [
+              '단위 실종',
+              '여백이 전혀 생기지 않습니다. 수치 데이터 뒤에 필요한 표준 단위를 추가하십시오.',
+              'px와 같은 단위를 추가하여 수치를 명확히 하십시오.',
+              50,
+              [['div {'], ['  margin: 10;', '  margin: 10px;'], ['}']],
+            ],
+            [
+              '가상 결함',
+              '호버 시 시각적 반응이 없습니다. 가상 클래스 표기 공백을 수사하십시오.',
+              '선택자와 :hover 사이의 공백을 제거하십시오.',
+              50,
+              [['button: hover {', 'button:hover {'], ['  opacity: 0.5;'], ['}']],
+            ],
+            [
+              '컬러 코드',
+              '색상이 회색으로 고정됩니다. 헥스 코드 형식이 올바르지 않습니다.',
+              '# 기호 뒤에는 3자리 혹은 6자리 문자가 와야 합니다.',
+              50,
+              [['nav {'], ['  background: #ff;', '  background: #fff;'], ['}']],
+            ],
+          ]),
+          3: buildSet('css', 3, [
+            [
+              '정렬 모순',
+              '요소가 중앙에 오지 않고 왼쪽에 치우칩니다. 자동 여백 로직을 수정하십시오.',
+              '좌우 마진을 auto로 설정해야 중앙 정렬됩니다.',
+              60,
+              [['.content {'], ['  margin: auto 0;', '  margin: 0 auto;'], ['}']],
+            ],
+            [
+              '인라인 거부',
+              '요소에 크기를 줬으나 전혀 변하지 않습니다. 박스 모델 로직을 수정하십시오.',
+              'inline 요소는 크기를 가질 수 없습니다. block으로 바꾸십시오.',
+              60,
+              [['span {'], ['  display: inline; width: 50px;', '  display: inline-block; width: 50px;'], ['}']],
+            ],
+            [
+              'Z-인덱스',
+              '요소가 다른 객체 뒤에 숨어버립니다. 쌓임 맥락을 위한 기초 속성이 누락되었습니다.',
+              'z-index는 포지션 속성이 있을 때만 작동합니다.',
+              60,
+              [['z-index: 100;', 'position: relative; z-index: 100;']],
+            ],
+            [
+              '플렉스 정렬',
+              '아이템들이 수직 중앙으로 정렬되지 않습니다. 플렉스 정렬 속성명을 수정하십시오.',
+              '수직 정렬은 align-items 속성을 사용합니다.',
+              60,
+              [['.flex {'], ['  display: flex;'], ['  align-item: center;', '  align-items: center;'], ['}']],
+            ],
+            [
+              '계산 폭주',
+              '패딩을 주자 전체 레이아웃이 터집니다. 크기 계산 방식 로직을 수정하십시오.',
+              '테두리 포함 계산을 위해 box-sizing을 border-box로 설정하십시오.',
+              60,
+              [['* {'], ['  box-sizing: content-box;', '  box-sizing: border-box;'], ['}']],
+            ],
+          ]),
+          4: buildSet('css', 4, [
+            [
+              '중앙 보정',
+              '모달창이 화면 오른쪽 아래에 치우쳐 있습니다. 배치를 위한 보정 로직을 수정하십시오.',
+              'transform을 통해 자신의 크기 절반만큼 -50% 보정하십시오.',
+              70,
+              [
+                ['.modal {'],
+                ['  left: 50%; top: 50%;'],
+                ['  transform: translate(50%, 50%);', '  transform: translate(-50%, -50%);'],
+                ['}'],
+              ],
+            ],
+            [
+              '연산 불능',
+              'calc() 함수가 작동하지 않습니다. 연산자 가독성을 위한 로직을 수정하십시오.',
+              'calc 연산자 앞뒤에는 반드시 공백이 있어야 합니다.',
+              70,
+              [['width: calc(100%-20px);', 'width: calc(100% - 20px);']],
+            ],
+            [
+              '수축 방어',
+              '화면이 좁아지자 로고가 납작해집니다. 유연한 크기 조절 로직을 수정하십시오.',
+              'flex-shrink 속성을 0으로 설정하여 수축을 막으십시오.',
+              70,
+              [['.logo {'], ['  flex-shrink: 1;', '  flex-shrink: 0;'], ['}']],
+            ],
+            [
+              '변수 참조',
+              '사용자 테마 컬러가 무시됩니다. 전역 변수를 호출하는 문법을 수정하십시오.',
+              '변수는 var(--이름) 형식으로 호출해야 합니다.',
+              70,
+              [['color: --main;', 'color: var(--main);']],
+            ],
+            [
+              '가상 실종',
+              '버튼 앞의 기호가 보이지 않습니다. 가상 요소의 필수 속성 로직을 추가하십시오.',
+              '가상 요소는 content 속성이 정의되어야 나타납니다.',
+              70,
+              [['.icon::before {'], ['  display: block;', "  content: ''; display: block;"], ['}']],
+            ],
+          ]),
+        },
+        javascript: {
+          1: buildSet('javascript', 1, [
+            [
+              '로그 장애',
+              '데이터 기록이 남지 않습니다. 기본 출력 메서드의 철자를 확인하십시오.',
+              'console.log 메서드를 정확히 입력하십시오.',
+              40,
+              [["consoole.log('Init');", "console.log('Init');"]],
+            ],
+            [
+              '대소문자',
+              '변수를 찾지 못하는 런타임 에러가 납니다. 대소문자 구분 규칙을 확인하십시오.',
+              'JS는 대소문자를 엄격히 구분합니다.',
+              40,
+              [["const myKey = 'A1';"], ['alert(mykey);', 'alert(myKey);']],
+            ],
+            [
+              '배열 길이',
+              '데이터 개수를 세는 속성명이 틀렸습니다.',
+              'length 속성을 정확히 입력하십시오.',
+              40,
+              [['if(arr.lenght > 0)', 'if(arr.length > 0)']],
+            ],
+            [
+              '선언 오류',
+              '함수 정의 구간에서 에러가 발생합니다. 키워드 철자를 확인하십시오.',
+              'function 키워드를 정확히 입력하십시오.',
+              40,
+              [['funtion run() {}', 'function run() {}']],
+            ],
+            [
+              '돔 접근',
+              '요소를 찾지 못해 null 에러가 납니다. 메서드 이름 규격을 확인하십시오.',
+              'getElementById 에서 d는 소문자입니다.',
+              40,
+              [["document.getElementByid('app');", "document.getElementById('app');"]],
+            ],
+          ]),
+          2: buildSet('javascript', 2, [
+            [
+              '무조건 참',
+              '로그인 정보가 틀려도 접속이 허용됩니다. 비교 로직 연산자를 수정하십시오.',
+              '비교를 위해서는 일치 연산자(===)를 써야 합니다.',
+              50,
+              [["if (val = 'admin')", "if (val === 'admin')"]],
+            ],
+            [
+              '화살표 괄호',
+              '화살표 함수 정의에서 구문 에러가 납니다. 다중 인자 처리 규칙을 따르십시오.',
+              '인자가 2개 이상일 때는 괄호 ()가 필수입니다.',
+              50,
+              [['const add = a, b => a + b;', 'const add = (a, b) => a + b;']],
+            ],
+            [
+              '데이터 유실',
+              '함수 실행 결과가 항상 undefined 입니다. 반환 로직을 추가하십시오.',
+              '값을 외부로 보내려면 return이 필요합니다.',
+              50,
+              [['function get() { 10; }', 'function get() { return 10; }']],
+            ],
+            [
+              '객체 쉼표',
+              '객체 생성 중 데이터 구분 기호가 누락되어 에러가 발생합니다.',
+              '속성 사이에는 쉼표(,)가 있어야 합니다.',
+              50,
+              [["let user = { id: 1 name: 'A' };", "let user = { id: 1, name: 'A' };"]],
+            ],
+            [
+              '배열 혼동',
+              '배열을 선언했으나 객체 리터럴 기호를 사용하여 에러가 납니다.',
+              '배열은 [] 대괄호를 사용합니다.',
+              50,
+              [['let list = {1, 2, 3};', 'let list = [1, 2, 3];']],
+            ],
+          ]),
+          3: buildSet('javascript', 3, [
+            [
+              '무한 루프',
+              '시스템이 응답 없음 상태에 빠집니다. 반복 종료 조건 로직을 수정하십시오.',
+              'i가 증가하여 목표치에 도달하도록 연산자를 수정하십시오.',
+              80,
+              [['for(let i=0; i<10; i--)', 'for(let i=0; i<10; i++)']],
+            ],
+            [
+              '삼각형 붕괴',
+              '별 찍기 삼각형이 제대로 그려지지 않습니다. 내부 루프 제어 로직을 수정하십시오.',
+              'j의 범위가 i의 값에 비례해야 합니다.',
+              80,
+              [['for(let j=0; j<1; j++)', 'for(let j=0; j<=i; j++)']],
+            ],
+            [
+              '범위 초과',
+              '마지막 요소를 읽을 때 undefined 에러가 납니다. 인덱스 참조 로직을 수정하십시오.',
+              '마지막 인덱스는 길이 - 1입니다.',
+              60,
+              [['let last = arr[arr.length];', 'let last = arr[arr.length - 1];']],
+            ],
+            [
+              '필터 논리',
+              '짝수만 거르려는데 홀수가 나옵니다. 나머지 연산 조건을 수정하십시오.',
+              '나머지가 0인 것이 짝수입니다.',
+              60,
+              [['arr.filter(n => n % 2 = 1)', 'arr.filter(n => n % 2 === 0)']],
+            ],
+            [
+              '예약 폭주',
+              '이벤트가 너무 빈번하게 발생하여 렉이 걸립니다. 이전 예약을 취소하는 로직을 추가하십시오.',
+              '새 타이머 생성 전 clearTimeout을 호출하십시오.',
+              60,
+              [['t = setTimeout(f, 100);', 'clearTimeout(t); t = setTimeout(f, 100);']],
+            ],
+          ]),
+          4: buildSet('javascript', 4, [
+            [
+              '병목 현상',
+              '데이터 로딩이 너무 느립니다. 병렬 처리 최적화 로직을 적용하십시오.',
+              'Promise.all을 사용하여 효율적으로 요청하십시오.',
+              80,
+              [['await a(); await b();', 'await Promise.all([a(), b()]);']],
+            ],
+            [
+              '클로저 함정',
+              '반복문 콜백이 항상 마지막 값만 출력합니다. 스코프 격리 로직을 수정하십시오.',
+              'var 대신 블록 스코프인 let을 사용하십시오.',
+              80,
+              [['for(var i=0; i<5; i++)', 'for(let i=0; i<5; i++)']],
+            ],
+            [
+              '프로미스 누수',
+              '서버 에러 발생 시 시스템이 멈춥니다. 예외 처리 로직을 보강하십시오.',
+              'then 체인 끝에는 catch 블록이 필수입니다.',
+              80,
+              [['fetch().then(r => r);', 'fetch().then(r => r).catch(e => e);']],
+            ],
+            [
+              '동기적 착각',
+              '데이터를 받기도 전에 렌더링을 시도합니다. 비동기 대기 로직을 추가하십시오.',
+              'Promise를 반환하는 함수 앞에는 await가 필요합니다.',
+              80,
+              [['const res = fetch(url);', 'const res = await fetch(url);']],
+            ],
+            [
+              '직렬화 오류',
+              '데이터를 저장했으나 읽을 수가 없습니다. 문자열 변환 로직을 적용하십시오.',
+              'JSON.stringify를 통해 객체를 문자열로 바꾸십시오.',
+              80,
+              [["storage.set('u', user);", "storage.set('u', JSON.stringify(user));"]],
+            ],
+          ]),
+        },
+        react: {
+          1: buildSet('react', 1, [
+            [
+              '클래스 충돌',
+              '스타일 클래스가 적용되지 않습니다. React 표준 속성명으로 교체하십시오.',
+              'class 대신 className을 사용해야 합니다.',
+              40,
+              [["<div class='wrap'>", "<div className='wrap'>"]],
+            ],
+            [
+              '레이블 단절',
+              '클릭 연결이 작동하지 않습니다. React 표준 속성명으로 수정하십시오.',
+              'for 대신 htmlFor를 사용해야 합니다.',
+              40,
+              [["<label for='id'>", "<label htmlFor='id'>"]],
+            ],
+            [
+              '이벤트 오타',
+              '버튼 이벤트가 무시됩니다. React 명명 규칙을 확인하십시오.',
+              '카멜케이스인 onClick을 사용하십시오.',
+              40,
+              [['<button onclick={f}>', '<button onClick={f}>']],
+            ],
+            [
+              '훅 이름 오류',
+              '상태 관리 엔진 가동에 실패했습니다. 표준 함수명을 기재하십시오.',
+              'useState의 철자를 확인하십시오.',
+              40,
+              [['const [s, set] = useStated(0);', 'const [s, set] = useState(0);']],
+            ],
+            [
+              '대문자 법칙',
+              '컴포넌트가 화면에 나오지 않습니다. 선언부 명명 규칙을 확인하십시오.',
+              '컴포넌트 이름의 첫 글자는 대문자여야 합니다.',
+              40,
+              [['const card = () => {', 'const Card = () => {']],
+            ],
+          ]),
+          2: buildSet('react', 2, [
+            [
+              '부모의 부재',
+              '복수의 요소를 반환하려다 에러가 발생했습니다. 빈 태그로 묶으십시오.',
+              'Fragment (<></>)를 사용하여 그룹화하십시오.',
+              50,
+              [['return <p/><p/>;', 'return <><p/><p/></>;']],
+            ],
+            [
+              '객체 스타일',
+              '인라인 스타일이 무시됩니다. 올바른 데이터 형식을 전달하십시오.',
+              '스타일은 {{ }} 중괄호 두 개로 감싸 전달합니다.',
+              50,
+              [["<div style='color:red'>", "<div style={{color:'red'}}>"]],
+            ],
+            [
+              '구조분해',
+              '상태값과 함수를 할당하지 못했습니다. 반환 데이터 형식을 수정하십시오.',
+              'useState는 배열 [] 형태로 반환됩니다.',
+              50,
+              [['const {v, set} = useState();', 'const [v, set] = useState();']],
+            ],
+            [
+              '맵의 침묵',
+              '리스트 데이터가 렌더링되지 않습니다. 반환 로직을 수사하십시오.',
+              '중괄호 { } 사용 시 명시적인 return이 필요합니다.',
+              50,
+              [['arr.map(x => { <li/> })', 'arr.map(x => { return <li/> })']],
+            ],
+            [
+              '이펙트 폭주',
+              '의존성 설정 실수로 무한 렌더링이 발생합니다. 실행 시점 로직을 수정하십시오.',
+              '최초 마운트 시에만 실행하려면 []를 추가하십시오.',
+              50,
+              [['useEffect(() => { f() })', 'useEffect(() => { f() }, [])']],
+            ],
+          ]),
+          3: buildSet('react', 3, [
+            [
+              '즉시 실행',
+              '버튼을 누르기도 전에 기능이 실행됩니다. 핸들러 참조 로직을 수정하십시오.',
+              'onClick에는 실행 결과가 아닌 함수 이름만 넘기십시오.',
+              60,
+              [['<button onClick={run()}>', '<button onClick={run}>']],
+            ],
+            [
+              '상태 변이',
+              '데이터를 수정했으나 화면이 갱신되지 않습니다. 불변성 유지 로직으로 수정하십시오.',
+              '상태 직접 변경 대신 새 객체를 할당하십시오.',
+              60,
+              [['arr.push(1); set(arr);', 'set([...arr, 1]);']],
+            ],
+            [
+              '키의 부재',
+              '리스트 렌더링 성능이 저하되거나 에러가 납니다. 고유 식별자 로직을 추가하십시오.',
+              'map 루프 요소에는 고유한 key가 필수입니다.',
+              60,
+              [['items.map(i => <li>)', 'items.map(i => <li key={i.id}>)']],
+            ],
+            [
+              '숫자 0 노출',
+              '값이 0일 때 화면에 0이 그대로 그려집니다. 논리 평가 로직을 수정하십시오.',
+              '&& 대신 명시적 불리언 비교를 사용하십시오.',
+              60,
+              [['{count && <p>Alert</p>}', '{count > 0 && <p>Alert</p>}']],
+            ],
+            [
+              '이전 상태',
+              '빠른 연타 시 숫자가 누락됩니다. 업데이트 보장 로직을 적용하십시오.',
+              'set(prev => prev + 1) 형식을 사용하십시오.',
+              60,
+              [['setCount(count + 1)', 'setCount(prev => prev + 1)']],
+            ],
+          ]),
+          4: buildSet('react', 4, [
+            [
+              '오래된 클로저',
+              '이펙트 내부 값이 항상 초기 상태입니다. 데이터 동기화 로직을 수정하십시오.',
+              '의존성 배열에 참조하는 상태 변수를 포함하십시오.',
+              80,
+              [['useEffect(() => { f(v) }, [])', 'useEffect(() => { f(v) }, [v])']],
+            ],
+            [
+              '참조 미아',
+              'DOM 직접 조작 시 undefined 에러가 납니다. 참조 객체 접근 로직을 수정하십시오.',
+              'ref 객체는 .current 속성을 통해 접근해야 합니다.',
+              80,
+              [['ref.focus()', 'ref.current.focus()']],
+            ],
+            [
+              '불필요 렌더',
+              '부모가 리렌더링될 때 자식도 같이 그려집니다. 최적화 로직을 적용하십시오.',
+              'React.memo()로 컴포넌트를 보호하십시오.',
+              80,
+              [['const Child = (p) => {', 'const Child = React.memo((p) => {']],
+            ],
+            [
+              '함수 재생성',
+              '자식에게 넘기는 함수가 매번 새로 생성되어 최적화가 깨집니다. 캐싱 로직을 적용하십시오.',
+              'useCallback()으로 함수를 메모이제이션하십시오.',
+              80,
+              [['const h = () => { }', 'const h = useCallback(() => { }, [])']],
+            ],
+            [
+              '정리 누락',
+              '컴포넌트가 사라져도 타이머가 계속 돌아갑니다. 클린업 로직을 추가하십시오.',
+              'useEffect 끝에서 정리 함수를 반환하십시오.',
+              80,
+              [['useEffect(() => { sI(f) })', 'useEffect(() => { const t=sI(f); return()=>cI(t) })']],
+            ],
+          ]),
+        },
+      };
+
+      let gameState = 'intro',
+        selectedLang = 'javascript',
+        selectedDifficulty = 1,
+        sessionCases = [],
+        currentLevelIdx = 0,
+        timeLeft = 0,
+        levelLines = [],
+        score = 0,
+        validationErrors = [],
+        showHint = false,
+        timerInterval = null;
+      const screens = {
+        intro: document.getElementById('screen-intro'),
+        caseSelect: document.getElementById('screen-case-select'),
+        gameplay: document.getElementById('screen-gameplay'),
+        completed: document.getElementById('screen-completed'),
+      };
+
+      function changeState(newState) {
+        Object.values(screens).forEach((s) => s.classList.add('hidden'));
+        gameState = newState;
+        if (newState === 'intro') screens.intro.classList.remove('hidden');
+        else if (newState === 'case_select') {
+          screens.caseSelect.classList.remove('hidden');
+          renderCaseSelect();
+        } else if (['playing', 'briefing', 'success', 'gameover'].includes(newState)) {
+          screens.gameplay.classList.remove('hidden');
+          renderGameplay();
+        } else if (newState === 'completed') {
+          screens.completed.classList.remove('hidden');
+          document.getElementById('final-score').textContent = score;
+        }
+        updateTimerLogic();
+        lucide.createIcons();
+      }
+
+      function startGame() {
+        playSound.select();
+        changeState('case_select');
+      }
+      function setLang(lang) {
+        selectedLang = lang;
+        playSound.select();
+        renderCaseSelect();
+      }
+      function setDiff(diff) {
+        selectedDifficulty = diff;
+        playSound.select();
+        renderCaseSelect();
+      }
+      function startOperation() {
+        playSound.select();
+        const pool = GAME_DATABASE[selectedLang][selectedDifficulty];
+        sessionCases = shuffleArray(pool).slice(0, 5);
+        currentLevelIdx = 0;
+        score = 0;
+        initLevel();
+      }
+      function initLevel() {
+        const currentLevel = sessionCases[currentLevelIdx];
+        if (!currentLevel) return;
+        levelLines = currentLevel.code.map((item) => ({ ...item, currentText: item.text }));
+        timeLeft = currentLevel.time;
+        validationErrors = [];
+        showHint = false;
+        changeState('briefing');
+      }
+      function enterField() {
+        playSound.select();
+        changeState('playing');
+      }
+      function triggerHint() {
+        showHint = true;
+        playSound.hint();
+        renderGameplay();
+      }
+      function handleInput(id, value) {
+        const line = levelLines.find((l) => l.id === id);
+        if (line) {
+          line.currentText = value;
+          validationErrors = validationErrors.filter((errId) => errId !== id);
+          const el = document.getElementById(`input-${id}`);
+          if (el) el.classList.remove('error', 'animate-shake');
+        }
+      }
+      function verifySequence() {
+        const errors = [];
+        let isAllCorrect = true;
+        levelLines.forEach((line) => {
+          const targetText = line.isBug ? line.fixed : line.text;
+          if (normalize(line.currentText) !== normalize(targetText)) {
+            errors.push(line.id);
+            isAllCorrect = false;
+          }
+        });
+        if (isAllCorrect) {
+          playSound.success();
+          score += 500 * selectedDifficulty + timeLeft * 5;
+          changeState('success');
+        } else {
+          playSound.error();
+          validationErrors = errors;
+          timeLeft = Math.max(0, timeLeft - 10);
+          updateTimerUI();
+          renderEditor();
+        }
+      }
+      function togglePauseMenu(show) {
+        playSound.select();
+        document.getElementById('overlay-pause').classList.toggle('hidden', !show);
+        if (show) clearInterval(timerInterval);
+        else updateTimerLogic();
+      }
+      function retryAssignment() {
+        playSound.select();
+        togglePauseMenu(false);
+        initLevel();
+      }
+      function nextAssignment() {
+        playSound.select();
+        if (currentLevelIdx < sessionCases.length - 1) {
+          currentLevelIdx++;
+          initLevel();
+        } else changeState('completed');
+      }
+      function goToCaseSelect() {
+        playSound.select();
+        togglePauseMenu(false);
+        changeState('case_select');
+      }
+
+      function renderCaseSelect() {
+        const langContainer = document.getElementById('lang-buttons');
+        langContainer.innerHTML = [
+          { id: 'html', icon: 'layout', label: 'HTML' },
+          { id: 'css', icon: 'file-json', label: 'CSS' },
+          { id: 'javascript', icon: 'code-2', label: 'JavaScript' },
+          { id: 'react', icon: 'atom', label: 'React' },
+        ]
+          .map(
+            (lang) => `
+        <button onclick="setLang('${lang.id}')" class="p-6 border-2 flex flex-col items-center gap-3 transition-all ${selectedLang === lang.id ? 'border-cyan-500 bg-cyan-950/20 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.4)]' : 'border-slate-800 bg-slate-900/30 text-slate-500 hover:border-slate-600'}">
+          <div class="${selectedLang === lang.id ? 'animate-pulse' : ''}"><i data-lucide="${lang.icon}"></i></div>
+          <span class="font-black uppercase tracking-tighter">${lang.label}</span>
+        </button>`
+          )
+          .join('');
+        document.getElementById('diff-label').textContent =
+          `LV.${selectedDifficulty} ${selectedDifficulty === 1 ? 'Basic' : selectedDifficulty === 2 ? 'Syntax' : selectedDifficulty === 3 ? 'Logic' : 'Algo'}`;
+        document.getElementById('diff-buttons').innerHTML = [1, 2, 3, 4]
+          .map(
+            (num) => `
+        <button onclick="setDiff(${num})" class="flex-1 py-4 font-black border-2 transition-all ${selectedDifficulty === num ? 'border-red-600 bg-red-950/20 text-red-500 shadow-[0_0_15px_rgba(220,38,38,0.4)]' : 'border-slate-800 bg-slate-900/30 text-slate-700 hover:border-slate-700'}">${num === 4 ? '<i data-lucide="skull" class="mx-auto w-5 h-5"></i>' : num}</button>`
+          )
+          .join('');
+        lucide.createIcons();
+      }
+
+      function renderGameplay() {
+        const currentLevel = sessionCases[currentLevelIdx];
+        if (!currentLevel) return;
+        document.getElementById('gp-title').textContent = `${currentLevel.title} (${currentLevelIdx + 1}/5)`;
+        document.getElementById('gp-score').textContent = score;
+        updateTimerUI();
+        document.getElementById('gp-briefing-bar').textContent = `${currentLevel.briefing}`;
+        const hintBtn = document.getElementById('btn-hint'),
+          hintBar = document.getElementById('hint-bar'),
+          hintText = document.getElementById('gp-hint-bar');
+        if (selectedDifficulty >= 3 && gameState === 'playing' && !showHint) hintBtn.classList.remove('hidden');
+        else hintBtn.classList.add('hidden');
+        if (showHint) {
+          hintBar.classList.remove('hidden');
+          hintText.textContent = `시스템 단서: ${currentLevel.hint}`;
+        } else hintBar.classList.add('hidden');
+        document.getElementById('overlay-briefing').classList.toggle('hidden', gameState !== 'briefing');
+        document.getElementById('overlay-briefing-text').textContent = currentLevel.briefing;
+        document.getElementById('overlay-success').classList.toggle('hidden', gameState !== 'success');
+        document.getElementById('overlay-gameover-banner').classList.toggle('hidden', gameState !== 'gameover');
+        document.getElementById('btn-verify').classList.toggle('hidden', gameState !== 'playing');
+        document.getElementById('btn-retry-footer').classList.toggle('hidden', gameState !== 'gameover');
+        renderEditor();
+      }
+
+      function renderEditor() {
+        const container = document.getElementById('editor-lines');
+        container.innerHTML = '';
+        levelLines.forEach((line, index) => {
+          const div = document.createElement('div');
+          div.className = 'flex flex-col mb-2';
+          const innerDiv = document.createElement('div');
+          innerDiv.className = 'flex items-center';
+          const num = document.createElement('div');
+          num.className = 'code-line-num';
+          num.textContent = index + 1;
+          const input = document.createElement('input');
+          input.id = `input-${line.id}`;
+          input.type = 'text';
+          input.disabled = gameState === 'gameover';
+          input.value = line.currentText;
+          input.className = `code-input ${validationErrors.includes(line.id) ? 'error animate-shake' : ''}`;
+          input.spellcheck = false;
+          input.placeholder = 'Analyze and fix...';
+          input.addEventListener('input', (e) => handleInput(line.id, e.target.value));
+          innerDiv.appendChild(num);
+          innerDiv.appendChild(input);
+          div.appendChild(innerDiv);
+          if (gameState === 'gameover' && line.isBug) {
+            const hintDiv = document.createElement('div');
+            hintDiv.className = 'ml-[48px] mt-1 text-xs font-bold text-red-500/80 italic flex items-center gap-2';
+            hintDiv.innerHTML = `<i data-lucide="history" class="w-3 h-3"></i> <span>정답 지침: ${escapeHtml(line.fixed)}</span>`;
+            div.appendChild(hintDiv);
+          }
+          container.appendChild(div);
+        });
+        lucide.createIcons();
+      }
+
+      function updateTimerLogic() {
+        clearInterval(timerInterval);
+        if (gameState === 'playing') {
+          timerInterval = setInterval(() => {
+            timeLeft--;
+            if (timeLeft <= 10 && timeLeft > 0) playSound.heartbeat();
+            if (timeLeft <= 0) {
+              timeLeft = 0;
+              playSound.error();
+              changeState('gameover');
+            } else updateTimerUI();
+          }, 1000);
+        }
+      }
+      function updateTimerUI() {
+        const el = document.getElementById('gp-time');
+        if (el) {
+          el.textContent = `${timeLeft}s`;
+          if (timeLeft <= 10) {
+            el.classList.remove('text-cyan-500');
+            el.classList.add('text-red-500', 'animate-pulse');
+          } else {
+            el.classList.remove('text-red-500', 'animate-pulse');
+            el.classList.add('text-cyan-500');
+          }
+        }
+      }
+      lucide.createIcons();
+      changeState('intro');
+    </script>
+  </body>
+</html>

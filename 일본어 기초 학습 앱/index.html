@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Japanese Basic Learning v0.2.8</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap');
+    body { font-family: 'Noto Sans KR', 'Noto Sans JP', sans-serif; }
+    .card { transition: all 0.3s ease; }
+    .card:hover { transform: translateY(-5px); }
+    .key-btn { @apply p-2 text-sm bg-white border border-slate-200 rounded hover:bg-indigo-50 active:bg-indigo-100 transition-colors; }
+    .special-key-btn { @apply p-2 text-sm bg-indigo-50 border border-indigo-200 rounded font-bold text-indigo-700 hover:bg-indigo-100 transition-colors; }
+    .correct-btn { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
+    .wrong-btn { background-color: #EF4444 !important; color: white !important; border-color: #DC2626 !important; }
+    .loading-dots:after { content: ' .'; animation: dots 1.5s steps(5, end) infinite; }
+    @keyframes dots { 0%, 20% { content: ' .'; } 40% { content: ' ..'; } 60% { content: ' ...'; } 80%, 100% { content: ''; } }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+
+<div id="app" class="max-w-2xl mx-auto p-4 md:p-8">
+  <!-- Header -->
+  <header class="text-center mb-8">
+    <h1 class="text-3xl font-bold text-indigo-600 mb-2">일본어 기초 학습</h1>
+    <p class="text-slate-500 font-medium">Japanese Basic Learning v0.2.8</p>
+  </header>
+
+  <!-- Navigation -->
+  <nav id="main-nav" class="grid grid-cols-2 gap-4 mb-8">
+    <button onclick="changeMode('chars')" class="card bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center hover:border-indigo-300">
+      <span class="text-3xl mb-2">あ</span>
+      <span class="font-bold text-sm">문자 학습</span>
+    </button>
+    <button onclick="changeMode('speech')" class="card bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center hover:border-indigo-300">
+      <span class="text-3xl mb-2">🗣️</span>
+      <span class="font-bold text-sm">스피치 학습</span>
+    </button>
+    <button onclick="changeMode('dictation_hira')" class="card bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center hover:border-indigo-300">
+      <span class="text-3xl mb-2">✍️</span>
+      <span class="font-bold text-sm">히라가나 받아쓰기</span>
+    </button>
+    <button onclick="changeMode('dictation_kata')" class="card bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center hover:border-indigo-300">
+      <span class="text-3xl mb-2">📒</span>
+      <span class="font-bold text-sm">가타카나 받아쓰기</span>
+    </button>
+  </nav>
+
+  <!-- Character Section -->
+  <section id="chars-section" class="hidden bg-white p-8 rounded-3xl shadow-lg text-center border border-slate-100">
+    <div class="flex justify-between items-center mb-6">
+      <button onclick="goHome()" class="text-indigo-600 font-bold px-4 py-2 hover:bg-indigo-50 rounded-lg transition">← 홈</button>
+      <div id="char-toggle" class="bg-slate-100 p-1 rounded-lg flex gap-1">
+        <button onclick="setCharType('hiragana')" id="btn-hiragana" class="px-3 py-1 rounded-md bg-indigo-500 text-white transition">히라가나</button>
+        <button onclick="setCharType('katakana')" id="btn-katakana" class="px-3 py-1 rounded-md text-slate-600 transition">가타카나</button>
+      </div>
+    </div>
+
+    <div id="char-display" class="text-8xl font-bold mb-12 text-slate-700 h-32 flex items-center justify-center">?</div>
+
+    <div id="char-options" class="grid grid-cols-2 gap-4">
+      <!-- Buttons injected here -->
+    </div>
+
+    <div id="char-feedback" class="mt-8 font-bold h-6 transition-all duration-300"></div>
+  </section>
+
+  <!-- Loading State -->
+  <div id="loading-overlay" class="hidden fixed inset-0 bg-white/90 backdrop-blur-md flex items-center justify-center z-50">
+    <div class="flex flex-col items-center">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+      <p class="text-indigo-600 font-medium text-center px-4" id="loading-message">Gemini가 학습 문장을 준비 중입니다...</p>
+    </div>
+  </div>
+
+  <!-- Sentence Section -->
+  <section id="sentence-section" class="hidden bg-white p-8 rounded-3xl shadow-lg border border-slate-100">
+    <div class="flex justify-between items-center mb-4">
+      <button onclick="goHome()" class="text-indigo-600 font-bold px-4 py-2 hover:bg-indigo-50 rounded-lg transition">← 홈</button>
+      <span id="sentence-progress" class="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-xs font-bold">1 / 5</span>
+    </div>
+
+    <div class="text-center">
+      <h2 id="section-title" class="text-xl font-bold text-slate-800">학습</h2>
+      <!-- Fixed Position for Audio Status -->
+      <p id="audio-status" class="text-indigo-500 text-sm font-medium h-6 mb-4 mt-1"></p>
+
+      <div id="target-sentence-box" class="mb-8 min-h-32 flex flex-col items-center justify-center p-6 rounded-2xl bg-slate-50 border border-dashed border-slate-200 transition-all duration-300">
+        <p id="target-sentence" class="text-2xl font-bold text-slate-700 leading-relaxed mb-2"></p>
+        <p id="target-translation" class="text-base text-slate-400 font-medium"></p>
+      </div>
+
+      <!-- Speech UI -->
+      <div id="speech-controls" class="hidden">
+        <button id="record-btn" class="w-20 h-20 rounded-full bg-red-100 flex items-center justify-center border-4 border-white shadow-xl mx-auto hover:bg-red-200 active:scale-95 transition mb-6">
+          <span id="mic-icon" class="text-3xl">🎤</span>
+        </button>
+        <p id="speech-status" class="mb-4 text-slate-400 text-sm">마이크를 눌러 발음해 보세요.</p>
+        <p id="recognized-text" class="mb-4 font-medium text-indigo-600 min-h-6 bg-indigo-50 p-2 rounded-lg"></p>
+        <div class="flex justify-center gap-4">
+          <button onclick="showAnswer()" class="text-indigo-600 text-sm font-bold border border-indigo-200 px-6 py-3 rounded-xl hover:bg-indigo-50 transition flex items-center">
+            <span class="mr-2">👁️</span> 정답 보기 & 듣기
+          </button>
+        </div>
+      </div>
+
+      <!-- Dictation UI -->
+      <div id="dictation-controls" class="hidden">
+        <div class="flex gap-4 justify-center mb-6">
+          <button id="listen-btn" class="px-6 py-3 bg-indigo-600 text-white rounded-xl shadow-md flex items-center hover:bg-indigo-700 transition">
+            <span id="listen-icon" class="mr-2">🔊</span> 문장 듣기
+          </button>
+          <button onclick="showAnswer()" class="px-6 py-3 bg-white text-indigo-600 border border-indigo-200 rounded-xl shadow-sm flex items-center hover:bg-indigo-50 transition">
+            <span class="mr-2">👁️</span> 정답 보기
+          </button>
+        </div>
+        <input type="text" id="dictation-input" autocomplete="off" placeholder="문장을 입력하세요" class="w-full p-4 border-2 border-slate-100 rounded-xl mb-6 text-center text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 outline-none transition text-slate-700 font-bold">
+
+        <!-- Virtual Keyboard -->
+        <div id="virtual-keyboard" class="grid grid-cols-5 gap-1 p-2 bg-slate-100 rounded-xl mb-6 max-h-48 overflow-y-auto shadow-inner text-slate-600">
+          <!-- Keys injected here -->
+        </div>
+
+        <button onclick="checkDictation()" class="w-full py-4 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 shadow-lg active:scale-[0.98] transition">정답 확인</button>
+      </div>
+
+      <div id="sentence-feedback" class="mt-8 font-bold h-12 text-lg flex items-center justify-center"></div>
+      <button id="next-btn" onclick="nextSentence()" class="hidden mt-6 w-full py-4 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 shadow-lg active:scale-[0.98] transition">다음 단계로 →</button>
+    </div>
+  </section>
+</div>
+
+<script>
+  const apiKey = "";
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'uteco-jp-learner-v1';
+
+  // --- DATA ---
+  const HIRAGANA = {
+    'あ': 'a', 'い': 'i', 'う': 'u', 'え': 'e', 'お': 'o',
+    'か': 'ka', 'き': 'ki', 'く': 'ku', 'け': 'ke', 'こ': 'ko',
+    'さ': 'sa', 'し': 'shi', 'す': 'su', 'せ': 'se', 'そ': 'so',
+    'た': 'ta', 'ち': 'chi', 'つ': 'tsu', 'て': 'te', 'と': 'to',
+    'な': 'na', '에': 'ni', 'ぬ': 'nu', '네': 'ne', '의': 'no',
+    'ん': 'n', 'は': 'ha', 'ひ': 'hi', 'ふ': 'fu', 'へ': 'he', 'ほ': 'ho',
+    'ま': 'ma', 'み': 'mi', 'む': 'mu', 'め': 'me', 'も': 'mo',
+    'や': 'ya', 'ゆ': 'yu', 'よ': 'yo',
+    'ら': 'ra', 'り': 'ri', 'る': 'ru', 'れ': 're', 'ろ': 'ro',
+    'わ': 'wa', 'を': 'wo',
+    '가': 'ga', 'ぎ': 'gi', 'ぐ': 'gu', 'げ': 'ge', 'ご': 'go',
+    'ざ': 'za', '지': 'ji', 'ず': 'zu', 'ぜ': 'ze', 'ぞ': 'zo',
+    '다': 'da', 'ぢ': 'ji', 'づ': 'zu', 'で': 'de', 'ど': 'do',
+    'ば': 'ba', '비': 'bi', '부': 'bu', '베': 'be', 'ぼ': 'bo',
+    'ぱ': 'pa', 'ぴ': 'pi', 'ぷ': 'pu', 'ぺ': 'pe', 'ぽ': 'po',
+    'きゃ': 'kya', 'きゅ': 'kyu', 'きょ': 'kyo',
+    'しゃ': 'sha', 'しゅ': 'shu', 'しょ': 'sho',
+    'ちゃ': 'cha', 'ちゅ': 'chu', 'ちょ': 'cho',
+    'にゃ': 'nya', 'にゅ': 'nyu', '에': 'nyo', '에': 'nyo', '에': 'nyo',
+    'ひゃ': 'hya', '히': 'hyu', 'ひゅ': 'hyu', '히': 'hyo', '히ょ': 'hyo',
+    '미': 'mya', 'みゃ': 'mya', 'みゅ': 'myu', '미': 'myo', 'みょ': 'myo',
+    '리': 'rya', 'りゃ': 'rya', '리': 'ryu', '리ゅ': 'ryu', '리': 'ryo', '리ょ': 'ryo',
+    'ぎゃ': 'gya', 'ぎゅ': 'gyu', 'ぎょ': 'gyo',
+    'じゃ': 'ja', 'じゅ': 'ju', 'じょ': 'jo',
+    '비': 'bya', '비ゃ': 'bya', '비': 'byu', '비ュ': 'byu', '비': 'byo', '비ょ': 'byo',
+    '피': 'pya', '피ゃ': 'pya', '피': 'pyu', '피ゅ': 'pyu', '피': 'pyo', '피ょ': 'pyo',
+    'っ': 'sokuon', 'ー': 'choon'
+  };
+
+  const KATAKANA = {
+    'ア': 'a', 'イ': 'i', 'ウ': 'u', 'エ': 'e', 'オ': 'o',
+    'カ': 'ka', 'キ': 'ki', 'ク': 'ku', '케': 'ke', 'ケ': 'ke', 'コ': 'ko',
+    'サ': 'sa', '시': 'shi', 'シ': 'shi', 'ス': 'su', '세': 'se', 'ソ': 'so',
+    'タ': 'ta', 'チ': 'chi', 'ツ': 'tsu', '테': 'te', 'テ': 'te', 'ト': 'to',
+    'ナ': 'na', 'ニ': 'ni', 'ヌ': 'nu', '네': 'ne', 'ノ': 'no',
+    'ハ': 'ha', 'ヒ': 'hi', 'フ': 'fu', 'ヘ': 'he', 'ホ': 'ho',
+    '마': 'ma', 'マ': 'ma', 'ミ': 'mi', 'ム': 'mu', 'メ': 'me', 'モ': 'mo',
+    'ヤ': 'ya', 'ユ': 'yu', 'ヨ': 'yo',
+    '라': 'ra', '리': 'ri', 'リ': 'ri', 'ル': 'ru', 'レ': 're', 'ロ': 'ro',
+    'ワ': 'wa', 'ヲ': 'wo', 'ン': 'n',
+    'ガ': 'ga', 'ギ': 'gi', 'グ': 'gu', 'ゲ': 'ge', 'ゴ': 'go',
+    'ザ': 'za', 'ジ': 'ji', 'ズ': 'zu', 'ゼ': 'ze', 'ゾ': 'zo',
+    'ダ': 'da', 'ヂ': 'ji', 'ヅ': 'zu', 'デ': 'de', 'ド': 'do',
+    'バ': 'ba', 'ビ': 'bi', 'ブ': 'bu', 'ベ': 'be', 'ボ': 'bo',
+    'パ': 'pa', 'ピ': 'pi', 'プ': 'pu', 'ペ': 'pe', 'ポ': 'po',
+    'キャ': 'kya', 'キュ': 'kyu', 'キョ': 'kyo',
+    'シャ': 'sha', 'シュ': 'shu', 'ショ': 'sho',
+    'チャ': 'cha', 'チュ': 'chu', 'チョ': 'cho',
+    'ニャ': 'nya', 'ニュ': 'nyu', 'ニョ': 'nyo',
+    'ヒャ': 'hya', 'ヒュ': 'hyu', 'ヒョ': 'hyo',
+    'ミャ': 'mya', 'ミュ': 'myu', 'ミョ': 'myo',
+    '리': 'rya', 'リャ': 'rya', 'リュ': 'ryu', 'リョ': 'ryo',
+    'ギャ': 'gya', 'ギュ': 'gyu', 'ギョ': 'gyo',
+    'ジャ': 'ja', 'ジュ': 'ju', 'ジョ': 'jo',
+    '비': 'bya', '비ゃ': 'bya', '비': 'byu', '비ュ': 'byu', '비': 'byo', '비ょ': 'byo',
+    '피': 'pya', '피ゃ': 'pya', '피': 'pyu', '피ゅ': 'pyu', '피': 'pyo', '피ょ': 'pyo',
+    'ッ': 'sokuon', 'ー': 'choon'
+  };
+
+  const purifyData = (obj) => {
+    const korRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/;
+    for (let key in obj) { if (korRegex.test(key)) delete obj[key]; }
+  };
+  purifyData(HIRAGANA); purifyData(KATAKANA);
+
+  // Data Consistency
+  HIRAGANA['に'] = 'ni'; HIRAGANA['ふ'] = 'fu'; HIRAGANA['の'] = 'no'; HIRAGANA['と'] = 'to';
+  HIRAGANA['を'] = 'wo'; HIRAGANA['こ'] = 'ko'; HIRAGANA['う'] = 'u'; HIRAGANA['も'] = 'mo';
+  HIRAGANA['りゃ'] = 'rya'; HIRAGANA['리ゅ'] = 'ryu'; HIRAGANA['りゅ'] = 'ryu'; HIRAGANA['りょ'] = 'ryo';
+  KATAKANA['タ'] = 'ta'; KATAKANA['ヒ'] = 'hi'; KATAKANA['ヤ'] = 'ya'; KATAKANA['라'] = 'ra'; KATAKANA['ラ'] = 'ra';
+  KATAKANA['리'] = 'ri'; KATAKANA['リ'] = 'ri'; KATAKANA['ロ'] = 'ro'; KATAKANA['ヨ'] = 'yo';
+  KATAKANA['ケ'] = 'ke'; KATAKANA['네'] = 'ne'; KATAKANA['ネ'] = 'ne'; KATAKANA['우'] = 'u'; KATAKANA['ウ'] = 'u'; KATAKANA['시'] = 'shi'; KATAKANA['シ'] = 'shi';
+
+  purifyData(HIRAGANA); purifyData(KATAKANA);
+
+  let currentMode = 'nav';
+  let currentType = 'hiragana';
+  let lastChar = null;
+  let sentences = []; // { ja: string, ko: string }
+  let audioCache = [];
+  let currentSentenceIdx = 0;
+  let isSpeechRecognitionActive = false;
+
+  // --- API UTILS ---
+  async function callGemini(prompt, systemInstruction) {
+    let delay = 1000;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            systemInstruction: { parts: [{ text: systemInstruction }] }
+          })
+        });
+        if (!response.ok) throw new Error('API Error');
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text;
+      } catch (err) {
+        await new Promise(r => setTimeout(r, delay));
+        delay *= 2;
+      }
+    }
+    throw new Error('AI 연동 실패');
+  }
+
+  function pcmToWav(pcmData, sampleRate) {
+    const headerLength = 44;
+    const totalLength = headerLength + pcmData.length;
+    const buffer = new ArrayBuffer(totalLength);
+    const view = new DataView(buffer);
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+    };
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + pcmData.length, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, pcmData.length, true);
+    const pcmView = new Uint8Array(buffer, headerLength);
+    pcmView.set(pcmData);
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  async function fetchAudio(index, retryCount = 0) {
+    if (audioCache[index]) return audioCache[index];
+    try {
+      const text = sentences[index].ja;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `Say naturally: ${text}` }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } }
+          },
+          model: "gemini-2.5-flash-preview-tts"
+        })
+      });
+      if (!response.ok) throw new Error(`TTS API Error: ${response.status}`);
+      const result = await response.json();
+      const candidate = result.candidates?.[0];
+      if (candidate?.finishReason === "OTHER" && retryCount < 3) {
+        const backoff = Math.pow(2, retryCount) * 1000;
+        await new Promise(r => setTimeout(r, backoff));
+        return fetchAudio(index, retryCount + 1);
+      }
+      const audioPart = candidate?.content?.parts?.find(p => p.inlineData);
+      if (!audioPart || !audioPart.inlineData) throw new Error(`No audio data found`);
+      const { data, mimeType } = audioPart.inlineData;
+      const sampleRateMatch = mimeType.match(/rate=(\d+)/);
+      const sampleRate = sampleRateMatch ? parseInt(sampleRateMatch[1]) : 24000;
+      const binaryString = atob(data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+      const wavBlob = pcmToWav(bytes, sampleRate);
+      const audioUrl = URL.createObjectURL(wavBlob);
+      audioCache[index] = audioUrl;
+      return audioUrl;
+    } catch (err) {
+      console.error(`Audio fetch error for index ${index}:`, err);
+      return null;
+    }
+  }
+
+  async function prefetchAllAudio() {
+    const statusEl = document.getElementById('audio-status');
+    if (statusEl) {
+      statusEl.textContent = '음성 생성 중';
+      statusEl.classList.add('loading-dots');
+    }
+    for (let i = 0; i < sentences.length; i++) {
+      await fetchAudio(i);
+    }
+    if (statusEl) {
+      const loadedCount = audioCache.filter(x => x).length;
+      statusEl.textContent = loadedCount === sentences.length ? '음성 준비 완료 ✨' : `음성 일부 로드 (${loadedCount}/${sentences.length})`;
+      statusEl.classList.remove('loading-dots');
+      setTimeout(() => { if (statusEl.textContent.includes('완료')) statusEl.textContent = ''; }, 3000);
+    }
+  }
+
+  async function playTTS() {
+    const feedback = document.getElementById('sentence-feedback');
+    const index = currentSentenceIdx;
+    if (!audioCache[index]) await fetchAudio(index);
+    if (audioCache[index]) {
+      const audio = new Audio(audioCache[index]);
+      await audio.play();
+    } else {
+      if (feedback) feedback.textContent = '음성 재생 실패. 잠시 후 다시 시도해 보세요.';
+    }
+  }
+
+  function cleanText(text) {
+    return text.replace(/[。、.?!！？\s]/g, '').trim();
+  }
+
+  function showAnswer() {
+    const box = document.getElementById('target-sentence-box');
+    box.classList.remove('invisible');
+    box.classList.add('bg-amber-50', 'border-amber-200');
+
+    const feedback = document.getElementById('sentence-feedback');
+    feedback.textContent = '정답 발음을 들려드려요...';
+    feedback.className = 'mt-8 font-bold h-12 text-slate-500';
+
+    playTTS();
+  }
+
+  // --- APP CONTROLS ---
+
+  function changeMode(mode) {
+    currentMode = mode;
+    document.getElementById('main-nav').classList.add('hidden');
+    document.getElementById('chars-section').classList.add('hidden');
+    document.getElementById('sentence-section').classList.add('hidden');
+
+    if (mode === 'chars') {
+      document.getElementById('chars-section').classList.remove('hidden');
+      generateCharQuestion();
+    } else {
+      initSentenceMode(mode);
+    }
+  }
+
+  function goHome() {
+    if (isSpeechRecognitionActive) { try { recognition.stop(); } catch(e) {} }
+    audioCache.forEach(url => { if (url) URL.revokeObjectURL(url); });
+    audioCache = [];
+    document.getElementById('main-nav').classList.remove('hidden');
+    document.getElementById('chars-section').classList.add('hidden');
+    document.getElementById('sentence-section').classList.add('hidden');
+    currentMode = 'nav';
+  }
+
+  // --- CHAR QUIZ ---
+
+  function setCharType(type) {
+    currentType = type;
+    document.getElementById('btn-hiragana').className = `px-3 py-1 rounded-md ${type === 'hiragana' ? 'bg-indigo-500 text-white' : 'text-slate-600'}`;
+    document.getElementById('btn-katakana').className = `px-3 py-1 rounded-md ${type === 'katakana' ? 'bg-indigo-500 text-white' : 'text-slate-600'}`;
+    generateCharQuestion();
+  }
+
+  function generateCharQuestion() {
+    const data = currentType === 'hiragana' ? HIRAGANA : KATAKANA;
+    const excludedValues = ['sokuon', 'choon'];
+    const keys = Object.keys(data).filter(k => !excludedValues.includes(data[k]));
+    let randomChar;
+    do { randomChar = keys[Math.floor(Math.random() * keys.length)]; } while (randomChar === lastChar);
+    lastChar = randomChar;
+    const correctRomaji = data[randomChar];
+    let options = [correctRomaji];
+    const allRomaji = Object.values(data).filter(v => !excludedValues.includes(v));
+    while (options.length < 4) {
+      const r = allRomaji[Math.floor(Math.random() * allRomaji.length)];
+      if (!options.includes(r)) options.push(r);
+    }
+    options.sort(() => Math.random() - 0.5);
+    document.getElementById('char-display').textContent = randomChar;
+    document.getElementById('char-feedback').textContent = '';
+    const optionsEl = document.getElementById('char-options');
+    optionsEl.innerHTML = '';
+    options.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.className = "py-6 bg-slate-50 border-2 border-slate-100 rounded-2xl text-xl font-bold hover:bg-white hover:border-indigo-300 transition text-slate-600 outline-none";
+      btn.textContent = opt;
+      btn.onclick = () => checkCharAnswer(btn, opt, correctRomaji);
+      optionsEl.appendChild(btn);
+    });
+  }
+
+  function checkCharAnswer(btn, selected, correct) {
+    const feedback = document.getElementById('char-feedback');
+    if (selected === correct) {
+      btn.classList.add('correct-btn');
+      feedback.textContent = '正解 (정답) ! ✨';
+      feedback.className = 'mt-8 font-bold h-6 text-green-500';
+      setTimeout(generateCharQuestion, 800);
+    } else {
+      btn.classList.add('wrong-btn');
+      feedback.textContent = '間違い (틀림) !';
+      feedback.className = 'mt-8 font-bold h-6 text-red-500';
+      setTimeout(() => btn.classList.remove('wrong-btn'), 800);
+    }
+  }
+
+  // --- SENTENCE MODES ---
+
+  async function initSentenceMode(mode) {
+    document.getElementById('loading-overlay').classList.remove('hidden');
+    document.getElementById('loading-message').textContent = "Gemini가 맞춤형 문장을 구성 중입니다...";
+    try {
+      let targetType = "Hiragana (including Dakuon, Youon, and Sokuon)";
+      if (mode === "dictation_kata") targetType = "Katakana (including Dakuon, Youon, Sokuon, and Long Vowels)";
+
+      const systemPrompt = `Create exactly 5 beginner Japanese sentences using ONLY ${targetType}. No Kanji.
+            Return ONLY as a valid JSON array of objects with 'ja' (Japanese) and 'ko' (Korean translation) keys.
+            Example: [{"ja": "おはよう", "ko": "안녕/좋은 아침"}, {"ja": "こんにちは", "ko": "안녕하세요"}]`;
+
+      const userPrompt = `Generate 5 daily life sentences for beginners using ${targetType}. No Kanji. Each must have a Korean translation.`;
+      const responseText = await callGemini(userPrompt, systemPrompt);
+
+      sentences = JSON.parse(responseText.replace(/```json|```/g, '').trim());
+      currentSentenceIdx = 0;
+      audioCache = new Array(sentences.length).fill(null);
+
+      setupKeyboard(mode);
+      renderSentence();
+
+      document.getElementById('sentence-section').classList.remove('hidden');
+      document.getElementById('section-title').textContent =
+          mode === 'speech' ? '스피치 학습' :
+              mode === 'dictation_hira' ? '히라가나 받아쓰기' : '가타카나 받아쓰기';
+
+      document.getElementById('speech-controls').classList.toggle('hidden', mode !== 'speech');
+      document.getElementById('dictation-controls').classList.toggle('hidden', !mode.startsWith('dictation'));
+
+      prefetchAllAudio();
+    } catch (err) {
+      console.error(err);
+      alert('문장을 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      goHome();
+    } finally { document.getElementById('loading-overlay').classList.add('hidden'); }
+  }
+
+  function setupKeyboard(mode) {
+    const kb = document.getElementById('virtual-keyboard');
+    kb.innerHTML = '';
+    const charSet = (mode === 'dictation_kata') ? KATAKANA : HIRAGANA;
+    Object.keys(charSet).forEach(char => {
+      const btn = document.createElement('button');
+      btn.className = 'key-btn font-bold text-base min-w-[2.5rem]';
+      btn.textContent = char;
+      btn.onclick = () => {
+        const input = document.getElementById('dictation-input');
+        input.value += char;
+        input.focus();
+      };
+      kb.appendChild(btn);
+    });
+    const bs = document.createElement('button');
+    bs.className = 'key-btn bg-slate-200 col-span-2 font-bold';
+    bs.textContent = 'DEL';
+    bs.onclick = () => {
+      const input = document.getElementById('dictation-input');
+      input.value = input.value.slice(0, -1);
+      input.focus();
+    };
+    kb.appendChild(bs);
+  }
+
+  function renderSentence() {
+    const sentence = sentences[currentSentenceIdx];
+    const box = document.getElementById('target-sentence-box');
+    box.classList.remove('bg-amber-50', 'border-amber-200');
+
+    document.getElementById('sentence-progress').textContent = `${currentSentenceIdx + 1} / ${sentences.length}`;
+    document.getElementById('target-sentence').textContent = sentence.ja;
+    document.getElementById('target-translation').textContent = ` 뜻: ${sentence.ko}`;
+    document.getElementById('sentence-feedback').textContent = '';
+    document.getElementById('next-btn').classList.add('hidden');
+
+    if (currentMode.startsWith('dictation')) {
+      document.getElementById('dictation-input').value = '';
+      box.classList.add('invisible');
+    } else {
+      box.classList.remove('invisible');
+      document.getElementById('recognized-text').textContent = '';
+    }
+  }
+
+  function nextSentence() {
+    if (currentSentenceIdx < sentences.length - 1) {
+      currentSentenceIdx++;
+      renderSentence();
+      const statusEl = document.getElementById('audio-status');
+      if (statusEl && !audioCache[currentSentenceIdx]) {
+        statusEl.textContent = '음성 생성 중';
+        statusEl.classList.add('loading-dots');
+      } else if (statusEl) {
+        statusEl.textContent = '';
+        statusEl.classList.remove('loading-dots');
+      }
+    } else {
+      alert('모든 학습을 완료했습니다!');
+      goHome();
+    }
+  }
+
+  // --- SPEECH RECOGNITION ---
+  const recordBtn = document.getElementById('record-btn');
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recognition = SpeechRecognition ? new SpeechRecognition() : null;
+
+  if (recognition) {
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = false;
+    recordBtn.onclick = () => {
+      if (isSpeechRecognitionActive) return;
+      try { recognition.start(); } catch(e) { console.warn(e); }
+    };
+    recognition.onstart = () => {
+      isSpeechRecognitionActive = true;
+      document.getElementById('mic-icon').textContent = '🔴';
+      document.getElementById('speech-status').textContent = '듣고 있습니다...';
+    };
+    recognition.onresult = async (event) => {
+      const result = event.results[0][0].transcript;
+      document.getElementById('recognized-text').textContent = `인식 결과: ${result}`;
+      await processSpeechResult(result);
+    };
+    recognition.onerror = () => { isSpeechRecognitionActive = false; document.getElementById('mic-icon').textContent = '🎤'; };
+    recognition.onend = () => { isSpeechRecognitionActive = false; document.getElementById('mic-icon').textContent = '🎤'; document.getElementById('speech-status').textContent = '마이크를 눌러 발음해 보세요.'; };
+  }
+
+  async function processSpeechResult(result) {
+    const target = cleanText(sentences[currentSentenceIdx].ja);
+    const cleanedResult = cleanText(result);
+    const feedback = document.getElementById('sentence-feedback');
+
+    if (cleanedResult === target) {
+      handleSpeechSuccess(feedback);
+      return;
+    }
+
+    feedback.textContent = '발음 판독 중...';
+    feedback.className = 'mt-8 font-bold h-12 text-indigo-400 loading-dots';
+
+    try {
+      const sysPrompt = "You are a Japanese phonetic judge. I will provide a target Japanese sentence (Hiragana) and a recognized text (which may contain Kanji). Judge if they sound identical. Return ONLY valid JSON: {\"isMatch\": true/false}";
+      const userPrompt = `Target: ${target}, Recognized: ${cleanedResult}. Do they sound the same?`;
+      const responseText = await callGemini(userPrompt, systemPrompt);
+      const data = JSON.parse(responseText.replace(/```json|```/g, '').trim());
+
+      if (data.isMatch) {
+        handleSpeechSuccess(feedback);
+      } else {
+        feedback.textContent = 'もう一度 (다시 한번)! 문장을 정확히 읽어주세요.';
+        feedback.className = 'mt-8 font-bold h-12 text-amber-500';
+        feedback.classList.remove('loading-dots');
+      }
+    } catch (e) {
+      feedback.textContent = '판독 실패. 다시 한번 읽어주세요.';
+      feedback.className = 'mt-8 font-bold h-12 text-red-400';
+      feedback.classList.remove('loading-dots');
+    }
+  }
+
+  function handleSpeechSuccess(feedback) {
+    feedback.textContent = 'すばらしい (훌륭해요) ! 🌟';
+    feedback.className = 'mt-8 font-bold h-12 text-green-500';
+    feedback.classList.remove('loading-dots');
+    document.getElementById('next-btn').classList.remove('hidden');
+    document.getElementById('target-sentence-box').classList.remove('invisible');
+  }
+
+  document.getElementById('listen-btn').onclick = playTTS;
+
+  function checkDictation() {
+    const input = cleanText(document.getElementById('dictation-input').value);
+    const target = cleanText(sentences[currentSentenceIdx].ja);
+    const feedback = document.getElementById('sentence-feedback');
+    if (input === target) {
+      feedback.textContent = '正解 (정답입니다) ! ✍️';
+      feedback.className = 'mt-8 font-bold h-12 text-green-500';
+      document.getElementById('target-sentence-box').classList.remove('invisible');
+      document.getElementById('next-btn').classList.remove('hidden');
+    } else {
+      feedback.textContent = '違います (틀렸습니다)! 철자를 확인하세요.';
+      feedback.className = 'mt-8 font-bold h-12 text-red-500';
+    }
+  }
+</script>
+</body>
+</html>

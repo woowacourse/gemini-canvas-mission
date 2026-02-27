@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Java Concept Visualizer - Woowacourse Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Pretendard:wght@400;600&display=swap');
+
+    :root {
+      --intellij-bg: #2b2b2b;
+      --intellij-sidebar: #3c3f41;
+      --wootecho-green: #00bfa5;
+    }
+
+    body {
+      font-family: 'Pretendard', sans-serif;
+      background-color: #1e1e1e;
+      color: #cfd3d7;
+      overflow: hidden;
+    }
+
+    .code-font { font-family: 'JetBrains Mono', monospace; }
+
+    .nav-item.active {
+      background-color: var(--intellij-sidebar);
+      border-bottom: 2px solid var(--wootecho-green);
+      color: white;
+    }
+
+    .custom-scroll::-webkit-scrollbar { width: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #2b2b2b; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #4b4b4b; border-radius: 3px; }
+
+    /* JVM Memory Styling */
+    .memory-area {
+      background: #2b2b2b;
+      border: 2px solid #3c3f41;
+      border-radius: 8px;
+      position: relative;
+    }
+    .stack-frame {
+      border-left: 4px solid #3592c4;
+      animation: slideIn 0.3s ease-out;
+    }
+    .heap-obj {
+      transition: all 0.5s ease;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .heap-obj.gc-target {
+      opacity: 0.3;
+      border-style: dashed;
+      filter: grayscale(1);
+    }
+
+    @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes popIn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+    .loading-dots:after {
+      content: '.';
+      animation: dots 1.5s steps(5, end) infinite;
+    }
+    @keyframes dots {
+      0%, 20% { content: '.'; }
+      40% { content: '..'; }
+      60% { content: '...'; }
+      80%, 100% { content: ''; }
+    }
+
+    /* Thread Op Indicator */
+    .op-indicator {
+      position: absolute;
+      background: rgba(0,0,0,0.9);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      pointer-events: none;
+      z-index: 50;
+      white-space: nowrap;
+      border: 1px solid rgba(255,255,255,0.1);
+      transform: translate(-50%, -50%);
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col">
+
+<header class="bg-[#2b2b2b] border-b border-[#3c3f41] flex items-center justify-between px-6 py-3">
+  <div class="flex items-center gap-4">
+    <span class="text-wootecho-green font-bold text-lg tracking-tight">☕ Java Visualizer</span>
+    <nav class="flex gap-1 ml-8">
+      <button onclick="switchModule('dashboard')" id="nav-dashboard" class="nav-item active px-4 py-1 rounded-t text-sm font-medium transition-all">Dashboard</button>
+      <button onclick="switchModule('concurrency')" id="nav-concurrency" class="nav-item px-4 py-1 rounded-t text-sm font-medium transition-all">Concurrency</button>
+      <button onclick="switchModule('stream')" id="nav-stream" class="nav-item px-4 py-1 rounded-t text-sm font-medium transition-all">Stream API</button>
+      <button onclick="switchModule('jvm')" id="nav-jvm" class="nav-item px-4 py-1 rounded-t text-sm font-medium transition-all">JVM Memory</button>
+    </nav>
+  </div>
+  <div class="text-xs text-gray-500">우아한테크코스 학습용 프로토타입 v2.1</div>
+</header>
+
+<main class="flex-1 flex overflow-hidden">
+  <aside class="w-64 bg-[#3c3f41] border-r border-[#2b2b2b] p-4 hidden md:flex flex-col">
+    <div class="mb-8">
+      <h3 class="text-xs font-bold text-gray-500 uppercase mb-4 tracking-widest">Module Controls</h3>
+      <div id="sidebar-controls" class="space-y-4">
+        <p class="text-sm text-gray-400">모듈을 선택해주세요.</p>
+      </div>
+    </div>
+    <div class="mt-auto p-3 bg-[#2b2b2b] rounded border border-[#555] text-xs leading-relaxed">
+      <div id="dynamic-tip">
+        <span class="text-yellow-500 font-bold">WELCOME!</span><br>
+        학습하고 싶은 Java 개념을 선택하여 시각화된 시뮬레이션을 시작하세요.
+      </div>
+    </div>
+  </aside>
+
+  <section class="flex-1 relative flex flex-col bg-[#1e1e1e]">
+    <div id="content-display" class="flex-1 p-8 overflow-y-auto custom-scroll"></div>
+
+    <footer class="h-48 border-t border-[#3c3f41] bg-[#2b2b2b] flex flex-col">
+      <div class="px-4 py-2 border-b border-[#3c3f41] flex justify-between items-center">
+                    <span class="text-xs font-bold text-gray-400 flex items-center gap-2">
+                        <span class="w-2 h-2 bg-blue-500 rounded-full"></span> System Logs & AI Analysis
+                    </span>
+        <button onclick="clearLogs()" class="text-xs text-gray-500 hover:text-white transition-colors">Clear</button>
+      </div>
+      <div id="ai-messages" class="flex-1 p-4 text-[13px] overflow-y-auto custom-scroll space-y-1 font-mono">
+        <div class="text-gray-500 italic">시스템 준비 완료.</div>
+      </div>
+      <div class="p-3 bg-[#1e1e1e] flex gap-2">
+        <input id="ai-input" type="text" placeholder="개념에 대해 질문하세요..."
+               class="flex-1 bg-[#2b2b2b] border border-[#3c3f41] rounded px-4 py-2 text-sm focus:outline-none focus:border-blue-500 text-gray-200">
+        <button onclick="askAI()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded text-sm font-bold transition-all">ASK</button>
+      </div>
+    </footer>
+  </section>
+</main>
+
+<!-- Templates -->
+<template id="tpl-dashboard">
+  <div class="max-w-4xl mx-auto py-10">
+    <h2 class="text-3xl font-bold mb-10 text-center">Java Deep Dive Visualizer</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div onclick="switchModule('concurrency')" class="bg-[#2b2b2b] p-6 rounded-xl border border-[#3c3f41] hover:border-wootecho-green cursor-pointer transition-all group">
+        <div class="text-3xl mb-4 group-hover:scale-110 transition-transform">🧵</div>
+        <h3 class="text-lg font-bold mb-2">Concurrency</h3>
+        <p class="text-gray-400 text-xs">Race Condition의 원자적 연산 실패 과정을 단계별로 관찰합니다.</p>
+      </div>
+      <div onclick="switchModule('stream')" class="bg-[#2b2b2b] p-6 rounded-xl border border-[#3c3f41] hover:border-wootecho-green cursor-pointer transition-all group">
+        <div class="text-3xl mb-4 group-hover:scale-110 transition-transform">🌊</div>
+        <h3 class="text-lg font-bold mb-2">Stream API</h3>
+        <p class="text-gray-400 text-xs">데이터 파이프라인과 Lazy Evaluation의 실제 동작을 시뮬레이션합니다.</p>
+      </div>
+      <div onclick="switchModule('jvm')" class="bg-[#2b2b2b] p-6 rounded-xl border border-[#3c3f41] hover:border-wootecho-green cursor-pointer transition-all group">
+        <div class="text-3xl mb-4 group-hover:scale-110 transition-transform">💾</div>
+        <h3 class="text-lg font-bold mb-2">JVM Memory</h3>
+        <p class="text-gray-400 text-xs">Stack과 Heap의 관계, Reference 할당 및 GC 대상을 시각화합니다.</p>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-stream">
+  <div class="h-full flex flex-col">
+    <h2 class="text-xl font-bold mb-4">Stream Pipeline Simulation</h2>
+    <div class="flex-1 flex flex-col justify-center items-center gap-10">
+      <div class="w-full">
+        <div class="text-[10px] text-gray-500 font-bold uppercase mb-2 text-center">Data Source</div>
+        <div id="stream-source" class="flex justify-center gap-3 min-h-[50px]"></div>
+      </div>
+      <div id="pipeline-container" class="flex flex-wrap justify-center gap-6 min-h-[80px] w-full px-10">
+        <div class="text-gray-600 italic text-sm">사이드바에서 연산자를 추가하세요.</div>
+      </div>
+      <div class="w-full border-t border-gray-800 pt-8">
+        <div class="text-[10px] text-gray-500 font-bold uppercase mb-2 text-center">Terminal Result (Collection)</div>
+        <div id="stream-result" class="flex justify-center gap-3 min-h-[50px]"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-concurrency">
+  <div class="h-full relative">
+    <h2 class="text-xl font-bold mb-6">Atomic Operation & Race Condition</h2>
+    <div class="bg-[#2b2b2b] p-10 rounded-2xl border border-[#3c3f41] relative overflow-hidden">
+      <div class="text-center relative z-10">
+        <div class="text-xs text-gray-500 font-bold mb-1">SHARED COUNTER VALUE</div>
+        <div id="conc-counter" class="text-7xl font-bold code-font text-white drop-shadow-lg">0</div>
+        <div id="conc-result-msg" class="mt-4 font-bold h-6"></div>
+      </div>
+      <div id="thread-op-layer" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
+      <div class="mt-10 space-y-6" id="thread-container">
+        <div class="space-y-2">
+          <div class="flex justify-between text-[10px] font-bold">
+            <span class="text-blue-400">THREAD-1 (Main)</span><span id="t1-stat" class="text-gray-500">IDLE</span>
+          </div>
+          <div class="h-1.5 bg-black rounded-full overflow-hidden"><div id="t1-bar" class="h-full bg-blue-500 w-0 transition-all duration-75"></div></div>
+        </div>
+        <div class="space-y-2">
+          <div class="flex justify-between text-[10px] font-bold">
+            <span class="text-yellow-500">THREAD-2 (Worker)</span><span id="t2-stat" class="text-gray-500">IDLE</span>
+          </div>
+          <div class="h-1.5 bg-black rounded-full overflow-hidden"><div id="t2-bar" class="h-full bg-yellow-500 w-0 transition-all duration-75"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-jvm">
+  <div class="h-full flex flex-col">
+    <h2 class="text-xl font-bold mb-4 text-wootecho-green">JVM Memory Runtime Data Area</h2>
+    <div class="flex-1 grid grid-cols-2 gap-8 py-4">
+      <div class="flex flex-col">
+        <div class="text-[10px] font-bold text-gray-500 mb-2 uppercase">Stack Area (LIFO)</div>
+        <div id="stack-area" class="flex-1 memory-area flex flex-col-reverse p-4 gap-2 overflow-y-auto custom-scroll border-blue-900/30">
+          <div class="text-gray-700 text-xs italic text-center mb-auto">Methods frames stack up here</div>
+        </div>
+      </div>
+      <div class="flex flex-col">
+        <div class="text-[10px] font-bold text-gray-500 mb-2 uppercase">Heap Area (Dynamic)</div>
+        <div id="heap-area" class="flex-1 memory-area p-6 grid grid-cols-3 gap-4 items-start content-start border-yellow-900/30">
+          <div class="col-span-3 text-gray-700 text-xs italic text-center mb-4">Objects are allocated here</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+  const apiKey = "";
+  let currentModule = 'dashboard';
+  let isSimulating = false;
+  let abortController = new AbortController();
+
+  // State variables
+  let streamOps = [];
+  let streamData = [1, 2, 3, 4, 5];
+  let concCount = 0;
+  let stackItems = [];
+  let heapItems = [];
+
+  // Concurrency Lock State
+  let currentLockOwner = null;
+
+  // --- Module Switcher ---
+  function switchModule(moduleName) {
+    abortController.abort();
+    abortController = new AbortController();
+    isSimulating = false;
+    currentLockOwner = null;
+
+    currentModule = moduleName;
+
+    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+    const activeBtn = document.getElementById(`nav-${moduleName}`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    const content = document.getElementById('content-display');
+    content.innerHTML = document.getElementById(`tpl-${moduleName}`).innerHTML;
+
+    updateSidebar(moduleName);
+    initModule(moduleName);
+    addLog(`Module Switched: ${moduleName.toUpperCase()}`);
+  }
+
+  function initModule(module) {
+    if (module === 'stream') setupStream();
+    if (module === 'concurrency') setupConcurrency();
+    if (module === 'jvm') setupJVM();
+  }
+
+  // --- Sidebar Management ---
+  function updateSidebar(module) {
+    const controls = document.getElementById('sidebar-controls');
+    const tip = document.getElementById('dynamic-tip');
+
+    if (module === 'stream') {
+      controls.innerHTML = `
+                    <div class="space-y-2">
+                        <div class="text-[10px] text-gray-500 font-bold">Data Input</div>
+                        <input id="stream-input" type="text" value="1, 2, 3, 4, 5, 6" class="w-full bg-[#2b2b2b] border border-gray-600 rounded px-2 py-1 text-xs text-white" onchange="updateStreamSource(this.value)">
+                        <div class="pt-4 space-y-2">
+                            <div class="text-[10px] text-gray-500 font-bold">Intermediate Ops</div>
+                            <button onclick="addStreamOp('filter')" class="w-full text-left p-2 rounded bg-[#2b2b2b] hover:bg-[#4b4b4b] text-xs flex justify-between">
+                                <span>.filter(n % 2 == 0)</span><span class="text-blue-400 font-bold">+</span>
+                            </button>
+                            <button onclick="addStreamOp('map')" class="w-full text-left p-2 rounded bg-[#2b2b2b] hover:bg-[#4b4b4b] text-xs flex justify-between">
+                                <span>.map(n * 10)</span><span class="text-blue-400 font-bold">+</span>
+                            </button>
+                        </div>
+                    </div>
+                    <button onclick="runStreamSimulation()" class="w-full bg-wootecho-green text-black font-bold py-2 rounded mt-6 shadow-lg">.collect(toList())</button>
+                `;
+      tip.innerHTML = `<span class="text-yellow-500 font-bold">PRO-TIP:</span><br>Stream은 '중간 연산'만으로는 실행되지 않습니다. '종단 연산'이 호출될 때 비로소 파이프라인이 가동됩니다.`;
+    } else if (module === 'concurrency') {
+      controls.innerHTML = `
+                    <div class="space-y-4">
+                        <div class="space-y-2">
+                            <label class="block text-[10px] text-gray-500 font-bold uppercase tracking-tight">Access Strategy</label>
+                            <div class="flex flex-col gap-2">
+                                <label class="flex items-center gap-2 text-sm cursor-pointer p-2 bg-[#2b2b2b] rounded hover:bg-[#333]">
+                                    <input type="radio" name="sync-type" value="none" checked class="accent-red-500">
+                                    <span>Non-blocking (Race)</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm cursor-pointer p-2 bg-[#2b2b2b] rounded hover:bg-[#333]">
+                                    <input type="radio" name="sync-type" value="sync" class="accent-wootecho-green">
+                                    <span>Blocking (Synchronized)</span>
+                                </label>
+                            </div>
+                        </div>
+                        <button onclick="runConcurrencySimulation()" id="conc-start-btn" class="w-full bg-wootecho-green text-black font-bold py-2 rounded mt-4 hover:brightness-110 active:scale-95 transition-all">Execute Simulation</button>
+                    </div>
+                `;
+      tip.innerHTML = `<span class="text-yellow-500 font-bold">BLOCKING VS RACE:</span><br><b>Blocking</b>은 한 스레드가 연산 중일 때 다른 스레드를 대기시켜 데이터 정합성을 보장합니다.`;
+    } else if (module === 'jvm') {
+      controls.innerHTML = `
+                    <div class="space-y-3">
+                        <button onclick="addStackItem()" class="w-full text-left p-2 rounded bg-[#2b2b2b] hover:bg-[#4b4b4b] text-xs flex justify-between">
+                            <span>Add Primitive (int)</span><span class="text-blue-400">+</span>
+                        </button>
+                        <button onclick="addHeapItem()" class="w-full text-left p-2 rounded bg-[#2b2b2b] hover:bg-[#4b4b4b] text-xs flex justify-between">
+                            <span>Add Object (new)</span><span class="text-yellow-400">+</span>
+                        </button>
+                        <hr class="border-gray-600 my-2">
+                        <button onclick="popStack()" class="w-full py-2 border border-red-500/50 rounded text-xs text-red-400 hover:bg-red-900/20 transition-colors">Pop Stack Frame</button>
+                        <button onclick="runGC()" class="w-full py-2 bg-gray-600 text-white rounded text-xs hover:bg-gray-500 mt-2 font-bold">Run GC (Sweep)</button>
+                    </div>
+                `;
+      tip.innerHTML = `<span class="text-yellow-500 font-bold">JVM MEMORY:</span><br>Stack 프레임이 제거되어도 Heap의 객체는 즉시 사라지지 않습니다. 참조를 잃은 객체는 GC의 대상이 됩니다.`;
+    }
+  }
+
+  // --- Stream Logic ---
+  function setupStream() {
+    renderStreamSource();
+    streamOps = [];
+  }
+
+  function updateStreamSource(val) {
+    streamData = val.split(',').map(s => s.trim()).filter(s => s !== "").map(Number);
+    renderStreamSource();
+    addLog(`Stream: Data source updated to [${streamData.join(', ')}]`);
+  }
+
+  function renderStreamSource() {
+    const el = document.getElementById('stream-source');
+    if (!el) return;
+    el.innerHTML = streamData.map(n => `<div class="w-10 h-10 bg-gray-700 rounded flex items-center justify-center font-bold text-sm shadow">${n}</div>`).join('');
+  }
+
+  function addStreamOp(type) {
+    if (isSimulating) return;
+    streamOps.push(type);
+    const container = document.getElementById('pipeline-container');
+    if (streamOps.length === 1) container.innerHTML = "";
+    const div = document.createElement('div');
+    div.className = "px-4 py-2 rounded bg-gray-700 border border-gray-500 text-blue-400 code-font text-xs font-bold shadow-md animate-bounce";
+    div.textContent = `.${type}(...)`;
+    container.appendChild(div);
+    addLog(`Stream: Pipeline added .${type}()`);
+  }
+
+  async function runStreamSimulation() {
+    if (isSimulating || streamOps.length === 0) return;
+    const signal = abortController.signal;
+    isSimulating = true;
+    addLog("Stream: Processing pipeline...");
+
+    const resultArea = document.getElementById('stream-result');
+    resultArea.innerHTML = "";
+    const sourceArea = document.getElementById('stream-source');
+    const pipelineArea = document.getElementById('pipeline-container');
+
+    for (let i = 0; i < streamData.length; i++) {
+      if (signal.aborted) return;
+      let currentVal = streamData[i];
+      let isDropped = false;
+
+      sourceArea.children[i].classList.add('ring-2', 'ring-blue-400', 'bg-blue-900');
+
+      for (let opIdx = 0; opIdx < streamOps.length; opIdx++) {
+        const opType = streamOps[opIdx];
+        const opEl = pipelineArea.children[opIdx];
+        opEl.classList.add('scale-110', 'border-blue-400');
+
+        await new Promise(r => setTimeout(r, 400));
+        if (signal.aborted) return;
+
+        if (opType === 'filter') {
+          if (currentVal % 2 !== 0) {
+            isDropped = true;
+            opEl.classList.replace('border-blue-400', 'border-red-500');
+          } else {
+            opEl.classList.replace('border-blue-400', 'border-green-500');
+          }
+        } else if (opType === 'map') {
+          currentVal *= 10;
+          opEl.classList.replace('border-blue-400', 'border-yellow-500');
+        }
+
+        await new Promise(r => setTimeout(r, 300));
+        opEl.classList.remove('scale-110', 'border-red-500', 'border-green-500', 'border-yellow-500', 'border-blue-400');
+        if (isDropped) break;
+      }
+
+      if (!isDropped) {
+        const res = document.createElement('div');
+        res.className = "w-10 h-10 bg-wootecho-green text-black rounded flex items-center justify-center font-bold text-sm animate-popIn";
+        res.textContent = currentVal;
+        resultArea.appendChild(res);
+      }
+
+      sourceArea.children[i].classList.remove('ring-2', 'ring-blue-400', 'bg-blue-900');
+      sourceArea.children[i].classList.add('opacity-30');
+    }
+    isSimulating = false;
+    addLog("Stream: Pipeline finished.");
+  }
+
+  // --- Concurrency Logic (Re-implemented with Blocking) ---
+  function setupConcurrency() {
+    concCount = 0;
+    currentLockOwner = null;
+    const counter = document.getElementById('conc-counter');
+    if (counter) counter.textContent = "0";
+    addLog("Concurrency: Reset completed.");
+  }
+
+  async function runConcurrencySimulation() {
+    if (isSimulating) return;
+    const signal = abortController.signal;
+    isSimulating = true;
+    concCount = 0;
+    currentLockOwner = null;
+
+    const counterEl = document.getElementById('conc-counter');
+    const resultMsg = document.getElementById('conc-result-msg');
+    const opLayer = document.getElementById('thread-op-layer');
+    const syncType = document.querySelector('input[name="sync-type"]:checked').value;
+    const isBlocking = syncType === 'sync';
+
+    counterEl.textContent = "0";
+    resultMsg.textContent = "";
+    opLayer.innerHTML = "";
+    addLog(`Concurrency: Starting (Blocking: ${isBlocking})`);
+
+    const showOp = (text, color, x, y, duration = 500) => {
+      const tip = document.createElement('div');
+      tip.className = `op-indicator text-${color}-400`;
+      tip.style.left = `${x}%`;
+      tip.style.top = `${y}%`;
+      tip.textContent = text;
+      opLayer.appendChild(tip);
+      setTimeout(() => tip.remove(), duration);
+    };
+
+    // Acquire Lock Simulation
+    const acquireLock = async (tId, color, xPos) => {
+      if (!isBlocking) return true;
+
+      const stat = document.getElementById(`${tId.toLowerCase()}-stat`);
+      while (currentLockOwner && currentLockOwner !== tId) {
+        stat.textContent = "BLOCKED (WAITING...)";
+        stat.className = "text-red-500 font-bold animate-pulse";
+        showOp("WAITING FOR LOCK...", color, xPos, 20, 200);
+        await new Promise(r => setTimeout(r, 200));
+        if (signal.aborted) return false;
+      }
+      currentLockOwner = tId;
+      stat.textContent = "ACQUIRED LOCK";
+      stat.className = `text-${color}-400 font-bold`;
+      return true;
+    };
+
+    const releaseLock = (tId) => {
+      if (isBlocking && currentLockOwner === tId) {
+        currentLockOwner = null;
+      }
+    };
+
+    const threadLogic = async (tId, barId, statId, color, xPos) => {
+      const bar = document.getElementById(barId);
+      const stat = document.getElementById(statId);
+      bar.style.width = "0%";
+
+      for (let i = 0; i < 10; i++) {
+        if (signal.aborted) return;
+
+        // 1. Lock Step (If Blocking)
+        const canProceed = await acquireLock(tId, color, xPos);
+        if (!canProceed) return;
+
+        stat.textContent = "RUNNING (CRITICAL SECTION)";
+        stat.className = `text-${color}-400`;
+
+        // 2. READ
+        showOp("READ VALUE: " + concCount, color, xPos, 30);
+        let localVal = concCount;
+        await new Promise(r => setTimeout(r, Math.random() * 150 + 100)); // 연산 지연
+
+        if (signal.aborted) return;
+
+        // 3. MODIFY
+        showOp("MODIFY: " + localVal + " -> " + (localVal + 1), color, xPos, 45);
+        localVal = localVal + 1;
+        await new Promise(r => setTimeout(r, Math.random() * 150 + 100));
+
+        if (signal.aborted) return;
+
+        // 4. WRITE
+        showOp("WRITE VALUE: " + localVal, color, xPos, 60);
+        concCount = localVal;
+        counterEl.textContent = concCount;
+
+        // 5. Unlock
+        releaseLock(tId);
+
+        bar.style.width = `${((i + 1) / 10) * 100}%`;
+        stat.textContent = "IDLE (WAITING NEXT)";
+        stat.className = "text-gray-500";
+
+        // Non-blocking일 때 Race Condition 확률을 높이기 위해 짧은 휴식
+        await new Promise(r => setTimeout(r, 50));
+      }
+      stat.textContent = "FINISHED";
+      stat.className = "text-wootecho-green font-bold";
+    };
+
+    // 스레드 시작
+    await Promise.all([
+      threadLogic('T1', 't1-bar', 't1-stat', 'blue', 30),
+      threadLogic('T2', 't2-bar', 't2-stat', 'yellow', 70)
+    ]);
+
+    if (signal.aborted) return;
+
+    const expected = 20;
+    if (concCount < expected) {
+      resultMsg.className = "mt-4 font-bold text-red-500 animate-bounce";
+      resultMsg.textContent = `Race Condition! Count: ${concCount} (Expected: ${expected})`;
+      addLog(`Concurrency: Data integrity lost. Race condition caused loss of ${expected - concCount} updates.`);
+    } else {
+      resultMsg.className = "mt-4 font-bold text-green-500 animate-pulse";
+      resultMsg.textContent = `Thread Safe! Final Count: ${concCount}`;
+      addLog(`Concurrency: Synchronized execution guaranteed data integrity.`);
+    }
+    isSimulating = false;
+  }
+
+  // --- JVM Memory Logic ---
+  function setupJVM() {
+    stackItems = [];
+    heapItems = [];
+    renderJVM();
+  }
+
+  function addStackItem() {
+    const id = Math.random().toString(36).substr(2, 5);
+    stackItems.push({ id, type: 'primitive', label: `int a = ${Math.floor(Math.random()*100)}` });
+    renderJVM();
+    addLog(`JVM: Stack frame pushed (primitive)`);
+  }
+
+  function addHeapItem() {
+    const objId = `Obj@${Math.random().toString(16).substr(2, 4).toUpperCase()}`;
+    const stackId = Math.random().toString(36).substr(2, 5);
+
+    const newObj = { id: objId, label: 'UserObject', refs: 1 };
+    heapItems.push(newObj);
+    stackItems.push({ id: stackId, type: 'ref', label: `User u = ${objId}`, target: objId });
+
+    renderJVM();
+    addLog(`JVM: Object allocated in Heap, Reference pushed to Stack`);
+  }
+
+  function popStack() {
+    if (stackItems.length === 0) return;
+    const popped = stackItems.pop();
+
+    if (popped.type === 'ref') {
+      const target = heapItems.find(h => h.id === popped.target);
+      if (target) target.refs--;
+    }
+
+    renderJVM();
+    addLog(`JVM: Stack frame popped`);
+  }
+
+  function runGC() {
+    const before = heapItems.length;
+    heapItems = heapItems.filter(h => h.refs > 0);
+    const after = heapItems.length;
+    renderJVM();
+    addLog(`GC: Mark-and-Sweep completed. Cleaned ${before - after} objects.`);
+  }
+
+  function renderJVM() {
+    const stackArea = document.getElementById('stack-area');
+    const heapArea = document.getElementById('heap-area');
+    if (!stackArea || !heapArea) return;
+
+    stackArea.innerHTML = stackItems.map(item => `
+                <div class="stack-frame p-3 bg-[#3c3f41] rounded text-xs flex justify-between items-center shadow-md">
+                    <span class="${item.type === 'ref' ? 'text-yellow-400' : 'text-blue-400'} font-bold">${item.label}</span>
+                    <span class="text-[8px] text-gray-500">${item.type.toUpperCase()}</span>
+                </div>
+            `).join('') || `<div class="text-gray-700 text-xs italic text-center mb-auto">Stack is empty</div>`;
+
+    heapArea.innerHTML = heapItems.map(obj => `
+                <div class="heap-obj ${obj.refs <= 0 ? 'gc-target' : ''} p-4 bg-gray-800 border border-yellow-600/50 rounded-full flex flex-col items-center justify-center aspect-square shadow-lg">
+                    <div class="text-[10px] font-bold text-yellow-500">${obj.id}</div>
+                    <div class="text-[8px] text-gray-400">Refs: ${obj.refs}</div>
+                    ${obj.refs <= 0 ? '<div class="text-[8px] text-red-500 font-bold mt-1">GC</div>' : ''}
+                </div>
+            `).join('') || `<div class="col-span-3 text-gray-700 text-xs italic text-center">Heap is empty</div>`;
+  }
+
+  // --- Common Helpers ---
+  function addLog(msg) {
+    const logArea = document.getElementById('ai-messages');
+    if (!logArea) return;
+    const time = new Date().toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const div = document.createElement('div');
+    div.innerHTML = `<span class="text-gray-600 mr-2">${time}</span><span class="text-gray-300">>> ${msg}</span>`;
+    logArea.appendChild(div);
+    logArea.scrollTop = logArea.scrollHeight;
+  }
+
+  function clearLogs() {
+    document.getElementById('ai-messages').innerHTML = "";
+  }
+
+  async function askAI() {
+    const input = document.getElementById('ai-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    addLog(`User Question: ${text}`);
+    input.value = "";
+
+    const messageArea = document.getElementById('ai-messages');
+    const loading = document.createElement('div');
+    loading.className = "text-blue-500 italic text-xs animate-pulse";
+    loading.textContent = "AI가 답변을 생성 중입니다...";
+    messageArea.appendChild(loading);
+
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `사용자 질문: ${text}\n현재 시각화 모듈: ${currentModule}\nJava 입문자에게 원리를 상세히 설명해줘.` }] }],
+          systemInstruction: { parts: [{ text: "너는 우아한테크코스의 Java 멘토이다. 기술적인 내용을 명확하게 설명하고, 가능하면 시각화된 시뮬레이션의 동작과 연결해서 답변해." }] }
+        })
+      });
+
+      const data = await response.json();
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "답변을 가져오지 못했습니다.";
+
+      loading.remove();
+      const aiDiv = document.createElement('div');
+      aiDiv.className = "bg-[#3c3f41] p-3 rounded border-l-4 border-blue-500 text-gray-200 my-2";
+      aiDiv.innerHTML = aiResponse.replace(/\n/g, '<br>');
+      messageArea.appendChild(aiDiv);
+      messageArea.scrollTop = messageArea.scrollHeight;
+    } catch (err) {
+      loading.remove();
+      addLog("System: AI 서비스 연결 실패.");
+    }
+  }
+
+  window.onload = () => switchModule('dashboard');
+</script>
+</body>
+</html>

@@ -1,0 +1,1170 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>우아한 할리갈리</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes fadeInOut {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, 10px);
+        }
+        10% {
+          opacity: 1;
+          transform: translate(-50%, 0);
+        }
+        90% {
+          opacity: 1;
+          transform: translate(-50%, 0);
+        }
+        100% {
+          opacity: 0;
+          transform: translate(-50%, -10px);
+        }
+      }
+      @keyframes popIn {
+        0% {
+          transform: scale(0.8);
+          opacity: 0;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+      @keyframes pulseScale {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.15);
+        }
+      }
+      @keyframes ringShake {
+        0%,
+        100% {
+          transform: rotate(0deg);
+        }
+        25% {
+          transform: rotate(-8deg);
+        }
+        75% {
+          transform: rotate(8deg);
+        }
+      }
+      .animate-ringShake {
+        animation: ringShake 0.1s ease-in-out 3;
+      }
+      .hide-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .hide-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-[#f3f6f8] text-gray-800 font-sans min-h-screen m-0 p-0 overflow-hidden"
+  >
+    <div
+      id="app"
+      class="w-full h-screen flex flex-col relative overflow-hidden"
+    ></div>
+
+    <script>
+      // --- Constants & Config ---
+      const apiKey = ''; // Gemini API Key
+      const THEME_COLOR = '#2ac1bc';
+      const FRUITS = ['🍓', '🍌', '🍋', '🍇'];
+
+      const DIFFICULTIES = {
+        EASY: {
+          label: '쉬움 (느린 봇)',
+          minReaction: 1800,
+          maxReaction: 3000,
+          botDelay: 1200,
+        },
+        NORMAL: {
+          label: '보통 (일반 봇)',
+          minReaction: 800,
+          maxReaction: 1500,
+          botDelay: 800,
+        },
+        HARD: {
+          label: '어려움 (우테코 에이스)',
+          minReaction: 400,
+          maxReaction: 700,
+          botDelay: 500,
+        },
+      };
+
+      const DEFAULT_KEYS = [
+        { flip: 'a', bell: 's' },
+        { flip: 'k', bell: 'l' },
+      ];
+
+      // --- Icons (SVG Strings) ---
+      const Icons = {
+        User: (size, color) =>
+          `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${
+            color || 'currentColor'
+          }" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+        Cpu: (size, color) =>
+          `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${
+            color || 'currentColor'
+          }" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>`,
+        AlertTriangle: (size) =>
+          `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        Settings: (size) =>
+          `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`,
+        Play: (size) =>
+          `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+        Trophy: (size, color) =>
+          `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${
+            color || 'currentColor'
+          }" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>`,
+        AlertCircle: (size) =>
+          `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+      };
+
+      // --- State Management ---
+      const app = {
+        state: {
+          appState: 'SETUP', // SETUP, PLAYING, GAMEOVER
+          setup: {
+            totalPlayers: 4,
+            humanPlayers: 1,
+            difficulty: 'NORMAL',
+            keys: JSON.parse(JSON.stringify(DEFAULT_KEYS)),
+            names: ['크루 1호', '크루 2호'],
+          },
+          activeKeyBind: null,
+          editingNameIndex: null,
+          tempName: '',
+          players: [],
+          turnIndex: 0,
+          isResolving: false,
+          eventMessage: '',
+          winner: null,
+          isStarting: false,
+          showRulesModal: false,
+          isRinging: false,
+        },
+        botTimeouts: [],
+
+        // --- Initialization ---
+        init() {
+          document.addEventListener(
+            'keydown',
+            this.handleGlobalKeyDown.bind(this),
+          );
+          this.render();
+        },
+
+        // --- Helpers ---
+        generateDeck() {
+          let deck = [];
+          FRUITS.forEach((fruit) => {
+            for (let i = 0; i < 5; i++)
+              deck.push({ fruit, count: 1, id: crypto.randomUUID() });
+            for (let i = 0; i < 3; i++)
+              deck.push({ fruit, count: 2, id: crypto.randomUUID() });
+            for (let i = 0; i < 3; i++)
+              deck.push({ fruit, count: 3, id: crypto.randomUUID() });
+            for (let i = 0; i < 2; i++)
+              deck.push({ fruit, count: 4, id: crypto.randomUUID() });
+            for (let i = 0; i < 1; i++)
+              deck.push({ fruit, count: 5, id: crypto.randomUUID() });
+          });
+          for (let i = deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [deck[i], deck[j]] = [deck[j], deck[i]];
+          }
+          return deck;
+        },
+
+        countVisibleFruits(players) {
+          const counts = {};
+          FRUITS.forEach((f) => (counts[f] = 0));
+          players.forEach((p) => {
+            if (p.isOut || p.discard.length === 0) return;
+            const topCard = p.discard[p.discard.length - 1];
+            counts[topCard.fruit] += topCard.count;
+          });
+          return counts;
+        },
+
+        isValidBell(players) {
+          const counts = this.countVisibleFruits(players);
+          return Object.values(counts).some((count) => count === 5);
+        },
+
+        clearBotTimeouts() {
+          this.botTimeouts.forEach(clearTimeout);
+          this.botTimeouts = [];
+        },
+
+        async fetchBotPersonas(botCount) {
+          if (botCount === 0) return [];
+          try {
+            const prompt = `우아한테크코스(웹/앱 개발 부트캠프) 크루 컨셉의 할리갈리 게임 봇을 ${botCount}명 만들어주세요. 이름은 반드시 5자 이내의 개발 관련 재치있는 닉네임으로, taunt는 게임 시작 시 하는 짧고 유쾌한 도발 대사(한국어)로 작성해주세요. 반드시 다음 JSON 배열 형식으로만 응답해주세요: [{"name": "이름", "taunt": "대사"}]`;
+
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                      type: 'ARRAY',
+                      items: {
+                        type: 'OBJECT',
+                        properties: {
+                          name: { type: 'STRING' },
+                          taunt: { type: 'STRING' },
+                        },
+                        required: ['name', 'taunt'],
+                      },
+                    },
+                  },
+                }),
+              },
+            );
+
+            if (!response.ok) throw new Error('API call failed');
+            const data = await response.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) return JSON.parse(text);
+            throw new Error('Invalid structure');
+          } catch (error) {
+            console.error('Gemini API Error:', error);
+            const fallbacks = [
+              {
+                name: '프론트노인',
+                taunt: '내 반응속도는 리액트 렌더링보다 빠르지!',
+              },
+              {
+                name: '자바의정석',
+                taunt: '예외 처리 안 하면 카드를 다 뺏어갈 테다.',
+              },
+              { name: '디버깅장인', taunt: '너의 손놀림에는 버그가 많군.' },
+              { name: '스프링천재', taunt: '의존성 주입하듯 종을 쳐주마.' },
+            ];
+            return fallbacks.slice(0, botCount);
+          }
+        },
+
+        // --- Game Actions ---
+        async handleStartGame() {
+          this.state.isStarting = true;
+          this.render(); // Show loading state
+
+          const botCount =
+            this.state.setup.totalPlayers - this.state.setup.humanPlayers;
+          const personas = await this.fetchBotPersonas(botCount);
+
+          const initialPlayers = [];
+
+          for (let i = 0; i < this.state.setup.humanPlayers; i++) {
+            initialPlayers.push({
+              id: `human-${i}`,
+              type: 'human',
+              name: (this.state.setup.names[i] || `크루 ${i + 1}호`).substring(
+                0,
+                5,
+              ),
+              keys: this.state.setup.keys[i],
+              hand: [],
+              discard: [],
+              isOut: false,
+              taunt: '우승은 나의 것!',
+            });
+          }
+
+          for (let i = 0; i < botCount; i++) {
+            initialPlayers.push({
+              id: `bot-${i}`,
+              type: 'bot',
+              name: (personas[i]?.name || `우테코봇${i + 1}`).substring(0, 5),
+              keys: null,
+              hand: [],
+              discard: [],
+              isOut: false,
+              taunt: personas[i]?.taunt || '삐리비리.. 종을 치겠다.',
+            });
+          }
+
+          const fullDeck = this.generateDeck();
+          let pIdx = 0;
+          while (fullDeck.length > 0) {
+            initialPlayers[pIdx].hand.push(fullDeck.pop());
+            pIdx = (pIdx + 1) % this.state.setup.totalPlayers;
+          }
+
+          this.state.players = initialPlayers;
+          this.state.turnIndex = 0;
+          this.state.eventMessage = '게임 시작!';
+          this.state.isResolving = true;
+          this.state.appState = 'PLAYING';
+          this.state.isStarting = false;
+
+          this.render(); // Full render for PLAYING layout
+
+          setTimeout(() => {
+            this.state.isResolving = false;
+            this.state.eventMessage = '';
+            this.updatePlayingUI();
+            this.triggerBotTurnIfApplicable();
+          }, 1500);
+        },
+
+        advanceTurn() {
+          let nextTurn = (this.state.turnIndex + 1) % this.state.players.length;
+          let loopCount = 0;
+          while (
+            (this.state.players[nextTurn].isOut ||
+              this.state.players[nextTurn].hand.length === 0) &&
+            loopCount < this.state.players.length
+          ) {
+            nextTurn = (nextTurn + 1) % this.state.players.length;
+            loopCount++;
+          }
+          this.state.turnIndex = nextTurn;
+        },
+
+        checkGameOver() {
+          const activePlayers = this.state.players.filter((p) => !p.isOut);
+          const activeHumans = activePlayers.filter((p) => p.type === 'human');
+
+          if (activePlayers.length <= 1 || activeHumans.length === 0) {
+            let maxCards = -1;
+            let currentWinner = null;
+
+            activePlayers.forEach((p) => {
+              const totalCards = p.hand.length + p.discard.length;
+              if (totalCards > maxCards) {
+                maxCards = totalCards;
+                currentWinner = p;
+              }
+            });
+
+            this.state.winner = currentWinner;
+            this.state.appState = 'GAMEOVER';
+            this.clearBotTimeouts();
+            this.render(); // Render Game Over modal
+            return true;
+          }
+          return false;
+        },
+
+        handleFlip(playerId) {
+          if (this.state.isResolving) return;
+          const playerIndex = this.state.players.findIndex(
+            (p) => p.id === playerId,
+          );
+          if (playerIndex !== this.state.turnIndex) return;
+          if (this.state.players[playerIndex].hand.length === 0) return;
+
+          const player = this.state.players[playerIndex];
+          const cardToFlip = player.hand.pop();
+          player.discard.push(cardToFlip);
+
+          this.advanceTurn();
+          this.updatePlayingUI();
+          this.triggerBotReactions();
+          this.triggerBotTurnIfApplicable();
+        },
+
+        handleBell(playerId) {
+          if (this.state.isResolving) return;
+          const playerIndex = this.state.players.findIndex(
+            (p) => p.id === playerId,
+          );
+          if (playerIndex === -1 || this.state.players[playerIndex].isOut)
+            return;
+
+          this.triggerBellAnimation();
+          this.clearBotTimeouts();
+          this.state.isResolving = true;
+
+          const valid = this.isValidBell(this.state.players);
+          const actor = this.state.players[playerIndex];
+
+          if (valid) {
+            let collectedCards = [];
+            this.state.players.forEach((p) => {
+              collectedCards = collectedCards.concat(p.discard);
+              p.discard = [];
+            });
+
+            for (let i = collectedCards.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [collectedCards[i], collectedCards[j]] = [
+                collectedCards[j],
+                collectedCards[i],
+              ];
+            }
+
+            actor.hand = [...collectedCards, ...actor.hand];
+            this.state.eventMessage = `🎉 ${actor.name} 정답! 카드를 모두 가져갑니다.`;
+            this.state.turnIndex = playerIndex;
+          } else {
+            this.state.eventMessage = `🚨 ${actor.name}의 실수!\n다른 크루들에게\n카드를 1장씩 줍니다.`;
+            const activeOthers = this.state.players.filter(
+              (p) => !p.isOut && p.id !== actor.id,
+            );
+
+            activeOthers.forEach((other) => {
+              if (actor.hand.length > 0) {
+                const penaltyCard = actor.hand.pop();
+                other.hand.unshift(penaltyCard);
+              }
+            });
+
+            // 페널티로 인해 카드가 0장이 된 경우 탈락 처리 (이벤트 메시지용)
+            if (actor.hand.length === 0) {
+              actor.isOut = true;
+              this.state.eventMessage = `💀 ${actor.name} 파산! 탈락.`;
+              actor.discard = [];
+            }
+          }
+
+          // --- 탈락(Out) 조건 글로벌 체크 ---
+          // 누군가 정답을 맞춰서 바닥의 카드를 다 뺏어갔을 때,
+          // 손에 쥔 카드와 바닥의 카드 모두 0장이 된 "마지막 기회" 상태의 플레이어를 탈락시킵니다.
+          this.state.players.forEach((p) => {
+            if (!p.isOut && p.hand.length === 0 && p.discard.length === 0) {
+              p.isOut = true;
+            }
+          });
+
+          this.updatePlayingUI();
+
+          setTimeout(() => {
+            if (!this.checkGameOver()) {
+              this.state.isResolving = false;
+              this.state.eventMessage = '';
+
+              // --- 버그 수정: 현재 턴인 플레이어가 탈락했거나 카드가 0장인 경우 턴을 넘김 ---
+              const currentPlayer = this.state.players[this.state.turnIndex];
+              if (currentPlayer.isOut || currentPlayer.hand.length === 0) {
+                this.advanceTurn();
+              }
+
+              this.updatePlayingUI();
+              this.triggerBotTurnIfApplicable();
+            }
+          }, 2500);
+        },
+
+        // --- Bot Logic ---
+        triggerBotReactions() {
+          this.clearBotTimeouts();
+          if (this.isValidBell(this.state.players)) {
+            const diff = DIFFICULTIES[this.state.setup.difficulty];
+            this.state.players.forEach((p) => {
+              if (p.type === 'bot' && !p.isOut) {
+                const reactionTime =
+                  Math.random() * (diff.maxReaction - diff.minReaction) +
+                  diff.minReaction;
+                const timeoutId = setTimeout(() => {
+                  this.handleBell(p.id);
+                }, reactionTime);
+                this.botTimeouts.push(timeoutId);
+              }
+            });
+          } else {
+            const diffStr = this.state.setup.difficulty;
+            const mistakeChance =
+              diffStr === 'EASY' ? 0.05 : diffStr === 'NORMAL' ? 0.02 : 0.005;
+            if (Math.random() < mistakeChance) {
+              const activeBots = this.state.players.filter(
+                (p) => p.type === 'bot' && !p.isOut,
+              );
+              if (activeBots.length > 0) {
+                const randomBot =
+                  activeBots[Math.floor(Math.random() * activeBots.length)];
+                const reactionTime = Math.random() * 2000 + 1000;
+                const timeoutId = setTimeout(() => {
+                  this.handleBell(randomBot.id);
+                }, reactionTime);
+                this.botTimeouts.push(timeoutId);
+              }
+            }
+          }
+        },
+
+        triggerBotTurnIfApplicable() {
+          if (this.state.isResolving || this.state.appState !== 'PLAYING')
+            return;
+          const activePlayer = this.state.players[this.state.turnIndex];
+
+          if (
+            activePlayer &&
+            activePlayer.type === 'bot' &&
+            !activePlayer.isOut
+          ) {
+            if (activePlayer.hand.length === 0) {
+              this.advanceTurn();
+              this.updatePlayingUI();
+              this.triggerBotTurnIfApplicable(); // recheck for next
+              return;
+            }
+            const diff = DIFFICULTIES[this.state.setup.difficulty];
+            const timeoutId = setTimeout(
+              () => {
+                this.handleFlip(activePlayer.id);
+              },
+              diff.botDelay + Math.random() * 500,
+            );
+            this.botTimeouts.push(timeoutId);
+          }
+        },
+
+        // --- Event Handlers ---
+        handleGlobalKeyDown(e) {
+          if (this.state.appState === 'SETUP' && this.state.activeKeyBind) {
+            e.preventDefault();
+            const newKey = e.key.toLowerCase();
+            const { playerIndex, action } = this.state.activeKeyBind;
+            this.state.setup.keys[playerIndex][action] = newKey;
+            this.state.activeKeyBind = null;
+            this.render();
+            return;
+          }
+
+          if (this.state.appState === 'PLAYING') {
+            const key = e.key.toLowerCase();
+            this.state.players.forEach((player) => {
+              if (player.type === 'human' && !player.isOut) {
+                if (key === player.keys.flip) {
+                  e.preventDefault();
+                  this.handleFlip(player.id);
+                }
+                if (key === player.keys.bell) {
+                  e.preventDefault();
+                  this.handleBell(player.id);
+                }
+              }
+            });
+          }
+        },
+
+        updateSetupConfig(key, value) {
+          this.state.setup[key] = value;
+          if (key === 'totalPlayers') {
+            // Adjust human players if total is less
+            if (this.state.setup.humanPlayers > value) {
+              this.state.setup.humanPlayers =
+                value === 1 ? 1 : Math.min(2, value);
+            }
+          }
+          this.render();
+        },
+
+        setActiveKeyBind(playerIndex, action) {
+          this.state.activeKeyBind = { playerIndex, action };
+          this.render();
+        },
+
+        setEditingName(idx) {
+          this.state.editingNameIndex = idx;
+          this.state.tempName =
+            this.state.setup.names[idx] || `크루 ${idx + 1}호`;
+          this.render();
+          // focus input
+          setTimeout(() => {
+            const input = document.getElementById(`name-input-${idx}`);
+            if (input) input.focus();
+          }, 0);
+        },
+
+        saveName(idx, value) {
+          this.state.setup.names[idx] = value.trim() || `크루 ${idx + 1}호`;
+          this.state.editingNameIndex = null;
+          this.render();
+        },
+
+        toggleRulesModal(show) {
+          this.state.showRulesModal = show;
+          this.render();
+        },
+
+        resetToSetup() {
+          this.state.appState = 'SETUP';
+          this.render();
+        },
+
+        triggerBellAnimation() {
+          const dome = document.getElementById('bell-dome');
+          if (dome) {
+            dome.classList.remove('animate-ringShake');
+            void dome.offsetWidth; // trigger reflow
+            dome.classList.add('animate-ringShake');
+          }
+        },
+
+        // --- Rendering Logic ---
+        renderCardHTML(card, discardCount) {
+          if (!card) {
+            return `<div class="w-36 h-[13.5rem] sm:w-[10.5rem] sm:h-60 border-2 border-dashed border-gray-300 rounded-2xl flex items-center justify-center bg-gray-50/50"></div>`;
+          }
+
+          const layoutMap = {
+            1: [4],
+            2: [0, 8],
+            3: [0, 4, 8],
+            4: [0, 2, 6, 8],
+            5: [0, 2, 4, 6, 8],
+          };
+          const activeCells = layoutMap[card.count] || [];
+
+          let gridHTML = '';
+          for (let i = 0; i < 9; i++) {
+            gridHTML += `<div class="flex items-center justify-center">${
+              activeCells.includes(i)
+                ? `<span class="text-[45px] sm:text-[60px] drop-shadow-sm leading-none">${card.fruit}</span>`
+                : ''
+            }</div>`;
+          }
+
+          let thicknessHTML = '';
+          if (discardCount > 1)
+            thicknessHTML += `<div class="absolute top-1 -right-1 w-full h-full border border-gray-200 bg-white rounded-2xl -z-10"></div>`;
+          if (discardCount > 5)
+            thicknessHTML += `<div class="absolute top-2 -right-2 w-full h-full border border-gray-200 bg-white rounded-2xl -z-20"></div>`;
+
+          return `
+          <div class="relative">
+            <div class="w-36 h-[13.5rem] sm:w-[10.5rem] sm:h-60 bg-white border border-gray-200 rounded-2xl shadow-md p-3 flex flex-col items-center justify-center transform transition-transform hover:scale-105 relative z-0">
+              <div class="w-full h-full grid grid-cols-3 grid-rows-3 gap-0">${gridHTML}</div>
+              <div class="absolute -top-2 -right-2 bg-white border border-gray-200 text-sm font-bold w-8 h-8 rounded-full flex items-center justify-center shadow-md text-gray-500 z-20">${card.count}</div>
+            </div>
+            ${thicknessHTML}
+          </div>
+        `;
+        },
+
+        render() {
+          const root = document.getElementById('app');
+
+          if (this.state.appState === 'SETUP') {
+            root.innerHTML = this.getSetupHTML();
+            // Add event listeners for dynamic setup inputs
+            for (let i = 0; i < this.state.setup.humanPlayers; i++) {
+              const input = document.getElementById(`name-input-${i}`);
+              if (input) {
+                input.addEventListener('keydown', (e) => {
+                  if (e.key === 'Enter') this.saveName(i, e.target.value);
+                });
+                input.addEventListener('blur', (e) =>
+                  this.saveName(i, e.target.value),
+                );
+              }
+            }
+          } else if (
+            this.state.appState === 'PLAYING' ||
+            this.state.appState === 'GAMEOVER'
+          ) {
+            // Render the base playing screen if not already there, then update
+            if (!document.getElementById('playing-screen')) {
+              root.innerHTML = this.getPlayingHTML();
+            }
+            this.updatePlayingUI();
+
+            // Render Game Over Modal
+            let modalContainer = document.getElementById(
+              'game-over-modal-container',
+            );
+            if (this.state.appState === 'GAMEOVER') {
+              if (!modalContainer) {
+                modalContainer = document.createElement('div');
+                modalContainer.id = 'game-over-modal-container';
+                root.appendChild(modalContainer);
+              }
+              modalContainer.innerHTML = this.getGameOverHTML();
+            } else if (modalContainer) {
+              modalContainer.remove();
+            }
+          }
+        },
+
+        // Granular update to prevent CSS transition breaks
+        updatePlayingUI() {
+          if (
+            this.state.appState !== 'PLAYING' &&
+            this.state.appState !== 'GAMEOVER'
+          )
+            return;
+
+          // Header Resolving Status
+          const resolvingBadge = document.getElementById('resolving-badge');
+          if (resolvingBadge)
+            resolvingBadge.style.display = this.state.isResolving
+              ? 'flex'
+              : 'none';
+
+          // Event Message
+          const messageContainer = document.getElementById(
+            'event-message-container',
+          );
+          if (messageContainer) {
+            if (this.state.eventMessage) {
+              messageContainer.innerHTML = `
+              <div class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[100] pointer-events-none">
+                <div class="animate-bounce drop-shadow-[0_15px_25px_rgba(0,0,0,0.35)]">
+                  <div class="relative px-12 py-6 rounded-[3rem] text-2xl sm:text-3xl font-black text-center whitespace-pre-line text-black leading-tight" style="background-color: ${THEME_COLOR}">
+                    ${this.state.eventMessage}
+                    <div class="absolute -bottom-4 left-1/2 transform -translate-x-1/2 w-10 h-10 rotate-45 -z-10 rounded-sm" style="background-color: ${THEME_COLOR}"></div>
+                  </div>
+                </div>
+              </div>
+            `;
+            } else {
+              messageContainer.innerHTML = '';
+            }
+          }
+
+          // Players
+          this.state.players.forEach((player, idx) => {
+            const isTurn = this.state.turnIndex === idx;
+            const pDiv = document.getElementById(
+              `player-container-${player.id}`,
+            );
+            if (!pDiv) return;
+
+            // Main container classes
+            pDiv.className = `relative flex flex-col items-center justify-end shrink-0 transition-all duration-300 ${
+              player.isOut ? 'opacity-40 grayscale' : ''
+            } ${isTurn ? '-translate-y-4 z-50' : 'z-10'}`;
+
+            // Info Card classes
+            const infoCard = document.getElementById(
+              `player-info-${player.id}`,
+            );
+            if (infoCard) {
+              infoCard.className = `z-30 bg-white px-1 py-1 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] border-2 text-center w-[110px] sm:w-[120px] origin-bottom transition-transform duration-300 mb-2 sm:mb-3 ${
+                isTurn ? 'scale-110 shadow-xl' : 'scale-100'
+              }`;
+              infoCard.style.borderColor = isTurn ? THEME_COLOR : 'transparent';
+            }
+
+            // Count
+            const countEl = document.getElementById(
+              `player-count-${player.id}`,
+            );
+            if (countEl)
+              countEl.textContent = `남은 카드: ${player.hand.length}장`;
+
+            // Turn Badge
+            const turnBadge = document.getElementById(
+              `player-turn-${player.id}`,
+            );
+            if (turnBadge)
+              turnBadge.style.display =
+                isTurn && !this.state.isResolving && !player.isOut
+                  ? 'block'
+                  : 'none';
+
+            // Last Chance & Eliminated Badge
+            const lastChance = document.getElementById(
+              `player-lastchance-${player.id}`,
+            );
+            if (lastChance) {
+              if (player.isOut) {
+                lastChance.textContent = '탈락!';
+                lastChance.className =
+                  'text-[10px] text-white font-bold mt-0.5 bg-gray-500 px-2 py-[1px] rounded-full';
+                lastChance.style.display = 'inline-block';
+              } else if (player.hand.length === 0) {
+                lastChance.textContent = '마지막 기회!';
+                lastChance.className =
+                  'text-[9px] text-red-500 font-bold animate-pulse mt-0.5 bg-red-50 px-1 py-[1px] rounded-full';
+                lastChance.style.display = 'inline-block';
+              } else {
+                lastChance.style.display = 'none';
+              }
+            }
+
+            // Keys
+            if (player.type === 'human') {
+              const keySpan = document.getElementById(
+                `player-keyspan-${player.id}`,
+              );
+              if (keySpan)
+                keySpan.className =
+                  player.hand.length === 0 ? 'line-through opacity-50' : '';
+            }
+
+            // Discard HTML
+            const discardContainer = document.getElementById(
+              `player-discard-${player.id}`,
+            );
+            const topDiscard =
+              player.discard.length > 0
+                ? player.discard[player.discard.length - 1]
+                : null;
+            if (discardContainer)
+              discardContainer.innerHTML = this.renderCardHTML(
+                topDiscard,
+                player.discard.length,
+              );
+          });
+        },
+
+        // --- HTML Templates ---
+        getSetupHTML() {
+          let playersHTML = '';
+          for (let idx = 0; idx < this.state.setup.humanPlayers; idx++) {
+            const isEditingFlip =
+              this.state.activeKeyBind?.playerIndex === idx &&
+              this.state.activeKeyBind?.action === 'flip';
+            const isEditingBell =
+              this.state.activeKeyBind?.playerIndex === idx &&
+              this.state.activeKeyBind?.action === 'bell';
+            const isEditingName = this.state.editingNameIndex === idx;
+            const currentFlipKey =
+              this.state.setup.keys[idx].flip.toUpperCase();
+            const currentBellKey =
+              this.state.setup.keys[idx].bell.toUpperCase();
+            const currentName =
+              this.state.setup.names[idx] || `크루 ${idx + 1}호`;
+
+            playersHTML += `
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-gray-50 p-3 rounded-lg gap-3 sm:gap-0">
+              <div class="flex items-center gap-2">
+                <span class="text-gray-500 text-sm">닉네임:</span>
+                ${
+                  isEditingName
+                    ? `<input id="name-input-${idx}" maxlength="5" value="${
+                        this.state.tempName
+                      }" class="font-bold text-sm border px-2 py-1 rounded shadow-sm focus:outline-none w-[90px] text-center bg-white text-gray-700" style="border-color: ${THEME_COLOR}" placeholder="크루 ${
+                        idx + 1
+                      }호"/>`
+                    : `<button onclick="app.setEditingName(${idx})" class="font-bold border px-2 py-1 rounded shadow-sm text-sm transition-all focus:outline-none w-[90px] truncate text-center bg-white text-gray-700 hover:bg-gray-100">${currentName}</button>`
+                }
+              </div>
+              <div class="flex gap-4 text-sm w-full sm:w-auto justify-end">
+                <div class="flex items-center gap-2">
+                  <span class="text-gray-500">카드 젖히기:</span>
+                  <button onclick="app.setActiveKeyBind(${idx}, 'flip')" class="font-mono border px-2 py-1 rounded shadow-sm text-sm transition-all focus:outline-none min-w-[60px] ${
+                    isEditingFlip
+                      ? 'text-white animate-pulse'
+                      : 'bg-white text-gray-700 hover:bg-gray-100'
+                  }" style="${
+                    isEditingFlip
+                      ? `background-color: ${THEME_COLOR}; border-color: ${THEME_COLOR}`
+                      : ''
+                  }">${isEditingFlip ? '입력...' : currentFlipKey}</button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-gray-500">종 치기:</span>
+                  <button onclick="app.setActiveKeyBind(${idx}, 'bell')" class="font-mono border px-2 py-1 rounded shadow-sm text-sm transition-all focus:outline-none min-w-[60px] ${
+                    isEditingBell
+                      ? 'text-white animate-pulse'
+                      : 'bg-white text-gray-700 hover:bg-gray-100'
+                  }" style="${
+                    isEditingBell
+                      ? `background-color: ${THEME_COLOR}; border-color: ${THEME_COLOR}`
+                      : ''
+                  }">${isEditingBell ? '입력...' : currentBellKey}</button>
+                </div>
+              </div>
+            </div>
+          `;
+          }
+
+          let rulesModalHTML = '';
+          if (this.state.showRulesModal) {
+            rulesModalHTML = `
+            <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div class="bg-white rounded-3xl shadow-2xl p-6 max-w-sm w-full text-left transform scale-100 animate-[popIn_0.3s_ease-out]">
+                <h2 class="text-2xl font-extrabold mb-4 flex items-center justify-center gap-2" style="color: ${THEME_COLOR}">
+                  ${Icons.AlertCircle(28)} 할리갈리 규칙
+                </h2>
+                <div class="space-y-4 text-sm text-gray-700 mb-6 bg-gray-50 p-5 rounded-2xl border">
+                  <p class="flex items-start gap-3"><span class="text-xl">🃏</span><span class="pt-0.5 leading-relaxed">내 차례에 카드를 <b>한 장씩 젖혀서</b> 바닥에 내려놓습니다.</span></p>
+                  <p class="flex items-start gap-3"><span class="text-xl">🍓</span><span class="pt-0.5 leading-relaxed">바닥에 깔린 <b>같은 과일의 합이 정확히 5개</b>일 때 재빨리 종을 칩니다!</span></p>
+                  <p class="flex items-start gap-3"><span class="text-xl">🎉</span><span class="pt-0.5 leading-relaxed">가장 먼저 <b>종을 친 사람이</b> 바닥에 깔린 카드를 모두 가져갑니다.</span></p>
+                  <p class="flex items-start gap-3"><span class="text-xl">🚨</span><span class="pt-0.5 leading-relaxed">5개가 아닌데 치면 <b>페널티</b>! 다른 모든 사람에게 카드를 1장씩 줍니다.</span></p>
+                  <p class="flex items-start gap-3"><span class="text-xl">💀</span><span class="pt-0.5 leading-relaxed">카드가 <b>0장이 되면 탈락</b>하며, 마지막까지 살아남는 1인이 승리합니다.</span></p>
+                </div>
+                <button onclick="app.toggleRulesModal(false)" class="w-full py-3 rounded-xl text-white font-bold text-lg hover:opacity-90 transition" style="background-color: ${THEME_COLOR}">이해했어요!</button>
+              </div>
+            </div>
+          `;
+          }
+
+          return `
+          <div class="flex-1 flex items-center justify-center p-4 overflow-y-auto">
+            <div class="bg-white rounded-3xl shadow-xl w-full max-w-lg p-8 space-y-8 border-t-8" style="border-color: ${THEME_COLOR}">
+              <div class="text-center">
+                <h1 class="text-3xl font-extrabold flex items-center justify-center gap-3" style="color: ${THEME_COLOR}">우아한 할리갈리</h1>
+                <p class="text-gray-500 mt-2">우테코 크루들과 봇의 불꽃튀는 대결!</p>
+              </div>
+
+              <div class="space-y-6">
+                <!-- Player Config -->
+                <div class="space-y-4">
+                  <div class="flex justify-between items-center border-b pb-2">
+                    <span class="font-semibold flex items-center gap-2">${Icons.User(
+                      18,
+                    )} 게임 인원 설정</span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <label class="text-sm font-medium">총 참가자 (최대 5명)</label>
+                    <select class="border rounded-lg px-3 py-1.5 bg-gray-50 focus:outline-none" onchange="app.updateSetupConfig('totalPlayers', parseInt(this.value))">
+                      ${[2, 3, 4, 5]
+                        .map(
+                          (n) =>
+                            `<option value="${n}" ${
+                              this.state.setup.totalPlayers === n
+                                ? 'selected'
+                                : ''
+                            }>${n}명</option>`,
+                        )
+                        .join('')}
+                    </select>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <label class="text-sm font-medium">플레이어 (사람)</label>
+                    <select class="border rounded-lg px-3 py-1.5 bg-gray-50 focus:outline-none" onchange="app.updateSetupConfig('humanPlayers', parseInt(this.value))">
+                      <option value="1" ${
+                        this.state.setup.humanPlayers === 1 ? 'selected' : ''
+                      }>1명</option>
+                      ${
+                        this.state.setup.totalPlayers >= 2
+                          ? `<option value="2" ${
+                              this.state.setup.humanPlayers === 2
+                                ? 'selected'
+                                : ''
+                            }>2명</option>`
+                          : ''
+                      }
+                    </select>
+                  </div>
+                  <p class="text-xs text-right text-gray-400">* 남은 자리는 AI 봇이 채웁니다.</p>
+                </div>
+
+                <!-- Difficulty Config -->
+                <div class="space-y-4">
+                  <div class="flex justify-between items-center border-b pb-2">
+                    <span class="font-semibold flex items-center gap-2">${Icons.Cpu(
+                      18,
+                    )} 봇 난이도</span>
+                  </div>
+                  <div class="grid grid-cols-3 gap-2">
+                    ${Object.entries(DIFFICULTIES)
+                      .map(
+                        ([key, data]) => `
+                      <button onclick="app.updateSetupConfig('difficulty', '${key}')" class="py-2 text-sm rounded-lg border font-medium transition-colors ${
+                        this.state.setup.difficulty === key
+                          ? 'text-white border-transparent'
+                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }" style="${
+                        this.state.setup.difficulty === key
+                          ? `background-color: ${THEME_COLOR}`
+                          : ''
+                      }">${data.label.split(' ')[0]}</button>
+                    `,
+                      )
+                      .join('')}
+                  </div>
+                </div>
+
+                <!-- Key Bindings & Name -->
+                <div class="space-y-4">
+                  <div class="flex justify-between items-center border-b pb-2">
+                    <span class="font-semibold flex items-center gap-2">${Icons.Settings(
+                      18,
+                    )} 설정 <span class="text-xs font-normal text-gray-500">(버튼 클릭 후 원하는 이름 & 키 입력)</span></span>
+                  </div>
+                  ${playersHTML}
+                </div>
+              </div>
+
+              <button onclick="app.handleStartGame()" ${
+                this.state.isStarting ? 'disabled' : ''
+              } class="w-full py-4 rounded-xl text-white font-bold text-lg flex items-center justify-center gap-2 transform transition hover:-translate-y-1 hover:shadow-lg focus:outline-none disabled:opacity-70 disabled:hover:translate-y-0 disabled:cursor-not-allowed" style="background-color: ${THEME_COLOR}">
+                ${
+                  this.state.isStarting
+                    ? `<span class="animate-spin flex items-center">${Icons.Cpu(
+                        20,
+                      )}</span> 준비 중...`
+                    : `${Icons.Play(20)} 게임 시작`
+                }
+              </button>
+
+              <div class="flex justify-end mt-3">
+                <button onclick="app.toggleRulesModal(true)" class="text-sm font-extrabold flex items-center gap-1 transition-colors animate-[pulseScale_1.5s_ease-in-out_infinite]" style="color: ${THEME_COLOR}">
+                  게임하는법 ${Icons.AlertCircle(18)}
+                </button>
+              </div>
+            </div>
+          </div>
+          ${rulesModalHTML}
+        `;
+        },
+
+        getPlayingHTML() {
+          let playersGridHTML = this.state.players
+            .map(
+              (player) => `
+          <div id="player-container-${
+            player.id
+          }" class="relative flex flex-col items-center justify-end shrink-0 transition-all duration-300">
+            <!-- Player Info Card -->
+            <div id="player-info-${
+              player.id
+            }" class="z-30 bg-white px-1 py-1 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] border-2 text-center w-[110px] sm:w-[120px] origin-bottom transition-transform duration-300 mb-2 sm:mb-3">
+              <div id="player-turn-${
+                player.id
+              }" class="absolute -top-2.5 left-1/2 transform -translate-x-1/2 text-[9px] font-bold text-white px-1.5 py-[1px] rounded-full shadow-sm" style="background-color: ${THEME_COLOR}; display: none;">TURN</div>
+              <div class="font-bold text-xs truncate flex items-center justify-center gap-1 w-full">
+                ${
+                  player.type === 'bot'
+                    ? '<span class="text-gray-400 shrink-0">' +
+                      Icons.Cpu(12) +
+                      '</span>'
+                    : '<span class="shrink-0" style="color: ' +
+                      THEME_COLOR +
+                      '">' +
+                      Icons.User(12) +
+                      '</span>'
+                }
+                <span class="truncate">${player.name}</span>
+              </div>
+              <div id="player-count-${
+                player.id
+              }" class="text-[10px] text-gray-500 font-medium mt-0.5">남은 카드: 0장</div>
+              <div id="player-lastchance-${
+                player.id
+              }" class="text-[9px] text-red-500 font-bold animate-pulse mt-0.5 bg-red-50 px-1 py-[1px] rounded-full" style="display: none;">마지막 기회!</div>
+              ${
+                player.type === 'human'
+                  ? `
+                <div class="mt-1 text-[9px] text-gray-400 bg-gray-50 rounded px-0.5 py-0.5 w-full leading-tight">
+                  <span id="player-keyspan-${player.id}">
+                    젖히기: <kbd class="font-mono bg-white border px-0.5 rounded">${player.keys.flip.toUpperCase()}</kbd>
+                  </span>
+                  <br/>
+                  <span>
+                    종치기: <kbd class="font-mono bg-white border px-0.5 rounded">${player.keys.bell.toUpperCase()}</kbd>
+                  </span>
+                </div>
+              `
+                  : ''
+              }
+            </div>
+            <!-- Discard Pile -->
+            <div id="player-discard-${player.id}"></div>
+          </div>
+        `,
+            )
+            .join('');
+
+          return `
+          <div id="playing-screen" class="w-full h-full flex flex-col overflow-hidden relative">
+            <!-- Header -->
+            <header class="p-4 flex justify-between items-center bg-white shadow-sm z-10 relative">
+              <h1 class="font-bold text-xl flex items-center gap-2" style="color: ${THEME_COLOR}">우아한 할리갈리</h1>
+              <div class="flex gap-4 text-sm font-medium text-gray-600">
+                <span class="bg-gray-100 px-3 py-1 rounded-full">난이도: ${
+                  DIFFICULTIES[this.state.setup.difficulty].label.split(' ')[0]
+                }</span>
+                <span id="resolving-badge" class="text-red-500 flex items-center gap-1 animate-pulse" style="display: none;">${Icons.AlertTriangle(
+                  16,
+                )} 정산 중</span>
+              </div>
+            </header>
+
+            <!-- Main Area -->
+            <main class="flex-1 relative flex flex-col items-center justify-between pt-4 pb-2 w-full overflow-x-hidden overflow-y-auto">
+              
+              <div id="event-message-container"></div>
+
+              <!-- Bell Area -->
+              <div class="flex-1 flex items-center justify-center w-full min-h-[170px] sm:min-h-[220px] relative mt-4 sm:mt-8">
+                <div class="relative flex flex-col items-center">
+                  <button class="focus:outline-none transition-transform active:scale-95 z-20 group" onclick="app.handleHumanBellAttempt()">
+                    <div id="bell-dome" class="relative flex flex-col items-center justify-end w-40 h-28 sm:w-48 sm:h-32 drop-shadow-2xl">
+                      <div class="w-8 h-6 bg-red-600 rounded-t-lg z-10 -mb-1 border border-red-800 shadow-[inset_0_-2px_4px_rgba(0,0,0,0.4)] group-active:translate-y-1 transition-transform"></div>
+                      <div class="w-32 h-16 sm:w-40 sm:h-20 bg-gradient-to-b from-gray-100 via-gray-300 to-gray-400 rounded-t-full z-20 border border-gray-400 shadow-[inset_0_5px_15px_rgba(255,255,255,0.9),0_4px_8px_rgba(0,0,0,0.3)] flex items-end justify-center overflow-hidden">
+                        <div class="w-full h-1/2 bg-gradient-to-b from-transparent to-white/40 rounded-full blur-[2px] mb-2"></div>
+                      </div>
+                      <div class="w-40 h-6 sm:w-48 sm:h-8 bg-gray-800 rounded-full z-30 -mt-2 sm:-mt-3 border-b-4 border-gray-900 shadow-[0_8px_20px_rgba(0,0,0,0.6)]"></div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Players Layout -->
+              <div class="w-full max-w-[100vw] overflow-x-auto pb-32 pt-10 sm:pt-12 hide-scrollbar relative z-30">
+                <div class="flex flex-nowrap items-end gap-[120px] sm:gap-[140px] w-max mx-auto px-[80px] sm:px-[140px]">
+                  ${playersGridHTML}
+                </div>
+              </div>
+            </main>
+          </div>
+        `;
+        },
+
+        getGameOverHTML() {
+          let textHTML = '';
+          if (this.state.winner) {
+            textHTML = `<p class="text-xl font-medium text-gray-600 mb-6">최후의 승자는 <span class="font-bold" style="color: ${THEME_COLOR}">${this.state.winner.name}</span> 입니다!</p>`;
+          } else {
+            textHTML = `<p class="text-xl font-medium text-gray-600 mb-6">무승부입니다!</p>`;
+          }
+
+          return `
+          <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full text-center transform scale-100 animate-[popIn_0.3s_ease-out]">
+              <div class="flex justify-center mb-4 text-yellow-400">${Icons.Trophy(
+                64,
+                'currentColor',
+              )}</div>
+              <h2 class="text-3xl font-extrabold mb-2 text-gray-800">게임 종료!</h2>
+              ${textHTML}
+              <div class="flex gap-3 mt-2">
+                <button onclick="app.resetToSetup()" ${
+                  this.state.isStarting ? 'disabled' : ''
+                } class="flex-1 py-3 rounded-xl bg-gray-200 text-gray-700 font-bold text-lg hover:bg-gray-300 transition disabled:opacity-70 disabled:cursor-not-allowed">처음으로</button>
+                <button onclick="app.handleStartGame()" ${
+                  this.state.isStarting ? 'disabled' : ''
+                } class="flex-1 py-3 rounded-xl text-white font-bold text-lg flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-70 disabled:cursor-not-allowed" style="background-color: ${THEME_COLOR}">
+                  ${
+                    this.state.isStarting
+                      ? `<span class="animate-spin flex items-center">${Icons.Cpu(
+                          20,
+                        )}</span> 준비 중...`
+                      : `다시 하기 ${Icons.Play(20)}`
+                  }
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+        },
+
+        // Fallback for bell clicking on screen
+        handleHumanBellAttempt() {
+          const firstHuman = this.state.players.find(
+            (p) => p.type === 'human' && !p.isOut,
+          );
+          if (firstHuman) this.handleBell(firstHuman.id);
+        },
+      };
+
+      window.app = app;
+      app.init();
+    </script>
+  </body>
+</html>

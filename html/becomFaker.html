@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BECOME FAKER - 30초 반응속도 챌린지</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase Libraries -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global State & Firebase Init
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'become-faker-pro';
+
+        let user = null;
+        let isPlaying = false;
+        let timeLeft = 30;
+        let timerInterval;
+        let spawnTimeout;
+        let spawnTime;
+        let reactionTimes = [];
+        let score = 0;
+        let unsubscribeLeaderboard = null;
+
+        // Elements
+        const gameArea = document.getElementById('game-area');
+        const target = document.getElementById('target');
+        const startOverlay = document.getElementById('start-overlay');
+        const endOverlay = document.getElementById('end-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const homeBtn = document.getElementById('home-btn');
+        
+        const currentTimeDisplay = document.getElementById('current-time');
+        const avgTimeDisplay = document.getElementById('avg-time');
+        const rankDisplay = document.getElementById('rank-display');
+        const timerDisplay = document.getElementById('timer-display');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const finalRankDisplay = document.getElementById('final-rank');
+        const leaderboardList = document.getElementById('leaderboard-list');
+
+        const ranks = [
+            { name: 'Faker', limit: 160, color: 'text-rose-500', bg: 'bg-rose-500/10' },
+            { name: 'Challenger', limit: 185, color: 'text-purple-400', bg: 'bg-purple-400/10' },
+            { name: 'Diamond', limit: 210, color: 'text-blue-300', bg: 'bg-blue-300/10' },
+            { name: 'Platinum', limit: 240, color: 'text-teal-400', bg: 'bg-teal-400/10' },
+            { name: 'Gold', limit: 280, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
+            { name: 'Silver', limit: 350, color: 'text-slate-300', bg: 'bg-slate-300/10' },
+            { name: 'Bronze', limit: Infinity, color: 'text-orange-600', bg: 'bg-orange-600/10' }
+        ];
+
+        function getRank(time) {
+            return ranks.find(r => time <= r.limit);
+        }
+
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Authentication failed:", error);
+            }
+        }
+
+        onAuthStateChanged(auth, (u) => {
+            user = u;
+            if (user) loadLeaderboard();
+        });
+
+        initAuth();
+
+        function loadLeaderboard() {
+            if (!user) return;
+            const q = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+            if (unsubscribeLeaderboard) unsubscribeLeaderboard();
+            unsubscribeLeaderboard = onSnapshot(q, (snapshot) => {
+                let data = [];
+                snapshot.forEach(doc => {
+                    const docData = doc.data();
+                    if (docData.avgTime) data.push(docData);
+                });
+                data.sort((a, b) => a.avgTime - b.avgTime);
+                
+                leaderboardList.innerHTML = data.slice(0, 5).map((entry, index) => {
+                    const playerRank = getRank(entry.avgTime);
+                    return `
+                        <div class="flex justify-between items-center p-3 bg-slate-700/40 rounded-xl mb-2 text-sm border border-slate-600/20 backdrop-blur-sm">
+                            <div class="flex items-center gap-3">
+                                <span class="w-7 h-7 flex items-center justify-center ${index === 0 ? 'bg-yellow-500 text-slate-900 shadow-lg shadow-yellow-500/30' : 'bg-slate-600 text-white'} rounded-lg text-[11px] font-black">${index + 1}</span>
+                                <div class="flex flex-col">
+                                    <span class="font-mono text-slate-400 text-[10px] leading-tight">${entry.userId ? entry.userId.slice(0, 8) : 'Unknown'}</span>
+                                    <span class="${playerRank.color} text-[11px] font-black uppercase italic leading-tight">${playerRank.name}</span>
+                                </div>
+                            </div>
+                            <span class="text-yellow-400 font-bold font-mono text-base">${entry.avgTime}<small class="text-[10px] ml-0.5">ms</small></span>
+                        </div>
+                    `;
+                }).join('') || '<p class="text-slate-500 text-sm italic text-center py-10 uppercase tracking-widest opacity-50">Empty Podium</p>';
+            }, (err) => console.error("Firestore Error:", err));
+        }
+
+        async function saveRecord(avg) {
+            if (!user || avg === 0) return;
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
+                    userId: user.uid,
+                    avgTime: avg,
+                    timestamp: Date.now()
+                });
+            } catch (err) { console.error("Save failed:", err); }
+        }
+
+        function spawnTarget() {
+            if (!isPlaying) return;
+            const delay = Math.random() * 1200 + 400;
+            spawnTimeout = setTimeout(() => {
+                const areaWidth = gameArea.clientWidth;
+                const areaHeight = gameArea.clientHeight;
+                const x = Math.random() * (areaWidth - 120) + 60;
+                const y = Math.random() * (areaHeight - 120) + 60;
+                target.style.left = `${x}px`;
+                target.style.top = `${y}px`;
+                target.classList.remove('hidden');
+                setTimeout(() => {
+                    target.classList.add('active');
+                    spawnTime = performance.now();
+                }, 10);
+            }, delay);
+        }
+
+        function handleHit(e) {
+            if (!isPlaying || !target.classList.contains('active')) return;
+            const clickTime = performance.now();
+            const reactionTime = Math.round(clickTime - spawnTime);
+            reactionTimes.push(reactionTime);
+            score++;
+            currentTimeDisplay.innerText = reactionTime;
+            const avg = Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length);
+            avgTimeDisplay.innerText = avg;
+            const rank = getRank(avg);
+            rankDisplay.innerText = rank.name;
+            rankDisplay.className = `text-xl md:text-2xl font-black uppercase italic ${rank.color}`;
+            showHitEffect(e.clientX, e.clientY, `${reactionTime}ms`);
+            target.classList.remove('active');
+            setTimeout(() => target.classList.add('hidden'), 50);
+            spawnTarget();
+        }
+
+        function showHitEffect(x, y, text) {
+            const effect = document.createElement('div');
+            effect.className = 'hit-effect';
+            effect.style.left = `${x}px`;
+            effect.style.top = `${y}px`;
+            effect.innerText = text;
+            document.body.appendChild(effect);
+            setTimeout(() => effect.remove(), 500);
+        }
+
+        function startGame() {
+            isPlaying = true;
+            timeLeft = 30;
+            reactionTimes = [];
+            startOverlay.classList.add('hidden');
+            endOverlay.classList.add('hidden');
+            currentTimeDisplay.innerText = '0';
+            avgTimeDisplay.innerText = '0';
+            timerDisplay.innerText = timeLeft;
+            rankDisplay.innerText = 'None';
+            rankDisplay.className = 'text-xl md:text-2xl font-black text-slate-500 uppercase italic opacity-50';
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timerDisplay.innerText = timeLeft;
+                if (timeLeft <= 0) endGame();
+            }, 1000);
+            spawnTarget();
+        }
+
+        function endGame() {
+            isPlaying = false;
+            clearInterval(timerInterval);
+            clearTimeout(spawnTimeout);
+            target.classList.add('hidden');
+            const finalAvg = reactionTimes.length > 0 
+                ? Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length) 
+                : 0;
+            
+            finalScoreDisplay.innerText = finalAvg > 0 ? `${finalAvg}ms` : "NO DATA";
+            
+            if (finalAvg > 0) {
+                const finalRank = getRank(finalAvg);
+                finalRankDisplay.innerText = finalRank.name;
+                finalRankDisplay.className = `text-4xl md:text-6xl font-black uppercase italic tracking-tighter mb-4 ${finalRank.color}`;
+                saveRecord(finalAvg);
+            }
+            
+            endOverlay.classList.remove('hidden');
+        }
+
+        function goToHome() {
+            endOverlay.classList.add('hidden');
+            startOverlay.classList.remove('hidden');
+            loadLeaderboard();
+        }
+
+        gameArea.addEventListener('mousedown', (e) => {
+            if (!isPlaying) return;
+            if (e.target.closest('#target')) {
+                handleHit(e);
+            } else if (!target.classList.contains('hidden')) {
+                gameArea.classList.add('shake');
+                setTimeout(() => gameArea.classList.remove('shake'), 200);
+            }
+        });
+
+        startBtn.addEventListener('click', startGame);
+        homeBtn.addEventListener('click', goToHome);
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Pretendard:wght@400;700;900&display=swap');
+        
+        :root {
+            --faker-red: #e11d48;
+        }
+
+        body { 
+            font-family: 'Pretendard', sans-serif; 
+            background-color: #020617; 
+            color: #f8fafc; 
+            overflow: hidden; 
+            user-select: none; 
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .heading-font { font-family: 'Orbitron', sans-serif; }
+
+        .game-board { 
+            background: radial-gradient(circle at center, #1e1b4b 0%, #020617 100%); 
+            cursor: crosshair; 
+        }
+
+        .target { 
+            position: absolute; 
+            transform: translate(-50%, -50%) scale(0); 
+            transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+            z-index: 10; 
+        }
+        
+        .target.active { transform: translate(-50%, -50%) scale(1); }
+        
+        .target-inner {
+            animation: glow 2s infinite alternate;
+        }
+
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 5px #fde047); }
+            to { filter: drop-shadow(0 0 25px #fde047); }
+        }
+
+        .hit-effect { 
+            position: absolute; 
+            pointer-events: none; 
+            animation: fadeOut 0.5s ease-out forwards; 
+            color: #fde047; 
+            font-weight: 900; 
+            font-family: 'Orbitron';
+            z-index: 50; 
+        }
+
+        @keyframes fadeOut { 
+            0% { opacity: 1; transform: translateY(0) scale(1.2); } 
+            100% { opacity: 0; transform: translateY(-40px) scale(1); } 
+        }
+
+        .shake { animation: shake 0.2s ease-in-out; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="px-4 md:px-8 py-3 md:py-5 flex justify-between items-center bg-slate-950/80 backdrop-blur-xl border-b border-slate-800 shadow-2xl z-20">
+        <div class="flex items-center gap-3 md:gap-5">
+            <div class="relative group shrink-0">
+                <div class="absolute -inset-1 bg-rose-600 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+                <div class="relative w-10 h-10 md:w-12 md:h-12 bg-slate-900 border border-slate-700 rounded-lg flex items-center justify-center text-rose-500 shadow-inner">
+                    <svg viewBox="0 0 24 24" class="w-6 h-6 md:w-8 md:h-8 fill-current" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M5 16L3 5L8.5 10L12 4L15.5 10L21 5L19 16H5ZM19 19C19 19.5523 18.5523 20 18 20H6C5.44772 20 5 19.5523 5 19V18H19V19ZM12 11L10 13H14L12 11Z"/>
+                    </svg>
+                </div>
+            </div>
+            <div>
+                <h1 class="heading-font text-lg md:text-2xl font-black italic tracking-tighter text-white uppercase leading-none">BECOME <span class="text-rose-600">FAKER</span></h1>
+                <div class="flex items-center gap-2 text-rose-500 font-bold text-[10px] uppercase tracking-widest mt-1">
+                    <span class="inline-block w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping"></span>
+                    <span id="timer-display">30</span>S Left
+                </div>
+            </div>
+        </div>
+
+        <div class="flex gap-4 md:gap-10">
+            <div class="text-right hidden sm:block">
+                <p class="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">Instant</p>
+                <p class="text-xl md:text-3xl font-mono font-black text-yellow-400 leading-none tracking-tighter"><span id="current-time">0</span><small class="text-[10px] ml-0.5 opacity-50 font-sans">ms</small></p>
+            </div>
+            <div class="text-right border-l border-slate-800 pl-4 md:pl-10">
+                <p class="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">Session Avg</p>
+                <p class="text-xl md:text-3xl font-mono font-black text-blue-400 leading-none tracking-tighter"><span id="avg-time">0</span><small class="text-[10px] ml-0.5 opacity-50 font-sans">ms</small></p>
+            </div>
+            <div class="text-right border-l border-slate-800 pl-4 md:pl-10">
+                <p class="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">Tier</p>
+                <p id="rank-display" class="text-xl md:text-3xl font-black uppercase italic leading-none tracking-tighter text-slate-700">None</p>
+            </div>
+        </div>
+    </header>
+
+    <main id="game-area" class="flex-grow relative game-board overflow-hidden">
+        
+        <!-- Start Overlay -->
+        <div id="start-overlay" class="absolute inset-0 z-40 bg-slate-950/95 backdrop-blur-2xl transition-all duration-700 overflow-y-auto">
+            <div class="min-h-full flex items-center justify-center p-4 md:p-10">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12 max-w-5xl w-full">
+                    
+                    <!-- Welcome Section -->
+                    <div class="flex flex-col justify-center text-center lg:text-left py-4">
+                        <div class="mb-4 md:mb-6 flex justify-center lg:justify-start">
+                            <div class="p-3 md:p-5 bg-rose-600/10 rounded-2xl border border-rose-600/20">
+                                <svg viewBox="0 0 24 24" class="w-10 h-10 md:w-16 md:h-16 fill-rose-600" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M5 16L3 5L8.5 10L12 4L15.5 10L21 5L19 16H5ZM19 19C19 19.5523 18.5523 20 18 20H6C5.44772 20 5 19.5523 5 19V18H19V19ZM12 11L10 13H14L12 11Z"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <h2 class="heading-font text-4xl md:text-6xl font-black mb-4 uppercase italic tracking-tighter text-white leading-none">BECOME<br><span class="text-rose-600">FAKER</span></h2>
+                        <p class="text-slate-400 mb-8 md:mb-10 leading-relaxed text-base md:text-lg font-medium italic">
+                            페이커의 반응속도는 약 160ms입니다.<br class="hidden md:block">
+                            30초 동안 당신의 한계를 시험하세요!
+                        </p>
+                        <button id="start-btn" class="group relative px-8 py-4 md:py-6 bg-rose-600 hover:bg-rose-500 text-white font-black text-lg md:text-xl rounded-2xl transition-all transform hover:scale-105 active:scale-95 shadow-2xl shadow-rose-600/40 uppercase tracking-widest overflow-hidden">
+                            <span class="relative z-10">Initiate Training</span>
+                            <div class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                        </button>
+                    </div>
+                    
+                    <!-- Hall of Fame -->
+                    <div class="bg-slate-900/50 p-6 md:p-8 rounded-3xl border border-slate-800 shadow-2xl flex flex-col min-h-[350px] max-h-[500px] backdrop-blur-md">
+                        <h3 class="heading-font text-lg md:text-xl font-black mb-6 flex items-center gap-3 text-yellow-500 uppercase italic">
+                            <svg viewBox="0 0 24 24" class="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>
+                            Hall of Fame
+                        </h3>
+                        <div id="leaderboard-list" class="space-y-3 overflow-y-auto pr-2 flex-grow custom-scrollbar">
+                            <!-- Rankings -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- End Overlay -->
+        <div id="end-overlay" class="absolute inset-0 z-50 hidden bg-slate-950/98 backdrop-blur-3xl overflow-y-auto">
+            <div class="min-h-full flex items-center justify-center p-6">
+                <div class="text-center p-8 md:p-16 bg-white/5 rounded-[32px] md:rounded-[40px] border border-white/10 shadow-3xl max-w-xl w-full">
+                    <p class="text-rose-600 font-black uppercase tracking-[0.4em] md:tracking-[0.6em] mb-6 text-[10px] md:text-xs">Analysis Complete</p>
+                    <div class="mb-2 text-slate-500 text-[10px] uppercase font-black tracking-widest">Achieved Tier</div>
+                    <h3 id="final-rank" class="text-4xl md:text-6xl font-black mb-8 md:mb-10 animate-pulse tracking-tighter italic">UNRANKED</h3>
+                    
+                    <div class="grid grid-cols-1 gap-4 mb-10 md:mb-12">
+                        <div class="p-6 md:p-8 bg-slate-900 rounded-2xl border border-slate-800">
+                            <p class="text-slate-500 text-[10px] uppercase font-black mb-1 tracking-widest">Average Response</p>
+                            <h2 class="text-5xl md:text-7xl font-mono font-black text-white tracking-tighter" id="final-score">0ms</h2>
+                        </div>
+                    </div>
+                    
+                    <button id="home-btn" class="w-full py-5 md:py-6 bg-slate-800 hover:bg-slate-700 text-white font-black text-base md:text-lg rounded-2xl transition-all transform hover:scale-105 shadow-2xl uppercase tracking-widest border border-slate-700">
+                        Return to Headquarters
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Target -->
+        <div id="target" class="target hidden">
+            <div class="target-inner w-16 h-16 md:w-24 md:h-24 bg-yellow-400 rounded-2xl md:rounded-[30px] flex items-center justify-center shadow-2xl shadow-yellow-500/50 cursor-pointer transform transition-all active:scale-75">
+                <svg viewBox="0 0 24 24" class="w-8 h-8 md:w-12 md:h-12 fill-slate-900" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M13 2 L3 14 L12 14 L11 22 L21 10 L12 10 Z"/>
+                </svg>
+            </div>
+        </div>
+    </main>
+
+    <footer class="px-4 md:px-8 py-3 md:py-4 bg-slate-950 border-t border-slate-900 flex justify-between items-center text-[8px] md:text-[9px] font-black text-slate-600 uppercase tracking-[0.2em] md:tracking-[0.4em]">
+        <div class="flex gap-4 md:gap-10">
+            <span class="hover:text-rose-500 transition-colors">Precision</span>
+            <span class="text-slate-800">•</span>
+            <span class="hover:text-blue-500 transition-colors">Speed</span>
+            <span class="text-slate-800">•</span>
+            <span class="hover:text-yellow-500 transition-colors">Control</span>
+        </div>
+        <div class="italic text-slate-800">V1.0 PRO-TRAINER</div>
+    </footer>
+
+</body>
+</html>

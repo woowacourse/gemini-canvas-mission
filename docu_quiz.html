@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuQuiz - 바닐라 JS 공식 문서 학습 도구</title>
+    <!-- Tailwind CSS CDN (Utility-first CSS) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            scroll-behavior: smooth;
+        }
+
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(229, 231, 235, 0.5);
+        }
+
+        /* 순수 CSS 애니메이션 */
+        .fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .option-btn:not(:disabled):hover {
+            transform: translateX(4px);
+            background-color: #f5f3ff;
+            border-color: #8b5cf6;
+        }
+
+        .loader {
+            border-top-color: #6366f1;
+            animation: spinner 0.8s linear infinite;
+        }
+
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 커스텀 스크롤바 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #818cf8; }
+    </style>
+</head>
+<body class="bg-indigo-50/30 min-h-screen text-slate-800">
+
+<!-- 메인 레이아웃 컨테이너 -->
+<div id="app" class="max-w-3xl mx-auto px-4 py-10 md:py-20">
+
+    <!-- 헤더 영역 -->
+    <header class="text-center mb-10 fade-in">
+        <div class="inline-flex items-center justify-center w-20 h-20 bg-indigo-600 text-white rounded-3xl mb-6 shadow-xl shadow-indigo-200">
+            <i class="fas fa-brain text-4xl"></i>
+        </div>
+        <h1 class="text-4xl font-black tracking-tight text-slate-900 mb-3">DocuQuiz</h1>
+        <p class="text-slate-500 font-medium">공식 문서를 읽고, 퀴즈로 이해도를 검증하세요.</p>
+    </header>
+
+    <!-- 설정 토글 및 모델 정보 -->
+    <div class="flex justify-between items-center mb-6 fade-in" style="animation-delay: 0.1s;">
+        <div id="status-badge" class="text-[10px] font-bold px-3 py-1 rounded-full bg-white text-slate-400 border border-slate-200 uppercase tracking-tighter">
+            Session Ready
+        </div>
+        <button onclick="UI.toggleSettings()" class="text-sm font-semibold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-2">
+            <i class="fas fa-sliders"></i> 설정
+        </button>
+    </div>
+
+    <!-- 설정 패널 (API 키 및 모델 선택) -->
+    <section id="settings-panel" class="hidden glass-effect p-6 rounded-3xl shadow-sm mb-8 animate-fade-in">
+        <div class="space-y-6">
+            <div>
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">Google AI API Key</label>
+                <div class="flex gap-2">
+                    <input type="password" id="api-key-input" placeholder="AIzaSy..."
+                           class="flex-1 px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all text-sm">
+                    <button onclick="App.saveSettings()" class="bg-indigo-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-indigo-700 transition-all">저장</button>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-2 italic">* 입력하지 않으면 시스템 기본 키가 시도됩니다.</p>
+            </div>
+
+            <div>
+                <div class="flex justify-between items-center mb-2">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Model Selection</label>
+                    <button onclick="App.loadModels()" class="text-[10px] text-indigo-600 font-bold hover:underline">
+                        <i class="fas fa-sync-alt mr-1"></i> 모델 목록 새로고침
+                    </button>
+                </div>
+                <select id="model-select" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white text-sm cursor-pointer appearance-none">
+                    <option value="gemini-1.5-flash">gemini-1.5-flash (권장)</option>
+                    <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp</option>
+                </select>
+            </div>
+        </div>
+    </section>
+
+    <!-- 메인 입력 섹션 -->
+    <section id="input-section" class="glass-effect p-8 rounded-[2.5rem] shadow-2xl shadow-indigo-100/50 mb-10 fade-in" style="animation-delay: 0.2s;">
+        <div class="flex flex-col gap-5">
+            <div class="space-y-2">
+                <label class="text-sm font-bold text-slate-700 ml-1">문서 URL 입력</label>
+                <div class="flex flex-col md:flex-row gap-3">
+                    <input type="url" id="doc-url" placeholder="https://docs.example.com"
+                           class="flex-1 px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-indigo-500 focus:outline-none transition-all bg-white text-lg">
+                    <button onclick="App.startDiscovery()" id="start-btn"
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-10 py-4 rounded-2xl transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-3">
+                        <i class="fas fa-bolt"></i> 퀴즈 생성
+                    </button>
+                </div>
+            </div>
+            <div class="flex items-start gap-3 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
+                <i class="fas fa-info-circle text-indigo-400 mt-1"></i>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    AI가 <strong>구글 검색(Google Search)</strong>을 활용해 해당 URL의 실시간 콘텐츠를 분석합니다.
+                    구조화된 데이터 출력을 위해 분석 시간이 약 10~20초 소요될 수 있습니다.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 로딩 상태 -->
+    <section id="loading-section" class="hidden glass-effect p-16 rounded-[2.5rem] shadow-xl text-center fade-in">
+        <div class="relative inline-block mb-8">
+            <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-100 h-16 w-16 mx-auto"></div>
+            <i class="fas fa-search text-indigo-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></i>
+        </div>
+        <h2 class="text-2xl font-bold text-slate-900 mb-3">문서 심층 분석 중</h2>
+        <p class="text-slate-500 font-medium" id="loading-msg">AI가 페이지의 기술적 맥락을 파악하고 있습니다...</p>
+    </section>
+
+    <!-- 퀴즈 인터페이스 영역 -->
+    <section id="quiz-section" class="hidden space-y-6 fade-in">
+        <div class="flex justify-between items-center px-2">
+            <div class="flex items-center gap-3">
+                <span id="progress-indicator" class="px-4 py-1.5 bg-indigo-600 text-white text-xs font-black rounded-full">1 / 5</span>
+                <span id="hostname-display" class="text-xs font-bold text-slate-400 tracking-tight">docs.python.org</span>
+            </div>
+            <div id="timer" class="text-xs font-mono font-bold text-slate-400">SESSION ACTIVE</div>
+        </div>
+
+        <div id="quiz-card" class="glass-effect p-10 rounded-[2.5rem] shadow-2xl border-white border-4">
+            <!-- 질문 내용 동적 삽입 -->
+        </div>
+    </section>
+
+    <!-- 결과 리포트 섹션 -->
+    <section id="result-section" class="hidden glass-effect p-16 rounded-[2.5rem] shadow-2xl text-center fade-in">
+        <div id="result-icon" class="text-8xl mb-8">🎯</div>
+        <h2 class="text-4xl font-black text-slate-900 mb-4">분석 완료!</h2>
+        <p id="result-summary" class="text-xl text-slate-600 mb-10 font-medium leading-relaxed"></p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <button onclick="App.restart()" class="bg-indigo-600 text-white font-black px-12 py-5 rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100">
+                다른 문서 학습하기
+            </button>
+        </div>
+    </section>
+
+    <!-- 에러 메시지 섹션 -->
+    <section id="error-section" class="hidden glass-effect p-10 rounded-[2.5rem] border-2 border-red-100 shadow-xl text-center fade-in">
+        <div class="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+            <i class="fas fa-exclamation-circle text-3xl"></i>
+        </div>
+        <h2 class="text-xl font-bold text-slate-900 mb-2">분석에 실패했습니다</h2>
+        <p id="error-message" class="text-sm text-slate-500 mb-8 bg-red-50/50 p-4 rounded-2xl font-mono break-all"></p>
+        <button onclick="App.restart()" class="text-indigo-600 font-bold hover:underline underline-offset-4">처음으로 돌아가기</button>
+    </section>
+
+    <!-- 토스트 메시지 -->
+    <div id="toast" class="hidden fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-8 py-4 rounded-2xl shadow-2xl z-50 text-sm font-bold animate-fade-in"></div>
+</div>
+
+<script>
+    /**
+     * DocuQuiz Core Application Logic (Vanilla JS)
+     */
+
+    const apiKey = ""; // Runtime automatically injected
+
+    // 애플리케이션 상태 관리
+    const state = {
+        questions: [],
+        currentIndex: 0,
+        score: 0,
+        // 공유 시 바로 작동하도록 기본 API 키 강제 할당
+        userKey: localStorage.getItem('dq_key') || "AIzaSyBa-ZH8Jzmvod6B5gWvLQHLOr0AOS0D0Ks",
+        model: localStorage.getItem('dq_model') || "gemini-1.5-flash",
+        isSettingsOpen: false
+    };
+
+    // UI 조작 유틸리티
+    const UI = {
+        show: (id) => {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('hidden');
+        },
+        hide: (id) => {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('hidden');
+        },
+        hideAll: () => {
+            ['input-section', 'loading-section', 'quiz-section', 'result-section', 'error-section'].forEach(UI.hide);
+        },
+        toast: (msg) => {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 3000);
+        },
+        toggleSettings: () => {
+            state.isSettingsOpen = !state.isSettingsOpen;
+            const panel = document.getElementById('settings-panel');
+            if (state.isSettingsOpen) panel.classList.remove('hidden');
+            else panel.classList.add('hidden');
+        }
+    };
+
+    // 앱 주요 기능
+    const App = {
+        init: () => {
+            // 초기 설정 로드
+            if (state.userKey) {
+                document.getElementById('api-key-input').value = state.userKey;
+            }
+
+            // 키가 하나라도 존재하면 모델 로드 시도
+            if (state.userKey || apiKey) {
+                App.loadModels();
+            } else {
+                const badge = document.getElementById('status-badge');
+                badge.innerText = "API Key Required";
+                badge.classList.replace('text-slate-400', 'text-amber-500');
+            }
+
+            document.getElementById('model-select').value = state.model;
+        },
+
+        saveSettings: () => {
+            const val = document.getElementById('api-key-input').value.trim();
+            state.userKey = val;
+            localStorage.setItem('dq_key', val);
+            UI.toast("설정이 저장되었습니다.");
+            App.loadModels();
+        },
+
+        loadModels: async () => {
+            const key = state.userKey || apiKey;
+            const badge = document.getElementById('status-badge');
+
+            if (!key) {
+                badge.innerText = "API Key Required";
+                badge.classList.replace('text-emerald-500', 'text-amber-500');
+                badge.classList.replace('text-slate-400', 'text-amber-500');
+                return;
+            }
+
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+
+                const select = document.getElementById('model-select');
+                select.innerHTML = "";
+
+                data.models
+                    .filter(m => m.supportedGenerationMethods.includes("generateContent"))
+                    .forEach(m => {
+                        const name = m.name.split('/')[1];
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.innerText = name;
+                        if (name === state.model) opt.selected = true;
+                        select.appendChild(opt);
+                    });
+
+                badge.innerText = "Connection Healthy";
+                badge.classList.replace('text-slate-400', 'text-emerald-500');
+            } catch (e) {
+                badge.innerText = "Connection Limited";
+                badge.classList.replace('text-slate-400', 'text-amber-500');
+            }
+        },
+
+        startDiscovery: async () => {
+            const url = document.getElementById('doc-url').value.trim();
+            if (!url || !url.startsWith('http')) {
+                UI.toast("올바른 URL을 입력해주세요.");
+                return;
+            }
+
+            UI.hideAll();
+            UI.show('loading-section');
+            document.getElementById('loading-msg').innerText = "AI가 문서를 정독하고 핵심을 추출하고 있습니다...";
+
+            try {
+                const data = await App.fetchQuizData(url);
+                state.questions = data.questions;
+                state.currentIndex = 0;
+                state.score = 0;
+
+                document.getElementById('hostname-display').innerText = new URL(url).hostname;
+                App.renderQuestion();
+
+                UI.hideAll();
+                UI.show('quiz-section');
+            } catch (e) {
+                console.error(e);
+                UI.hideAll();
+                UI.show('error-section');
+                document.getElementById('error-message').innerText = e.message;
+            }
+        },
+
+        fetchQuizData: async (targetUrl) => {
+            const activeKey = state.userKey || apiKey;
+
+            // API 통신 전 키 존재 여부 사전 검증
+            if (!activeKey) {
+                throw new Error("API 키가 설정되지 않았습니다. 화면 우측 상단의 '설정' 메뉴를 눌러 발급받은 Google API Key를 입력해주세요.");
+            }
+
+            const activeModel = document.getElementById('model-select').value;
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${activeKey}`;
+
+            const systemPrompt = `당신은 교육 공학 전문가입니다. 'google_search' 도구로 URL 내용을 읽고,
+                학습자의 이해도를 정확히 측정할 수 있는 5개의 한국어 객관식 퀴즈를 생성하세요.
+                반드시 JSON 객체 하나만 반환해야 하며, 다른 텍스트나 코드 블록 기호는 포함하지 마세요.
+                구조: {"questions": [{"question": "질문", "options": ["A", "B", "C", "D"], "answerIndex": 0, "explanation": "설명"}]}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: `분석 대상 URL: ${targetUrl}\n위 URL의 핵심 내용을 기반으로 퀴즈를 만들어줘.` }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                tools: [{ "google_search": {} }]
+            };
+
+            // 지수 백오프 기반 재시도 (최대 3회)
+            for (let i = 0; i < 3; i++) {
+                try {
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.json().catch(() => ({}));
+                        throw new Error(err.error?.message || `API Error (${response.status})`);
+                    }
+
+                    const result = await response.json();
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!text) throw new Error("AI가 응답을 생성하지 못했습니다.");
+
+                    // 텍스트에서 JSON 추출 (정규식 사용)
+                    const jsonMatch = text.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) throw new Error("응답에서 퀴즈 데이터를 찾을 수 없습니다.");
+
+                    return JSON.parse(jsonMatch[0]);
+                } catch (err) {
+                    if (i === 2) throw err;
+                    await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
+                }
+            }
+        },
+
+        renderQuestion: () => {
+            const q = state.questions[state.currentIndex];
+            const container = document.getElementById('quiz-card');
+            document.getElementById('progress-indicator').innerText = `${state.currentIndex + 1} / ${state.questions.length}`;
+
+            container.innerHTML = `
+                    <div class="fade-in">
+                        <h3 class="text-2xl font-bold text-slate-900 mb-10 leading-snug">${q.question}</h3>
+                        <div class="grid gap-4">
+                            ${q.options.map((opt, idx) => `
+                                <button onclick="App.checkAnswer(${idx})" class="option-btn w-full text-left p-6 rounded-2xl border-2 border-slate-100 transition-all font-semibold text-slate-700 flex justify-between items-center group">
+                                    <span>${opt}</span>
+                                    <i class="fas fa-arrow-right text-indigo-200 group-hover:text-indigo-500 transition-colors"></i>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+        },
+
+        checkAnswer: (selectedIdx) => {
+            const q = state.questions[state.currentIndex];
+            const isCorrect = selectedIdx === q.answerIndex;
+            if (isCorrect) state.score++;
+
+            const btns = document.querySelectorAll('.option-btn');
+            btns.forEach((btn, idx) => {
+                btn.disabled = true;
+                if (idx === q.answerIndex) {
+                    btn.classList.replace('border-slate-100', 'border-emerald-500');
+                    btn.classList.add('bg-emerald-50', 'text-emerald-700');
+                    btn.innerHTML += '<i class="fas fa-check-circle text-emerald-500"></i>';
+                } else if (idx === selectedIdx && !isCorrect) {
+                    btn.classList.replace('border-slate-100', 'border-red-500');
+                    btn.classList.add('bg-red-50', 'text-red-700');
+                    btn.innerHTML += '<i class="fas fa-times-circle text-red-500"></i>';
+                }
+            });
+
+            const feedback = document.createElement('div');
+            feedback.className = `mt-10 p-6 rounded-3xl ${isCorrect ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800'} border border-current border-opacity-10 fade-in`;
+            feedback.innerHTML = `
+                    <div class="flex gap-4">
+                        <span class="text-2xl">${isCorrect ? '👏' : '💡'}</span>
+                        <div>
+                            <p class="font-black text-sm mb-1 uppercase tracking-wider">${isCorrect ? 'Great Job!' : 'Review Needed'}</p>
+                            <p class="text-sm font-medium leading-relaxed opacity-90">${q.explanation}</p>
+                        </div>
+                    </div>
+                    <button onclick="App.nextStep()" class="mt-8 w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm hover:shadow-xl transition-all">
+                        ${state.currentIndex === state.questions.length - 1 ? '최종 결과 확인' : '다음 문제 진행'}
+                    </button>
+                `;
+            document.getElementById('quiz-card').appendChild(feedback);
+        },
+
+        nextStep: () => {
+            state.currentIndex++;
+            if (state.currentIndex < state.questions.length) {
+                App.renderQuestion();
+            } else {
+                App.showFinalResult();
+            }
+        },
+
+        showFinalResult: () => {
+            UI.hideAll();
+            UI.show('result-section');
+
+            const ratio = state.score / state.questions.length;
+            let msg = "";
+            let icon = "";
+
+            if (ratio === 1) { icon = "🏆"; msg = "완벽합니다! 해당 문서의 내용을 완벽하게 이해하셨네요."; }
+            else if (ratio >= 0.8) { icon = "⭐"; msg = "훌륭합니다. 대부분의 핵심 내용을 정확히 파악하셨습니다."; }
+            else if (ratio >= 0.5) { icon = "📚"; msg = "좋은 시도입니다. 틀린 문제를 중심으로 한 번 더 복습해 보세요."; }
+            else { icon = "🌱"; msg = "학습이 더 필요해 보입니다. 공식 문서를 조금 더 정독한 뒤 다시 시도해 보세요."; }
+
+            document.getElementById('result-icon').innerText = icon;
+            document.getElementById('result-summary').innerText = `5문제 중 ${state.score}문제를 맞혔습니다.\n${msg}`;
+        },
+
+        restart: () => {
+            UI.hideAll();
+            UI.show('input-section');
+            document.getElementById('doc-url').value = "";
+        }
+    };
+
+    // 초기화 실행
+    window.onload = App.init;
+</script>
+</body>
+</html>

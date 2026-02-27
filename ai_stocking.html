@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 스타킹 (AI Stocking) - 실시간 AI 주식 분석</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .animate-spin-slow {
+            animation: spin 8s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .report-content h4 {
+            color: #818cf8;
+            font-weight: 900;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            border-bottom: 1px solid rgba(129, 140, 248, 0.2);
+            padding-bottom: 0.25rem;
+        }
+
+        .report-content strong {
+            color: #ffffff;
+            font-weight: 700;
+        }
+
+        .report-content ul {
+            margin-top: 0.5rem;
+        }
+
+        .report-content li {
+            position: relative;
+            padding-left: 1.25rem;
+            margin-bottom: 0.4rem;
+            color: #cbd5e1;
+            font-size: 0.875rem;
+        }
+
+        .report-content li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #6366f1;
+            font-weight: bold;
+        }
+
+        #buy-text, #sell-text {
+            transition: font-size 0.5s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-900 p-2 md:p-4 min-h-screen">
+
+<div class="max-w-6xl mx-auto flex flex-col gap-3">
+
+    <!-- Header Section -->
+    <header class="flex flex-col md:flex-row items-center justify-between gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
+        <h1 class="text-xl font-black flex items-center gap-2 text-indigo-600 tracking-tighter">
+            <i data-lucide="brain-circuit" class="w-6 h-6"></i> AI 스타킹
+        </h1>
+
+        <form id="search-form" class="relative w-full md:w-80">
+            <input
+                    type="text"
+                    id="search-input"
+                    placeholder="종목명 입력..."
+                    class="w-full pl-9 pr-20 py-1.5 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 text-sm outline-none"
+            >
+            <i data-lucide="search" class="absolute left-3 top-2 text-slate-400 w-4 h-4"></i>
+            <button type="submit" class="absolute right-1.5 top-1 bg-indigo-600 text-white px-3 py-1 rounded-lg text-xs font-bold transition-transform active:scale-95 flex items-center gap-1">
+                <span id="btn-text">분석</span>
+                <i id="loading-spinner" data-lucide="loader-2" class="w-3 h-3 animate-spin hidden"></i>
+            </button>
+        </form>
+
+        <div class="flex items-center gap-2 text-xs font-bold text-slate-500">
+            <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+            <select id="model-select" class="bg-transparent border-none p-0 focus:ring-0 cursor-pointer outline-none">
+                <option value="gemini-2.0-flash">GEMINI 2.0 FLASH</option>
+            </select>
+        </div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-3">
+
+        <!-- Left Column -->
+        <div class="lg:col-span-3 space-y-3">
+            <section class="bg-white rounded-3xl shadow-sm border border-slate-200 p-5 relative overflow-hidden">
+                <!-- Analyzing Overlay -->
+                <div id="analyzing-overlay" class="hidden absolute inset-0 bg-white/90 z-20 flex flex-col items-center justify-center gap-4">
+                    <div class="relative">
+                        <i data-lucide="loader-2" class="w-12 h-12 text-indigo-500 animate-spin"></i>
+                        <i data-lucide="sparkles" class="absolute -top-2 -right-2 text-amber-400 animate-pulse w-5 h-5"></i>
+                    </div>
+                    <p class="text-sm font-black text-slate-400 uppercase tracking-widest">분석 중...</p>
+                </div>
+
+                <!-- Stock Content -->
+                <div id="stock-content">
+                    <div class="flex justify-between items-center mb-6">
+                        <div>
+                            <h2 id="stock-name" class="text-3xl font-black text-slate-900 leading-tight">종목을 검색하세요</h2>
+                            <p id="stock-symbol" class="text-base text-slate-400 font-bold uppercase tracking-widest">-</p>
+                        </div>
+                        <div class="text-right">
+                            <p id="stock-price" class="text-3xl font-black text-slate-900">-</p>
+                            <p id="stock-change" class="text-lg font-bold flex items-center justify-end gap-1">
+                                <span>-</span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- VS Probability Display -->
+                    <div class="relative bg-slate-50 rounded-[2.5rem] p-8 overflow-hidden border border-slate-100 flex items-center justify-center min-h-[320px]">
+                        <div class="absolute inset-0 opacity-[0.02] flex items-center justify-center select-none pointer-events-none">
+                            <span class="text-[15rem] font-black italic">VS</span>
+                        </div>
+                        <div class="flex items-center justify-around w-full relative z-10 gap-4">
+                            <div class="flex-1 flex flex-col items-center">
+                                <span class="text-xs font-black text-indigo-500 mb-2 tracking-widest">BUY SIGNAL</span>
+                                <div id="buy-text" class="font-black text-indigo-600 leading-[0.85] tracking-tighter drop-shadow-xl select-none" style="font-size: 3rem;">
+                                    매수
+                                </div>
+                                <div class="mt-6 flex flex-col items-center">
+                                    <span id="buy-prob" class="text-4xl font-black text-indigo-900">-%</span>
+                                    <div class="w-12 h-1.5 bg-indigo-200 rounded-full mt-2 overflow-hidden">
+                                        <div id="buy-bar" class="h-full bg-indigo-600 transition-all duration-700" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="h-48 w-[2px] bg-gradient-to-b from-transparent via-slate-200 to-transparent mx-2"></div>
+
+                            <div class="flex-1 flex flex-col items-center">
+                                <span class="text-xs font-black text-rose-500 mb-2 tracking-widest">SELL SIGNAL</span>
+                                <div id="sell-text" class="font-black text-rose-600 leading-[0.85] tracking-tighter drop-shadow-xl select-none" style="font-size: 3rem;">
+                                    매도
+                                </div>
+                                <div class="mt-6 flex flex-col items-center">
+                                    <span id="sell-prob" class="text-4xl font-black text-rose-900">-%</span>
+                                    <div class="w-12 h-1.5 bg-rose-200 rounded-full mt-2 overflow-hidden">
+                                        <div id="sell-bar" class="h-full bg-rose-600 transition-all duration-700" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Report Card -->
+                    <div class="mt-6 p-6 rounded-[2rem] bg-slate-900 text-white shadow-2xl border border-white/5 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-4 opacity-10">
+                            <i data-lucide="sparkles" class="w-20 h-20 text-amber-400"></i>
+                        </div>
+                        <h3 class="flex items-center gap-2 font-black mb-4 text-indigo-400 text-sm uppercase tracking-widest">
+                            <i data-lucide="sparkles" class="w-4 h-4"></i> AI 스타킹 Insight
+                        </h3>
+                        <div id="ai-opinion" class="report-content leading-relaxed font-medium">
+                            종목을 검색하면 AI의 분석 결과가 여기에 표시됩니다.
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                <h3 class="text-[10px] font-black text-slate-400 mb-3 flex items-center gap-2 uppercase tracking-widest">
+                    <i data-lucide="newspaper" class="w-3 h-3"></i> Global Market Headlines
+                </h3>
+                <div id="market-summary" class="text-slate-800 text-sm font-bold leading-relaxed report-content">
+                    실시간 소식을 불러오는 중...
+                </div>
+            </section>
+        </div>
+
+        <!-- Stats Column -->
+        <div class="space-y-3">
+            <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                <h3 class="font-black mb-6 flex items-center gap-2 text-slate-800 text-sm uppercase tracking-tighter">
+                    <i data-lucide="activity" class="w-4.5 h-4.5 text-indigo-500"></i> Reliability Score
+                </h3>
+                <div class="space-y-6">
+                    <div class="stat-item">
+                        <div class="flex justify-between text-[10px] mb-2">
+                            <span class="text-slate-400 font-black tracking-widest uppercase">Data Freshness</span>
+                            <span class="font-black text-slate-900">99%</span>
+                        </div>
+                        <div class="h-2.5 bg-slate-50 rounded-full border border-slate-100 overflow-hidden shadow-inner">
+                            <div class="h-full bg-emerald-500 transition-all duration-1000" style="width: 99%;"></div>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="flex justify-between text-[10px] mb-2">
+                            <span class="text-slate-400 font-black tracking-widest uppercase">Model Confidence</span>
+                            <span class="font-black text-slate-900">92%</span>
+                        </div>
+                        <div class="h-2.5 bg-slate-50 rounded-full border border-slate-100 overflow-hidden shadow-inner">
+                            <div class="h-full bg-indigo-600 transition-all duration-1000" style="width: 92%;"></div>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="flex justify-between text-[10px] mb-2">
+                            <span class="text-slate-400 font-black tracking-widest uppercase">Market Sentiment</span>
+                            <span class="font-black text-slate-900">84%</span>
+                        </div>
+                        <div class="h-2.5 bg-slate-50 rounded-full border border-slate-100 overflow-hidden shadow-inner">
+                            <div class="h-full bg-orange-500 transition-all duration-1000" style="width: 84%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const apiKey = "";
+    let selectedModel = "gemini-2.0-flash";
+
+    const searchForm = document.getElementById('search-form');
+    const searchInput = document.getElementById('search-input');
+    const overlay = document.getElementById('analyzing-overlay');
+    const modelSelect = document.getElementById('model-select');
+    const marketSummaryDiv = document.getElementById('market-summary');
+    const aiOpinionDiv = document.getElementById('ai-opinion');
+    const stockNameText = document.getElementById('stock-name');
+    const stockSymbolText = document.getElementById('stock-symbol');
+    const stockPriceText = document.getElementById('stock-price');
+    const stockChangeText = document.getElementById('stock-change');
+    const buyText = document.getElementById('buy-text');
+    const sellText = document.getElementById('sell-text');
+    const buyProbText = document.getElementById('buy-prob');
+    const sellProbText = document.getElementById('sell-prob');
+    const buyBar = document.getElementById('buy-bar');
+    const sellBar = document.getElementById('sell-bar');
+
+    window.addEventListener('DOMContentLoaded', async () => {
+        lucide.createIcons();
+        await listAvailableModels();
+        await generateMarketInsight();
+    });
+
+    async function listAvailableModels() {
+        try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+            const data = await res.json();
+            if (data.models) {
+                modelSelect.innerHTML = '';
+                data.models
+                    .filter(m => m.supportedGenerationMethods.includes('generateContent'))
+                    .forEach(m => {
+                        const modelId = m.name.replace('models/', '');
+                        const option = document.createElement('option');
+                        option.value = modelId;
+                        option.textContent = modelId.split('-')[0].toUpperCase();
+                        if (modelId === selectedModel) option.selected = true;
+                        modelSelect.appendChild(option);
+                    });
+            }
+        } catch (err) { console.error(err); }
+    }
+
+    async function fetchGemini(prompt, systemInstruction = "") {
+        const currentModel = modelSelect.value || selectedModel;
+        const payload = {
+            contents: [{ parts: [{ text: prompt }] }],
+            tools: [{ "google_search": {} }]
+        };
+        if (systemInstruction) payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        return await res.json();
+    }
+
+    async function generateMarketInsight() {
+        try {
+            const data = await fetchGemini("오늘의 글로벌 증시 뉴스 3줄 요약.");
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) marketSummaryDiv.innerHTML = renderMarkdown(text);
+        } catch (err) { marketSummaryDiv.innerText = "로드 실패"; }
+    }
+
+    searchForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const query = searchInput.value.trim();
+        if (!query) return;
+
+        overlay.classList.remove('hidden');
+        const systemPrompt = `당신은 주식 분석 전문가입니다. 반드시 다음 JSON 구조로만 답변하세요: { "name": "기업명", "symbol": "티커", "price": 숫자, "change": 숫자, "buyProb": 숫자, "sellProb": 숫자, "aiOpinion": "마크다운요약" }`;
+
+        try {
+            const data = await fetchGemini(`${query} 주식 분석`, systemPrompt);
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+                const result = extractJson(text);
+                if (result) updateStockUI(result);
+            }
+        } catch (err) { console.error(err); }
+        finally { overlay.classList.add('hidden'); }
+    });
+
+    function extractJson(text) {
+        try {
+            const firstOpen = text.indexOf('{');
+            const lastClose = text.lastIndexOf('}');
+            if (firstOpen !== -1 && lastClose !== -1) {
+                const parsed = JSON.parse(text.substring(firstOpen, lastClose + 1));
+                parsed.buyProb = parseInt(parsed.buyProb) || 50;
+                parsed.sellProb = 100 - parsed.buyProb;
+                return parsed;
+            }
+        } catch (e) { return null; }
+    }
+
+    function updateStockUI(data) {
+        stockNameText.innerText = data.name;
+        stockSymbolText.innerText = data.symbol;
+        stockPriceText.innerText = `$${data.price.toLocaleString()}`;
+        const isPos = data.change >= 0;
+        stockChangeText.className = `text-lg font-bold flex items-center justify-end gap-1 ${isPos ? 'text-rose-500' : 'text-blue-500'}`;
+        stockChangeText.innerHTML = `<i data-lucide="${isPos ? 'trending-up' : 'trending-down'}" class="w-4.5 h-4.5"></i><span>${Math.abs(data.change)}%</span>`;
+        buyProbText.innerText = `${data.buyProb}%`;
+        sellProbText.innerText = `${data.sellProb}%`;
+        buyBar.style.width = `${data.buyProb}%`;
+        sellBar.style.width = `${data.sellProb}%`;
+        buyText.style.fontSize = getDynamicFontSize(data.buyProb);
+        sellText.style.fontSize = getDynamicFontSize(data.sellProb);
+        aiOpinionDiv.innerHTML = renderMarkdown(data.aiOpinion);
+        lucide.createIcons();
+    }
+
+    function getDynamicFontSize(prob) {
+        const min = 3, max = 8.5;
+        return `${min + (prob / 100) * (max - min)}rem`;
+    }
+
+    function renderMarkdown(text) {
+        if (!text) return "";
+        return text.replace(/^### (.*$)/gm, '<h4 class="text-indigo-400 font-bold mt-2 mb-1 border-b border-indigo-900/30 pb-0.5 text-sm">$1</h4>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/^\s*[\*\-]\s+(.*)/gm, '<li class="ml-3 list-disc text-slate-300 text-xs opacity-90">$1</li>')
+            .replace(/\n/g, '<br />');
+    }
+</script>
+</body>
+</html>

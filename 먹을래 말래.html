@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오늘 뭐 먹지? - AI 메뉴 결정기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        body { font-family: 'Pretendard', sans-serif; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes popIn {
+            0% { opacity: 0; transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+        .animate-pop-in { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+
+        .screen { display: none; }
+        .screen.active { display: flex; }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-orange-50 text-gray-800 min-h-screen flex items-center justify-center p-4 selection:bg-orange-200">
+
+<div class="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden min-h-[600px] flex flex-col relative border border-orange-100">
+
+    <!-- 헤더 -->
+    <header class="bg-orange-500 text-white p-6 text-center shadow-lg">
+        <h1 class="text-2xl font-black tracking-tight">🤔 오늘 뭐 먹지?</h1>
+        <p class="text-orange-100 text-sm mt-1 opacity-90">AI와 함께 고민을 해결해 보세요!</p>
+    </header>
+
+    <!-- [화면 1] 메뉴 입력 -->
+    <div id="screen-input" class="screen active flex-col flex-1 p-8 animate-fade-in">
+        <div class="mb-6">
+            <label class="block text-sm font-bold text-gray-600 mb-3 ml-1">후보 메뉴 추가</label>
+            <!-- 가로 정렬 수정: flex-row 및 flex-nowrap 유지 -->
+            <div class="flex flex-row gap-2 items-center w-full">
+                <input type="text" id="menu-input" placeholder="예: 마라탕, 초밥..."
+                       class="flex-1 min-w-0 border-2 border-orange-50 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all shadow-inner bg-gray-50">
+                <button id="btn-add" class="shrink-0 bg-orange-500 text-white hover:bg-orange-600 px-6 py-4 rounded-2xl font-bold transition-all shadow-md active:scale-95">
+                    추가
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto min-h-[220px] mb-6 pr-1">
+            <ul id="menu-list" class="space-y-3"></ul>
+            <div id="empty-state" class="text-center text-gray-400 mt-16 animate-pulse">
+                <div class="text-4xl mb-3">🍽️</div>
+                <p class="text-sm">메뉴를 입력하거나 바로 시작하세요!</p>
+            </div>
+        </div>
+
+        <button id="btn-start" class="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white text-lg font-extrabold py-5 rounded-[1.5rem] shadow-xl transition-all transform active:scale-[0.97]">
+            결정 시작하기
+        </button>
+    </div>
+
+    <!-- [화면 2] AI 인터랙션 -->
+    <div id="screen-game" class="screen flex-col flex-1 p-8 animate-fade-in bg-orange-50/30">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-sm font-bold text-orange-600 bg-orange-100 px-3 py-1 rounded-full">남은 후보 <span id="remaining-count">0</span></h2>
+            <div id="reject-badge" class="hidden text-xs font-bold text-red-500 bg-red-50 px-3 py-1 rounded-full animate-bounce">
+                🛡️ 거절 누적: <span id="reject-count-text">0</span>/3
+            </div>
+        </div>
+
+        <div id="game-remaining-list" class="flex flex-wrap justify-center gap-2 mb-8 max-h-24 overflow-y-auto"></div>
+
+        <div class="flex-1 flex flex-col items-center justify-center w-full bg-white rounded-[2rem] shadow-xl border border-orange-100 p-8 relative min-h-[280px]">
+
+            <div id="ai-loading" class="absolute inset-0 bg-white/95 rounded-[2rem] flex flex-col items-center justify-center z-20 hidden">
+                <div class="relative w-16 h-16 mb-4">
+                    <div class="absolute inset-0 border-4 border-orange-100 rounded-full"></div>
+                    <div class="absolute inset-0 border-4 border-orange-500 rounded-full border-t-transparent animate-spin"></div>
+                </div>
+                <p id="ai-loading-text" class="text-sm text-orange-600 font-bold animate-pulse text-center px-6">AI 분석 중...</p>
+            </div>
+
+            <div id="ai-content-area" class="w-full flex flex-col h-full">
+                <div class="text-orange-400 mb-4 text-center">
+                    <svg class="w-10 h-10 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                </div>
+
+                <h3 id="ai-question-text" class="text-xl font-extrabold text-gray-800 text-center mb-8 break-keep leading-snug grow flex items-center justify-center">
+                    질문을 불러오는 중...
+                </h3>
+
+                <div class="grid grid-cols-2 gap-3 w-full" id="action-buttons">
+                    <button onclick="handleResponse('YES')" class="bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-bold shadow-lg transition-all active:scale-95 text-lg">
+                        네
+                    </button>
+                    <button onclick="handleResponse('NO')" class="bg-gray-100 hover:bg-gray-200 text-gray-700 py-4 rounded-2xl font-bold transition-all active:scale-95 text-lg">
+                        아니요
+                    </button>
+                </div>
+                <button id="btn-skip" onclick="handleResponse('SKIP')" class="w-full mt-4 text-gray-400 font-semibold py-2 text-sm hover:text-gray-600 transition-colors">
+                    상관없음 / 잘 모르겠어요
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- [화면 3] 최종 결과 -->
+    <div id="screen-result" class="screen flex-col flex-1 p-8 animate-fade-in items-center justify-center bg-gradient-to-br from-orange-500 to-red-600 text-white">
+        <div class="text-center animate-pop-in">
+            <p class="text-orange-100 font-bold mb-4 tracking-widest uppercase text-xs">🎉 Today's Choice</p>
+            <div class="bg-white text-orange-600 rounded-[2.5rem] p-10 shadow-2xl mb-10 relative border-4 border-orange-200">
+                <h2 id="final-result-text" class="text-5xl font-black break-keep">치킨</h2>
+            </div>
+            <button onclick="location.reload()" class="bg-white text-orange-600 hover:bg-orange-50 px-10 py-4 rounded-2xl font-black shadow-xl transition-all transform active:scale-95">
+                다시 하기
+            </button>
+        </div>
+    </div>
+
+    <div id="toast" class="absolute bottom-10 left-1/2 transform -translate-x-1/2 bg-gray-900/90 text-white text-xs px-5 py-3 rounded-full shadow-2xl transition-opacity duration-300 opacity-0 pointer-events-none z-50 whitespace-nowrap backdrop-blur-md">
+        메시지
+    </div>
+</div>
+
+<script>
+    const apiKey = "";
+    const defaultMenus = ['치킨', '피자', '삼겹살', '국밥', '떡볶이', '초밥', '햄버거', '돈까스', '제육볶음', '김치찌개', '파스타', '샌드위치', '쌀국수', '마라탕', '냉면'];
+
+    let menus = [];
+    let currentGameMenus = [];
+    let pendingRemovalList = [];
+    let gameState = "AI_QUERY"; // AI_QUERY or CONFIRM_REMOVAL
+    let currentQuestion = "";
+    let surviveCounters = {};
+    let isProcessing = false;
+
+    const ui = {
+        input: document.getElementById('menu-input'),
+        list: document.getElementById('menu-list'),
+        qText: document.getElementById('ai-question-text'),
+        lText: document.getElementById('ai-loading-text'),
+        loading: document.getElementById('ai-loading'),
+        gameList: document.getElementById('game-remaining-list'),
+        count: document.getElementById('remaining-count'),
+        rejectBadge: document.getElementById('reject-badge'),
+        rejectText: document.getElementById('reject-count-text'),
+        toast: document.getElementById('toast'),
+        final: document.getElementById('final-result-text'),
+        btnSkip: document.getElementById('btn-skip')
+    };
+
+    // 엔터 키 입력 추가
+    ui.input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addMenu();
+        }
+    });
+
+    document.getElementById('btn-add').onclick = addMenu;
+
+    function addMenu() {
+        const val = ui.input.value.trim();
+        if (val && !menus.includes(val)) {
+            menus.push(val);
+            ui.input.value = '';
+            renderInputList();
+        }
+    }
+
+    document.getElementById('btn-start').onclick = () => {
+        currentGameMenus = menus.length > 0 ? [...menus] : [...defaultMenus].sort(() => 0.5 - Math.random()).slice(0, 7);
+        if (currentGameMenus.length === 1) return finish(currentGameMenus[0]);
+        switchScreen('game');
+        startAiTurn();
+    };
+
+    function renderInputList() {
+        ui.list.innerHTML = menus.map((m, i) => `
+            <li class="flex justify-between items-center bg-orange-50 px-5 py-4 rounded-2xl border border-orange-100 animate-fade-in shadow-sm">
+                <span class="font-bold text-gray-700">${m}</span>
+                <button onclick="menus.splice(${i},1);renderInputList()" class="text-orange-300 hover:text-red-500 transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </li>
+        `).join('');
+        document.getElementById('empty-state').style.display = menus.length ? 'none' : 'block';
+    }
+
+    async function callAi(prompt, isJson = true) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const config = {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: isJson ? { responseMimeType: "application/json" } : {}
+        };
+        try {
+            const res = await fetch(url, { method: 'POST', body: JSON.stringify(config) });
+            const data = await res.json();
+            const text = data.candidates[0].content.parts[0].text;
+            return isJson ? JSON.parse(text) : text;
+        } catch (e) {
+            console.error(e);
+            return isJson ? {question: "통신 오류가 발생했어요. 다시 시도해볼까요?", remaining_menus: currentGameMenus} : "오류";
+        }
+    }
+
+    async function startAiTurn() {
+        if (currentGameMenus.length <= 1) return finish(currentGameMenus[0]);
+
+        gameState = "AI_QUERY";
+        setLoading(true, "AI가 취향 분석 질문을 던지는 중...");
+        ui.rejectBadge.classList.add('hidden');
+        ui.btnSkip.style.display = "block";
+
+        renderGameList();
+
+        const prompt = `
+            현재 메뉴 후보: [${currentGameMenus.join(', ')}]
+            위 메뉴들을 걸러내기 위한 질문을 하나만 생성해줘.
+
+            [질문 가이드라인]
+            1. '네/아니오'로 대답 가능할 것.
+            2. 질문 유형을 아주 다양하게 섞어줘:
+               - 맛/특징: "입안이 얼얼할 정도로 매운 게 당기시나요?"
+               - 상황: "오늘 하루가 너무 고되어서 든든한 보양식이 필요한가요?"
+               - 경험/어제: "어제 면 종류의 음식을 드셨나요?", "최근에 기름진 음식을 자주 드셨나요?"
+               - 온도/날씨: "지금 밖의 날씨와 어울리는 따뜻한 국물이 필요하신가요?"
+               - 단답형 질문: "지금 아주 배가 많이 고프신 상태인가요?"
+            3. 결과는 반드시 JSON: {"question": "질문내용"}
+        `;
+
+        const res = await callAi(prompt);
+        currentQuestion = res.question;
+        ui.qText.innerText = currentQuestion;
+        setLoading(false);
+    }
+
+    async function handleResponse(answer) {
+        if (isProcessing) return;
+
+        if (gameState === "AI_QUERY") {
+            if (answer === 'SKIP') return startAiTurn();
+
+            setLoading(true, "답변을 바탕으로 메뉴들을 정리하고 있어요...");
+            const prompt = `
+                메뉴 후보: [${currentGameMenus.join(', ')}]
+                질문: "${currentQuestion}"
+                사용자 답변: "${answer === 'YES' ? '네' : '아니오'}"
+
+                사용자의 답변을 토대로, 현재 후보군 중에서 '가장 적절하지 않은' 메뉴들을 리스트로 뽑아줘.
+                전체를 다 지우지는 말고, 논리적으로 탈락시켜야 할 메뉴들을 선택해.
+                JSON 배열 형식으로만 대답해: ["메뉴1", "메뉴2"]
+            `;
+
+            const res = await callAi(prompt);
+            pendingRemovalList = Array.isArray(res) ? res.filter(m => currentGameMenus.includes(m)) : [];
+
+            setLoading(false);
+            if (pendingRemovalList.length > 0) {
+                gameState = "CONFIRM_REMOVAL";
+                showNextRemoval();
+            } else {
+                showToast("이번 답변으로는 지워지는 메뉴가 없네요! 다시 질문할게요.");
+                startAiTurn();
+            }
+        } else {
+            processRemovalConfirm(answer);
+        }
+    }
+
+    function showNextRemoval() {
+        if (currentGameMenus.length <= 1) return finish(currentGameMenus[0]);
+        if (pendingRemovalList.length === 0) return startAiTurn();
+
+        const target = pendingRemovalList[0];
+        const currentCount = surviveCounters[target] || 0;
+
+        ui.btnSkip.style.display = "none";
+        ui.rejectBadge.classList.remove('hidden');
+        ui.rejectText.innerText = currentCount;
+
+        ui.qText.innerHTML = `
+            <div class="flex flex-col items-center">
+                <span class="text-sm font-bold text-gray-400 mb-2">분석 결과 이 메뉴는 어떠세요?</span>
+                <span class="text-3xl font-black text-orange-600 mb-2">"${target}"</span>
+                <span class="text-lg">이 메뉴를 후보에서 지울까요?</span>
+            </div>
+        `;
+    }
+
+    function processRemovalConfirm(answer) {
+        const target = pendingRemovalList.shift();
+
+        if (answer === 'YES') {
+            currentGameMenus = currentGameMenus.filter(m => m !== target);
+            showToast(`🗑️ ${target} 메뉴를 삭제했습니다.`);
+            showNextRemoval();
+        } else {
+            surviveCounters[target] = (surviveCounters[target] || 0) + 1;
+            if (surviveCounters[target] >= 3) {
+                finish(target);
+            } else {
+                showToast(`🛡️ ${target} 생존! (거절 횟수: ${surviveCounters[target]}/3)`);
+                showNextRemoval();
+            }
+        }
+    }
+
+    function renderGameList() {
+        ui.gameList.innerHTML = currentGameMenus.map(m => `
+            <span class="bg-white border-2 border-orange-100 text-orange-500 px-3 py-1.5 rounded-xl font-bold text-xs shadow-sm animate-pop-in">${m}</span>
+        `).join('');
+        ui.count.innerText = currentGameMenus.length;
+    }
+
+    function setLoading(isLoading, text = "") {
+        isProcessing = isLoading;
+        ui.lText.innerText = text;
+        ui.loading.classList.toggle('hidden', !isLoading);
+    }
+
+    function showToast(msg) {
+        ui.toast.innerText = msg;
+        ui.toast.style.opacity = '1';
+        setTimeout(() => ui.toast.style.opacity = '0', 2500);
+    }
+
+    function switchScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById('screen-' + id).classList.add('active');
+    }
+
+    function finish(winner) {
+        ui.final.innerText = winner;
+        switchScreen('result');
+    }
+
+    renderInputList();
+</script>
+</body>
+</html>

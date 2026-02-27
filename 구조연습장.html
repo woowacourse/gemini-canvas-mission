@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android MVVM Architecture Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f0f2f5;
+        }
+        
+        .file-card {
+            border: 3px solid #1f2937;
+            border-radius: 15px 5px 15px 5px / 5px 15px 5px 15px;
+            background-color: #ffffff;
+            box-shadow: 5px 5px 0px #1f2937;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+        }
+
+        .layer-container {
+            border: 2px dashed #9ca3af;
+            padding: 1.5rem;
+            border-radius: 20px;
+            background-color: rgba(255, 255, 255, 0.5);
+            min-height: 400px;
+        }
+
+        .title-font { font-family: 'Nanum Pen Script', cursive; }
+
+        .item-list li {
+            position: relative;
+            padding-left: 1.2rem;
+            margin-bottom: 0.4rem;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        .item-list li::before {
+            content: '•';
+            position: absolute;
+            left: 0;
+            color: #1f2937;
+            font-weight: bold;
+        }
+
+        .file-summary-badge {
+            font-size: 0.75rem;
+            color: #4b5563;
+            background-color: #f3f4f6;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            border: 1px solid #d1d5db;
+            margin-top: 4px;
+            display: inline-block;
+        }
+
+        .relation-map {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding: 30px;
+            background: #fff;
+            border: 4px solid #1f2937;
+            border-radius: 25px;
+            box-shadow: 6px 6px 0px #1f2937;
+            margin-bottom: 40px;
+            overflow-x: auto;
+        }
+
+        .node-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            min-width: 150px;
+        }
+
+        .node-box {
+            padding: 8px 15px;
+            border: 2px solid #1f2937;
+            border-radius: 8px;
+            background: #fff;
+            font-family: monospace;
+            font-size: 0.85rem;
+            font-weight: bold;
+            box-shadow: 3px 3px 0px #1f2937;
+            white-space: nowrap;
+        }
+
+        .connector-svg { flex-shrink: 0; width: 100px; height: 60px; }
+
+        #loading-overlay { display: none; backdrop-filter: blur(4px); }
+        .loader {
+            border: 6px solid #f3f3f3; border-top: 6px solid #1f2937;
+            border-radius: 50%; width: 50px; height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .btn-base {
+            padding: 0.6rem 1.2rem; border-radius: 0.75rem;
+            font-weight: bold; display: flex; align-items: center;
+            gap: 0.5rem; transition: all 0.2s;
+        }
+        .scrap-btn { background-color: #10b981; color: white; box-shadow: 3px 3px 0px #065f46; }
+        .fav-btn { background-color: #f59e0b; color: white; box-shadow: 3px 3px 0px #b45309; }
+        .add-btn { background-color: #1f2937; color: white; font-size: 0.8rem; padding: 0.3rem 0.6rem; border-radius: 0.5rem; }
+        
+        .btn-base:hover { transform: translateY(-2px); opacity: 0.9; }
+        .btn-base:active { transform: translateY(1px); box-shadow: none; }
+
+        .bookmark-section {
+            width: 100%; max-width: 1400px; margin-top: 60px;
+            padding: 2rem; border-top: 4px solid #1f2937;
+        }
+
+        .bookmark-card {
+            background: white; border: 2px solid #1f2937; padding: 1rem;
+            border-radius: 12px; cursor: pointer; transition: all 0.2s;
+            box-shadow: 4px 4px 0px #1f2937;
+        }
+        .bookmark-card:hover { transform: scale(1.02); }
+
+        .edit-input { width: 100%; border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 5px; font-size: 0.85rem; margin-bottom: 4px; }
+        .edit-area { width: 100%; height: 80px; border: 1px solid #d1d5db; border-radius: 4px; padding: 5px; font-size: 0.8rem; }
+    </style>
+</head>
+<body class="min-h-screen p-4 flex flex-col items-center">
+
+    <div class="w-full max-w-5xl mb-10 text-center">
+        <h1 class="font-bold mb-2 title-font text-gray-800 text-6xl">Android MVVM File Map</h1>
+        <p class="text-gray-600 mb-8">기능에 따라 생성해야 할 <span class="font-bold text-blue-600">실제 파일들</span>의 연결 구조를 설계합니다.</p>
+        
+        <div class="flex w-full max-w-2xl mx-auto gap-3">
+            <input type="text" id="app-idea-input" placeholder="예: 커피 키오스크 주문 시스템" 
+                   class="flex-1 px-6 py-4 rounded-xl border-4 border-gray-800 focus:outline-none text-lg shadow-[4px_4px_0px_#1f2937]">
+            <button onclick="generateArchitecture()" 
+                    class="px-8 py-4 bg-gray-800 text-white font-bold rounded-xl hover:bg-black transition-all shadow-[4px_4px_0px_#444] active:translate-y-1 active:shadow-none text-lg">
+                설계도 생성
+            </button>
+        </div>
+    </div>
+
+    <div id="diagram-container" class="w-full max-w-[1400px] hidden flex-col items-center opacity-0 transition-opacity duration-700">
+        
+        <div class="w-full flex justify-end mb-4 gap-4 px-4">
+            <button onclick="addToFavorites()" class="btn-base fav-btn">
+                <span>⭐ 즐겨찾기 추가</span>
+            </button>
+            <button onclick="scrapDiagram()" class="btn-base scrap-btn">
+                <span>📸 이미지 저장</span>
+            </button>
+        </div>
+
+        <div id="scrap-target" class="w-full p-8 bg-[#f0f2f5] rounded-3xl">
+            <div class="w-full mb-10">
+                <h3 id="current-title" class="title-font text-3xl text-center mb-6 text-gray-700">파일 간 참조 관계 (File Connection Map)</h3>
+                <div id="relation-map-container" class="relation-map"></div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full">
+                <div class="layer-container border-blue-300">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="title-font text-3xl text-blue-800">UI Layer (View)</h3>
+                        <button onclick="addNewFile('view')" class="add-btn">+ 파일 추가</button>
+                    </div>
+                    <div id="view-files-container"></div>
+                </div>
+                <div class="layer-container border-green-300">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="title-font text-3xl text-green-800">State Layer (ViewModel)</h3>
+                        <button onclick="addNewFile('viewModel')" class="add-btn">+ 파일 추가</button>
+                    </div>
+                    <div id="viewmodel-files-container"></div>
+                </div>
+                <div class="layer-container border-purple-300">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="title-font text-3xl text-purple-800">Data Layer (Model)</h3>
+                        <button onclick="addNewFile('model')" class="add-btn">+ 파일 추가</button>
+                    </div>
+                    <div id="model-files-container"></div>
+                </div>
+            </div>
+
+            <div class="mt-12 bg-white p-6 border-2 border-gray-800 rounded-lg shadow-md max-w-3xl mx-auto">
+                <h4 class="font-bold text-lg mb-2">💡 설계 가이드</h4>
+                <p id="summary-text" class="text-gray-700 leading-relaxed"></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bookmark-section">
+        <h3 class="title-font text-4xl mb-6 text-gray-800">📂 내 보관함 (Favorites)</h3>
+        <div id="bookmark-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
+    </div>
+
+    <div id="loading-overlay" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/90">
+        <div class="loader mb-4"></div>
+        <p class="title-font text-3xl font-bold text-gray-800">데이터를 처리 중...</p>
+    </div>
+
+    <script>
+        const apiKey = "";
+        let currentDesignData = null;
+        let editingIndex = { layer: null, index: null };
+
+        // 초기 로드 시 보관함 렌더링
+        window.onload = function() {
+            renderBookmarks();
+        };
+
+        // 설계도 생성 API 호출
+        async function generateArchitecture() {
+            const ideaInput = document.getElementById('app-idea-input');
+            const idea = ideaInput.value.trim();
+            if (!idea) return;
+
+            showLoading(true);
+            const systemPrompt = `당신은 Android 개발 전문가입니다. 사용자의 앱 기능에 맞춰 '생성해야 할 개별 파일(클래스)' 단위로 구조를 설계하세요. 
+JSON 응답 형식:
+{
+  "idea": "사용자의 입력 키워드",
+  "summary": "전체 흐름 요약",
+  "layers": {
+    "view": [{ "fileName": "...", "fileSummary": "...", "details": ["..."] }],
+    "viewModel": [{ "fileName": "...", "fileSummary": "...", "details": ["..."] }],
+    "model": [{ "fileName": "...", "fileSummary": "...", "details": ["..."] }]
+  }
+}`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `앱 아이디어: ${idea}` }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: { responseMimeType: "application/json" }
+                    })
+                });
+
+                const data = await response.json();
+                if (data.candidates && data.candidates[0].content.parts[0].text) {
+                    currentDesignData = JSON.parse(data.candidates[0].content.parts[0].text);
+                    renderDiagram(currentDesignData);
+                }
+            } catch (e) { 
+                console.error("Architecture generation failed:", e); 
+            } finally { 
+                showLoading(false); 
+            }
+        }
+
+        // 전체 다이어그램 렌더링
+        function renderDiagram(data) {
+            if (!data) return;
+
+            const renderLayer = (layerKey, containerId) => {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+                container.innerHTML = '';
+                
+                const files = data.layers[layerKey] || [];
+                
+                files.forEach((file, idx) => {
+                    const isEditing = editingIndex.layer === layerKey && editingIndex.index === idx;
+                    const card = document.createElement('div');
+                    card.className = 'file-card';
+                    
+                    if (isEditing) {
+                        card.innerHTML = `
+                            <input type="text" id="edit-filename" class="edit-input font-bold" value="${file.fileName}">
+                            <input type="text" id="edit-summary" class="edit-input" value="${file.fileSummary}">
+                            <textarea id="edit-details" class="edit-area">${file.details.join('\n')}</textarea>
+                            <div class="flex justify-end gap-2 mt-2">
+                                <button onclick="window.saveEdit('${layerKey}', ${idx})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded">저장</button>
+                                <button onclick="window.cancelEdit()" class="text-xs bg-gray-400 text-white px-2 py-1 rounded">취소</button>
+                            </div>
+                        `;
+                    } else {
+                        // 수정됨: 파일 삭제 버튼 제거
+                        card.innerHTML = `
+                            <div class="absolute top-2 right-2">
+                                <button onclick="window.startEdit('${layerKey}', ${idx})" class="text-[10px] text-blue-600 hover:font-bold">수정</button>
+                            </div>
+                            <div class="flex flex-col mb-3">
+                                <div class="flex items-center">
+                                    <span class="bg-gray-800 text-white text-[10px] px-1.5 py-0.5 rounded mr-2 font-mono">FILE</span>
+                                    <h4 class="font-bold text-gray-800 font-mono text-sm">${file.fileName}</h4>
+                                </div>
+                                <div class="file-summary-badge">${file.fileSummary}</div>
+                            </div>
+                            <ul class="item-list text-gray-600">${file.details.map(d => `<li>${d}</li>`).join('')}</ul>
+                        `;
+                    }
+                    container.appendChild(card);
+                });
+            };
+
+            renderLayer('view', 'view-files-container');
+            renderLayer('viewModel', 'viewmodel-files-container');
+            renderLayer('model', 'model-files-container');
+            renderRelationMap(data.layers);
+            
+            document.getElementById('summary-text').innerText = data.summary;
+            document.getElementById('current-title').innerText = `${data.idea} - 설계도`;
+
+            const container = document.getElementById('diagram-container');
+            container.classList.remove('hidden');
+            container.classList.add('flex');
+            setTimeout(() => container.classList.add('opacity-100'), 100);
+        }
+
+        // 관계도 렌더링
+        function renderRelationMap(layers) {
+            const container = document.getElementById('relation-map-container');
+            if (!container) return;
+            container.innerHTML = '';
+            
+            const createNodeGroup = (files, bgColor) => {
+                const group = document.createElement('div');
+                group.className = 'node-group';
+                (files || []).forEach(f => {
+                    const node = document.createElement('div');
+                    node.className = `node-box ${bgColor}`;
+                    node.innerText = f.fileName;
+                    group.appendChild(node);
+                });
+                return group;
+            };
+
+            const createArrow = (label) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'flex flex-col items-center mx-2';
+                wrapper.innerHTML = `<span class="title-font text-lg text-gray-500">${label}</span><svg class="connector-svg" viewBox="0 0 100 40"><path d="M0 20 L90 20" stroke="#1f2937" stroke-width="3" fill="none" /><path d="M85 12 L95 20 L85 28" fill="#1f2937" /></svg>`;
+                return wrapper;
+            };
+
+            container.appendChild(createNodeGroup(layers.view, 'bg-blue-50'));
+            container.appendChild(createArrow('Observes'));
+            container.appendChild(createNodeGroup(layers.viewModel, 'bg-green-50'));
+            container.appendChild(createArrow('Requests'));
+            container.appendChild(createNodeGroup(layers.model, 'bg-purple-50'));
+        }
+
+        // --- 전역 함수 정의 ---
+
+        window.startEdit = function(layer, index) {
+            editingIndex = { layer, index };
+            renderDiagram(currentDesignData);
+        };
+
+        window.cancelEdit = function() {
+            editingIndex = { layer: null, index: null };
+            renderDiagram(currentDesignData);
+        };
+
+        window.saveEdit = function(layer, index) {
+            const newName = document.getElementById('edit-filename').value;
+            const newSummary = document.getElementById('edit-summary').value;
+            const newDetails = document.getElementById('edit-details').value.split('\n').filter(l => l.trim() !== '');
+            
+            if (currentDesignData.layers[layer] && currentDesignData.layers[layer][index]) {
+                currentDesignData.layers[layer][index] = {
+                    fileName: newName,
+                    fileSummary: newSummary,
+                    details: newDetails
+                };
+            }
+            
+            editingIndex = { layer: null, index: null };
+            renderDiagram(currentDesignData);
+        };
+
+        window.addNewFile = function(layer) {
+            if (!currentDesignData) return;
+            const newFile = {
+                fileName: "NewFile.kt",
+                fileSummary: "새로운 파일 설명",
+                details: ["핵심 로직 1"]
+            };
+            if (!currentDesignData.layers[layer]) currentDesignData.layers[layer] = [];
+            currentDesignData.layers[layer].push(newFile);
+            editingIndex = { layer, index: currentDesignData.layers[layer].length - 1 };
+            renderDiagram(currentDesignData);
+        };
+
+        window.addToFavorites = function() {
+            if (!currentDesignData) return;
+            let bookmarks = JSON.parse(localStorage.getItem('mvvm_bookmarks') || '[]');
+            const existingIdx = bookmarks.findIndex(b => b.idea === currentDesignData.idea);
+            
+            if (existingIdx > -1) {
+                if(!confirm('이미 동일한 이름의 설계도가 있습니다. 덮어씌울까요?')) return;
+                bookmarks.splice(existingIdx, 1);
+            }
+            
+            bookmarks.push({ ...currentDesignData, timestamp: new Date().toLocaleString() });
+            localStorage.setItem('mvvm_bookmarks', JSON.stringify(bookmarks));
+            renderBookmarks();
+            alert('보관함에 저장되었습니다!');
+        };
+
+        window.renderBookmarks = function() {
+            const list = document.getElementById('bookmark-list');
+            if (!list) return;
+
+            const bookmarks = JSON.parse(localStorage.getItem('mvvm_bookmarks') || '[]');
+            if (bookmarks.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 col-span-full text-center py-10">저장된 설계도가 없습니다.</p>';
+                return;
+            }
+            list.innerHTML = bookmarks.map((b, index) => `
+                <div class="bookmark-card" onclick="window.loadBookmark(${index})">
+                    <div class="flex justify-between items-start">
+                        <h5 class="font-bold text-gray-800 mb-1">📌 ${b.idea}</h5>
+                        <button onclick="window.deleteBookmark(event, ${index})" class="text-red-500 text-xs font-bold hover:bg-red-50 p-1 rounded">삭제</button>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-2">${b.timestamp}</p>
+                </div>
+            `).join('');
+        };
+
+        window.loadBookmark = function(index) {
+            const bookmarks = JSON.parse(localStorage.getItem('mvvm_bookmarks') || '[]');
+            if (bookmarks[index]) {
+                currentDesignData = JSON.parse(JSON.stringify(bookmarks[index]));
+                renderDiagram(currentDesignData);
+                window.scrollTo({ top: document.getElementById('diagram-container').offsetTop - 50, behavior: 'smooth' });
+            }
+        };
+
+        window.deleteBookmark = function(event, index) {
+            event.stopPropagation();
+            if(confirm('보관함에서 이 설계도를 영구 삭제하시겠습니까?')) {
+                let bookmarks = JSON.parse(localStorage.getItem('mvvm_bookmarks') || '[]');
+                bookmarks.splice(index, 1);
+                localStorage.setItem('mvvm_bookmarks', JSON.stringify(bookmarks));
+                renderBookmarks();
+            }
+        };
+
+        window.scrapDiagram = function() {
+            if (!currentDesignData) return;
+            const target = document.getElementById('scrap-target');
+            showLoading(true);
+            html2canvas(target, { backgroundColor: "#f0f2f5", scale: 2 }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `MVVM_Design_${currentDesignData.idea.replace(/\s+/g, '_')}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }).finally(() => {
+                showLoading(false);
+            });
+        };
+
+        function showLoading(show) {
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) overlay.style.display = show ? 'flex' : 'none';
+        }
+    </script>
+</body>
+</html>

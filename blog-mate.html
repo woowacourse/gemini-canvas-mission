@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>블로그 메이트 - 꼬리물기 추천기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background-color: #f1f5f9;
+            scroll-behavior: smooth;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .loading-dots:after {
+            content: ' .';
+            animation: dots 1s steps(5, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ' .'; }
+            40% { content: ' ..'; }
+            60% { content: ' ...'; }
+            80%, 100% { content: ''; }
+        }
+
+        .shrunk-card {
+            padding: 1rem 1.5rem !important;
+            border-left: 4px solid #0CEFD3 !important;
+            background-color: #ffffff;
+        }
+
+        .spin-once {
+            animation: spin 0.5s ease-in-out;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* 공통 버튼 스타일 정의 */
+        .btn-main {
+            background-color: #0CEFD3;
+            color: #0f172a; /* slate-900 for contrast */
+            transition: all 0.2s ease-in-out;
+        }
+        .btn-main:hover {
+            background-color: #0AD8BF; /* Slightly darker than #0CEFD3 */
+            transform: translateY(-1px);
+        }
+        .btn-main:active {
+            transform: scale(0.98);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="min-h-screen py-10 px-4">
+
+    <div id="app-container" class="max-w-xl mx-auto space-y-6">
+        <!-- Step 1: Initial Input Card -->
+        <div id="initial-card" class="glass-card rounded-3xl p-8 fade-in">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-slate-800 mb-2">✍️ 블로그 메이트</h1>
+                <p class="text-slate-500 text-sm font-medium">제목을 입력하면 깊이 있는 구성을 제안해 드립니다.</p>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label for="blogTitle" class="block text-sm font-semibold text-slate-700 mb-2">메인 제목 입력</label>
+                    <input type="text" id="blogTitle" 
+                        placeholder="예: Jest관련포스팅"
+                        class="w-full px-4 py-4 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-[#0CEFD3] focus:border-transparent outline-none transition-all text-slate-700 shadow-sm">
+                </div>
+                
+                <button id="generateBtn" 
+                    class="w-full btn-main font-bold py-4 rounded-2xl shadow-lg">
+                    시작하기
+                </button>
+            </div>
+        </div>
+
+        <!-- Content will be appended here dynamically -->
+        <div id="dynamic-content" class="space-y-4 pb-32"></div>
+    </div>
+
+    <!-- Templates for loading -->
+    <template id="loading-template">
+        <div class="loading-box text-center p-8 glass-card rounded-3xl fade-in">
+            <div class="inline-block animate-spin rounded-full h-6 w-6 border-4 border-slate-200 border-t-[#0CEFD3] mb-2"></div>
+            <p class="text-slate-600 font-medium text-sm loading-dots">아이디어를 구상 중</p>
+        </div>
+    </template>
+
+    <script>
+        const apiKey = ""; // Runtime automatically provides this
+        const blogTitleInput = document.getElementById('blogTitle');
+        const generateBtn = document.getElementById('generateBtn');
+        const dynamicContent = document.getElementById('dynamic-content');
+        const loadingTemplate = document.getElementById('loading-template');
+
+        let selectedHistory = []; 
+        let isFinished = false;
+
+        const COMMON_SCHEMA = {
+            type: "OBJECT",
+            properties: {
+                results: { type: "ARRAY", items: { type: "STRING" }, minItems: 3, maxItems: 3 }
+            },
+            required: ["results"]
+        };
+
+        async function fetchWithRetry(url, options, retries = 5, backoff = 1000) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) throw new Error('API request failed');
+                return await response.json();
+            } catch (err) {
+                if (retries <= 0) throw err;
+                await new Promise(resolve => setTimeout(resolve, backoff));
+                return fetchWithRetry(url, options, retries - 1, backoff * 2);
+            }
+        }
+
+        async function getAIRecommendations(prompt, schema = COMMON_SCHEMA) {
+            try {
+                const response = await fetchWithRetry(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: {
+                                responseMimeType: "application/json",
+                                responseSchema: schema
+                            }
+                        })
+                    }
+                );
+                return JSON.parse(response.candidates[0].content.parts[0].text);
+            } catch (error) {
+                console.error(error);
+                return null;
+            }
+        }
+
+        function createCard(contextTitle, initialItems, onSelect, basePrompt) {
+            const card = document.createElement('div');
+            card.className = "glass-card rounded-3xl p-8 fade-in space-y-6 relative transition-all duration-300";
+            
+            const header = document.createElement('div');
+            header.className = "flex justify-between items-center mb-2";
+            header.innerHTML = `
+                <div>
+                    <p class="text-slate-800 font-bold text-lg leading-snug">다음 소제목을 선택하세요</p>
+                </div>
+                <button class="refresh-btn p-2 hover:bg-slate-100 rounded-full transition-colors group" title="새로고침">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 group-hover:text-[#0CEFD3] transition-colors"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>
+                </button>
+            `;
+            card.appendChild(header);
+
+            const listContainer = document.createElement('div');
+            listContainer.className = "space-y-3";
+            card.appendChild(listContainer);
+
+            const renderItems = (items) => {
+                listContainer.innerHTML = '';
+                
+                items.forEach((item, index) => {
+                    const button = document.createElement('button');
+                    button.className = "w-full text-left p-4 border border-slate-100 bg-white rounded-2xl shadow-sm hover:border-[#0CEFD3] hover:bg-[#0CEFD3]/10 transition-all flex items-center gap-4 group";
+                    button.innerHTML = `
+                        <span class="flex-shrink-0 w-8 h-8 bg-slate-100 group-hover:bg-[#0CEFD3] group-hover:text-white rounded-full flex items-center justify-center text-sm font-bold transition-colors">${index + 1}</span>
+                        <span class="text-slate-700 font-medium group-hover:text-slate-900 transition-colors">${item}</span>
+                    `;
+                    button.onclick = () => handleSelection(item);
+                    listContainer.appendChild(button);
+                });
+                
+                const customInputWrapper = document.createElement('div');
+                customInputWrapper.className = "pt-2";
+                const addBtn = document.createElement('button');
+                addBtn.className = "w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 hover:text-[#0CEFD3] hover:border-[#0CEFD3] hover:bg-[#0CEFD3]/5 transition-all flex items-center justify-center gap-2 font-medium";
+                addBtn.innerHTML = `<span>+</span> <span>키워드 입력하여 다시 추천받기</span>`;
+                
+                const inputGroup = document.createElement('div');
+                inputGroup.className = "hidden space-y-2";
+                inputGroup.innerHTML = `
+                    <div class="flex gap-2">
+                        <input type="text" placeholder="원하는 키워드를 입력하세요" class="flex-1 px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-[#0CEFD3] outline-none text-sm">
+                        <button class="px-4 py-3 btn-main rounded-xl font-bold text-sm">추천</button>
+                    </div>
+                `;
+                
+                const inputField = inputGroup.querySelector('input');
+                const submitBtn = inputGroup.querySelector('button');
+
+                addBtn.onclick = () => { 
+                    addBtn.classList.add('hidden'); 
+                    inputGroup.classList.remove('hidden'); 
+                    inputField.focus(); 
+                };
+
+                const submitCustomRefinement = async () => { 
+                    const val = inputField.value.trim(); 
+                    if (!val) return; 
+
+                    const originalHTML = listContainer.innerHTML;
+                    listContainer.innerHTML = `
+                        <div class="py-10 text-center">
+                            <div class="inline-block animate-spin rounded-full h-5 w-5 border-2 border-slate-200 border-t-[#0CEFD3] mb-2"></div>
+                            <p class="text-xs text-slate-400 font-medium">'${val}' 기반으로 다시 생각 중...</p>
+                        </div>
+                    `;
+
+                    const refinementPrompt = `사용자가 입력한 키워드 "${val}"를 중심으로, 원문 제목인 "${contextTitle}"의 맥락에 맞는 전문적인 블로그 소제목 3개를 다시 추천하세요. 각 항목은 20자 이내의 문장형이어야 합니다.`;
+                    const data = await getAIRecommendations(refinementPrompt);
+
+                    if (data) {
+                        renderItems(data.results);
+                    } else {
+                        listContainer.innerHTML = originalHTML;
+                        alert('추천을 가져오는데 실패했습니다.');
+                    }
+                };
+
+                submitBtn.onclick = submitCustomRefinement;
+                inputField.onkeypress = (e) => { if(e.key==='Enter') submitCustomRefinement(); };
+
+                customInputWrapper.appendChild(addBtn);
+                customInputWrapper.appendChild(inputGroup);
+                listContainer.appendChild(customInputWrapper);
+
+                const finishBtnInCard = document.createElement('button');
+                finishBtnInCard.className = "w-full mt-4 py-3 btn-main font-bold rounded-2xl shadow-sm flex items-center justify-center gap-2";
+                finishBtnInCard.innerHTML = `<span>✨ 이 구성으로 완성하기</span>`;
+                finishBtnInCard.onclick = () => handleFinish();
+                listContainer.appendChild(finishBtnInCard);
+            };
+
+            const handleSelection = (value) => {
+                if (isFinished) return;
+                
+                selectedHistory.push(value);
+                const currentOutlineIndex = selectedHistory.length - 1;
+
+                card.classList.add('shrunk-card');
+                card.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <span class="flex-shrink-0 w-8 h-8 bg-[#0CEFD3] text-slate-900 rounded-full flex items-center justify-center text-sm font-bold shadow-sm">${currentOutlineIndex}</span>
+                        <span class="text-slate-800 font-bold text-base truncate">${value}</span>
+                    </div>
+                `;
+
+                onSelect(value);
+            };
+
+            const refreshBtn = header.querySelector('.refresh-btn');
+            refreshBtn.onclick = async () => {
+                const icon = refreshBtn.querySelector('svg');
+                icon.classList.add('spin-once');
+                refreshBtn.disabled = true;
+                const originalContent = listContainer.innerHTML;
+                listContainer.innerHTML = `<div class="py-10 text-center"><div class="inline-block animate-spin rounded-full h-5 w-5 border-2 border-slate-200 border-t-[#0CEFD3]"></div></div>`;
+                const data = await getAIRecommendations(basePrompt);
+                icon.classList.remove('spin-once');
+                refreshBtn.disabled = false;
+                if (data) renderItems(data.results);
+                else listContainer.innerHTML = originalContent;
+            };
+
+            renderItems(initialItems);
+            return card;
+        }
+
+        async function handleStart() {
+            const title = blogTitleInput.value.trim();
+            if (!title) return;
+
+            dynamicContent.innerHTML = ''; 
+            selectedHistory = [title];
+            isFinished = false;
+            generateBtn.disabled = true;
+            document.getElementById('initial-card').classList.add('opacity-50', 'pointer-events-none');
+            
+            const loading = document.importNode(loadingTemplate.content, true).querySelector('.loading-box');
+            dynamicContent.appendChild(loading);
+            loading.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            const prompt = `당신은 기술 블로그 에디터입니다. 제목 "${title}"에 대해 전문적인 문장형 소제목 3개를 추천하세요. 각 항목은 20자 이내여야 합니다.`;
+            const data = await getAIRecommendations(prompt);
+            loading.remove();
+
+            if (data) {
+                const card = createCard(title, data.results, (selected) => handleFollowUp(selected), prompt);
+                dynamicContent.appendChild(card);
+                setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+            }
+            generateBtn.disabled = false;
+        }
+
+        async function handleFollowUp(selectedText) {
+            const loading = document.importNode(loadingTemplate.content, true).querySelector('.loading-box');
+            dynamicContent.appendChild(loading);
+            loading.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            const prompt = `당신은 블로그 작가입니다. "${selectedText}"를 더 깊게 파고드는 세부 주제 3개를 추천하세요. 각 항목은 20자 이내여야 합니다.`;
+            const data = await getAIRecommendations(prompt);
+            loading.remove();
+
+            if (data) {
+                const card = createCard(selectedText, data.results, (selected) => handleFollowUp(selected), prompt);
+                dynamicContent.appendChild(card);
+                setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+            }
+        }
+
+        async function handleFinish() {
+            isFinished = true;
+            const loading = document.importNode(loadingTemplate.content, true).querySelector('.loading-box');
+            dynamicContent.appendChild(loading);
+            loading.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            const historyText = selectedHistory.join(', ');
+            const tagSchema = {
+                type: "OBJECT",
+                properties: { tags: { type: "ARRAY", items: { type: "STRING" }, minItems: 5, maxItems: 10 } },
+                required: ["tags"]
+            };
+            const prompt = `블로그 내용 흐름: [${historyText}]. 이 내용을 바탕으로 SEO 최적화 해시태그 10개 이하를 생성하세요. 
+            주의사항: 고유명사를 제외하고는 최대한 한글을 사용하세요. 태그 앞에 #은 붙이지 마세요.`;
+
+            const data = await getAIRecommendations(prompt, tagSchema);
+            loading.remove();
+
+            if (data) {
+                displayFinalResult(selectedHistory, data.tags);
+            }
+        }
+
+        function displayFinalResult(history, tags) {
+            const resultCard = document.createElement('div');
+            resultCard.className = "glass-card rounded-3xl p-8 fade-in space-y-8 border-2 border-[#0CEFD3] shadow-2xl mt-10";
+            
+            let structureHtml = history.map((item, index) => {
+                if (index === 0) return `<div class="flex items-center gap-3 border-b pb-4 border-slate-100"><span class="px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded uppercase">Main Title</span> <span class="text-xl font-bold text-slate-800">${item}</span></div>`;
+                return `
+                    <div class="flex items-center gap-3 py-1 ml-2 border-l-2 border-slate-100 pl-4">
+                        <span class="w-5 h-5 bg-[#0CEFD3]/20 text-[#0CEFD3] text-[10px] font-bold rounded-full flex items-center justify-center">${index}</span>
+                        <span class="text-slate-700 font-semibold text-sm">${item}</span>
+                    </div>
+                `;
+            }).join('');
+
+            resultCard.innerHTML = `
+                <div class="text-center">
+                    <h2 class="text-2xl font-bold text-slate-900 mb-1">🎉 포스팅 구성 리포트</h2>
+                    <p class="text-slate-500 text-sm">선택하신 흐름대로 마크다운과 태그가 준비되었습니다.</p>
+                </div>
+
+                <div class="space-y-1">
+                    ${structureHtml}
+                </div>
+
+                <div class="grid grid-cols-1 gap-3">
+                    <button id="copyMarkdownBtn" class="w-full btn-main font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+                        소제목 마크다운(##) 복사
+                    </button>
+                    
+                    <div class="bg-slate-50 rounded-2xl p-6 space-y-4 border border-slate-200">
+                        <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">SEO Hash Tags</h3>
+                        <div class="flex flex-wrap gap-2">
+                            ${tags.map(tag => `<span class="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold shadow-sm">#${tag}</span>`).join('')}
+                        </div>
+                        <button id="copyTagsOnlyBtn" class="w-full mt-2 btn-main font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm">
+                            해시태그만 복사하기
+                        </button>
+                    </div>
+                </div>
+
+                <button onclick="window.location.reload()" class="w-full text-slate-400 text-xs font-medium hover:text-slate-600 transition-colors underline">
+                    새로운 주제로 다시 시작하기
+                </button>
+            `;
+
+            dynamicContent.appendChild(resultCard);
+            
+            const copyMdBtn = resultCard.querySelector('#copyMarkdownBtn');
+            copyMdBtn.onclick = () => {
+                const markdownSubheadings = history.slice(1).map(s => `## ${s}`).join('\n\n');
+                const tempTextArea = document.createElement('textarea');
+                tempTextArea.value = markdownSubheadings;
+                document.body.appendChild(tempTextArea);
+                tempTextArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempTextArea);
+                copyMdBtn.innerText = "✅ 마크다운 복사 완료!";
+                setTimeout(() => { copyMdBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg> 소제목 마크다운(##) 복사`; }, 2000);
+            };
+
+            const copyTagsBtn = resultCard.querySelector('#copyTagsOnlyBtn');
+            copyTagsBtn.onclick = () => {
+                const tagString = tags.map(t => `#${t}`).join(' ');
+                const tempTextArea = document.createElement('textarea');
+                tempTextArea.value = tagString;
+                document.body.appendChild(tempTextArea);
+                tempTextArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempTextArea);
+                copyTagsBtn.innerText = "✅ 태그 복사 완료!";
+                setTimeout(() => { copyTagsBtn.innerText = "해시태그만 복사하기"; }, 2000);
+            };
+
+            resultCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        generateBtn.addEventListener('click', handleStart);
+        blogTitleInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleStart(); });
+    </script>
+</body>
+</html>

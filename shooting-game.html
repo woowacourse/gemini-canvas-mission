@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 다리 슈팅 - 사거리 제한 및 무기고 버전</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB; /* 하늘색 배경 */
+            font-family: 'Arial', sans-serif;
+            color: white;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+        }
+
+        #score-board {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ffffff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        /* 팝업 스타일 */
+        .overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 50px;
+            border-radius: 30px;
+            z-index: 100;
+            min-width: 320px;
+        }
+
+        #start-screen {
+            border: 4px solid #4CAF50;
+        }
+
+        #game-over {
+            border: 4px solid #ff4444;
+            display: none;
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 40px;
+            text-shadow: 0 0 10px rgba(255,255,255,0.3);
+        }
+
+        .start-title { color: #4CAF50; }
+        .over-title { color: #ff4444; }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 22px;
+            font-weight: bold;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+            margin-top: 20px;
+        }
+
+        button:hover {
+            transform: scale(1.1);
+            background: #45a049;
+        }
+
+        button.retry-btn {
+            background: #ff4444;
+        }
+
+        button.retry-btn:hover {
+            background: #cc0000;
+        }
+
+        /* 컨트롤 버튼 */
+        #controls {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            pointer-events: none;
+        }
+
+        .btn {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.3);
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            pointer-events: auto;
+            cursor: pointer;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div id="score-board">점수: <span id="score">0</span></div>
+    </div>
+
+    <!-- 시작 화면 -->
+    <div id="start-screen" class="overlay">
+        <h1 class="start-title">3D 다리 슈팅</h1>
+        <p>왼쪽 구역의 아이템을 부수어 강화하고<br>오른쪽 구역의 적을 물리치세요!</p>
+        <button onclick="startGame()">게임 시작</button>
+    </div>
+
+    <!-- 게임 오버 화면 -->
+    <div id="game-over" class="overlay">
+        <h1 class="over-title">GAME OVER</h1>
+        <p>최종 점수: <span id="final-score">0</span></p>
+        <button class="retry-btn" onclick="resetGame()">다시 도전</button>
+    </div>
+
+    <div id="controls">
+        <div class="btn" id="leftBtn">◀</div>
+        <div class="btn" id="rightBtn">▶</div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const startScreenEl = document.getElementById('start-screen');
+        const gameOverEl = document.getElementById('game-over');
+        const finalScoreEl = document.getElementById('final-score');
+
+        // 게임 상태
+        let isGameRunning = false;
+        let isGameOver = false;
+
+        // 무기 한글 이름
+        const WEAPON_NAMES = {
+            'STANDARD': '기본 권총',
+            'SHOTGUN': '산탄총',
+            'HEAVY': '중화기 (관통)',
+            'DOUBLE': '쌍권총'
+        };
+
+        // 게임 설정
+        let score = 0;
+        let playerX = 0; 
+        let playerPower = 1; 
+        let currentWeapon = 'STANDARD'; 
+        let gameStartTime = 0; 
+
+        const BASE_ENEMY_HEALTH = 10; 
+        const BASE_BULLET_DAMAGE = 5; 
+        const SHOOT_INTERVAL = 500; 
+        const SPAWN_INTERVAL = 400; 
+        const BRIDGE_MAX_Z = 2500; 
+        const BULLET_MAX_RANGE = BRIDGE_MAX_Z / 2; // 사거리를 다리 절반으로 제한
+        
+        let lastShotTime = 0;
+        let lastSpawnTime = 0;
+
+        let bullets = [];
+        let entities = []; 
+        let keys = { left: false, right: false };
+
+        // 3D 카메라 설정
+        const focalLength = 600; 
+        const playerZ = 0;
+        const cameraTilt = 0.5;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // 입력 처리
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = true;
+            if (e.key === 'ArrowRight') keys.right = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = false;
+            if (e.key === 'ArrowRight') keys.right = false;
+        });
+
+        document.getElementById('leftBtn').addEventListener('pointerdown', () => keys.left = true);
+        document.getElementById('leftBtn').addEventListener('pointerup', () => keys.left = false);
+        document.getElementById('rightBtn').addEventListener('pointerdown', () => keys.right = true);
+        document.getElementById('rightBtn').addEventListener('pointerup', () => keys.right = false);
+
+        function project(x, y, z) {
+            const scale = focalLength / (z + focalLength);
+            const screenX = (canvas.width / 2) + (x * scale);
+            const screenY = (canvas.height * 0.85) - (z * cameraTilt * scale) + (y * scale);
+            return { x: screenX, y: screenY, scale: scale };
+        }
+
+        function createBullet() {
+            const dmg = BASE_BULLET_DAMAGE * playerPower;
+            
+            if (currentWeapon === 'SHOTGUN') {
+                for (let i = -1; i <= 1; i++) {
+                    bullets.push({
+                        x: playerX, y: -40, z: 30,
+                        vx: i * 8, 
+                        damage: dmg * 0.8,
+                        size: 6,
+                        color: '#FF8C00',
+                        penetrate: false
+                    });
+                }
+            } else if (currentWeapon === 'HEAVY') {
+                bullets.push({
+                    x: playerX, y: -40, z: 30, vx: 0,
+                    damage: dmg * 3,
+                    size: 16,
+                    color: '#FF4500',
+                    penetrate: true, 
+                    hitList: [] 
+                });
+            } else if (currentWeapon === 'DOUBLE') {
+                bullets.push({ x: playerX - 15, y: -40, z: 30, vx: 0, damage: dmg, size: 8, color: '#00FFFF', penetrate: false });
+                bullets.push({ x: playerX + 15, y: -40, z: 30, vx: 0, damage: dmg, size: 8, color: '#00FFFF', penetrate: false });
+            } else {
+                bullets.push({
+                    x: playerX, y: -40, z: 30, vx: 0,
+                    damage: dmg,
+                    size: 8,
+                    color: '#FFFF00',
+                    penetrate: false
+                });
+            }
+        }
+
+        function spawnEntity() {
+            const x = (Math.random() - 0.5) * 500; 
+            const z = BRIDGE_MAX_Z;
+            const elapsedSeconds = (Date.now() - gameStartTime) / 1000;
+            const currentEnemyMaxHp = BASE_ENEMY_HEALTH + Math.floor(elapsedSeconds / 15) * 10;
+
+            if (x < 0) { 
+                const rand = Math.random();
+                let entity;
+                const itemHp = Math.max(10, Math.floor(currentEnemyMaxHp * 0.6));
+
+                if (rand < 0.15) { 
+                    const weaponTypes = ['SHOTGUN', 'HEAVY', 'DOUBLE'];
+                    const chosen = weaponTypes[Math.floor(Math.random() * weaponTypes.length)];
+                    entity = {
+                        type: 'armory',
+                        weaponType: chosen,
+                        hp: itemHp * 1.5,
+                        maxHp: itemHp * 1.5,
+                        x: x, y: 0, z: z,
+                        id: Math.random().toString(36).substr(2, 9)
+                    };
+                } else {
+                    const normalItemPool = [
+                        { label: '÷2', op: '÷', val: 2 },
+                        { label: '÷3', op: '÷', val: 3 },
+                        { label: '+5', op: '+', val: 5 },
+                        { label: '+10', op: '+', val: 10 },
+                        { label: '-5', op: '-', val: 5 },
+                        { label: '-10', op: '-', val: 10 }
+                    ];
+
+                    let item;
+                    if (rand < 0.20) { 
+                        item = { label: 'x2', op: 'x', val: 2 };
+                    } else {
+                        item = normalItemPool[Math.floor(Math.random() * normalItemPool.length)];
+                    }
+                    
+                    entity = {
+                        type: 'item',
+                        itemType: item.label,
+                        op: item.op,
+                        val: item.val,
+                        hp: itemHp,
+                        maxHp: itemHp,
+                        x: x, y: 0, z: z,
+                        id: Math.random().toString(36).substr(2, 9)
+                    };
+                }
+                entities.push(entity);
+            } else { 
+                entities.push({
+                    type: 'enemy',
+                    hp: currentEnemyMaxHp,
+                    maxHp: currentEnemyMaxHp, 
+                    x: x, y: 0, z: z,
+                    id: Math.random().toString(36).substr(2, 9)
+                });
+            }
+        }
+
+        function applyItemEffect(entity) {
+            if (entity.type === 'item') {
+                if (entity.op === 'x') playerPower *= entity.val;
+                if (entity.op === '÷') playerPower = playerPower / entity.val;
+                if (entity.op === '+') playerPower += entity.val;
+                if (entity.op === '-') playerPower -= entity.val;
+            } else if (entity.type === 'armory') {
+                currentWeapon = entity.weaponType;
+            }
+            
+            // 최솟값 1 보정 (BASE_BULLET_DAMAGE가 5이므로 배율이 0.2 미만이 되지 않게)
+            const minMultiplier = 1 / BASE_BULLET_DAMAGE;
+            if (playerPower < minMultiplier) playerPower = minMultiplier;
+            
+            score += 5;
+            scoreEl.innerText = score;
+        }
+
+        function startGame() {
+            isGameRunning = true;
+            isGameOver = false;
+            startScreenEl.style.display = 'none';
+            gameStartTime = Date.now();
+            requestAnimationFrame(update);
+        }
+
+        function resetGame() {
+            score = 0;
+            playerX = 0;
+            playerPower = 1; 
+            currentWeapon = 'STANDARD';
+            bullets = [];
+            entities = [];
+            isGameOver = false;
+            isGameRunning = true;
+            scoreEl.innerText = '0';
+            gameOverEl.style.display = 'none';
+            gameStartTime = Date.now();
+            requestAnimationFrame(update);
+        }
+
+        function drawPerson(x, y, scale, color) {
+            const s = scale;
+            ctx.fillStyle = color;
+            ctx.strokeStyle = "rgba(0,0,0,0.8)";
+            ctx.lineWidth = 2 * s;
+
+            ctx.beginPath();
+            ctx.arc(x, y - 60 * s, 18 * s, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x, y - 42 * s);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x, y - 35 * s);
+            ctx.lineTo(x - 20 * s, y - 50 * s);
+            ctx.moveTo(x, y - 35 * s);
+            ctx.lineTo(x + 20 * s, y - 50 * s);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x - 15 * s, y + 30 * s);
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + 15 * s, y + 30 * s);
+            ctx.stroke();
+        }
+
+        function drawWeaponIcon(ctx, x, y, size, type) {
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            const s = size * 0.3;
+            if (type === 'SHOTGUN') {
+                ctx.beginPath();
+                ctx.moveTo(x, y); ctx.lineTo(x - s, y - s);
+                ctx.moveTo(x, y); ctx.lineTo(x, y - s);
+                ctx.moveTo(x, y); ctx.lineTo(x + s, y - s);
+                ctx.stroke();
+            } else if (type === 'HEAVY') {
+                ctx.fillStyle = 'white';
+                ctx.fillRect(x - s, y - s, s * 2, s * 2);
+            } else if (type === 'DOUBLE') {
+                ctx.beginPath();
+                ctx.moveTo(x - s/2, y + s); ctx.lineTo(x - s/2, y - s);
+                ctx.moveTo(x + s/2, y + s); ctx.lineTo(x + s/2, y - s);
+                ctx.stroke();
+            }
+        }
+
+        function update(time) {
+            if (!isGameRunning || isGameOver) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 강물 배경
+            const gradient = ctx.createLinearGradient(0, canvas.height * 0.2, 0, canvas.height);
+            gradient.addColorStop(0, '#5FA9E0');
+            gradient.addColorStop(1, '#1A5F96');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+            for(let i = 0; i < 20; i++) {
+                let yPos = canvas.height * 0.2 + (Math.sin(time/700 + i) * 10) + (i * 45);
+                ctx.beginPath(); ctx.moveTo(0, yPos); ctx.lineTo(canvas.width, yPos); ctx.stroke();
+            }
+
+            // 2. 다리(Bridge) 그리기
+            ctx.fillStyle = '#5A3825';
+            const bLeftTop = project(-300, 0, BRIDGE_MAX_Z + 100);
+            const bRightTop = project(300, 0, BRIDGE_MAX_Z + 100);
+            const bLeftBottom = project(-300, 0, -200);
+            const bRightBottom = project(300, 0, -200);
+
+            ctx.beginPath();
+            ctx.moveTo(bLeftTop.x, bLeftTop.y);
+            ctx.lineTo(bRightTop.x, bRightTop.y);
+            ctx.lineTo(bRightBottom.x, bRightBottom.y);
+            ctx.lineTo(bLeftBottom.x, bLeftBottom.y);
+            ctx.closePath();
+            ctx.fill();
+
+            const centerTop = project(0, 0, BRIDGE_MAX_Z + 100);
+            const centerBottom = project(0, 0, -200);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.setLineDash([20, 20]);
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(centerTop.x, centerTop.y);
+            ctx.lineTo(centerBottom.x, centerBottom.y);
+            ctx.stroke();
+            ctx.setLineDash([]); 
+
+            ctx.strokeStyle = '#321E14';
+            ctx.lineWidth = 2;
+            for (let dz = -100; dz <= BRIDGE_MAX_Z + 100; dz += 150) {
+                const lp1 = project(-300, 0, dz);
+                const lp2 = project(-300, -40, dz);
+                const rp1 = project(300, 0, dz);
+                const rp2 = project(300, -40, dz);
+                ctx.beginPath(); ctx.moveTo(lp1.x, lp1.y); ctx.lineTo(lp2.x, lp2.y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(rp1.x, rp1.y); ctx.lineTo(rp2.x, rp2.y); ctx.stroke();
+            }
+
+            // 3. 플레이어 조작
+            if (keys.left && playerX > -260) playerX -= 6;
+            if (keys.right && playerX < 260) playerX += 6;
+
+            // 4. 자동 사격
+            if (time - lastShotTime > SHOOT_INTERVAL) {
+                createBullet();
+                lastShotTime = time;
+            }
+
+            // 5. 개체 생성
+            if (time - lastSpawnTime > SPAWN_INTERVAL) {
+                spawnEntity();
+                lastSpawnTime = time;
+            }
+
+            // 6. 총알 업데이트
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.z += 25;
+                if (b.vx) b.x += b.vx;
+
+                // 사거리 절반 제한
+                if (b.z > BULLET_MAX_RANGE || Math.abs(b.x) > 600) {
+                    bullets.splice(i, 1);
+                    continue;
+                }
+
+                const p = project(b.x, b.y, b.z);
+                const bulletSize = (b.size || 8) * p.scale;
+                
+                ctx.fillStyle = b.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = b.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, bulletSize, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+
+            // 7. 개체 업데이트
+            for (let i = entities.length - 1; i >= 0; i--) {
+                const e = entities[i];
+                e.z -= 5; 
+
+                if (e.z <= 30) {
+                    if (Math.abs(e.x - playerX) < 70) {
+                        if (e.type === 'enemy') {
+                            isGameOver = true;
+                        }
+                    }
+                    if (e.z < -100) {
+                        entities.splice(i, 1);
+                        continue;
+                    }
+                }
+
+                const p = project(e.x, e.y, e.z);
+                const size = 130 * p.scale;
+                
+                if (e.type === 'enemy') {
+                    ctx.fillStyle = `rgb(255, ${70 + (e.hp / e.maxHp) * 100}, 70)`; 
+                    ctx.fillRect(p.x - size/2, p.y - size, size, size);
+                    ctx.strokeStyle = 'black';
+                    ctx.strokeRect(p.x - size/2, p.y - size, size, size);
+                    
+                    ctx.fillStyle = "white";
+                    ctx.fillRect(p.x - size/3, p.y - size*0.75, size/4, size/4);
+                    ctx.fillRect(p.x + size/10, p.y - size*0.75, size/4, size/4);
+
+                    const hpBarWidth = size;
+                    const hpBarHeight = 10 * p.scale;
+                    const hpBarY = p.y + 5 * p.scale;
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(p.x - hpBarWidth/2, hpBarY, hpBarWidth, hpBarHeight);
+                    const currentHpWidth = (e.hp / e.maxHp) * hpBarWidth;
+                    ctx.fillStyle = '#00ff00';
+                    ctx.fillRect(p.x - hpBarWidth/2, hpBarY, currentHpWidth, hpBarHeight);
+
+                } else if (e.type === 'item' || e.type === 'armory') {
+                    if (e.type === 'armory') {
+                        ctx.fillStyle = '#7F8C8D'; 
+                    } else {
+                        const isPositive = (e.op === 'x' && e.val > 0) || e.op === '+';
+                        ctx.fillStyle = isPositive ? '#4CAF50' : '#F44336'; 
+                    }
+                    
+                    ctx.globalAlpha = 0.8;
+                    ctx.fillRect(p.x - size/2, p.y - size, size, size);
+                    ctx.globalAlpha = 1.0;
+                    ctx.strokeStyle = 'white';
+                    ctx.strokeRect(p.x - size/2, p.y - size, size, size);
+
+                    if (e.type === 'armory') {
+                        drawWeaponIcon(ctx, p.x, p.y - size*0.6, size, e.weaponType);
+                    } else {
+                        ctx.fillStyle = 'white';
+                        ctx.font = `bold ${40 * p.scale}px Arial`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(e.itemType, p.x, p.y - size/2);
+                    }
+
+                    const itemHpBarWidth = size * 0.8;
+                    const itemHpBarHeight = 6 * p.scale;
+                    const itemHpBarY = p.y + 5 * p.scale;
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.fillRect(p.x - itemHpBarWidth/2, itemHpBarY, itemHpBarWidth, itemHpBarHeight);
+                    const currentItemHpWidth = (e.hp / e.maxHp) * itemHpBarWidth;
+                    ctx.fillStyle = e.type === 'armory' ? '#FFD700' : '#00ffff'; 
+                    ctx.fillRect(p.x - itemHpBarWidth/2, itemHpBarY, currentItemHpWidth, itemHpBarHeight);
+                }
+
+                // 충돌 확인
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const b = bullets[j];
+                    const distZ = Math.abs(b.z - e.z);
+                    const distX = Math.abs(b.x - e.x);
+
+                    if (distZ < 40 && distX < 60) {
+                        if (b.penetrate) {
+                            if (!b.hitList.includes(e.id)) {
+                                e.hp -= b.damage;
+                                b.hitList.push(e.id); 
+                            }
+                        } else {
+                            e.hp -= b.damage; 
+                            bullets.splice(j, 1);
+                        }
+                        
+                        if (e.hp > e.maxHp) e.hp = e.maxHp;
+                        
+                        if (e.hp <= 0) {
+                            applyItemEffect(e);
+                            if (e.type === 'enemy') score += 10;
+                            entities.splice(i, 1);
+                            scoreEl.innerText = score;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            const playerPos = project(playerX, 0, playerZ);
+            drawPerson(playerPos.x, playerPos.y, playerPos.scale, "#00ccff");
+
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 20px Arial';
+            ctx.textAlign = 'center';
+            const displayPower = Math.max(1, Math.round(BASE_BULLET_DAMAGE * playerPower));
+            ctx.fillText(`공격력: ${displayPower}`, playerPos.x, playerPos.y + 50);
+            ctx.fillStyle = '#FFFF00';
+            ctx.fillText(`장착 무기: ${WEAPON_NAMES[currentWeapon]}`, playerPos.x, playerPos.y + 75);
+
+            if (isGameOver) {
+                finalScoreEl.innerText = score;
+                gameOverEl.style.display = 'block';
+                isGameRunning = false;
+            } else {
+                requestAnimationFrame(update);
+            }
+        }
+
+        // 초기 화면 렌더링
+        resize();
+        ctx.fillStyle = '#1A5F96';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    </script>
+</body>
+</html>

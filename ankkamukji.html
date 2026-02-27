@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>안까묵지 - FSRS Precision SRS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, query, onSnapshot, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'anki-srs-app';
+
+        marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+
+        const w = [0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01, 1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29, 2.61];
+        const requestRetention = 0.9; 
+
+        let user = null;
+        let allDecks = [];
+        let allCards = [];
+        let currentStudyList = []; 
+        let sessionTotalCount = 0; 
+        let isFlipped = false;
+        let selectedDeckName = "";
+        let activeEditCardId = null;
+        let chatHistory = [];
+        let isChatOpen = false;
+        let generatingTopic = null; 
+        let isAiGeneratingCards = false;
+
+        const homeScreen = document.getElementById('home-screen');
+        const deckManagerScreen = document.getElementById('deck-manager-screen');
+        const studyScreen = document.getElementById('study-screen');
+        const cardEditorScreen = document.getElementById('card-editor-screen');
+        const deckListContainer = document.getElementById('deck-list');
+        const cardAddModal = document.getElementById('card-add-modal');
+        const cardStudyEditModal = document.getElementById('card-study-edit-modal'); 
+        const qText = document.getElementById('q-text');
+        const backQText = document.getElementById('back-q-text');
+        const aText = document.getElementById('a-text');
+        const mainCard = document.getElementById('main-card');
+        const controls = document.getElementById('difficulty-controls');
+        const studyStats = document.getElementById('study-stats');
+        const aiChatPanel = document.getElementById('ai-chat-panel');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const floatingAiBtn = document.getElementById('floating-ai-btn');
+        const intervalPreview = document.getElementById('interval-preview');
+        const cardEditorSidebar = document.getElementById('card-editor-sidebar');
+        const editorContent = document.getElementById('editor-content');
+        const editorEmptyState = document.getElementById('editor-empty-state');
+
+        async function initAuth() {
+            await signInAnonymously(auth);
+            onAuthStateChanged(auth, (u) => {
+                user = u;
+                if (user) {
+                    loadDecks();
+                    loadCards();
+                }
+            });
+        }
+
+        function loadDecks() {
+            if (!user) return;
+            const qDecks = query(collection(db, 'artifacts', appId, 'users', user.uid, 'decks'));
+            onSnapshot(qDecks, (snapshot) => {
+                allDecks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderDecks();
+            }, (err) => console.error(err));
+        }
+
+        function loadCards() {
+            if (!user) return;
+            const qCards = query(collection(db, 'artifacts', appId, 'users', user.uid, 'cards'));
+            onSnapshot(qCards, (snapshot) => {
+                allCards = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderDecks(); 
+                if (!deckManagerScreen.classList.contains('hidden')) {
+                    updateDeckManagerView(selectedDeckName);
+                }
+                if (!cardEditorScreen.classList.contains('hidden')) {
+                    renderCardEditorList();
+                }
+            }, (err) => console.error(err));
+        }
+
+        function calculateFSRS(card, rating) {
+            let { stability, difficulty, lastReview, repetitions, state } = card;
+            let interval = 0;
+            let nextReviewMs = 0;
+            const learningIntervals = { 1: 1, 2: 6, 3: 10 }; 
+
+            if (repetitions === 0) {
+                stability = w[rating - 1];
+                difficulty = w[4] - (rating - 3) * w[5];
+                if (rating === 4) { interval = 1; state = 2; } 
+                else { interval = 0; state = 1; }
+            } else {
+                const now = Date.now();
+                const elapsedDays = Math.max(0, (now - lastReview) / (24 * 60 * 60 * 1000));
+                const retrievability = Math.pow(0.9, elapsedDays / stability);
+                if (rating === 1) { 
+                    const s_forget = w[10] * Math.pow(difficulty, -w[11]) * (Math.pow(stability + 1, w[12]) - 1) * Math.exp(w[13] * (1 - retrievability));
+                    stability = Math.max(0.1, s_forget);
+                    interval = 0; state = 1;
+                } else { 
+                    const hardPenalty = rating === 2 ? w[14] : 1.0;
+                    const easyBonus = rating === 4 ? w[15] : 1.0;
+                    const s_recall = stability * (1 + Math.exp(w[7]) * (11 - difficulty) * Math.pow(stability, -w[8]) * (Math.exp(w[9] * (1 - retrievability)) - 1) * hardPenalty * easyBonus);
+                    stability = s_recall;
+                    interval = Math.round(stability / Math.log(0.9) * Math.log(requestRetention));
+                    if (rating === 4 && interval < 1) interval = 1; 
+                    state = 2;
+                }
+                difficulty = Math.min(10, Math.max(1, difficulty - w[6] * (rating - 3)));
+            }
+            if (interval >= 1) {
+                const nextDate = new Date();
+                nextDate.setHours(0, 0, 0, 0);
+                nextDate.setDate(nextDate.getDate() + interval);
+                nextReviewMs = nextDate.getTime();
+            } else { nextReviewMs = Date.now() + (learningIntervals[rating] || 1) * 60 * 1000; }
+            return { stability, difficulty, interval, state, repetitions: repetitions + 1, nextReview: nextReviewMs, lastReview: Date.now(), _displayInterval: interval >= 1 ? `${interval}일` : `${learningIntervals[rating] || 1}분` };
+        }
+
+        function renderDecks() {
+            if (allDecks.length === 0 && !generatingTopic) {
+                deckListContainer.innerHTML = `<div class="text-center py-16 bg-white rounded-[2.5rem] border border-dashed border-slate-200"><p class="text-slate-400 text-sm">덱이 없습니다.</p></div>`;
+                return;
+            }
+            deckListContainer.innerHTML = '';
+            if (generatingTopic) {
+                const loadingDiv = document.createElement('div');
+                loadingDiv.className = "bg-white p-6 rounded-3xl shadow-sm border border-indigo-200 flex justify-between items-center mb-3 animate-pulse ring-1 ring-indigo-100";
+                loadingDiv.innerHTML = `<div><h3 class="font-bold text-slate-400 text-lg">${generatingTopic}</h3><p class="text-xs text-indigo-500 font-bold flex items-center gap-2"><svg class="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>카드 선별하는 중...</p></div>`;
+                deckListContainer.appendChild(loadingDiv);
+            }
+            const sortedDecks = [...allDecks].sort((a, b) => b.createdAt - a.createdAt);
+            sortedDecks.forEach(deck => {
+                if (generatingTopic && deck.name === generatingTopic) return;
+                const deckCards = allCards.filter(c => c.deck === deck.name);
+                const dueCount = deckCards.filter(c => c.nextReview <= Date.now()).length;
+                const div = document.createElement('div');
+                div.className = "bg-white p-6 rounded-3xl shadow-sm border border-slate-200 cursor-pointer hover:border-slate-800 transition-all flex justify-between items-center group mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300";
+                div.onclick = () => openDeckManager(deck.name);
+                div.innerHTML = `<div><h3 class="font-bold text-slate-800 text-lg">${deck.name}</h3><p class="text-xs text-slate-500">복습 필요: <span class="text-orange-500 font-bold">${dueCount}</span> / 전체: ${deckCards.length}</p></div><div class="text-slate-300 group-hover:text-slate-800"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></div>`;
+                deckListContainer.appendChild(div);
+            });
+        }
+
+        window.toggleDeckInput = () => {
+            const container = document.getElementById('deck-input-container');
+            container.classList.toggle('hidden');
+            if(!container.classList.contains('hidden')) document.getElementById('new-deck-name').focus();
+        };
+
+        window.handleCreateDeck = async () => {
+            const name = document.getElementById('new-deck-name').value.trim();
+            if (!name) return;
+            if (allDecks.some(d => d.name === name)) { alert("이미 존재하는 덱 이름입니다."); return; }
+            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'decks'), { name, createdAt: Date.now() });
+            document.getElementById('new-deck-name').value = '';
+            toggleDeckInput();
+        };
+
+        function openDeckManager(name) {
+            if (name) { selectedDeckName = name; window.selectedDeckName = name; }
+            homeScreen.classList.add('hidden');
+            cardEditorScreen.classList.add('hidden');
+            studyScreen.classList.add('hidden');
+            deckManagerScreen.classList.remove('hidden');
+            updateDeckManagerView(selectedDeckName);
+            if (!isAiGeneratingCards) setDeckManagerButtonsDisabled(false);
+        }
+        window.openDeckManager = openDeckManager; 
+
+        function updateDeckManagerView(name) {
+            const deckCards = allCards.filter(c => c.deck === name);
+            const dueCount = deckCards.filter(c => c.nextReview <= Date.now()).length;
+            document.getElementById('mgr-deck-title').innerText = name;
+            document.getElementById('mgr-due-count').innerText = dueCount;
+            document.getElementById('mgr-total-count').innerText = deckCards.length;
+        }
+
+        window.openAddCardModal = () => { 
+            if (isAiGeneratingCards) return;
+            cardAddModal.classList.remove('hidden'); 
+            cardAddModal.classList.add('flex'); 
+            document.getElementById('new-card-q').focus(); 
+        };
+        
+        window.closeAddCardModal = () => { cardAddModal.classList.add('hidden'); cardAddModal.classList.remove('flex'); };
+
+        window.addCustomCard = async (e) => {
+            e.preventDefault();
+            const q = document.getElementById('new-card-q').value.trim();
+            const a = document.getElementById('new-card-a').value.trim();
+            if (!q || !a) return;
+            const btn = document.getElementById('modal-add-btn');
+            btn.disabled = true;
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'cards'), { 
+                    q, a, deck: selectedDeckName, stability: 0, difficulty: 0, interval: 0, repetitions: 0, state: 0,
+                    nextReview: Date.now(), lastReview: Date.now() 
+                });
+                document.getElementById('new-card-q').value = '';
+                document.getElementById('new-card-a').value = '';
+                document.getElementById('new-card-q').focus();
+            } catch (err) { alert("오류 발생"); }
+            finally { btn.disabled = false; }
+        };
+
+        window.openCardEditor = () => {
+            if (isAiGeneratingCards) return;
+            deckManagerScreen.classList.add('hidden');
+            cardEditorScreen.classList.remove('hidden');
+            activeEditCardId = null;
+            editorContent.classList.add('hidden');
+            editorEmptyState.classList.remove('hidden');
+            renderCardEditorList();
+        };
+
+        function renderCardEditorList() {
+            const deckCards = allCards.filter(c => c.deck === selectedDeckName);
+            document.getElementById('editor-deck-title').innerText = `${selectedDeckName} 카드 관리`;
+            cardEditorSidebar.innerHTML = '';
+            if (deckCards.length === 0) {
+                cardEditorSidebar.innerHTML = `<p class="text-center py-10 text-slate-400 text-[10px]">카드가 없습니다.</p>`;
+                return;
+            }
+            deckCards.forEach(card => {
+                const item = document.createElement('div');
+                const isActive = card.id === activeEditCardId;
+                item.className = `p-2 mb-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all border truncate ${isActive ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-100 hover:border-slate-300'}`;
+                item.innerText = card.q;
+                item.onclick = () => selectCardToEdit(card.id);
+                cardEditorSidebar.appendChild(item);
+            });
+        }
+
+        window.selectCardToEdit = (cardId) => {
+            activeEditCardId = cardId;
+            const card = allCards.find(c => c.id === cardId);
+            if (!card) return;
+            editorEmptyState.classList.add('hidden');
+            editorContent.classList.remove('hidden');
+            editorContent.innerHTML = `<div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm space-y-6"><div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">질문 수정</label><textarea id="active-edit-q" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm focus:ring-1 focus:ring-slate-400 outline-none min-h-[100px] font-bold">${card.q}</textarea></div><div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">정답 수정</label><textarea id="active-edit-a" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm focus:ring-1 focus:ring-slate-400 outline-none min-h-[200px] line-height-1.7">${card.a}</textarea></div><div class="flex justify-between items-center pt-2"><button onclick="deleteSelectedCard()" class="text-rose-500 text-xs font-bold hover:underline px-2">카드 삭제</button><button onclick="saveActiveCardEdit()" class="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black hover:bg-black transition-all shadow-xl shadow-slate-200">수정 사항 저장</button></div></div>`;
+            renderCardEditorList();
+        };
+
+        window.saveActiveCardEdit = async () => {
+            if (!activeEditCardId) return;
+            const newQ = document.getElementById('active-edit-q').value.trim();
+            const newA = document.getElementById('active-edit-a').value.trim();
+            if (!newQ || !newA) return;
+            try { await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'cards', activeEditCardId), { q: newQ, a: newA }); } catch (err) { console.error(err); }
+        };
+
+        window.deleteSelectedCard = async () => {
+            if (!activeEditCardId) return;
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'cards', activeEditCardId));
+                activeEditCardId = null;
+                editorContent.classList.add('hidden');
+                editorEmptyState.classList.remove('hidden');
+            } catch (err) { console.error(err); }
+        };
+
+        window.openStudyCardEditor = (e) => {
+            if (e) e.stopPropagation();
+            if (currentStudyList.length === 0) return;
+            const card = currentStudyList[0];
+            document.getElementById('study-edit-q').value = card.q;
+            document.getElementById('study-edit-a').value = card.a;
+            cardStudyEditModal.classList.remove('hidden');
+            cardStudyEditModal.classList.add('flex');
+        };
+
+        window.closeStudyCardEditor = () => { cardStudyEditModal.classList.add('hidden'); cardStudyEditModal.classList.remove('flex'); };
+
+        window.saveStudyCardEdit = async (e) => {
+            e.preventDefault();
+            if (currentStudyList.length === 0) return;
+            const card = currentStudyList[0];
+            const newQ = document.getElementById('study-edit-q').value.trim();
+            const newA = document.getElementById('study-edit-a').value.trim();
+            if (!newQ || !newA) return;
+            try {
+                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'cards', card.id), { q: newQ, a: newA });
+                currentStudyList[0].q = newQ; currentStudyList[0].a = newA;
+                closeStudyCardEditor(); showCard(); 
+            } catch (err) { console.error(err); }
+        };
+
+        window.deleteStudyCard = async () => {
+            if (currentStudyList.length === 0) return;
+            const cardToDelete = currentStudyList[0];
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'cards', cardToDelete.id));
+                currentStudyList.shift(); 
+                sessionTotalCount = Math.max(0, sessionTotalCount - 1);
+                closeStudyCardEditor(); showCard(); 
+            } catch (err) { console.error(err); }
+        };
+
+        async function startStudy() {
+            if (isAiGeneratingCards) return;
+            currentStudyList = allCards.filter(c => c.deck === selectedDeckName && c.nextReview <= Date.now());
+            if (currentStudyList.length === 0) {
+                currentStudyList = [...allCards.filter(c => c.deck === selectedDeckName)];
+                if (currentStudyList.length === 0) return;
+            }
+            currentStudyList.sort(() => Math.random() - 0.5);
+            sessionTotalCount = currentStudyList.length;
+            deckManagerScreen.classList.add('hidden');
+            studyScreen.classList.remove('hidden');
+            floatingAiBtn.classList.remove('hidden');
+            showCard();
+        }
+
+        function showCard() {
+            if (currentStudyList.length === 0) { finishStudy(); return; }
+            const card = currentStudyList[0];
+            qText.innerHTML = marked.parse(card.q);
+            backQText.innerHTML = marked.parse(card.q);
+            aText.innerHTML = marked.parse(card.a);
+            isFlipped = false;
+            mainCard.classList.remove('flipped');
+            controls.classList.add('hidden');
+            intervalPreview.classList.add('hidden');
+            studyStats.innerText = `남은 카드 : ${currentStudyList.length} , 학습 카드 : ${sessionTotalCount}`;
+            closeChat();
+        }
+
+        function updateIntervalPreviews(card) {
+            [1, 2, 3, 4].forEach(q => {
+                const res = calculateFSRS(card, q);
+                document.getElementById('p' + q).innerText = res._displayInterval;
+            });
+            intervalPreview.classList.remove('hidden');
+        }
+
+        async function handleDifficulty(quality) {
+            const card = currentStudyList.shift();
+            const updates = calculateFSRS(card, quality);
+            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'cards', card.id), {
+                stability: updates.stability, difficulty: updates.difficulty, interval: updates.interval,
+                state: updates.state, repetitions: updates.repetitions, nextReview: updates.nextReview, lastReview: updates.lastReview
+            });
+            if (updates.interval < 1) {
+                const updatedCardInMem = { ...card, ...updates };
+                const pos = currentStudyList.length > 0 ? (quality === 1 ? 1 : currentStudyList.length) : 0;
+                currentStudyList.splice(pos, 0, updatedCardInMem);
+            }
+            showCard();
+        }
+
+        function flipCard() {
+            if (isFlipped || currentStudyList.length === 0) return;
+            isFlipped = true; mainCard.classList.add('flipped');
+            controls.classList.remove('hidden');
+            updateIntervalPreviews(currentStudyList[0]);
+        }
+
+        function finishStudy() {
+            studyScreen.classList.add('hidden'); homeScreen.classList.remove('hidden');
+            floatingAiBtn.classList.add('hidden'); closeChat();
+        }
+
+        async function callGemini(payload) {
+            const apiKey = "";
+            let delay = 1000;
+            for (let i = 0; i < 3; i++) {
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, { method: 'POST', body: JSON.stringify(payload) });
+                    return await res.json();
+                } catch (e) { await new Promise(r => setTimeout(r, delay)); delay *= 2; }
+            }
+        }
+
+        async function startAIChat() {
+            if (isChatOpen || currentStudyList.length === 0) return;
+            isChatOpen = true;
+            aiChatPanel.classList.remove('hidden'); aiChatPanel.classList.add('flex');
+            chatMessages.innerHTML = ''; chatHistory = [];
+            const card = currentStudyList[0];
+            const initialPrompt = `질문: "${card.q}", 답변: "${card.a}". 3줄 요약 후 대화 시작.`;
+            appendMessage('system', 'AI 튜터 준비됨.');
+            await sendToAI(initialPrompt, true);
+        }
+
+        function closeChat() { isChatOpen = false; aiChatPanel.classList.add('hidden'); aiChatPanel.classList.remove('flex'); }
+
+        async function sendToAI(text, isHiddenPrompt = false) {
+            if (!isHiddenPrompt) appendMessage('user', text);
+            const loadingMsg = appendMessage('ai', '<span class="animate-pulse">생각 중...</span>');
+            try {
+                const card = currentStudyList[0];
+                const contents = chatHistory.map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.text }] }));
+                contents.push({ role: 'user', parts: [{ text: text }] });
+                const res = await callGemini({ contents: contents, systemInstruction: { parts: [{ text: "암기 도우미. 마크다운 사용." }] } });
+                const aiResponse = res.candidates[0].content.parts[0].text;
+                loadingMsg.innerHTML = marked.parse(aiResponse);
+                chatHistory.push({ role: 'user', text: text }, { role: 'model', text: aiResponse });
+            } catch (e) { loadingMsg.innerText = "오류 발생"; }
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function appendMessage(role, text) {
+            const div = document.createElement('div');
+            div.className = `p-3 rounded-2xl max-w-[90%] text-sm ${role === 'user' ? 'bg-slate-800 text-white self-end ml-auto' : role === 'system' ? 'bg-slate-100 text-slate-500 self-center text-center text-[10px] uppercase w-full' : 'bg-slate-100 text-slate-800 self-start'}`;
+            div.innerHTML = text;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return div;
+        }
+
+        window.handleChatSubmit = (e) => { e.preventDefault(); const text = chatInput.value.trim(); if (!text) return; chatInput.value = ''; sendToAI(text); };
+
+        window.generateAIDeck = async () => {
+            const topic = document.getElementById('ai-topic').value.trim();
+            if (!topic) return;
+            const btn = document.getElementById('ai-gen-btn');
+            btn.disabled = true;
+            generatingTopic = topic;
+            renderDecks();
+            try {
+                const systemPrompt = `너는 프론트엔드 학습 전문가야. 주제에 대해 핵심 개념 플래시카드 10개를 생성해.
+                [작성 규칙]
+                1. 질문(q)은 '~은?', '~ 단계에서 수행되는 작업은?' 같은 명사형/단답형 위주로 작성.
+                2. 답변(a)은 각 항목마다 반드시 줄바꿈(Newline)을 포함하여 마크다운 리스트(1., 2...) 형식으로 작성. 구어체 금지.
+                JSON 형식으로 응답: { "cards": [{ "q": "질문", "a": "정답" }] }`;
+                const res = await callGemini({ 
+                    contents: [{ parts: [{ text: `주제: ${topic}` }] }], 
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: { 
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                cards: {
+                                    type: "ARRAY",
+                                    items: {
+                                        type: "OBJECT",
+                                        properties: { q: { type: "STRING" }, a: { type: "STRING" } },
+                                        required: ["q", "a"]
+                                    }
+                                }
+                            },
+                            required: ["cards"]
+                        }
+                    }
+                });
+                const data = JSON.parse(res.candidates[0].content.parts[0].text);
+                if (!allDecks.some(d => d.name === topic)) {
+                    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'decks'), { name: topic, createdAt: Date.now() });
+                }
+                const promises = data.cards.map(card => addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'cards'), { ...card, deck: topic, stability: 0, difficulty: 0, interval: 0, repetitions: 0, state: 0, nextReview: Date.now(), lastReview: Date.now() }));
+                await Promise.all(promises);
+                document.getElementById('ai-topic').value = '';
+            } catch (e) { console.error(e); }
+            finally { generatingTopic = null; btn.disabled = false; renderDecks(); }
+        };
+
+        function setDeckManagerButtonsDisabled(disabled) {
+            const startBtn = document.getElementById('mgr-start-btn');
+            const manualAddBtn = document.getElementById('mgr-manual-add-btn');
+            const aiAddBtn = document.getElementById('mgr-ai-add-btn');
+            const cardManageBtn = document.getElementById('mgr-manage-btn');
+            const buttons = [startBtn, manualAddBtn, aiAddBtn, cardManageBtn];
+            buttons.forEach(btn => {
+                if (!btn) return;
+                btn.disabled = disabled;
+                if (disabled) { btn.classList.add('opacity-50', 'pointer-events-none'); }
+                else { btn.classList.remove('opacity-50', 'pointer-events-none'); }
+            });
+        }
+
+        window.addAICardsToDeck = async () => {
+            const topic = selectedDeckName;
+            if (!topic) return;
+            const btn = document.getElementById('mgr-ai-add-btn');
+            isAiGeneratingCards = true;
+            setDeckManagerButtonsDisabled(true);
+            btn.innerText = "카드 생성 중...";
+            try {
+                const systemPrompt = `너는 학습 전문가야. 현재 주제인 '${topic}'에 대해 핵심 암기 카드 10개를 생성해.
+                [작성 규칙]
+                1. 질문(q)은 '~은?', '~ 단계에서 수행되는 작업은?' 같은 명사형/단답형 위주로 작성.
+                2. 답변(a)은 각 항목마다 반드시 줄바꿈(Newline)을 포함하여 마크다운 리스트(1., 2...) 형식으로 작성. 구어체 금지.
+                스키마를 준수하여 JSON으로 응답해: { "cards": [{ "q": "질문", "a": "정답" }] }`;
+                const res = await callGemini({ 
+                    contents: [{ parts: [{ text: `주제: ${topic}` }] }], 
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: { 
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                cards: {
+                                    type: "ARRAY",
+                                    items: {
+                                        type: "OBJECT",
+                                        properties: { q: { type: "STRING" }, a: { type: "STRING" } },
+                                        required: ["q", "a"]
+                                    }
+                                }
+                            },
+                            required: ["cards"]
+                        }
+                    }
+                });
+                if (!res || !res.candidates || !res.candidates[0].content.parts[0].text) throw new Error("API Response Error");
+                const data = JSON.parse(res.candidates[0].content.parts[0].text);
+                if (data && Array.isArray(data.cards)) {
+                    const promises = data.cards.map(card => addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'cards'), { 
+                        ...card, deck: topic, stability: 0, difficulty: 0, interval: 0, repetitions: 0, state: 0, nextReview: Date.now(), lastReview: Date.now() 
+                    }));
+                    await Promise.all(promises);
+                }
+            } catch (e) { console.error("AI Error:", e); }
+            finally { isAiGeneratingCards = false; setDeckManagerButtonsDisabled(false); btn.innerText = "AI 추가"; updateDeckManagerView(topic); }
+        };
+
+        window.flipCard = flipCard; window.handleDifficulty = handleDifficulty; window.startStudy = startStudy;
+        window.goToHome = () => { homeScreen.classList.remove('hidden'); deckManagerScreen.classList.add('hidden'); studyScreen.classList.add('hidden'); cardEditorScreen.classList.add('hidden'); floatingAiBtn.classList.add('hidden'); closeChat(); };
+        window.startAIChat = startAIChat; window.closeChat = closeChat;
+
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+            if (e.code === 'Space') {
+                if (!deckManagerScreen.classList.contains('hidden')) { e.preventDefault(); startStudy(); return; }
+                if (!studyScreen.classList.contains('hidden')) { e.preventDefault(); flipCard(); return; }
+            }
+            if (!studyScreen.classList.contains('hidden') && isFlipped) {
+                if (['1','2','3','4'].includes(e.key)) handleDifficulty(parseInt(e.key));
+            }
+        });
+        window.onload = initAuth;
+    </script>
+    <style>
+        .flipped .card-front { display: none; }
+        .flipped .card-back { display: flex; }
+        
+        .markdown-body { 
+            width: 100%; 
+            text-align: left; 
+            line-height: 1.7; 
+            font-size: 1.05rem;
+            word-break: keep-all;
+            white-space: normal;
+        }
+        .markdown-body p { margin-bottom: 0.75rem; }
+        .markdown-body pre { background-color: #f8fafc; padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.5rem 0; font-size: 0.8rem; border: 1px solid #e2e8f0; }
+        .markdown-body code { font-family: ui-monospace, monospace; background-color: #f1f5f9; padding: 0.15rem 0.3rem; border-radius: 0.2rem; font-size: 0.85em; color: #dc2626; }
+        
+        .markdown-body ul, .markdown-body ol { 
+            padding-left: 1.5rem !important; 
+            margin: 0.75rem 0 !important;
+            list-style-position: outside !important;
+        }
+        .markdown-body ol { list-style-type: decimal !important; }
+        .markdown-body ul { list-style-type: disc !important; }
+        .markdown-body li { 
+            display: list-item !important;
+            margin-bottom: 0.6rem !important; 
+            font-weight: 600; 
+            color: #1e293b; 
+            padding-left: 0.25rem !important;
+        }
+        .markdown-body strong { font-weight: 800; color: #1e293b; }
+        
+        #chat-messages::-webkit-scrollbar, #card-editor-sidebar-container::-webkit-scrollbar { width: 4px; }
+        #chat-messages::-webkit-scrollbar-thumb, #card-editor-sidebar-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased overflow-x-hidden select-none">
+    <button id="floating-ai-btn" onclick="startAIChat()" class="hidden fixed right-0 top-1/2 -translate-y-1/2 bg-slate-800 text-white px-3 py-6 rounded-l-2xl shadow-2xl font-black text-xs hover:bg-black transition-all z-[60] flex flex-col items-center gap-2 border-y border-l border-slate-700">
+        <span class="mb-1 text-base">✨</span><span style="writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 0.1em;">AI 질문</span>
+    </button>
+    <div class="max-w-2xl mx-auto min-h-screen flex flex-col p-4 pb-24">
+        <div id="home-screen" class="w-full space-y-6">
+            <header class="text-center py-6 flex flex-col items-center">
+                <div class="mb-2">
+                    <svg width="64" height="64" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M20,50 C15,35 35,15 60,20 C85,25 95,45 90,70 C85,95 40,95 20,80 C10,70 10,55 20,50 Z" fill="white" stroke="#f1f5f9" stroke-width="2"/>
+                        <circle cx="55" cy="55" r="18" fill="#fbbf24"/><circle cx="50" cy="52" r="2.5" fill="#1e293b"/><circle cx="62" cy="52" r="2.5" fill="#1e293b"/>
+                        <path d="M52,62 Q56,66 60,62" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round"/>
+                        <circle cx="45" cy="58" r="3" fill="#fecaca" opacity="0.6"/><circle cx="68" cy="58" r="3" fill="#fecaca" opacity="0.6"/>
+                    </svg>
+                </div>
+                <h1 class="text-3xl font-black text-slate-800 tracking-tight">안까묵지</h1>
+            </header>
+            <div class="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 relative overflow-hidden">
+                <h2 class="font-bold mb-4 text-slate-800 text-sm flex items-center gap-2">✨ AI 암기 덱 생성 (10개 카드)</h2>
+                <div class="flex gap-2">
+                    <input type="text" id="ai-topic" class="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:ring-2 focus:ring-slate-900 outline-none transition-all" placeholder="주제 입력 (예: 브라우저 렌더링)">
+                    <button id="ai-gen-btn" onclick="generateAIDeck()" class="bg-slate-900 text-white px-5 py-3 rounded-2xl font-bold text-sm hover:bg-black transition-all shadow-lg shadow-slate-200 min-w-[80px]">생성</button>
+                </div>
+            </div>
+            <div class="space-y-4"><h2 class="font-bold text-slate-700 px-1 text-sm">학습 덱 목록</h2><div id="deck-list"><div class="text-center py-10 text-slate-400 text-sm">데이터 불러오는 중...</div></div></div>
+            <div class="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 pointer-events-none">
+                <div id="deck-input-container" class="hidden bg-white p-4 rounded-3xl shadow-2xl border border-slate-200 mb-4 animate-slide-up pointer-events-auto">
+                    <div class="flex gap-2"><input type="text" id="new-deck-name" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-slate-900 outline-none" placeholder="새 덱 이름"><button onclick="handleCreateDeck()" class="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold text-sm">생성</button></div>
+                </div>
+                <button onclick="toggleDeckInput()" class="pointer-events-auto bg-slate-900 text-white flex items-center justify-center gap-2 px-8 py-4 rounded-full font-bold shadow-2xl hover:bg-black transition-all mx-auto active:scale-95"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>덱 추가</button>
+            </div>
+        </div>
+        <div id="deck-manager-screen" class="hidden flex-1 flex flex-col space-y-6">
+            <button onclick="goToHome()" class="text-slate-400 hover:text-slate-800 text-sm font-bold flex items-center gap-2 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7" /></svg>목록으로</button>
+            <div class="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-50 text-center">
+                <h2 id="mgr-deck-title" class="text-3xl font-black text-slate-900 mb-4"></h2>
+                <div class="flex justify-center gap-10 mt-6">
+                    <div><p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">복습 대기</p><p id="mgr-due-count" class="text-3xl font-black text-orange-500 mt-1"></p></div>
+                    <div class="w-px h-10 bg-slate-100 self-center"></div>
+                    <div><p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">총 카드수</p><p id="mgr-total-count" class="text-3xl font-black text-slate-900 mt-1"></p></div>
+                </div>
+                <div class="grid grid-cols-1 gap-3 mt-10">
+                    <button id="mgr-start-btn" onclick="startStudy()" class="bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-black shadow-xl shadow-slate-200 transition-all active:scale-95">학습 시작</button>
+                    <div class="grid grid-cols-3 gap-3">
+                        <button id="mgr-manual-add-btn" onclick="openAddCardModal()" class="bg-white text-slate-700 border border-slate-200 py-4 rounded-2xl font-bold hover:bg-slate-50 transition-all text-xs">수동 추가</button>
+                        <button id="mgr-ai-add-btn" onclick="addAICardsToDeck()" class="bg-indigo-50 text-indigo-700 border border-indigo-100 py-4 rounded-2xl font-bold hover:bg-indigo-100 transition-all text-xs">AI 추가</button>
+                        <button id="mgr-manage-btn" onclick="openCardEditor()" class="bg-slate-100 text-slate-800 border border-slate-200 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all text-xs">카드 관리</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="card-editor-screen" class="hidden flex-1 flex flex-col h-[calc(100vh-120px)]">
+            <button onclick="openDeckManager()" class="text-slate-400 hover:text-slate-800 text-sm font-bold flex items-center gap-2 transition-colors mb-6"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7" /></svg>돌아가기</button>
+            <h2 id="editor-deck-title" class="text-2xl font-black text-slate-800 mb-6 px-2"></h2>
+            <div class="flex-1 flex gap-6 min-h-0 overflow-hidden">
+                <div id="card-editor-sidebar-container" class="w-1/3 flex flex-col h-full bg-slate-100/50 rounded-[2rem] p-3 overflow-y-auto"><div id="card-editor-sidebar" class="flex flex-col"></div></div>
+                <div class="flex-1 overflow-y-auto" id="card-editor-main">
+                    <div id="editor-empty-state" class="h-full flex flex-col items-center justify-center text-slate-400 space-y-4 py-20 bg-white rounded-[2rem] border border-dashed border-slate-200"><svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg><p class="text-sm font-bold">수정할 카드를 선택해주세요</p></div>
+                    <div id="editor-content" class="hidden"></div>
+                </div>
+            </div>
+        </div>
+        <div id="study-screen" class="hidden flex-1 flex flex-col">
+            <div class="flex justify-between items-center mb-6"><button onclick="goToHome()" class="text-slate-400 hover:text-slate-800 text-sm font-bold">학습 중단</button><div id="study-stats" class="text-[10px] text-slate-400 font-black tracking-widest uppercase"></div></div>
+            <div id="main-card" onclick="flipCard()" class="relative flex-1 bg-white rounded-[2.5rem] shadow-2xl border border-slate-50 flex flex-col cursor-pointer overflow-hidden transition-all hover:border-slate-200 min-h-[400px]">
+                <button onclick="openStudyCardEditor(event)" class="absolute top-6 left-6 z-20 p-2 bg-slate-100 text-slate-400 hover:text-slate-900 rounded-xl transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                <div class="card-front flex-1 flex flex-col items-center justify-center p-10 text-center"><div id="q-text" class="markdown-body text-xl font-bold leading-tight text-slate-900 flex flex-col items-center text-center"></div></div>
+                <div class="card-back hidden flex-1 flex flex-col p-10 overflow-y-auto"><div id="back-q-text" class="markdown-body text-slate-400 text-sm text-center"></div><div class="border-t border-slate-100 my-8 shrink-0"></div><div class="flex-1 flex flex-col"><div id="a-text" class="markdown-body text-xl font-bold text-slate-900"></div></div></div>
+            </div>
+            <div class="flex flex-col mt-8">
+                <div id="interval-preview" class="hidden grid grid-cols-4 gap-3 mb-2 px-1"><div class="text-[9px] text-slate-400 font-black text-center uppercase" id="p1"></div><div class="text-[9px] text-slate-400 font-black text-center uppercase" id="p2"></div><div class="text-[9px] text-slate-400 font-black text-center uppercase" id="p3"></div><div class="text-[9px] text-slate-400 font-black text-center uppercase" id="p4"></div></div>
+                <div id="difficulty-controls" class="hidden grid grid-cols-4 gap-3">
+                    <button onclick="handleDifficulty(1)" class="py-5 bg-white text-slate-900 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all font-black text-[10px] uppercase shadow-sm">매우 어려움</button>
+                    <button onclick="handleDifficulty(2)" class="py-5 bg-white text-slate-900 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all font-black text-[10px] uppercase shadow-sm">어려움</button>
+                    <button onclick="handleDifficulty(3)" class="py-5 bg-white text-slate-900 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all font-black text-[10px] uppercase shadow-sm">쉬움</button>
+                    <button onclick="handleDifficulty(4)" class="py-5 bg-white text-slate-900 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all font-black text-[10px] uppercase shadow-sm">매우 쉬움</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Modals -->
+    <div id="card-add-modal" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] items-center justify-center p-4"><div class="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 animate-slide-up"><div class="flex justify-between items-center mb-6"><h3 class="text-xl font-black text-slate-900">카드 추가</h3><button onclick="closeAddCardModal()" class="text-slate-400 hover:text-slate-900"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button></div><form onsubmit="addCustomCard(event)" class="space-y-5"><div><label class="text-[10px] font-black text-slate-400 uppercase mb-1 block tracking-widest">질문</label><textarea id="new-card-q" class="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-4 text-sm focus:ring-2 focus:ring-slate-900 outline-none min-h-[100px]" placeholder="질문 내용을 적으세요..."></textarea></div><div><label class="text-[10px] font-black text-slate-400 uppercase mb-1 block tracking-widest">답변</label><textarea id="new-card-a" class="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-4 text-sm focus:ring-2 focus:ring-slate-900 outline-none min-h-[100px]" placeholder="요약 내용을 적으세요..."></textarea></div><div class="grid grid-cols-2 gap-3 pt-2"><button type="button" onclick="closeAddCardModal()" class="bg-slate-50 text-slate-400 py-4 rounded-2xl font-bold hover:bg-slate-100">그만하기</button><button type="submit" id="modal-add-btn" class="bg-slate-900 text-white py-4 rounded-2xl font-black shadow-xl">카드 추가</button></div></form></div></div>
+    <div id="card-study-edit-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 animate-slide-up"><div class="flex justify-between items-center mb-6"><h3 class="text-xl font-black text-slate-900">카드 수정/삭제</h3><button onclick="closeStudyCardEditor()" class="text-slate-400 hover:text-slate-900"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button></div><form onsubmit="saveStudyCardEdit(event)" class="space-y-5"><div><label class="text-[10px] font-black text-slate-400 uppercase mb-1 block tracking-widest">질문</label><textarea id="study-edit-q" class="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-4 text-sm focus:ring-2 focus:ring-slate-900 outline-none min-h-[80px]"></textarea></div><div><label class="text-[10px] font-black text-slate-400 uppercase mb-1 block tracking-widest">답변</label><textarea id="study-edit-a" class="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-4 text-sm focus:ring-2 focus:ring-slate-900 outline-none min-h-[140px]"></textarea></div><div class="pt-4 flex flex-col gap-3"><button type="submit" class="bg-slate-900 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-black transition-all">수정 사항 저장</button><button type="button" onclick="deleteStudyCard()" class="text-rose-500 py-2 font-bold hover:underline">카드 삭제</button></div></form></div>
+    </div>
+    <div id="ai-chat-panel" class="hidden fixed bottom-6 right-6 w-[350px] sm:w-[400px] h-[500px] bg-white rounded-3xl border border-slate-200 shadow-2xl flex-col overflow-hidden z-[200] animate-slide-up">
+        <div class="p-4 border-b flex justify-between items-center bg-slate-900 text-white shrink-0"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm">✨</div><h3 class="font-bold text-sm tracking-tight">AI Study Tutor</h3></div><button onclick="closeChat()" class="p-2 hover:bg-white/10 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button></div><div id="chat-messages" class="flex-1 p-4 overflow-y-auto flex flex-col gap-4 bg-slate-50"></div><form onsubmit="handleChatSubmit(event)" class="p-4 border-t bg-white flex gap-2 shrink-0"><input type="text" id="chat-input" class="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="궁금한 것을 물어보세요..."><button type="submit" class="bg-slate-900 text-white p-3 rounded-xl shadow-lg hover:bg-black transition-all"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></button></form></div>
+</body>
+</html>

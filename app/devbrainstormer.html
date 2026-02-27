@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dev 브레인스토머</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leader-line/1.0.7/leader-line.min.js"></script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            overflow: hidden;
+            font-family: 'Pretendard', sans-serif;
+        }
+
+        #canvas {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: auto;
+            cursor: grab;
+            background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+
+        #canvas:active {
+            cursor: grabbing;
+        }
+
+        .concept-card {
+            position: absolute;
+            width: 220px;
+            padding: 1.2rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            border: 1px solid #e2e8f0;
+            cursor: move;
+            z-index: 10;
+            transition: transform 0.2s, border-color 0.2s, top 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), left 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .concept-card:hover {
+            transform: scale(1.05);
+            border-color: #3b82f6;
+            z-index: 20;
+        }
+
+        .leader-line {
+            z-index: 5;
+        }
+
+        #ui-overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            width: 350px;
+        }
+
+        #analysis-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            width: 420px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            display: none;
+        }
+
+        .step-badge {
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            background: #3b82f6;
+            color: white;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .delete-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 20px;
+            height: 20px;
+            background: #fee2e2;
+            color: #ef4444;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .concept-card:hover .delete-btn {
+            opacity: 1;
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="ui-overlay" class="space-y-4">
+        <div class="bg-white p-6 rounded-2xl shadow-xl border border-slate-200">
+            <h1 class="text-xl font-bold text-slate-800 mb-2">Dev 브레인스토머</h1>
+            <p class="text-sm text-slate-500 mb-4">학습 키워드를 입력하고 분석하면 계층 구조로 정렬됩니다.</p>
+
+            <div class="flex gap-2">
+                <input type="text" id="concept-input" placeholder="예: React, Closure, Docker"
+                    class="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button onclick="addConcept()"
+                    class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">추가</button>
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-2" id="concept-list"></div>
+
+            <button id="analyze-btn" onclick="analyzeRelationships()"
+                class="w-full mt-6 bg-slate-800 text-white py-3 rounded-xl font-semibold hover:bg-slate-900 transition flex items-center justify-center gap-2">
+                <span>관계 분석 및 로드맵 정렬</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="analysis-panel" class="bg-white p-6 rounded-2xl shadow-2xl border border-slate-200">
+        <div class="flex justify-between items-center mb-4">
+            <h2 id="panel-title" class="text-lg font-bold text-slate-800">AI 학습 가이드</h2>
+            <button onclick="closeAnalysis()" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div id="analysis-content" class="text-sm text-slate-700 space-y-4">
+            <p class='text-slate-400 text-center py-10'>학습 로드맵을 먼저 생성한 후 카드를 클릭하세요.</p>
+        </div>
+    </div>
+
+    <div id="canvas"></div>
+
+    <script>
+        const apiKey = "";
+        let concepts = [];
+        let lines = [];
+        let isDragging = false;
+        let currentDraggingElement = null;
+        let offset = { x: 0, y: 0 };
+        let roadmapData = [];
+        let conceptDetails = {}; // 개별 개념별 상세 정보를 저장할 객체
+
+        const canvas = document.getElementById('canvas');
+        const input = document.getElementById('concept-input');
+        const analyzeBtn = document.getElementById('analyze-btn');
+
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addConcept();
+        });
+
+        function addConcept() {
+            const value = input.value.trim();
+            if (!value || concepts.includes(value)) return;
+
+            concepts.push(value);
+            renderConcept(value);
+            renderBadge(value);
+            input.value = '';
+        }
+
+        function removeConcept(name) {
+            concepts = concepts.filter(c => c !== name);
+            const card = document.getElementById(`node-${name.replace(/\s+/g, '-')}`);
+            if (card) card.remove();
+
+            const badges = document.getElementById('concept-list').children;
+            for (let badge of badges) {
+                if (badge.dataset.name === name) {
+                    badge.remove();
+                    break;
+                }
+            }
+            refreshLines();
+        }
+
+        function renderBadge(name) {
+            const badge = document.createElement('span');
+            badge.className = "px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium border border-slate-200 flex items-center gap-1";
+            badge.dataset.name = name;
+            badge.innerHTML = `${name} <span class='cursor-pointer hover:text-red-500' onclick="removeConcept('${name}')">×</span>`;
+            document.getElementById('concept-list').appendChild(badge);
+        }
+
+        function renderConcept(name) {
+            const card = document.createElement('div');
+            card.className = 'concept-card group';
+            card.id = `node-${name.replace(/\s+/g, '-')}`;
+            card.innerHTML = `
+            <div class="delete-btn" onclick="event.stopPropagation(); removeConcept('${name}')">×</div>
+            <div class="font-bold text-slate-800 pointer-events-none">${name}</div>
+            <div class="text-[10px] text-blue-400 mt-2 opacity-0 group-hover:opacity-100 transition">클릭하여 상세 가이드 보기</div>
+        `;
+
+            const posX = Math.random() * (window.innerWidth - 400) + 200;
+            const posY = Math.random() * (window.innerHeight - 300) + 150;
+            card.style.left = `${posX}px`;
+            card.style.top = `${posY}px`;
+
+            card.onmousedown = (e) => {
+                if (e.target.classList.contains('delete-btn')) return;
+                startDragging(e, card);
+            };
+
+            card.onclick = () => showDetailForConcept(name);
+
+            canvas.appendChild(card);
+        }
+
+        function startDragging(e, element) {
+            isDragging = true;
+            currentDraggingElement = element;
+            offset.x = e.clientX - element.offsetLeft;
+            offset.y = e.clientY - element.offsetTop;
+            element.style.transition = 'none';
+            element.style.zIndex = 1000;
+        }
+
+        window.onmousemove = (e) => {
+            if (!isDragging || !currentDraggingElement) return;
+            currentDraggingElement.style.left = `${e.clientX - offset.x}px`;
+            currentDraggingElement.style.top = `${e.clientY - offset.y}px`;
+            lines.forEach(line => line.position());
+        };
+
+        window.onmouseup = () => {
+            if (currentDraggingElement) {
+                currentDraggingElement.style.zIndex = 10;
+                currentDraggingElement.style.transition = 'top 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), left 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
+            }
+            isDragging = false;
+            currentDraggingElement = null;
+        };
+
+        async function analyzeRelationships() {
+            if (concepts.length < 2) {
+                alert("최소 2개 이상의 개념을 추가해주세요.");
+                return;
+            }
+
+            analyzeBtn.disabled = true;
+            analyzeBtn.innerHTML = `<div class="loading-spinner"></div> AI 분석 중...`;
+
+            const systemPrompt = `당신은 프로그래밍 학습 멘토입니다. 
+        사용자가 입력한 개념들의 학습 순서를 분석하여 '단계(Step)'별로 구분하고, **각 개념(키워드)별로 개별적인 상세 가이드**를 생성하세요.
+        
+        반드시 다음 JSON 구조를 지키세요:
+        {
+            "relationships": [{"from": "개념A", "to": "개념B", "reason": "연결 이유"}],
+            "roadmap": [{"step": 1, "concepts": ["개념A"]}],
+            "details": {
+                "개념명": {
+                    "summary": "개념의 정의와 중요성 (짧은 1문장)",
+                    "related_keywords": ["키워드1", "키워드2"],
+                    "full_description": "개념에 대한 상세 설명",
+                    "learning_resources": [
+                        {"title": "자료명", "url": "URL", "reason": "이 자료를 추천하는 구체적인 이유"}
+                    ]
+                }
+            }
+        }`;
+
+            const userQuery = `다음 개념들의 학습 순서와 각각에 대한 상세 가이드를 분석해줘: ${concepts.join(", ")}`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: userQuery }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: { responseMimeType: "application/json" }
+                    })
+                });
+
+                const data = await response.json();
+                const result = JSON.parse(data.candidates[0].content.parts[0].text);
+
+                roadmapData = result.roadmap;
+                conceptDetails = result.details;
+
+                reorganizeLayout(result.roadmap);
+                drawConnections(result.relationships);
+                showAnalysisOverview(result);
+
+            } catch (error) {
+                console.error(error);
+                alert("분석 중 오류가 발생했습니다. 입력한 키워드를 확인해주세요.");
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.innerText = "관계 분석 및 로드맵 정렬";
+            }
+        }
+
+        function reorganizeLayout(roadmap) {
+            const startY = 100;
+            const stepGapY = 220;
+            const cardWidth = 220;
+            const cardGapX = 50;
+            const centerX = window.innerWidth / 2;
+
+            roadmap.forEach((phase) => {
+                const step = phase.step;
+                const stepConcepts = phase.concepts;
+                const totalWidth = (stepConcepts.length * cardWidth) + ((stepConcepts.length - 1) * cardGapX);
+                const startX = centerX - (totalWidth / 2);
+
+                stepConcepts.forEach((conceptName, index) => {
+                    const card = document.getElementById(`node-${conceptName.replace(/\s+/g, '-')}`);
+                    if (card) {
+                        const oldBadge = card.querySelector('.step-badge');
+                        if (oldBadge) oldBadge.remove();
+
+                        const badge = document.createElement('div');
+                        badge.className = 'step-badge';
+                        badge.innerText = `STEP ${step}`;
+                        card.appendChild(badge);
+
+                        card.style.left = `${startX + (index * (cardWidth + cardGapX))}px`;
+                        card.style.top = `${startY + ((step - 1) * stepGapY)}px`;
+                    }
+                });
+            });
+
+            refreshLines();
+        }
+
+        function refreshLines() {
+            setTimeout(() => {
+                lines.forEach(line => line.position());
+            }, 700);
+        }
+
+        function drawConnections(relationships) {
+            lines.forEach(line => line.remove());
+            lines = [];
+
+            relationships.forEach(rel => {
+                const startEl = document.getElementById(`node-${rel.from.replace(/\s+/g, '-')}`);
+                const endEl = document.getElementById(`node-${rel.to.replace(/\s+/g, '-')}`);
+
+                if (startEl && endEl) {
+                    const line = new LeaderLine(
+                        startEl,
+                        endEl,
+                        {
+                            color: '#94a3b8',
+                            size: 2,
+                            path: 'grid',
+                            startPlug: 'disc',
+                            endPlug: 'arrow',
+                            dash: { animation: true },
+                            startSocket: 'bottom',
+                            endSocket: 'top',
+                            startSocketGravity: 40
+                        }
+                    );
+                    lines.push(line);
+                }
+            });
+        }
+
+        function showAnalysisOverview(data) {
+            const panel = document.getElementById('analysis-panel');
+            const content = document.getElementById('analysis-content');
+            const title = document.getElementById('panel-title');
+
+            title.innerText = "전체 학습 로드맵 요약";
+            panel.style.display = 'block';
+
+            let html = `<div class="space-y-4">`;
+            data.roadmap.forEach(item => {
+                html += `
+                <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="bg-slate-800 text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">Step ${item.step}</span>
+                        <div class="font-bold text-slate-800 text-sm">${item.concepts.join(', ')}</div>
+                    </div>
+                </div>
+            `;
+            });
+            html += `<p class='text-center text-[11px] text-slate-400 mt-6'>각 카드를 클릭하면 개별 개념의 상세 학습 정보를 볼 수 있습니다.</p></div>`;
+            content.innerHTML = html;
+        }
+
+        function showDetailForConcept(name) {
+            if (!conceptDetails || !conceptDetails[name]) return;
+
+            const info = conceptDetails[name];
+            const panel = document.getElementById('analysis-panel');
+            const content = document.getElementById('analysis-content');
+            const title = document.getElementById('panel-title');
+
+            title.innerText = `${name} 학습 가이드`;
+            panel.style.display = 'block';
+
+            content.innerHTML = `
+            <div class="space-y-6 animate-in fade-in duration-300">
+                <section>
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">한 줄 요약</h3>
+                    <p class="text-slate-800 font-medium leading-relaxed">${info.summary}</p>
+                </section>
+
+                <section>
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">관련 핵심 개념</h3>
+                    <div class="flex flex-wrap gap-2">
+                        ${info.related_keywords.map(kw => `
+                            <span class="px-2 py-1 bg-blue-50 text-blue-600 rounded-md text-[11px] font-semibold border border-blue-100"># ${kw}</span>
+                        `).join('')}
+                    </div>
+                </section>
+
+                <section>
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">상세 설명</h3>
+                    <div class="p-4 bg-slate-50 rounded-xl text-slate-700 leading-relaxed text-[13px] border border-slate-100">
+                        ${info.full_description.replace(/\n/g, '<br>')}
+                    </div>
+                </section>
+
+                <section>
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">📚 추천 학습 자료</h3>
+                    <div class="space-y-3">
+                        ${info.learning_resources.map(l => `
+                            <div class="group block p-3 bg-white rounded-xl border border-slate-200 hover:border-blue-400 transition-all shadow-sm">
+                                <a href="${l.url}" target="_blank" class="text-blue-600 font-bold text-sm block mb-1 group-hover:underline">
+                                    🔗 ${l.title}
+                                </a>
+                                <p class="text-[11px] text-slate-500 leading-snug italic">" ${l.reason} "</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </section>
+
+                <button onclick="showAnalysisOverview({roadmap: roadmapData})" class="w-full py-3 mt-4 text-xs text-slate-400 hover:text-slate-800 border-t border-slate-100 transition">
+                    ← 전체 로드맵 요약 보기
+                </button>
+            </div>
+        `;
+        }
+
+        function closeAnalysis() {
+            document.getElementById('analysis-panel').style.display = 'none';
+        }
+
+        window.addEventListener('resize', () => {
+            lines.forEach(line => line.position());
+        });
+    </script>
+
+</body>
+
+</html>

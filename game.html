@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Candy Match Adventure Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        /* --- 기본 스타일 및 레이아웃 --- */
+        :root {
+            --bg-gradient: radial-gradient(circle, #6a11cb 0%, #2575fc 100%);
+            --board-bg: rgba(0, 0, 0, 0.25);
+            --card-bg: rgba(255, 255, 255, 0.1);
+            --text-white: #ffffff;
+            --accent-color: #ffffff;
+            --primary-btn: #ffffff;
+            --primary-btn-text: #6a11cb;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-gradient);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        /* --- 헤더 및 점수판 --- */
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            color: var(--text-white);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 900;
+            letter-spacing: 4px;
+            margin: 0 0 15px 0;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .score-container {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .score-box {
+            background: var(--card-bg);
+            backdrop-filter: blur(8px);
+            padding: 10px 20px;
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.2);
+            min-width: 110px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .score-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            opacity: 0.8;
+            margin-bottom: 2px;
+        }
+
+        .score-value {
+            font-size: 1.5rem;
+            font-weight: 900;
+        }
+
+        #user-info {
+            font-family: monospace;
+            font-size: 10px;
+            opacity: 0.5;
+            margin-top: 10px;
+        }
+
+        /* --- 게임 보드 --- */
+        .grid-container {
+            position: relative;
+            aspect-ratio: 1 / 1;
+            max-width: 500px;
+            width: 92vw;
+            background: var(--board-bg);
+            backdrop-filter: blur(12px);
+            border: 8px solid rgba(255, 255, 255, 0.1);
+            border-radius: 28px;
+            padding: 8px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+        }
+
+        /* --- 캔디 블록 --- */
+        .candy {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.3rem;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: 
+                left 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+                top 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+                transform 0.2s ease, 
+                opacity 0.3s ease;
+            background: rgba(255, 255, 255, 0.05);
+            z-index: 10;
+        }
+
+        /* 드래그/선택 시 효과 */
+        .candy.selected {
+            transform: scale(1.18);
+            z-index: 50;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.7);
+            filter: brightness(1.25);
+        }
+
+        /* 특수 블록 스타일 */
+        /* 가로 줄무늬 (세로 매치 시 생성 -> 행 파괴) */
+        .candy.striped-h::after {
+            content: ''; position: absolute; width: 85%; height: 10px; 
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent); 
+            border-radius: 5px;
+        }
+        /* 세로 줄무늬 (가로 매치 시 생성 -> 열 파괴) */
+        .candy.striped-v::after {
+            content: ''; position: absolute; height: 85%; width: 10px; 
+            background: linear-gradient(0deg, transparent, rgba(255,255,255,0.9), transparent); 
+            border-radius: 5px;
+        }
+        /* 봉투 캔디 */
+        .candy.wrapped {
+            border: 4px solid rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0.2);
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.5), 0 0 15px rgba(255, 255, 255, 0.4);
+        }
+        /* 컬러 밤 */
+        .candy.bomb {
+            background: radial-gradient(circle, #666, #000);
+            border-radius: 50%;
+            animation: pulse 0.8s infinite alternate;
+            box-shadow: 0 0 20px rgba(0,0,0,0.7);
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+
+        @keyframes pulse {
+            from { transform: scale(0.85); }
+            to { transform: scale(1.05); }
+        }
+
+        /* 제거 애니메이션 */
+        .candy-pop {
+            animation: pop 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        @keyframes pop {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.6); opacity: 0.8; filter: brightness(2); }
+            100% { transform: scale(0); opacity: 0; }
+        }
+
+        /* --- 하단 컨트롤 --- */
+        .controls {
+            margin-top: 30px;
+        }
+
+        .btn-restart {
+            background: var(--primary-btn);
+            color: var(--primary-btn-text);
+            border: none;
+            padding: 15px 45px;
+            font-size: 1.1rem;
+            font-weight: 800;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .btn-restart:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+        }
+
+        .btn-restart:active {
+            transform: translateY(0) scale(0.95);
+        }
+
+        /* --- 커스텀 모달 --- */
+        #message-box {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 28px;
+            z-index: 1000;
+            text-align: center;
+            min-width: 320px;
+            box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.6);
+        }
+
+        #message-box h2 {
+            margin-top: 0;
+            color: #333;
+            font-weight: 900;
+        }
+
+        #message-box p {
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+        #msg-close {
+            background: #6a11cb;
+            color: white;
+            border: none;
+            padding: 12px 35px;
+            border-radius: 50px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>CANDY SAGA</h1>
+        <div class="score-container">
+            <div class="score-box">
+                <div class="score-label">Score</div>
+                <div id="current-score" class="score-value">0</div>
+            </div>
+            <div class="score-box">
+                <div class="score-label">High</div>
+                <div id="high-score" class="score-value">0</div>
+            </div>
+        </div>
+        <div id="user-info">ID: Loading...</div>
+    </div>
+
+    <div id="game-board" class="grid-container">
+        <!-- 캔디들이 생성됨 -->
+    </div>
+
+    <div class="controls">
+        <button id="reset-btn" class="btn-restart">RESTART</button>
+    </div>
+
+    <div id="message-box">
+        <h2 id="msg-title">알림</h2>
+        <p id="msg-content">내용</p>
+        <button id="msg-close">확인</button>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase & Config ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'pure-candy-saga';
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        const GRID_SIZE = 8;
+        const CANDY_TYPES = ['🍭', '🍬', '🍩', '🧁', '🍪', '🍫'];
+        let score = 0;
+        let highScore = 0;
+        let board = []; 
+        let isProcessing = false;
+        let userId = null;
+
+        // 드래그 트래킹
+        let dragStartCandy = null;
+        let startX, startY;
+
+        const boardEl = document.getElementById('game-board');
+        const scoreEl = document.getElementById('current-score');
+        const highScoreEl = document.getElementById('high-score');
+        const userInfoEl = document.getElementById('user-info');
+
+        // --- Authentication ---
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userInfoEl.innerText = `사용자 ID: ${userId}`;
+                        const scoreDoc = doc(db, 'artifacts', appId, 'users', userId, 'stats', 'game');
+                        onSnapshot(scoreDoc, (snap) => {
+                            if (snap.exists()) {
+                                highScore = snap.data().highScore || 0;
+                                highScoreEl.innerText = highScore.toLocaleString();
+                            }
+                        });
+                    }
+                });
+            } catch (error) {
+                console.error("Auth Error:", error);
+            }
+        }
+
+        async function saveScore() {
+            if (!userId || score <= highScore) return;
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'users', userId, 'stats', 'game'), { highScore: score }, { merge: true });
+            } catch (error) { console.error("Save Error:", error); }
+        }
+
+        // --- Game Engine Logic ---
+        function initBoard() {
+            boardEl.innerHTML = '';
+            board = [];
+            for (let r = 0; r < GRID_SIZE; r++) {
+                board[r] = [];
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    let type;
+                    do { type = CANDY_TYPES[Math.floor(Math.random() * CANDY_TYPES.length)]; }
+                    while (isInitialMatch(r, c, type));
+                    
+                    const candy = createCandy(r, c, type);
+                    board[r][c] = candy;
+                    boardEl.appendChild(candy.element);
+                }
+            }
+            positionCandies();
+        }
+
+        function isInitialMatch(r, c, type) {
+            if (c >= 2 && board[r][c-1]?.type === type && board[r][c-2]?.type === type) return true;
+            if (r >= 2 && board[r-1][c]?.type === type && board[r-2][c]?.type === type) return true;
+            return false;
+        }
+
+        function createCandy(r, c, type, special = null) {
+            const candy = { r, c, type, special, element: null, isActivated: false };
+            const el = document.createElement('div');
+            el.className = `candy ${special || ''}`;
+            el.innerText = type === 'BOMB' ? '💣' : type;
+            
+            // Interaction
+            el.addEventListener('mousedown', (e) => onDragStart(e, candy));
+            el.addEventListener('touchstart', (e) => onDragStart(e.touches[0], candy), { passive: true });
+
+            candy.element = el;
+            return candy;
+        }
+
+        function positionCandies() {
+            const cellSize = boardEl.clientWidth / GRID_SIZE;
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const candy = board[r][c];
+                    if (candy && candy.element) {
+                        candy.element.style.width = `${cellSize - 6}px`;
+                        candy.element.style.height = `${cellSize - 6}px`;
+                        candy.element.style.left = `${c * cellSize + 3}px`;
+                        candy.element.style.top = `${r * cellSize + 3}px`;
+                    }
+                }
+            }
+        }
+
+        // --- Drag & Interaction ---
+        function onDragStart(e, candy) {
+            if (isProcessing || !candy) return;
+            dragStartCandy = candy;
+            startX = e.clientX;
+            startY = e.clientY;
+
+            candy.element.classList.add('selected');
+
+            const onEnd = (ee) => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onEnd);
+                document.removeEventListener('touchmove', onMove);
+                document.removeEventListener('touchend', onEnd);
+                
+                if (dragStartCandy && dragStartCandy.element) {
+                    dragStartCandy.element.classList.remove('selected');
+                }
+
+                const clientX = ee.clientX || (ee.changedTouches ? ee.changedTouches[0].clientX : startX);
+                const clientY = ee.clientY || (ee.changedTouches ? ee.changedTouches[0].clientY : startY);
+                handleDragEnd(clientX, clientY);
+            };
+
+            const onMove = (me) => {}; 
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onEnd);
+            document.addEventListener('touchmove', onMove, { passive: true });
+            document.addEventListener('touchend', onEnd);
+        }
+
+        async function handleDragEnd(endX, endY) {
+            if (!dragStartCandy) return;
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const threshold = 30;
+
+            let targetR = dragStartCandy.r;
+            let targetC = dragStartCandy.c;
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (dx > threshold) targetC++;
+                else if (dx < -threshold) targetC--;
+            } else {
+                if (dy > threshold) targetR++;
+                else if (dy < -threshold) targetR--;
+            }
+
+            if (targetR >= 0 && targetR < GRID_SIZE && targetC >= 0 && targetC < GRID_SIZE && 
+               (targetR !== dragStartCandy.r || targetC !== dragStartCandy.c)) {
+                await swapAndCheck(dragStartCandy.r, dragStartCandy.c, targetR, targetC);
+            }
+            dragStartCandy = null;
+        }
+
+        async function swapAndCheck(r1, c1, r2, c2) {
+            isProcessing = true;
+            const candy1 = board[r1][c1];
+            const candy2 = board[r2][c2];
+
+            await performSwap(r1, c1, r2, c2);
+
+            // 특수 블록 수동 발동 (드래그 시 즉각 체크)
+            let specialTriggered = false;
+            
+            if (candy1.type === 'BOMB' || candy2.type === 'BOMB') {
+                if (candy1.type === 'BOMB') await activateBomb(candy1, candy2.type);
+                else await activateBomb(candy2, candy1.type);
+                specialTriggered = true;
+            } 
+            else if (candy1.special || candy2.special) {
+                // 특수 블록이 하나라도 포함되어 있으면 매칭 여부와 관계없이 폭파 프로세스 강제 발동
+                await processMatches(true); 
+                specialTriggered = true;
+            }
+
+            if (!specialTriggered) {
+                const matches = findMatches();
+                if (matches.length > 0) {
+                    await processMatches();
+                } else {
+                    await performSwap(r1, c1, r2, c2); // 되돌리기
+                }
+            }
+            isProcessing = false;
+        }
+
+        async function performSwap(r1, c1, r2, c2) {
+            const temp = board[r1][c1];
+            board[r1][c1] = board[r2][c2];
+            board[r2][c2] = temp;
+
+            board[r1][c1].r = r1; board[r1][c1].c = c1;
+            board[r2][c2].r = r2; board[r2][c2].c = c2;
+
+            positionCandies();
+            await new Promise(res => setTimeout(res, 450));
+        }
+
+        // --- Matching & Special Creation ---
+        function findMatches() {
+            let matches = [];
+            
+            // Horizontal scan
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE - 2; c++) {
+                    let type = board[r][c]?.type;
+                    if (type && type !== 'BOMB' && board[r][c+1]?.type === type && board[r][c+2]?.type === type) {
+                        let matchSet = [board[r][c], board[r][c+1], board[r][c+2]];
+                        let nextC = c + 3;
+                        while (nextC < GRID_SIZE && board[r][nextC]?.type === type) {
+                            matchSet.push(board[r][nextC]);
+                            nextC++;
+                        }
+                        matches.push({ blocks: matchSet, type: 'h' });
+                        c = nextC - 1;
+                    }
+                }
+            }
+
+            // Vertical scan
+            for (let c = 0; c < GRID_SIZE; c++) {
+                for (let r = 0; r < GRID_SIZE - 2; r++) {
+                    let type = board[r][c]?.type;
+                    if (type && type !== 'BOMB' && board[r+1][c]?.type === type && board[r+2][c]?.type === type) {
+                        let matchSet = [board[r][c], board[r+1][c], board[r+2][c]];
+                        let nextR = r + 3;
+                        while (nextR < GRID_SIZE && board[nextR][c]?.type === type) {
+                            matchSet.push(board[nextR][c]);
+                            nextR++;
+                        }
+                        matches.push({ blocks: matchSet, type: 'v' });
+                        r = nextR - 1;
+                    }
+                }
+            }
+            return matches;
+        }
+
+        async function processMatches(forceSpecial = false) {
+            let matches = findMatches();
+            let toRemove = new Set();
+            let specialsToCreate = [];
+
+            if (matches.length === 0 && !forceSpecial) return;
+
+            matches.forEach(m => {
+                m.blocks.forEach(b => toRemove.add(b));
+                
+                // 5개 일직선 -> 컬러 밤
+                if (m.blocks.length >= 5) {
+                    specialsToCreate.push({ r: m.blocks[1].r, c: m.blocks[1].c, type: 'BOMB', special: 'bomb' });
+                } 
+                // 4개 일직선 -> 줄무늬 (가로 매치면 세로 폭발, 세로 매치면 가로 폭발)
+                else if (m.blocks.length === 4) {
+                    specialsToCreate.push({ 
+                        r: m.blocks[1].r, 
+                        c: m.blocks[1].c, 
+                        type: m.blocks[0].type, 
+                        special: m.type === 'h' ? 'striped-v' : 'striped-h' 
+                    });
+                }
+            });
+
+            // T/L 형태 (봉투 캔디)
+            let matchCounts = new Map();
+            matches.forEach(m => m.blocks.forEach(b => matchCounts.set(b, (matchCounts.get(b) || 0) + 1)));
+            matchCounts.forEach((cnt, candy) => {
+                if (cnt > 1) specialsToCreate.push({ r: candy.r, c: candy.c, type: candy.type, special: 'wrapped' });
+            });
+
+            // 드래그 시 강제 발동 처리
+            if (forceSpecial) {
+                for(let r=0; r<GRID_SIZE; r++) {
+                    for(let c=0; c<GRID_SIZE; c++) {
+                        if (board[r][c]?.special && !board[r][c].isActivated) toRemove.add(board[r][c]);
+                    }
+                }
+            }
+
+            // 특수 능력 연쇄 폭발 계산
+            let more = true;
+            while(more) {
+                more = false;
+                toRemove.forEach(b => {
+                    if (b.special && !b.isActivated) {
+                        b.isActivated = true;
+                        more = true;
+                        if (b.special === 'striped-h') {
+                            for(let c=0; c<GRID_SIZE; c++) if(board[b.r][c]) toRemove.add(board[b.r][c]);
+                        } else if (b.special === 'striped-v') {
+                            for(let r=0; r<GRID_SIZE; r++) if(board[r][b.c]) toRemove.add(board[r][b.c]);
+                        } else if (b.special === 'wrapped') {
+                            for(let dr=-1; dr<=1; dr++) {
+                                for(let dc=-1; dc<=1; dc++) {
+                                    let nr=b.r+dr, nc=b.c+dc;
+                                    if(nr>=0 && nr<GRID_SIZE && nc>=0 && nc<GRID_SIZE && board[nr][nc]) toRemove.add(board[nr][nc]);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            if (toRemove.size === 0) return;
+
+            // 제거 애니메이션
+            toRemove.forEach(b => b.element.classList.add('candy-pop'));
+            score += toRemove.size * 10;
+            scoreEl.innerText = score.toLocaleString();
+            await new Promise(res => setTimeout(res, 400));
+
+            toRemove.forEach(b => {
+                if (b.element?.parentNode) b.element.remove();
+                if (board[b.r][b.c] === b) board[b.r][b.c] = null;
+            });
+
+            // 신규 특수 캔디 배치
+            specialsToCreate.forEach(s => {
+                if (board[s.r][s.c] === null) {
+                    const candy = createCandy(s.r, s.c, s.type, s.special);
+                    board[s.r][s.c] = candy;
+                    boardEl.appendChild(candy.element);
+                }
+            });
+
+            await dropDown();
+            await processMatches();
+            saveScore();
+        }
+
+        async function activateBomb(bomb, targetType) {
+            bomb.element.classList.add('candy-pop');
+            await new Promise(r => setTimeout(r, 200));
+            bomb.element.remove();
+            board[bomb.r][bomb.c] = null;
+
+            let targets = [];
+            for(let r=0; r<GRID_SIZE; r++) {
+                for(let c=0; c<GRID_SIZE; c++) {
+                    if (board[r][c]?.type === targetType) targets.push(board[r][c]);
+                }
+            }
+
+            targets.forEach(t => t.element.classList.add('candy-pop'));
+            score += targets.length * 25;
+            scoreEl.innerText = score.toLocaleString();
+            await new Promise(r => setTimeout(r, 350));
+
+            targets.forEach(t => {
+                if(t.element?.parentNode) t.element.remove();
+                board[t.r][t.c] = null;
+            });
+
+            await dropDown();
+        }
+
+        async function dropDown() {
+            for (let c = 0; c < GRID_SIZE; c++) {
+                let empty = 0;
+                for (let r = GRID_SIZE - 1; r >= 0; r--) {
+                    if (board[r][c] === null) empty++;
+                    else if (empty > 0) {
+                        const candy = board[r][c];
+                        board[r + empty][c] = candy;
+                        candy.r = r + empty;
+                        board[r][c] = null;
+                    }
+                }
+
+                for (let i = 0; i < empty; i++) {
+                    const type = CANDY_TYPES[Math.floor(Math.random() * CANDY_TYPES.length)];
+                    const candy = createCandy(-(i + 1), c, type); 
+                    boardEl.appendChild(candy.element);
+                    positionCandies(); 
+                    
+                    const finalR = empty - 1 - i;
+                    setTimeout(() => {
+                        candy.r = finalR;
+                        board[finalR][c] = candy;
+                        positionCandies();
+                    }, 80);
+                }
+            }
+            positionCandies();
+            await new Promise(res => setTimeout(res, 600)); 
+        }
+
+        // --- UI Events ---
+        document.getElementById('reset-btn').onclick = () => {
+            score = 0;
+            scoreEl.innerText = '0';
+            initBoard();
+        };
+
+        document.getElementById('msg-close').onclick = () => {
+            document.getElementById('message-box').style.display = 'none';
+        };
+
+        window.onload = async () => {
+            await initAuth();
+            initBoard();
+            window.addEventListener('resize', positionCandies);
+        };
+    </script>
+</body>
+</html>

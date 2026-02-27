@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>기초적인 용어 - AI 적응형 퀴즈</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap");
+
+      :root {
+        --primary: #3b82f6;
+        --success: #10b981;
+        --danger: #ef4444;
+        --bg: #f8fafc;
+      }
+
+      body {
+        font-family: "Pretendard", sans-serif;
+        background-color: var(--bg);
+        color: #1e293b;
+      }
+
+      .animate-fade-in {
+        animation: fadeIn 0.4s ease-out;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .loading-dots:after {
+        content: ".";
+        animation: dots 1.5s steps(5, end) infinite;
+      }
+
+      @keyframes dots {
+        0%,
+        20% {
+          content: ".";
+        }
+        40% {
+          content: "..";
+        }
+        60% {
+          content: "...";
+        }
+        80%,
+        100% {
+          content: "";
+        }
+      }
+
+      .quiz-card {
+        box-shadow:
+          0 10px 25px -5px rgba(0, 0, 0, 0.05),
+          0 8px 10px -6px rgba(0, 0, 0, 0.05);
+      }
+
+      .option-btn {
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .option-btn:hover:not(:disabled) {
+        transform: scale(1.01);
+        border-color: var(--primary);
+        background-color: #eff6ff;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen flex items-center justify-center p-4">
+    <div
+      id="app"
+      class="w-full max-w-xl bg-white rounded-[2rem] quiz-card overflow-hidden border border-slate-100"
+    >
+      <div id="screen-container" class="p-8 md:p-10">
+        <!-- 화면이 여기에 렌더링됩니다 -->
+      </div>
+    </div>
+
+    <script>
+      // --- 설정 및 상태 관리 ---
+      const apiKey = ""; // 런타임에서 자동으로 주입됩니다.
+      const appId =
+        typeof __app_id !== "undefined" ? __app_id : "dev-terms-quiz";
+
+      const state = {
+        screen: "START", // START, LOADING, QUIZ, FEEDBACK, RESULT
+        category: null,
+        currentQuestion: null,
+        lastAnswerCorrect: false,
+        quizCount: 0,
+        maxQuiz: 10,
+        askedTerms: [], // 중복 방지를 위해 출제된 모든 용어 저장
+        history: {
+          correctTerms: [],
+          incorrectTerms: [],
+          consecutiveCorrect: 0,
+          score: 0,
+          missedList: [],
+        },
+      };
+
+      // --- 라우팅/렌더링 엔진 ---
+      function render() {
+        const container = document.getElementById("screen-container");
+        container.innerHTML = "";
+
+        switch (state.screen) {
+          case "START":
+            renderStartScreen(container);
+            break;
+          case "LOADING":
+            renderLoadingScreen(container);
+            break;
+          case "QUIZ":
+            renderQuizScreen(container);
+            break;
+          case "FEEDBACK":
+            renderFeedbackScreen(container);
+            break;
+          case "RESULT":
+            renderResultScreen(container);
+            break;
+        }
+      }
+
+      // --- 화면 구성 함수들 ---
+      function renderStartScreen(container) {
+        container.innerHTML = `
+                <div class="text-center space-y-8 animate-fade-in">
+                    <div class="space-y-2">
+                        <div class="inline-block px-4 py-1.5 bg-blue-100 text-blue-700 text-xs font-bold rounded-full mb-2">ADAPTIVE LEARNING</div>
+                        <h1 class="text-4xl font-extrabold tracking-tight text-slate-900">기초적인 용어</h1>
+                        <p class="text-slate-500">AI가 당신의 수준을 분석하여 중복 없이 문제를 출제합니다.</p>
+                    </div>
+                    
+                    <div class="space-y-3">
+                        ${createCategoryBtn("CS 기초", "fas fa-code-branch", "blue", "스택, HTTP, REST, 캐시 등")}
+                        ${createCategoryBtn("JavaScript", "fab fa-js-square", "yellow", "호이스팅, 클로저, Promise 등")}
+                        ${createCategoryBtn("현업 용어", "fas fa-terminal", "emerald", "리팩토링, 레거시, PR, 배포 등")}
+                    </div>
+                </div>
+            `;
+      }
+
+      function createCategoryBtn(name, icon, color, desc) {
+        const colors = {
+          blue: "bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100",
+          yellow:
+            "bg-yellow-50 border-yellow-200 text-yellow-800 hover:bg-yellow-100",
+          emerald:
+            "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100",
+        };
+        return `
+                <button onclick="startQuiz('${name}')" class="w-full p-5 border-2 ${colors[color]} rounded-2xl text-left flex items-center justify-between group transition-all duration-300">
+                    <div>
+                        <span class="block text-lg font-bold">${name}</span>
+                        <span class="text-xs opacity-70">${desc}</span>
+                    </div>
+                    <i class="${icon} text-2xl opacity-40 group-hover:opacity-100 transition-opacity"></i>
+                </button>
+            `;
+      }
+
+      function renderLoadingScreen(container) {
+        container.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-20 animate-fade-in">
+                    <div class="relative w-20 h-20 mb-8">
+                        <div class="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+                        <div class="absolute inset-0 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                    <h2 class="text-xl font-bold text-slate-800">Gemini가 출제 중...</h2>
+                    <p class="text-slate-400 mt-2 loading-dots">중복되지 않는 새로운 문제를 생성 중입니다</p>
+                </div>
+            `;
+      }
+
+      function renderQuizScreen(container) {
+        const q = state.currentQuestion;
+        const progress = (state.quizCount / state.maxQuiz) * 100;
+
+        container.innerHTML = `
+                <div class="space-y-6 animate-fade-in">
+                    <div class="flex items-center justify-between text-xs font-bold text-slate-400 tracking-widest">
+                        <span>QUESTION ${state.quizCount} OF ${state.maxQuiz}</span>
+                        <span class="bg-slate-100 px-2 py-1 rounded">${state.category}</span>
+                    </div>
+                    
+                    <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-500 transition-all duration-700" style="width: ${progress}%"></div>
+                    </div>
+
+                    <div class="py-4">
+                        <h2 class="text-2xl font-bold text-slate-800 leading-snug">${q.question}</h2>
+                    </div>
+
+                    <div class="grid gap-3">
+                        ${q.options
+                          .map(
+                            (opt, i) => `
+                            <button onclick="checkAnswer(${i})" class="option-btn w-full p-4 border-2 border-slate-100 rounded-xl text-left font-semibold text-slate-700 flex items-center gap-4">
+                                <span class="flex-none w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 text-sm">${i + 1}</span>
+                                <span>${opt}</span>
+                            </button>
+                        `,
+                          )
+                          .join("")}
+                    </div>
+                </div>
+            `;
+      }
+
+      function renderFeedbackScreen(container) {
+        const q = state.currentQuestion;
+        const isCorrect = state.lastAnswerCorrect;
+
+        container.innerHTML = `
+                <div class="text-center space-y-8 animate-fade-in">
+                    <div class="space-y-4">
+                        <div class="inline-flex items-center justify-center w-24 h-24 rounded-full ${isCorrect ? "bg-green-100 text-green-500" : "bg-red-100 text-red-500"}">
+                            <i class="fas ${isCorrect ? "fa-check" : "fa-times"} text-4xl"></i>
+                        </div>
+                        <h2 class="text-3xl font-black ${isCorrect ? "text-green-600" : "text-red-600"}">
+                            ${isCorrect ? "정답입니다!" : "오답입니다"}
+                        </h2>
+                    </div>
+
+                    <div class="bg-slate-50 p-6 rounded-[1.5rem] border border-slate-100 text-left">
+                        <div class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-tighter">정답 및 해설</div>
+                        <div class="text-xl font-bold text-slate-800 mb-3">${q.options[q.answer]}</div>
+                        <p class="text-slate-600 leading-relaxed">${q.explanation}</p>
+                    </div>
+
+                    <button onclick="proceed()" class="w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-black transition-colors shadow-lg shadow-slate-200">
+                        ${state.quizCount >= state.maxQuiz ? "최종 결과 보기" : "다음 문제로"}
+                    </button>
+                </div>
+            `;
+      }
+
+      function renderResultScreen(container) {
+        const percentage = Math.round(
+          (state.history.score / state.maxQuiz) * 100,
+        );
+
+        container.innerHTML = `
+                <div class="text-center space-y-8 animate-fade-in">
+                    <div class="space-y-2">
+                        <h2 class="text-3xl font-black text-slate-900 font-bold">학습 리포트</h2>
+                        <p class="text-slate-500">카테고리: ${state.category}</p>
+                    </div>
+
+                    <div class="flex justify-around items-center bg-blue-50 p-8 rounded-[2rem]">
+                        <div>
+                            <div class="text-4xl font-black text-blue-600">${state.history.score}개</div>
+                            <div class="text-xs font-bold text-blue-400 mt-1 uppercase">Score</div>
+                        </div>
+                        <div class="w-px h-12 bg-blue-200"></div>
+                        <div>
+                            <div class="text-4xl font-black text-blue-600">${percentage}%</div>
+                            <div class="text-xs font-bold text-blue-400 mt-1 uppercase">Accuracy</div>
+                        </div>
+                    </div>
+
+                    ${
+                      state.history.missedList.length > 0
+                        ? `
+                        <div class="text-left space-y-3">
+                            <h3 class="text-sm font-bold text-slate-400 uppercase ml-2 tracking-widest">복습이 필요한 용어</h3>
+                            <div class="max-h-48 overflow-y-auto space-y-2 pr-2 custom-scroll">
+                                ${state.history.missedList
+                                  .map(
+                                    (item) => `
+                                    <div class="p-4 bg-white border border-slate-100 rounded-xl flex items-center justify-between">
+                                        <span class="font-bold text-slate-700">${item.term}</span>
+                                        <span class="text-xs text-red-400 font-medium">오답 선택: ${item.userChoice}</span>
+                                    </div>
+                                `,
+                                  )
+                                  .join("")}
+                            </div>
+                        </div>
+                    `
+                        : `
+                        <div class="py-10 text-green-500 font-bold">완벽합니다! 모든 용어를 마스터하셨네요! 🎉</div>
+                    `
+                    }
+
+                    <div class="flex gap-3">
+                        <button onclick="startQuiz('${state.category}')" class="flex-1 py-4 bg-slate-900 text-white rounded-xl font-bold">한 번 더</button>
+                        <button onclick="state.screen = 'START'; render();" class="flex-1 py-4 bg-white border-2 border-slate-200 text-slate-700 rounded-xl font-bold">카테고리 변경</button>
+                    </div>
+                </div>
+            `;
+      }
+
+      // --- 로직 및 API 제어 ---
+      async function startQuiz(category) {
+        state.category = category;
+        state.quizCount = 0;
+        state.askedTerms = []; // 초기화
+        state.history = {
+          correctTerms: [],
+          incorrectTerms: [],
+          consecutiveCorrect: 0,
+          score: 0,
+          missedList: [],
+        };
+        await getNextQuestion();
+      }
+
+      async function getNextQuestion() {
+        state.screen = "LOADING";
+        render();
+
+        const prompt = `
+                개발 용어 학습 퀴즈를 생성하세요.
+                카테고리: ${state.category}
+                
+                [중요: 중복 방지]
+                이미 출제된 용어 목록: [${state.askedTerms.join(", ")}]
+                위 목록에 포함된 용어는 절대 다시 출제하지 마세요. 완전히 새로운 용어를 선택하세요.
+
+                [사용자 학습 데이터]
+                - 맞춘 용어: [${state.history.correctTerms.join(", ")}]
+                - 틀린 용어: [${state.history.incorrectTerms.join(", ")}]
+                - 연속 정답: ${state.history.consecutiveCorrect}회
+
+                [출제 가이드라인]
+                1. '이미 출제된 용어 목록'에 없는 새로운 용어를 선정하세요.
+                2. 용어의 정의를 설명하고 그 용어가 무엇인지 4지선다로 물어보세요.
+                3. 보기에 나오는 4가지 용어도 서로 명확히 구분되는 것이어야 합니다.
+
+                응답은 반드시 아래 JSON 형식만 허용합니다:
+                {
+                    "term": "정답용어",
+                    "question": "문제 내용",
+                    "options": ["보기1", "보기2", "보기3", "보기4"],
+                    "answer": 정답인덱스(0-3),
+                    "explanation": "핵심 해설"
+                }
+            `;
+
+        try {
+          const response = await fetchGemini(prompt);
+          const questionData = JSON.parse(response);
+
+          // 출제 목록에 추가
+          state.askedTerms.push(questionData.term);
+
+          state.currentQuestion = questionData;
+          state.quizCount++;
+          state.screen = "QUIZ";
+          render();
+        } catch (err) {
+          console.error(err);
+          alert("문제를 생성하는 중 오류가 발생했습니다. 다시 시도해주세요.");
+          state.screen = "START";
+          render();
+        }
+      }
+
+      async function fetchGemini(prompt, retries = 5) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        for (let i = 0; i < retries; i++) {
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { responseMimeType: "application/json" },
+              }),
+            });
+            if (!response.ok) throw new Error("Network response was not ok");
+            const data = await response.json();
+            return data.candidates[0].content.parts[0].text;
+          } catch (e) {
+            const delay = Math.pow(2, i) * 1000;
+            await new Promise((res) => setTimeout(res, delay));
+          }
+        }
+        throw new Error("API call failed after retries");
+      }
+
+      function checkAnswer(index) {
+        const q = state.currentQuestion;
+        const isCorrect = index === q.answer;
+
+        state.lastAnswerCorrect = isCorrect;
+        if (isCorrect) {
+          state.history.score++;
+          state.history.consecutiveCorrect++;
+          if (!state.history.correctTerms.includes(q.term))
+            state.history.correctTerms.push(q.term);
+        } else {
+          state.history.consecutiveCorrect = 0;
+          if (!state.history.incorrectTerms.includes(q.term))
+            state.history.incorrectTerms.push(q.term);
+          state.history.missedList.push({
+            term: q.term,
+            userChoice: q.options[index],
+          });
+        }
+
+        state.screen = "FEEDBACK";
+        render();
+      }
+
+      async function proceed() {
+        if (state.quizCount >= state.maxQuiz) {
+          state.screen = "RESULT";
+          render();
+        } else {
+          await getNextQuestion();
+        }
+      }
+
+      // 초기 화면 렌더링
+      window.onload = render;
+    </script>
+  </body>
+</html>

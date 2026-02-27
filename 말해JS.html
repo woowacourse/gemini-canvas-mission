@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>말해 JS - AI Dynamic Quiz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+            touch-action: manipulation;
+        }
+
+        .timer-bar { transition: width 1s linear; }
+        
+        .symbol-pop {
+            animation: symbolPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes symbolPop {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .option-card:active { transform: scale(0.97); }
+
+        .text-correct { color: #22c55e !important; }
+        .text-wrong { color: #ef4444 !important; }
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4f46e5;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div id="quiz-container" class="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl overflow-hidden relative border border-slate-100">
+        
+        <!-- Header: Progress & Timer -->
+        <div id="quiz-header" class="hidden bg-slate-900 p-6 text-white">
+            <div class="flex justify-between items-center mb-4">
+                <span id="mode-badge" class="text-[10px] font-extrabold uppercase tracking-[0.2em] text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">AI GENERATED</span>
+                <span id="question-number" class="text-xs font-bold bg-slate-800 px-3 py-1 rounded-full border border-slate-700">1 / 5</span>
+            </div>
+            <div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                <div id="timer-gauge" class="timer-bar h-full bg-indigo-500 w-full"></div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="main-content" class="p-6 sm:p-8 min-h-[480px] flex flex-col justify-center">
+            
+            <!-- Cover Section -->
+            <div id="cover-box" class="text-center py-4 fade-in">
+                <div class="w-20 h-20 bg-indigo-600 rounded-[2rem] mx-auto mb-8 flex items-center justify-center shadow-xl shadow-indigo-200">
+                    <span class="text-4xl font-black text-white">JS</span>
+                </div>
+                <h1 class="text-3xl font-extrabold text-slate-900 mb-4 tracking-tight">말해 JS</h1>
+                <p class="text-slate-500 text-sm mb-10 leading-relaxed font-medium">
+                    AI가 실시간으로 자바스크립트 심화 문제를 생성합니다.<br/>
+                    매번 새로운 주제와 문항으로 실력을 점검하세요.
+                </p>
+                
+                <div class="bg-slate-50 rounded-2xl p-4 mb-10 text-left border border-slate-100">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="text-lg">🤖</span>
+                        <span class="text-sm font-bold text-slate-700">AI 실시간 문제 생성</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-lg">⚡</span>
+                        <span class="text-sm font-bold text-slate-700">16가지 전문 주제 랜덤 선정</span>
+                    </div>
+                </div>
+
+                <button id="start-btn" onclick="generateAndStart()" class="w-full bg-indigo-600 text-white py-5 rounded-[1.5rem] font-extrabold text-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-3">
+                    <span id="btn-text">테스트 시작하기</span>
+                    <div id="btn-loader" class="loader hidden"></div>
+                </button>
+            </div>
+
+            <!-- Quiz Section -->
+            <div id="quiz-box" class="hidden flex-1">
+                <div class="flex items-start gap-3 mb-6">
+                    <div id="status-container" class="w-10 h-10 shrink-0 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-100 transition-colors">
+                        <span id="status-icon" class="text-xl leading-none text-slate-400">📝</span>
+                    </div>
+                    <h2 id="question-text" class="text-lg font-bold text-slate-800 leading-snug pt-1"></h2>
+                </div>
+                
+                <div id="options-container" class="space-y-3">
+                    <!-- Options -->
+                </div>
+
+                <div id="rationale-box" class="hidden mt-6 p-4 rounded-2xl bg-slate-50 border border-slate-100 fade-in">
+                    <p id="rationale-text" class="text-sm text-slate-600 leading-relaxed font-medium"></p>
+                </div>
+            </div>
+
+            <!-- Result Section -->
+            <div id="result-box" class="hidden text-center py-6">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-indigo-50 rounded-full mb-6">
+                    <span class="text-3xl">🏆</span>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-800">학습 완료!</h2>
+                <p id="final-score" class="text-slate-500 mt-2 mb-8 font-medium"></p>
+
+                <div id="summary-grid" class="grid grid-cols-5 gap-3 mb-10">
+                    <!-- Summary items -->
+                </div>
+
+                <div class="space-y-3">
+                    <button id="retry-failed-btn" onclick="startRetryMode()" class="hidden w-full bg-indigo-600 text-white py-4 rounded-2xl font-extrabold hover:bg-indigo-700 transition shadow-lg shadow-indigo-100 active:scale-95">틀린 문제 다시 풀기</button>
+                    <button onclick="goBackToCover()" class="w-full bg-slate-100 text-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-200 transition active:scale-95">처음으로 돌아가기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; // API Key is provided by environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'js-ai-quiz';
+
+        // 퀴즈 주제 목록 (요청하신 핵심 주제 16가지로 압축)
+        const quizTopics = [
+            "Event delegation", "this in JavaScript & ES6 changes", "Prototypal inheritance",
+            "null vs undefined vs undeclared", "Closures and their use cases",
+            "Iterating over object properties and array items", "Array.forEach() vs Array.map()",
+            "Anonymous functions", "Host objects vs Native objects",
+            "function Person() vs var person = Person() vs var person = new Person()",
+            "function foo() {} vs var foo = function() {}", "Function.call vs Function.apply",
+            "Function.prototype.bind", "Feature detection vs Feature inference vs UA string",
+            "Hoisting", "Type coercion"
+        ];
+
+        let currentPool = [];
+        let currentIdx = 0;
+        let score = 0;
+        let timeLeft = 60;
+        let timerInterval;
+        let userAnswers = []; 
+        let isRetryMode = false;
+        let firstTryCorrect = true; 
+
+        const el = {
+            header: document.getElementById('quiz-header'),
+            cover: document.getElementById('cover-box'),
+            gauge: document.getElementById('timer-gauge'),
+            question: document.getElementById('question-text'),
+            options: document.getElementById('options-container'),
+            number: document.getElementById('question-number'),
+            quizBox: document.getElementById('quiz-box'),
+            resultBox: document.getElementById('result-box'),
+            statusIcon: document.getElementById('status-icon'),
+            statusContainer: document.getElementById('status-container'),
+            summary: document.getElementById('summary-grid'),
+            scoreTxt: document.getElementById('final-score'),
+            retryBtn: document.getElementById('retry-failed-btn'),
+            rationaleBox: document.getElementById('rationale-box'),
+            rationaleText: document.getElementById('rationale-text'),
+            modeBadge: document.getElementById('mode-badge'),
+            mainContent: document.getElementById('main-content'),
+            startBtn: document.getElementById('start-btn'),
+            btnText: document.getElementById('btn-text'),
+            btnLoader: document.getElementById('btn-loader')
+        };
+
+        // Shuffle Function
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        async function fetchWithRetry(url, options, retries = 5, backoff = 1000) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) throw new Error('Fetch failed');
+                return await response.json();
+            } catch (err) {
+                if (retries <= 0) throw err;
+                await new Promise(resolve => setTimeout(resolve, backoff));
+                return fetchWithRetry(url, options, retries - 1, backoff * 2);
+            }
+        }
+
+        async function generateAndStart() {
+            // UI State: Loading
+            el.btnText.innerText = "문제 생성 중...";
+            el.btnLoader.classList.remove('hidden');
+            el.startBtn.disabled = true;
+
+            // 주제 무작위 5개 선정
+            const selectedTopics = shuffle([...quizTopics]).slice(0, 5);
+            
+            const systemPrompt = `You are a JavaScript Senior Interviewer. Create 5 short and concise multiple-choice questions in Korean based on the following topics: ${selectedTopics.join(", ")}. 
+            CRITICAL RULES:
+            1. Questions must be very short and get straight to the core concept.
+            2. Options must be brief and strictly to the point (preferably under 10 words).
+            3. Rationales ('r' field) MUST be exactly one short sentence.
+            
+            Return the result ONLY as a JSON object with the following structure:
+            {
+              "questions": [
+                {
+                  "q": "Short question text in Korean",
+                  "o": [
+                    {"text": "Short option 1", "r": "One short sentence rationale in Korean"},
+                    {"text": "Short option 2", "r": "One short sentence rationale in Korean"},
+                    {"text": "Short option 3", "r": "One short sentence rationale in Korean"},
+                    {"text": "Short option 4", "r": "One short sentence rationale in Korean"}
+                  ],
+                  "a": 1 // index of correct option (0-3)
+                }
+              ]
+            }`;
+
+            const userQuery = "Generate the 5 concise JS interview questions now.";
+
+            try {
+                const result = await fetchWithRetry(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: userQuery }] }],
+                            systemInstruction: { parts: [{ text: systemPrompt }] },
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    }
+                );
+
+                const data = JSON.parse(result.candidates[0].content.parts[0].text);
+                currentPool = data.questions;
+                
+                // Start Quiz
+                el.cover.classList.add('hidden');
+                el.header.classList.remove('hidden');
+                el.mainContent.classList.remove('justify-center');
+                initGame(currentPool);
+            } catch (error) {
+                console.error(error);
+                alert("AI 문제 생성에 실패했습니다. 다시 시도해주세요.");
+            } finally {
+                el.btnText.innerText = "테스트 시작하기";
+                el.btnLoader.classList.add('hidden');
+                el.startBtn.disabled = false;
+            }
+        }
+
+        function goBackToCover() {
+            el.resultBox.classList.add('hidden');
+            el.cover.classList.remove('hidden');
+            el.mainContent.classList.add('justify-center');
+            el.header.classList.add('hidden');
+            el.quizBox.classList.add('hidden');
+            
+            currentIdx = 0;
+            score = 0;
+            userAnswers = [];
+            if (timerInterval) clearInterval(timerInterval);
+        }
+
+        function initGame(questions = null, isRetry = false) {
+            currentIdx = 0;
+            score = 0;
+            timeLeft = 60;
+            userAnswers = [];
+            isRetryMode = isRetry;
+            
+            el.quizBox.classList.remove('hidden');
+            el.resultBox.classList.add('hidden');
+            el.modeBadge.innerText = isRetry ? "RETRY MODE" : "AI GENERATED";
+            
+            renderQuestion();
+            if (timerInterval) clearInterval(timerInterval);
+            startTimer();
+        }
+
+        function renderQuestion() {
+            if (currentIdx >= currentPool.length) {
+                endGame();
+                return;
+            }
+
+            firstTryCorrect = true; 
+            const q = currentPool[currentIdx];
+            el.number.innerText = `${currentIdx + 1} / ${currentPool.length}`;
+            el.question.innerText = q.q;
+            
+            el.statusIcon.innerText = "📝";
+            el.statusIcon.className = "text-xl leading-none text-slate-400";
+            el.statusContainer.className = "w-10 h-10 shrink-0 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-100";
+            
+            el.rationaleBox.classList.add('hidden');
+            el.options.innerHTML = '';
+
+            // Copy and shuffle options for further randomization
+            const options = [...q.o];
+            const correctOptText = q.o[q.a].text; 
+            shuffle(options);
+            const newCorrectIdx = options.findIndex(opt => opt.text === correctOptText);
+
+            options.forEach((opt, i) => {
+                const btn = document.createElement('button');
+                btn.className = "option-card w-full text-left p-4 rounded-2xl border border-slate-200 bg-white hover:border-indigo-500 transition-all font-medium text-slate-700 flex items-center shadow-sm relative";
+                btn.innerHTML = `
+                    <span class="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center mr-3 text-xs font-bold text-slate-400">${i + 1}</span>
+                    <span class="flex-1 pr-8 text-sm">${opt.text}</span>
+                    <span id="mark-${i}" class="hidden absolute right-4 text-xl"></span>
+                `;
+                btn.onclick = () => checkAnswer(i, newCorrectIdx, btn, opt.r);
+                el.options.appendChild(btn);
+            });
+        }
+
+        function checkAnswer(idx, correctIdx, btn, rationale) {
+            const isCorrect = idx === correctIdx;
+            const mark = btn.querySelector(`#mark-${idx}`);
+
+            if (isRetryMode || !isCorrect) {
+                el.rationaleBox.classList.remove('hidden');
+                el.rationaleText.innerText = rationale;
+            }
+            
+            mark.classList.remove('hidden');
+            mark.classList.add('symbol-pop');
+            
+            if (isCorrect) {
+                const q = currentPool[currentIdx];
+                const alreadyAnswered = userAnswers.find(a => a.question === q);
+                if (!alreadyAnswered) {
+                    userAnswers.push({ question: q, isCorrect: firstTryCorrect });
+                    if (firstTryCorrect) score++;
+                }
+
+                mark.innerText = "⭕";
+                mark.className = "absolute right-4 text-xl text-correct symbol-pop";
+                btn.classList.add('border-green-200', 'bg-green-50');
+                el.statusIcon.innerText = "⭕";
+                el.statusIcon.className = "text-xl leading-none text-correct";
+                el.statusContainer.className = "w-10 h-10 shrink-0 rounded-xl bg-green-50 flex items-center justify-center border border-green-100";
+
+                const buttons = el.options.querySelectorAll('button');
+                buttons.forEach(b => b.onclick = null); 
+                
+                setTimeout(() => {
+                    currentIdx++;
+                    renderQuestion();
+                }, 1500);
+            } else {
+                mark.innerText = "❌";
+                mark.className = "absolute right-4 text-xl text-wrong symbol-pop";
+                btn.classList.add('border-red-200', 'bg-red-50');
+                el.statusIcon.innerText = "❌";
+                el.statusIcon.className = "text-xl leading-none text-wrong";
+                el.statusContainer.className = "w-10 h-10 shrink-0 rounded-xl bg-red-50 flex items-center justify-center border border-red-100";
+
+                if (!isRetryMode) {
+                    firstTryCorrect = false;
+                    const q = currentPool[currentIdx];
+                    if (!userAnswers.find(a => a.question === q)) {
+                         userAnswers.push({ question: q, isCorrect: false });
+                    }
+                    
+                    const buttons = el.options.querySelectorAll('button');
+                    buttons.forEach(b => b.onclick = null);
+
+                    setTimeout(() => {
+                        currentIdx++;
+                        renderQuestion();
+                    }, 2000);
+                } else {
+                    firstTryCorrect = false;
+                }
+            }
+        }
+
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                const prc = (timeLeft / 60) * 100;
+                el.gauge.style.width = Math.max(0, prc) + '%';
+                if (timeLeft <= 0) endGame();
+            }, 1000);
+        }
+
+        function endGame() {
+            clearInterval(timerInterval);
+            el.quizBox.classList.add('hidden');
+            el.resultBox.classList.remove('hidden');
+            el.mainContent.classList.add('justify-center');
+            el.header.classList.add('hidden');
+            
+            el.scoreTxt.innerText = `${currentPool.length}문제 중 ${score}문제를 한 번에 맞혔습니다.`;
+            el.summary.innerHTML = '';
+            
+            userAnswers.forEach((ans, i) => {
+                const item = document.createElement('div');
+                item.className = `flex flex-col items-center p-3 rounded-2xl border ${ans.isCorrect ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`;
+                item.innerHTML = `
+                    <span class="text-[10px] font-black ${ans.isCorrect ? 'text-green-600' : 'text-red-600'} mb-1">${i+1}</span>
+                    <span class="text-xl ${ans.isCorrect ? 'text-correct' : 'text-wrong'}">${ans.isCorrect ? '⭕' : '❌'}</span>
+                `;
+                el.summary.appendChild(item);
+            });
+
+            const failed = userAnswers.filter(a => !a.isCorrect).length;
+            if (failed > 0) {
+                el.retryBtn.classList.remove('hidden');
+                el.retryBtn.innerText = `틀린 문제(${failed}) 다시 풀기`;
+            } else {
+                el.retryBtn.classList.add('hidden');
+            }
+        }
+
+        function startRetryMode() {
+            const failedQuestions = userAnswers.filter(a => !a.isCorrect).map(a => a.question);
+            if (failedQuestions.length > 0) {
+                el.header.classList.remove('hidden');
+                el.mainContent.classList.remove('justify-center');
+                currentPool = failedQuestions;
+                initGame(currentPool, true);
+            }
+        }
+    </script>
+</body>
+</html>

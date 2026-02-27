@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classic B&W Space Escape</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f7f7f7;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 200px;
+            background-color: #ffffff;
+            border-bottom: 2px solid #535353;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            color: #535353;
+            font-size: 18px;
+            font-weight: bold;
+            pointer-events: none;
+            user-select: none;
+        }
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+            color: #535353;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 30px;
+            border: 2px solid #535353;
+            z-index: 10;
+        }
+        button {
+            background: #535353;
+            border: none;
+            color: white;
+            padding: 8px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            font-family: inherit;
+            margin-top: 10px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #333;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui">
+        <span id="high-score">HI 00000</span> <span id="score">00000</span>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="game-over">
+        <h2 style="margin: 0;">G A M E  O V E R</h2>
+        <button id="retry-btn">RETRY</button>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const highScoreElement = document.getElementById('high-score');
+    const gameOverScreen = document.getElementById('game-over');
+    const retryBtn = document.getElementById('retry-btn');
+
+    canvas.width = 800;
+    canvas.height = 200;
+
+    // 게임 설정 및 상태
+    let score = 0;
+    let highScore = 0;
+    let gameSpeed = 3.5; 
+    let isGameOver = false;
+    let animationId;
+    let frameCount = 0;
+    
+    const keys = {
+        ArrowUp: false,
+        ArrowDown: false
+    };
+
+    // UFO 오브젝트 (플레이어)
+    const ufo = {
+        x: 60,
+        y: 85,
+        width: 40,
+        height: 20,
+        dy: 0,
+        speed: 0.4,
+        friction: 0.92,
+        draw() {
+            // 본체
+            ctx.fillStyle = '#535353';
+            ctx.fillRect(this.x + 5, this.y + 5, 30, 10);
+            ctx.fillRect(this.x, this.y + 8, 40, 6);
+            ctx.fillRect(this.x + 12, this.y, 16, 6);
+            
+            // 창문/조명 디테일
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(this.x + 10, this.y + 9, 4, 3);
+            ctx.fillRect(this.x + 18, this.y + 9, 4, 3);
+            ctx.fillRect(this.x + 26, this.y + 9, 4, 3);
+        },
+        update() {
+            if (keys.ArrowUp) this.dy -= this.speed;
+            if (keys.ArrowDown) this.dy += this.speed;
+
+            this.dy *= this.friction;
+            this.y += this.dy;
+
+            // 화면 경계 체크
+            if (this.y < 0) { this.y = 0; this.dy = 0; }
+            if (this.y + this.height > canvas.height) { this.y = canvas.height - this.height; this.dy = 0; }
+
+            this.draw();
+        }
+    };
+
+    // 무작위로 움직이는 장애물(행성) 클래스
+    class Planet {
+        constructor() {
+            this.radius = 12 + Math.random() * 18;
+            this.x = canvas.width + this.radius;
+            this.y = Math.random() * (canvas.height - this.radius * 2) + this.radius;
+            
+            // 수평 속도는 gameSpeed 기반, 수직 속도는 랜덤
+            this.vx = -gameSpeed - (Math.random() * 1.5); 
+            this.vy = (Math.random() - 0.5) * 3;
+        }
+
+        draw() {
+            ctx.fillStyle = '#535353';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 크레이터 효과 (디테일)
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(this.x - this.radius * 0.3, this.y - this.radius * 0.2, this.radius * 0.2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+
+            // 불규칙한 움직임을 위한 방향 전환
+            if (frameCount % 60 === 0) {
+                this.vy += (Math.random() - 0.5) * 0.5;
+                // 수직 속도 제한
+                if (this.vy > 2.5) this.vy = 2.5;
+                if (this.vy < -2.5) this.vy = -2.5;
+            }
+            
+            // 화면 상하단 튕기기
+            if (this.y < this.radius) {
+                this.y = this.radius;
+                this.vy *= -1;
+            }
+            if (this.y > canvas.height - this.radius) {
+                this.y = canvas.height - this.radius;
+                this.vy *= -1;
+            }
+
+            this.draw();
+        }
+    }
+
+    // 배경 별 (멀리 있는 배경 장식)
+    const stars = [];
+    for(let i = 0; i < 30; i++) {
+        stars.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: 1 + Math.random() * 2,
+            speed: 0.8 + Math.random() * 1.2
+        });
+    }
+
+    let obstacles = [];
+
+    function spawnObstacle() {
+        obstacles.push(new Planet());
+    }
+
+    function handleKeyDown(e) {
+        if (e.code === 'ArrowUp') keys.ArrowUp = true;
+        if (e.code === 'ArrowDown') keys.ArrowDown = true;
+    }
+
+    function handleKeyUp(e) {
+        if (e.code === 'ArrowUp') keys.ArrowUp = false;
+        if (e.code === 'ArrowDown') keys.ArrowDown = false;
+    }
+
+    function animate() {
+        if (isGameOver) return;
+        
+        animationId = requestAnimationFrame(animate);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        frameCount++;
+        
+        // 배경 별 이동
+        ctx.fillStyle = '#d3d3d3';
+        stars.forEach(star => {
+            star.x -= star.speed;
+            if (star.x < 0) star.x = canvas.width;
+            ctx.fillRect(star.x, star.y, star.size, star.size);
+        });
+
+        // 점수 처리
+        score++;
+        scoreElement.innerText = score.toString().padStart(5, '0');
+        
+        // 난이도 상승 (일정 점수마다 속도 증가)
+        if (score > 0 && score % 2000 === 0) gameSpeed += 0.15;
+
+        ufo.update();
+
+        // 장애물 스폰 주기
+        if (frameCount % 85 === 0) {
+            spawnObstacle();
+        }
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            obstacles[i].update();
+
+            // 충돌 감지 (원형/사각형 기반 거리 계산)
+            const distX = (ufo.x + ufo.width / 2) - obstacles[i].x;
+            const distY = (ufo.y + ufo.height / 2) - obstacles[i].y;
+            const distance = Math.sqrt(distX * distX + distY * distY);
+
+            // 판정을 약간 너그럽게 설정
+            if (distance < (ufo.height / 2 + obstacles[i].radius - 4)) {
+                endGame();
+            }
+
+            // 화면 밖으로 나간 장애물 제거
+            if (obstacles[i].x + obstacles[i].radius < -50) {
+                obstacles.splice(i, 1);
+            }
+        }
+    }
+
+    function endGame() {
+        isGameOver = true;
+        cancelAnimationFrame(animationId);
+        gameOverScreen.style.display = 'block';
+        if (score > highScore) {
+            highScore = score;
+            highScoreElement.innerText = 'HI ' + highScore.toString().padStart(5, '0');
+        }
+    }
+
+    function restartGame() {
+        score = 0;
+        gameSpeed = 3.5;
+        isGameOver = false;
+        obstacles = [];
+        frameCount = 0;
+        ufo.y = 85;
+        ufo.dy = 0;
+        keys.ArrowUp = false;
+        keys.ArrowDown = false;
+        gameOverScreen.style.display = 'none';
+        animate();
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    retryBtn.addEventListener('click', restartGame);
+
+    // 게임 시작
+    animate();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>행성이의 리듬 어드벤처</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background-color: #050510;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        #gameCanvas {
+            display: block; width: 100%; height: 100%;
+            box-shadow: 0 0 50px rgba(0, 255, 255, 0.2);
+        }
+
+        #ui-layer {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            text-align: center; z-index: 10;
+        }
+
+        /* 🌟 새로 추가된 부분: 시작 화면과 게임 오버 화면을 위로 20% 올려줍니다 */
+        #start-screen, #game-over-screen {
+            transform: translateY(-20vh);
+        }
+
+        .hidden { display: none !important; }
+
+        h1 {
+            font-size: 4rem;
+            text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
+            margin-bottom: 20px; letter-spacing: 5px;
+        }
+
+        p {
+            font-size: 1.2rem; margin-bottom: 40px; color: #a0c0ff;
+            line-height: 1.6;
+        }
+
+        .score-display {
+            position: absolute; top: 30px; left: 50px;
+            font-size: 2.5rem; font-weight: bold;
+            color: #fff; text-shadow: 0 0 10px #ff00ff;
+        }
+
+        #level-up-text {
+            position: absolute; top: 30%;
+            font-size: 3rem; font-weight: bold;
+            color: #ffff00; text-shadow: 0 0 20px #ff9900;
+            opacity: 0; transition: opacity 0.2s, transform 1s ease-out;
+            transform: translateY(0) scale(1);
+        }
+
+        .level-up-anim {
+            opacity: 1 !important;
+            transform: translateY(-100px) scale(1.5) !important;
+        }
+
+        .pulse-text { animation: pulse 1.5s infinite; }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="ui-layer">
+    <div id="start-screen">
+        <h1>행성이의 리듬 어드벤처</h1>
+        <p>
+            위(↑) / 아래(↓) 방향키를 눌러 레인을 변경하며 장애물을 피하세요!<br>
+            <strong style="color: #ff3366;">경고: 시간이 지날수록 음악과 속도가 점점 빨라집니다!</strong><br>
+            <span style="color: #ffcc00; font-size: 0.9rem;">(배경음악: Korobeiniki - 8bit 동적 가속 적용)</span>
+        </p>
+        <h2 class="pulse-text">PRESS ANY KEY TO START</h2>
+    </div>
+    <div id="game-over-screen" class="hidden">
+        <h1 style="color: #ff3366; text-shadow: 0 0 20px #ff3366;">GAME OVER</h1>
+        <p id="final-score">Score: 0</p>
+        <h2 class="pulse-text">PRESS ANY KEY TO RESTART</h2>
+    </div>
+    <div id="score-board" class="score-display hidden">0</div>
+    <div id="level-up-text">SPEED UP! 🚀</div>
+</div>
+
+<script>
+    // ============================================================================
+    // 1. 게임 기본 설정 및 에셋 로드
+    // ============================================================================
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let width = canvas.width = window.innerWidth;
+    let height = canvas.height = window.innerHeight;
+
+    window.addEventListener('resize', () => {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+    });
+
+    // ============================================================================
+    // 2. 오디오 엔진 및 점진적 가속 로직이 포함된 데이터 생성
+    // ============================================================================
+    let audioCtx;
+    let activeNodes = [];
+
+    const N = {
+        C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A2: 110.00, Gs2: 103.83,
+        A4: 440.00, B4: 493.88, C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00
+    };
+
+    const melodyData = [
+        { f: N.E5, b: 1, isObstacle: true }, { f: N.B4, b: 0.5, isObstacle: false }, { f: N.C5, b: 0.5, isObstacle: false }, { f: N.D5, b: 1, isObstacle: true }, { f: N.C5, b: 0.5, isObstacle: false }, { f: N.B4, b: 0.5, isObstacle: false },
+        { f: N.A4, b: 1, isObstacle: true }, { f: N.A4, b: 0.5, isObstacle: false }, { f: N.C5, b: 0.5, isObstacle: false }, { f: N.E5, b: 1, isObstacle: true }, { f: N.D5, b: 0.5, isObstacle: false }, { f: N.C5, b: 0.5, isObstacle: false },
+        { f: N.B4, b: 1.5, isObstacle: true }, { f: N.C5, b: 0.5, isObstacle: false }, { f: N.D5, b: 1, isObstacle: true }, { f: N.E5, b: 1, isObstacle: true },
+        { f: N.C5, b: 1, isObstacle: true }, { f: N.A4, b: 1, isObstacle: true }, { f: N.A4, b: 2, isObstacle: false },
+        { f: N.D5, b: 1.5, isObstacle: true }, { f: N.F5, b: 0.5, isObstacle: false }, { f: N.A5, b: 1, isObstacle: true }, { f: N.G5, b: 0.5, isObstacle: false }, { f: N.F5, b: 0.5, isObstacle: false },
+        { f: N.E5, b: 1.5, isObstacle: true }, { f: N.C5, b: 0.5, isObstacle: false }, { f: N.E5, b: 1, isObstacle: true }, { f: N.D5, b: 0.5, isObstacle: false }, { f: N.C5, b: 0.5, isObstacle: false },
+        { f: N.B4, b: 1, isObstacle: true }, { f: N.B4, b: 0.5, isObstacle: false }, { f: N.C5, b: 0.5, isObstacle: false }, { f: N.D5, b: 1, isObstacle: true }, { f: N.E5, b: 1, isObstacle: true },
+        { f: N.C5, b: 1, isObstacle: true }, { f: N.A4, b: 1, isObstacle: true }, { f: N.A4, b: 2, isObstacle: false }
+    ];
+
+    const bassData = [
+        { f: N.E3, b: 1 }, { f: N.E3, b: 1 }, { f: N.E3, b: 1 }, { f: N.E3, b: 1 },
+        { f: N.A2, b: 1 }, { f: N.A2, b: 1 }, { f: N.A2, b: 1 }, { f: N.A2, b: 1 },
+        { f: N.Gs2, b: 1 }, { f: N.Gs2, b: 1 }, { f: N.E3, b: 1 }, { f: N.E3, b: 1 },
+        { f: N.A2, b: 1 }, { f: N.A2, b: 1 }, { f: N.A2, b: 1 }, { f: N.A2, b: 1 },
+        { f: N.D3, b: 1 }, { f: N.D3, b: 1 }, { f: N.D3, b: 1 }, { f: N.D3, b: 1 },
+        { f: N.C3, b: 1 }, { f: N.C3, b: 1 }, { f: N.C3, b: 1 }, { f: N.C3, b: 1 },
+        { f: N.E3, b: 1 }, { f: N.E3, b: 1 }, { f: N.E3, b: 1 }, { f: N.E3, b: 1 },
+        { f: N.A2, b: 1 }, { f: N.A2, b: 1 }, { f: N.A2, b: 1 }, { f: N.A2, b: 1 }
+    ];
+
+    let playQueue = [];
+    let obstacleQueue = [];
+    let speedUpEvents = [];
+
+    function buildMusicAndObstacles(loops = 20) {
+        playQueue = [];
+        obstacleQueue = [];
+        speedUpEvents = [];
+
+        let currentBPM = 100;
+        let currentVisualSpeed = 500;
+        let t = 1.0;
+        let nextSpeedUp = 1.0 + 3.0;
+
+        let beatMap = [];
+        const totalBeats = (loops * 32) + 8;
+
+        for(let b = 0; b <= totalBeats; b += 0.5) {
+            beatMap.push({ beat: b, time: t, speed: currentVisualSpeed });
+
+            t += (60 / currentBPM) / 2;
+
+            if (t >= nextSpeedUp) {
+                currentBPM += 15;
+                currentVisualSpeed += 120;
+                speedUpEvents.push({ time: t, bpm: currentBPM });
+                nextSpeedUp += 3.0;
+            }
+        }
+
+        function getInfo(b) {
+            const index = Math.round(b * 2);
+            return beatMap[index];
+        }
+
+        for (let l = 0; l < loops; l++) {
+            const loopStartBeat = l * 32;
+
+            let currentMelodyBeat = loopStartBeat;
+            melodyData.forEach(note => {
+                const info = getInfo(currentMelodyBeat);
+                const nextInfo = getInfo(currentMelodyBeat + note.b);
+                const durationTime = nextInfo.time - info.time;
+
+                playQueue.push({ time: info.time, freq: note.f, duration: durationTime * 0.8, type: 'square', vol: 0.1 });
+                currentMelodyBeat += note.b;
+            });
+
+            let currentBassBeat = loopStartBeat;
+            bassData.forEach(note => {
+                const info = getInfo(currentBassBeat);
+                const nextInfo = getInfo(currentBassBeat + note.b);
+                const durationTime = nextInfo.time - info.time;
+
+                playQueue.push({ time: info.time, freq: note.f, duration: durationTime * 0.9, type: 'triangle', vol: 0.15 });
+                currentBassBeat += note.b;
+            });
+        }
+
+        let currentObstacleBeat = 0;
+        let currentObstacleLane = 1;
+
+        while (currentObstacleBeat < totalBeats) {
+            const rand = Math.random();
+            let gap = 1.0;
+
+            if (rand < 0.2) gap = 0.5;
+            else if (rand < 0.6) gap = 1.0;
+            else if (rand < 0.9) gap = 1.5;
+            else gap = 2.0;
+
+            currentObstacleBeat += gap;
+            if (currentObstacleBeat >= totalBeats) break;
+
+            const info = getInfo(currentObstacleBeat);
+
+            currentObstacleLane = (currentObstacleLane === 1) ? -1 : 1;
+
+            obstacleQueue.push({
+                time: info.time,
+                lane: currentObstacleLane,
+                passed: false,
+                speed: info.speed
+            });
+        }
+
+        playQueue.sort((a, b) => a.time - b.time);
+    }
+
+    function playSound(freq, time, duration, type, vol) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        osc.type = type;
+        osc.frequency.value = freq;
+
+        gainNode.gain.setValueAtTime(0, time);
+        gainNode.gain.linearRampToValueAtTime(vol, time + 0.05);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        osc.start(time);
+        osc.stop(time + duration);
+        activeNodes.push(osc);
+
+        osc.onended = () => { activeNodes = activeNodes.filter(o => o !== osc); };
+    }
+
+    function stopAllAudio() {
+        activeNodes.forEach(osc => { try { osc.stop(); } catch (e) {} });
+        activeNodes = [];
+    }
+
+    // ============================================================================
+    // 3. 게임 상태 및 로직 변수
+    // ============================================================================
+    let gameState = 'START';
+    let startTime = 0;
+    let score = 0;
+    let currentStarSpeedMultiplier = 1.0;
+
+    const player = { x: 250, lane: 1, radius: 25 };
+
+    let cameraScale = 1.0;
+    let bgFlash = 0.0;
+    let stars = Array.from({length: 120}, () => ({
+        x: Math.random() * 2000, y: Math.random() * 2000,
+        size: Math.random() * 2.5, baseSpeed: Math.random() * 4 + 1
+    }));
+
+    const uiStart = document.getElementById('start-screen');
+    const uiGameOver = document.getElementById('game-over-screen');
+    const uiScoreBoard = document.getElementById('score-board');
+    const uiFinalScore = document.getElementById('final-score');
+    const uiLevelUp = document.getElementById('level-up-text');
+
+    // ============================================================================
+    // 4. 입력 처리 (handleInput)
+    // ============================================================================
+    window.addEventListener('keydown', handleInput);
+
+    function handleInput(e) {
+        if (gameState === 'START' || gameState === 'GAMEOVER') {
+            startGame(); return;
+        }
+
+        if (gameState === 'PLAYING') {
+            if (e.key === 'ArrowUp' && player.lane !== 1) {
+                player.lane = 1; triggerLaneChangeEffect();
+            } else if (e.key === 'ArrowDown' && player.lane !== -1) {
+                player.lane = -1; triggerLaneChangeEffect();
+            }
+        }
+    }
+
+    function triggerLaneChangeEffect() {
+        cameraScale = 1.03; bgFlash = 0.4;
+    }
+
+    // ============================================================================
+    // 5. 게임 루프 (update, draw)
+    // ============================================================================
+    function startGame() {
+        if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+
+        stopAllAudio();
+        buildMusicAndObstacles();
+
+        gameState = 'PLAYING';
+        score = 0;
+        player.lane = 1;
+        cameraScale = 1.0;
+        bgFlash = 0.0;
+        currentStarSpeedMultiplier = 1.0;
+        startTime = audioCtx.currentTime;
+
+        uiStart.classList.add('hidden');
+        uiGameOver.classList.add('hidden');
+        uiScoreBoard.classList.remove('hidden');
+        uiScoreBoard.innerText = '0';
+        uiLevelUp.classList.remove('level-up-anim');
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function gameOver() {
+        gameState = 'GAMEOVER';
+        stopAllAudio();
+        cameraScale = 1.15; bgFlash = 1.0;
+
+        uiGameOver.classList.remove('hidden');
+        uiScoreBoard.classList.add('hidden');
+        uiFinalScore.innerText = `Score: ${score}`;
+    }
+
+    function triggerSpeedUpUI() {
+        uiLevelUp.classList.remove('level-up-anim');
+        void uiLevelUp.offsetWidth;
+        uiLevelUp.classList.add('level-up-anim');
+        bgFlash = 0.6;
+    }
+
+    function gameLoop() {
+        if (gameState === 'PLAYING') update();
+        draw();
+        if (gameState === 'PLAYING' || cameraScale > 1.001) requestAnimationFrame(gameLoop);
+    }
+
+    function update() {
+        const currentTime = audioCtx.currentTime - startTime;
+
+        cameraScale += (1.0 - cameraScale) * 0.15;
+        bgFlash *= 0.85;
+
+        if (speedUpEvents.length > 0 && currentTime >= speedUpEvents[0].time) {
+            triggerSpeedUpUI();
+            currentStarSpeedMultiplier += 0.5;
+            speedUpEvents.shift();
+        }
+
+        while (playQueue.length > 0 && playQueue[0].time < currentTime + 0.2) {
+            const note = playQueue.shift();
+            playSound(note.freq, startTime + note.time, note.duration, note.type, note.vol);
+        }
+
+        stars.forEach(star => {
+            star.x -= (star.baseSpeed * currentStarSpeedMultiplier);
+            if(star.x < 0) { star.x = width; star.y = Math.random() * height; }
+        });
+
+        checkCollision(currentTime);
+    }
+
+    function checkCollision(currentTime) {
+        obstacleQueue.forEach(obs => {
+            const obsX = player.x + (obs.time - currentTime) * obs.speed;
+
+            if (obsX < width + 100 && obsX > -100) {
+                if (Math.abs(obsX - player.x) < player.radius + 15) {
+                    if (player.lane === obs.lane && !obs.passed) {
+                        gameOver();
+                    }
+                }
+                if (obsX < player.x - player.radius && !obs.passed) {
+                    obs.passed = true;
+                    const scoreGain = Math.floor(obs.speed / 50);
+                    score += scoreGain;
+                    uiScoreBoard.innerText = score;
+                    bgFlash = Math.max(bgFlash, 0.2);
+                }
+            }
+        });
+    }
+
+    function draw() {
+        const centerY = height / 2;
+        const currentTime = audioCtx ? (audioCtx.currentTime - startTime) : 0;
+
+        const r = gameState === 'GAMEOVER' ? Math.floor(bgFlash * 200) : Math.floor(bgFlash * 80);
+        const b = 20 + Math.floor(bgFlash * 60);
+        ctx.fillStyle = `rgb(${r}, 5, ${b})`;
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.save();
+        ctx.translate(width / 2, height / 2);
+        ctx.scale(cameraScale, cameraScale);
+        ctx.translate(-width / 2, -height / 2);
+
+        ctx.fillStyle = 'white';
+        stars.forEach(star => {
+            ctx.globalAlpha = Math.random() * 0.5 + 0.5;
+            ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill();
+        });
+        ctx.globalAlpha = 1.0;
+
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#00ffff';
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, centerY); ctx.lineTo(width, centerY); ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        obstacleQueue.forEach(obs => {
+            const obsX = player.x + (obs.time - currentTime) * obs.speed;
+            if (obsX < width + 50 && obsX > -50) {
+                const obsY = centerY + (obs.lane === 1 ? -60 : 60);
+                ctx.save();
+                ctx.translate(obsX, obsY);
+                ctx.rotate(currentTime * 4 * obs.lane * (obs.speed / 500));
+
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#ff3366';
+                ctx.fillStyle = '#ff0055';
+                ctx.beginPath();
+                ctx.moveTo(0, -25); ctx.lineTo(20, -10); ctx.lineTo(25, 15);
+                ctx.lineTo(5, 25); ctx.lineTo(-15, 20); ctx.lineTo(-25, -5);
+                ctx.closePath(); ctx.fill();
+                ctx.restore();
+            }
+        });
+
+        // ---------------------------------------------------------
+        // 5. 플레이어 (열혈 러너 행성이) 커스텀 렌더링
+        // ---------------------------------------------------------
+        ctx.save();
+        const playerY = centerY + (player.lane === 1 ? -50 : 50);
+        ctx.translate(player.x, playerY);
+
+        // 아래 레인일 경우 위아래 반전
+        if (player.lane === -1) {
+            ctx.scale(1, -1);
+        }
+
+        // 달리는 애니메이션 (시간에 따라 다리와 팔, 머리띠가 교차함)
+        // 게임 오버 상태일 땐 애니메이션 정지
+        const isPlaying = gameState === 'PLAYING';
+        const runAnim = isPlaying ? currentTime * 25 : 0;
+
+        // 1) 펄럭이는 붉은 머리띠
+        ctx.fillStyle = '#ff0055';
+        ctx.beginPath();
+        ctx.moveTo(-15, -12);
+        ctx.quadraticCurveTo(-30, -20 + (isPlaying ? Math.sin(runAnim)*5 : 0), -45, -10 + (isPlaying ? Math.cos(runAnim)*5 : 0));
+        ctx.lineTo(-40, -5 + (isPlaying ? Math.cos(runAnim)*5 : 0));
+        ctx.quadraticCurveTo(-25, -5 + (isPlaying ? Math.sin(runAnim)*5 : 0), -15, -5);
+        ctx.fill();
+
+        // 2) 교차하는 다리
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+
+        // 왼쪽 다리
+        ctx.beginPath();
+        ctx.moveTo(-5, 15);
+        ctx.lineTo(-15 + (isPlaying ? Math.cos(runAnim)*18 : -10), 30 + (isPlaying ? Math.sin(runAnim)*10 : 0));
+        ctx.stroke();
+
+        // 오른쪽 다리
+        ctx.beginPath();
+        ctx.moveTo(10, 15);
+        ctx.lineTo(-15 + (isPlaying ? Math.cos(runAnim + Math.PI)*18 : 10), 30 + (isPlaying ? Math.sin(runAnim + Math.PI)*10 : 0));
+        ctx.stroke();
+
+        // 3) 행성이 몸체 (그라데이션 원형)
+        const bodyGrad = ctx.createRadialGradient(-5, -5, 5, 0, 0, player.radius);
+        bodyGrad.addColorStop(0, '#ffea00');
+        bodyGrad.addColorStop(1, '#ff9900');
+        ctx.fillStyle = bodyGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 4) 머리띠 베이스
+        ctx.fillStyle = '#ff0055';
+        ctx.beginPath();
+        ctx.ellipse(0, -10, player.radius, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 5) 결연한 표정의 눈과 눈썹
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2.5;
+        // 눈썹
+        ctx.beginPath(); ctx.moveTo(5, -2); ctx.lineTo(15, 2); ctx.stroke();
+        // 눈동자
+        ctx.fillStyle = '#000';
+        ctx.beginPath(); ctx.arc(10, 4, 3, 0, Math.PI*2); ctx.fill();
+
+        // 6) 달리는 팔 (다리와 반대로 교차)
+        ctx.strokeStyle = '#ff9900';
+        ctx.lineWidth = 5;
+        // 왼쪽 팔
+        ctx.beginPath();
+        ctx.moveTo(-5, 5);
+        ctx.lineTo(-20 + (isPlaying ? Math.cos(runAnim + Math.PI)*10 : -5), 15 + (isPlaying ? Math.sin(runAnim + Math.PI)*5 : 5));
+        ctx.stroke();
+        // 오른쪽 팔
+        ctx.beginPath();
+        ctx.moveTo(15, 5);
+        ctx.lineTo(25 + (isPlaying ? Math.cos(runAnim)*15 : 10), 10 + (isPlaying ? Math.sin(runAnim)*5 : 0));
+        ctx.stroke();
+
+        ctx.restore();
+        // ---------------------------------------------------------
+        // 플레이어 렌더링 끝
+        // ---------------------------------------------------------
+
+        ctx.restore();
+    }
+
+    draw();
+</script>
+</body>
+</html>

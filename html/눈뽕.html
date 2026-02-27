@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>눈뽕 - 개발자를 위한 시간 알리미</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&display=swap");
+
+      body {
+        font-family: "Noto Sans KR", sans-serif;
+        background-color: #0f172a; /* Tailwind slate-900 */
+        color: #f8fafc; /* Tailwind slate-50 */
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+      }
+
+      .font-mono {
+        font-family: "JetBrains Mono", monospace;
+      }
+
+      /* 밝기 조절을 위한 화면 덮개 (오버레이) */
+      #brightness-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: black;
+        pointer-events: none; /* 클릭 등의 이벤트를 통과시킴 */
+        z-index: 9999;
+        transition: opacity 1.5s ease-in-out; /* 부드러운 밝기 전환 효과 */
+      }
+
+      /* 스크롤바 커스텀 */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #1e293b;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+      }
+
+      /* 시간 입력 인풋의 시계 아이콘 색상 반전 (어두운 배경에서 보이도록) */
+      input[type="time"]::-webkit-calendar-picker-indicator {
+        filter: invert(1);
+        cursor: pointer;
+        opacity: 0.8;
+      }
+      input[type="time"]::-webkit-calendar-picker-indicator:hover {
+        opacity: 1;
+      }
+
+      /* 숫자 입력 화살표 숨기기 (24시간제 커스텀 인풋용) */
+      input[type="number"]::-webkit-outer-spin-button,
+      input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      input[type="number"] {
+        -moz-appearance: textfield;
+      }
+
+      /* 특수 효과 애니메이션 */
+      @keyframes strobe {
+        0%,
+        49% {
+          opacity: 0;
+        }
+        50%,
+        100% {
+          opacity: 0.8;
+        }
+      }
+      .effect-strobe {
+        background-color: white !important;
+        animation: strobe 0.15s infinite !important;
+        transition: none !important;
+      }
+
+      @keyframes siren {
+        0% {
+          opacity: 0;
+        }
+        50% {
+          opacity: 0.6;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+      .effect-siren {
+        background-color: red !important;
+        animation: siren 0.8s infinite ease-in-out !important;
+        transition: none !important;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen flex flex-col items-center py-10 px-4">
+    <!-- 화면 밝기 조절 오버레이 -->
+    <div id="brightness-overlay" style="opacity: 0"></div>
+
+    <!-- 긴급 복구 알림 토스트 (메시지 박스) -->
+    <div
+      id="toast-message"
+      class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl opacity-0 transition-opacity duration-300 pointer-events-none z-[10000] font-medium flex items-center gap-2"
+    >
+      <svg
+        class="w-5 h-5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+        ></path>
+      </svg>
+      <span id="toast-text"
+        >긴급 복구 완료: 밝기가 100%로 재설정되었습니다.</span
+      >
+    </div>
+
+    <div class="max-w-3xl w-full z-10 relative">
+      <!-- 헤더 섹션 -->
+      <header class="text-center mb-10">
+        <h1
+          class="text-4xl md:text-5xl font-bold text-blue-400 tracking-tight mb-3"
+        >
+          눈뽕 🕶️
+        </h1>
+        <p class="text-slate-400 text-sm md:text-base">
+          시간 가는 줄 모르는 개발자를 위한 직관적 시간 알리미
+        </p>
+        <p class="text-slate-500 text-xs mt-2">
+          * 화면이 너무 어두워졌을 땐
+          <strong class="text-slate-300">키보드 'R'</strong> 또는
+          <strong class="text-slate-300">마우스 3번 클릭</strong>으로 밝기를
+          100%로 복구할 수 있습니다.
+        </p>
+      </header>
+
+      <!-- 대시보드 (현재 상태) -->
+      <div
+        class="bg-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl mb-8 flex flex-col md:flex-row items-center justify-between border border-slate-700"
+      >
+        <div class="text-center md:text-left mb-6 md:mb-0">
+          <h2
+            class="text-slate-400 text-sm uppercase tracking-wider font-semibold mb-1"
+          >
+            현재 시간
+          </h2>
+          <div
+            id="current-time"
+            class="text-5xl md:text-6xl font-mono font-bold text-white drop-shadow-md"
+          >
+            00:00:00
+          </div>
+        </div>
+
+        <div class="flex flex-col items-center md:items-end">
+          <h2
+            class="text-slate-400 text-sm uppercase tracking-wider font-semibold mb-1"
+          >
+            현재 적용 밝기
+          </h2>
+          <div class="flex items-center gap-3">
+            <svg
+              class="w-8 h-8 text-yellow-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+              ></path>
+            </svg>
+            <span
+              id="current-brightness-display"
+              class="text-4xl md:text-5xl font-mono font-bold text-yellow-400 drop-shadow-md"
+              >100%</span
+            >
+          </div>
+
+          <div class="mt-4 flex items-center gap-2">
+            <label
+              for="app-toggle"
+              class="text-sm text-slate-300 cursor-pointer"
+              >기능 활성화</label
+            >
+            <button
+              id="app-toggle"
+              class="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-500 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-slate-800"
+            >
+              <span
+                id="app-toggle-knob"
+                class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"
+              ></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 스케줄 설정 섹션 -->
+      <div
+        class="bg-slate-800 rounded-2xl p-6 md:p-8 shadow-xl border border-slate-700"
+      >
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <svg
+              class="w-5 h-5 text-blue-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+              ></path>
+            </svg>
+            밝기 조절 스케줄
+          </h2>
+          <button
+            id="add-schedule-btn"
+            class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 4v16m8-8H4"
+              ></path>
+            </svg>
+            추가
+          </button>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="text-slate-400 text-sm border-b border-slate-700">
+                <th class="pb-3 font-medium px-2">시작 시간</th>
+                <th class="pb-3 font-medium px-2">효과 선택</th>
+                <th class="pb-3 font-medium px-2">목표 밝기 (%)</th>
+                <th class="pb-3 font-medium px-2 text-center">동작</th>
+              </tr>
+            </thead>
+            <tbody id="schedule-list" class="divide-y divide-slate-700/50">
+              <!-- JavaScript를 통해 동적으로 스케줄 행이 렌더링됩니다. -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      /**
+       * 앱 상태 및 데이터 관리
+       */
+      const AppState = {
+        isActive: true,
+        schedules: [
+          { id: generateId(), time: "00:00", brightness: 40, effect: "none" },
+          { id: generateId(), time: "02:00", brightness: 20, effect: "none" },
+          { id: generateId(), time: "07:00", brightness: 100, effect: "none" },
+          { id: generateId(), time: "12:00", brightness: 50, effect: "none" },
+          { id: generateId(), time: "13:00", brightness: 100, effect: "none" },
+          { id: generateId(), time: "18:00", brightness: 50, effect: "none" },
+          { id: generateId(), time: "19:00", brightness: 100, effect: "none" },
+          { id: generateId(), time: "22:00", brightness: 50, effect: "none" },
+        ],
+        currentBrightness: 100,
+        currentEffect: "none",
+      };
+
+      // DOM 요소 캐싱
+      const DOM = {
+        overlay: document.getElementById("brightness-overlay"),
+        currentTime: document.getElementById("current-time"),
+        currentBrightnessDisplay: document.getElementById(
+          "current-brightness-display",
+        ),
+        scheduleList: document.getElementById("schedule-list"),
+        addScheduleBtn: document.getElementById("add-schedule-btn"),
+        appToggleBtn: document.getElementById("app-toggle"),
+        appToggleKnob: document.getElementById("app-toggle-knob"),
+        toastMsg: document.getElementById("toast-message"),
+      };
+
+      // 유틸리티 함수: 고유 ID 생성
+      function generateId() {
+        return Math.random().toString(36).substr(2, 9);
+      }
+
+      // 알림(Toast) 메시지 표시 함수
+      function showToast() {
+        DOM.toastMsg.classList.remove("opacity-0");
+        // 3.5초 뒤 서서히 사라짐
+        setTimeout(() => {
+          DOM.toastMsg.classList.add("opacity-0");
+        }, 3500);
+      }
+
+      /**
+       * 시계 업데이트 및 스케줄에 따른 밝기 계산
+       */
+      function updateClockAndBrightness() {
+        const now = new Date();
+
+        // 시계 UI 업데이트
+        const hours = String(now.getHours()).padStart(2, "0");
+        const minutes = String(now.getMinutes()).padStart(2, "0");
+        const seconds = String(now.getSeconds()).padStart(2, "0");
+        DOM.currentTime.textContent = `${hours}:${minutes}:${seconds}`;
+
+        if (!AppState.isActive) {
+          applyState(100, "none");
+          return;
+        }
+
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+        const sortedSchedules = [...AppState.schedules].sort((a, b) => {
+          const [aH, aM] = a.time.split(":").map(Number);
+          const [bH, bM] = b.time.split(":").map(Number);
+          return aH * 60 + aM - (bH * 60 + bM);
+        });
+
+        if (sortedSchedules.length === 0) {
+          applyState(100, "none");
+          return;
+        }
+
+        let targetBrightness =
+          sortedSchedules[sortedSchedules.length - 1].brightness;
+        let targetEffect =
+          sortedSchedules[sortedSchedules.length - 1].effect || "none";
+
+        for (let i = 0; i < sortedSchedules.length; i++) {
+          const [h, m] = sortedSchedules[i].time.split(":").map(Number);
+          const scheduleMinutes = h * 60 + m;
+
+          if (currentMinutes >= scheduleMinutes) {
+            targetBrightness = sortedSchedules[i].brightness;
+            targetEffect = sortedSchedules[i].effect || "none";
+          } else {
+            break;
+          }
+        }
+
+        applyState(targetBrightness, targetEffect);
+      }
+
+      /**
+       * 화면에 밝기 및 효과(오버레이) 적용
+       */
+      function applyState(brightness, effect) {
+        const safeBrightness = Math.max(0, Math.min(100, Number(brightness)));
+
+        if (
+          AppState.currentBrightness !== safeBrightness ||
+          AppState.currentEffect !== effect
+        ) {
+          AppState.currentBrightness = safeBrightness;
+          AppState.currentEffect = effect;
+
+          // UI 텍스트 업데이트
+          if (effect === "strobe") {
+            DOM.currentBrightnessDisplay.textContent = "Strobe";
+            DOM.currentBrightnessDisplay.className =
+              "text-4xl md:text-5xl font-mono font-bold text-white drop-shadow-md animate-pulse";
+          } else if (effect === "siren") {
+            DOM.currentBrightnessDisplay.textContent = "Siren";
+            DOM.currentBrightnessDisplay.className =
+              "text-4xl md:text-5xl font-mono font-bold text-red-500 drop-shadow-md animate-pulse";
+          } else {
+            DOM.currentBrightnessDisplay.textContent = `${safeBrightness}%`;
+            DOM.currentBrightnessDisplay.className =
+              "text-4xl md:text-5xl font-mono font-bold text-yellow-400 drop-shadow-md";
+          }
+
+          // 오버레이 클래스 및 스타일 초기화
+          DOM.overlay.className = "";
+          DOM.overlay.style.opacity = "";
+
+          // 새로운 효과 또는 투명도 적용
+          if (effect === "strobe") {
+            DOM.overlay.classList.add("effect-strobe");
+          } else if (effect === "siren") {
+            DOM.overlay.classList.add("effect-siren");
+          } else {
+            const opacity = (100 - safeBrightness) / 100;
+            DOM.overlay.style.opacity = opacity;
+          }
+        }
+      }
+
+      /**
+       * 긴급 복구 로직 (Failsafe)
+       * 화면이 너무 어두워졌을 때 앱을 비활성화하고 밝기를 100%로 강제 되돌림
+       */
+      function triggerEmergencyReset() {
+        if (AppState.isActive) {
+          AppState.isActive = false;
+          DOM.appToggleBtn.classList.replace("bg-blue-500", "bg-slate-600");
+          DOM.appToggleKnob.classList.remove("translate-x-6");
+          DOM.appToggleKnob.classList.add("translate-x-1");
+        }
+        applyState(100, "none");
+        showToast();
+      }
+
+      /**
+       * 스케줄 UI 렌더링
+       */
+      function renderSchedules() {
+        DOM.scheduleList.innerHTML = "";
+
+        const displaySchedules = [...AppState.schedules].sort((a, b) => {
+          const [aH, aM] = a.time.split(":").map(Number);
+          const [bH, bM] = b.time.split(":").map(Number);
+          return aH * 60 + aM - (bH * 60 + bM);
+        });
+
+        displaySchedules.forEach((schedule) => {
+          const tr = document.createElement("tr");
+          tr.className = "hover:bg-slate-700/30 transition-colors group";
+
+          const [h, m] = schedule.time.split(":");
+          const isEffectActive = schedule.effect !== "none";
+
+          tr.innerHTML = `
+                    <td class="py-3 px-2">
+                        <div class="flex items-center gap-1 bg-slate-700 border border-slate-500 rounded px-2 py-1 w-max focus-within:ring-2 focus-within:ring-blue-500 transition-shadow">
+                            <input type="number" min="0" max="23" value="${h}" 
+                                class="bg-transparent text-white font-mono w-8 text-center focus:outline-none"
+                                onchange="updateTime('${schedule.id}', 'h', this.value)">
+                            <span class="text-white font-bold pb-1">:</span>
+                            <input type="number" min="0" max="59" value="${m}" 
+                                class="bg-transparent text-white font-mono w-8 text-center focus:outline-none"
+                                onchange="updateTime('${schedule.id}', 'm', this.value)">
+                        </div>
+                    </td>
+                    <td class="py-3 px-2">
+                        <select class="bg-slate-700 border border-slate-500 rounded px-2 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer" 
+                            onchange="updateSchedule('${schedule.id}', 'effect', this.value)">
+                            <option value="none" ${schedule.effect === "none" ? "selected" : ""}>일반 (밝기)</option>
+                            <option value="strobe" ${schedule.effect === "strobe" ? "selected" : ""}>Strobe (깜빡임)</option>
+                            <option value="siren" ${schedule.effect === "siren" ? "selected" : ""}>사이렌 (빨간색)</option>
+                        </select>
+                    </td>
+                    <td class="py-3 px-2">
+                        <div class="flex items-center gap-2 ${isEffectActive ? "opacity-30 pointer-events-none" : ""} transition-opacity">
+                            <input type="range" min="0" max="100" step="5" value="${schedule.brightness}" 
+                                class="w-full md:w-32 accent-blue-500 cursor-pointer"
+                                oninput="document.getElementById('val-${schedule.id}').textContent = this.value + '%'"
+                                onchange="updateSchedule('${schedule.id}', 'brightness', this.value)">
+                            <span id="val-${schedule.id}" class="text-sm font-mono w-10 text-right">${schedule.brightness}%</span>
+                        </div>
+                    </td>
+                    <td class="py-3 px-2 text-center">
+                        <button onclick="removeSchedule('${schedule.id}')" class="text-slate-500 hover:text-red-400 p-2 rounded-full hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400" title="삭제">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </td>
+                `;
+          DOM.scheduleList.appendChild(tr);
+        });
+      }
+
+      // 스케줄 액션 함수들
+      window.updateSchedule = function (id, field, value) {
+        const index = AppState.schedules.findIndex((s) => s.id === id);
+        if (index !== -1) {
+          if (field === "brightness") value = Number(value);
+          AppState.schedules[index][field] = value;
+          renderSchedules();
+          updateClockAndBrightness();
+        }
+      };
+
+      window.updateTime = function (id, type, value) {
+        const index = AppState.schedules.findIndex((s) => s.id === id);
+        if (index !== -1) {
+          let [h, m] = AppState.schedules[index].time.split(":");
+          if (type === "h") {
+            h = String(Math.max(0, Math.min(23, Number(value)))).padStart(
+              2,
+              "0",
+            );
+          } else {
+            m = String(Math.max(0, Math.min(59, Number(value)))).padStart(
+              2,
+              "0",
+            );
+          }
+          AppState.schedules[index].time = `${h}:${m}`;
+          renderSchedules();
+          updateClockAndBrightness();
+        }
+      };
+
+      window.removeSchedule = function (id) {
+        AppState.schedules = AppState.schedules.filter((s) => s.id !== id);
+        renderSchedules();
+        updateClockAndBrightness();
+      };
+
+      // 새 스케줄 추가
+      DOM.addScheduleBtn.addEventListener("click", () => {
+        AppState.schedules.push({
+          id: generateId(),
+          time: "12:00",
+          brightness: 100,
+          effect: "none",
+        });
+        renderSchedules();
+        updateClockAndBrightness();
+      });
+
+      // 앱 활성화/비활성화 토글
+      DOM.appToggleBtn.addEventListener("click", () => {
+        AppState.isActive = !AppState.isActive;
+        if (AppState.isActive) {
+          DOM.appToggleBtn.classList.replace("bg-slate-600", "bg-blue-500");
+          DOM.appToggleKnob.classList.add("translate-x-6");
+          DOM.appToggleKnob.classList.remove("translate-x-1");
+        } else {
+          DOM.appToggleBtn.classList.replace("bg-blue-500", "bg-slate-600");
+          DOM.appToggleKnob.classList.remove("translate-x-6");
+          DOM.appToggleKnob.classList.add("translate-x-1");
+          applyState(100, "none");
+        }
+        updateClockAndBrightness();
+      });
+
+      /* ==============================================
+           긴급 밝기 복구(Failsafe) 이벤트 리스너 등록
+        ============================================== */
+
+      // 1. 키보드 'R' / 'r' 키 입력 감지
+      document.addEventListener("keydown", (e) => {
+        // 입력창(input)에서 타이핑 중일 때는 동작하지 않도록 예외 처리
+        if (e.target.tagName !== "INPUT" && (e.key === "r" || e.key === "R")) {
+          triggerEmergencyReset();
+        }
+      });
+
+      // 2. 마우스 3번 연속 클릭 감지
+      let clickCount = 0;
+      let clickTimeout = null;
+
+      document.addEventListener("click", (e) => {
+        clickCount++;
+
+        // 타이머 초기화 (클릭 간의 허용 시간 간격)
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+        }
+
+        if (clickCount >= 3) {
+          triggerEmergencyReset();
+          clickCount = 0; // 초기화
+        } else {
+          // 600ms(0.6초) 이내에 다음 클릭이 없으면 카운트 초기화
+          clickTimeout = setTimeout(() => {
+            clickCount = 0;
+          }, 600);
+        }
+      });
+
+      // 초기화 및 타이머 시작
+      function init() {
+        renderSchedules();
+        updateClockAndBrightness();
+        setInterval(updateClockAndBrightness, 1000);
+      }
+
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spring Transactional Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pulse-border {
+            0% { border-color: rgba(59, 130, 246, 0.5); }
+            50% { border-color: rgba(59, 130, 246, 1); }
+            100% { border-color: rgba(59, 130, 246, 0.5); }
+        }
+        .active-tx {
+            animation: pulse-border 2s infinite;
+            border-width: 4px;
+            background-color: rgba(239, 246, 255, 1);
+        }
+        .tx-label {
+            position: absolute;
+            top: -12px;
+            right: 12px;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+        .log-entry {
+            border-left: 2px solid #e5e7eb;
+            padding-left: 1rem;
+            margin-bottom: 0.5rem;
+            transition: all 0.3s ease;
+        }
+        .log-entry.error { border-left-color: #ef4444; color: #b91c1c; }
+        .log-entry.success { border-left-color: #10b981; color: #047857; }
+        .log-entry.info { border-left-color: #3b82f6; color: #1d4ed8; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 md:p-8 font-sans">
+<div class="max-w-6xl mx-auto">
+    <header class="mb-8 text-center">
+        <h1 class="text-3xl font-bold text-gray-800 flex items-center justify-center gap-2">
+            🌱 Spring @Transactional Simulator
+        </h1>
+        <p class="text-gray-600 mt-2">트랜잭션 전파(Propagation) 옵션이 실제 런타임에서 어떻게 동작하는지 시뮬레이션하세요.</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Configuration Panel -->
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-6">
+            <div>
+                <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                    ⚙️ 설정 (Configuration)
+                </h2>
+
+                <div class="space-y-6">
+                    <!-- Method A Settings -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Method A (Outer)</label>
+                        <select id="methodA_tx" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="REQUIRED">@Transactional (REQUIRED)</option>
+                            <option value="NONE">No Transaction</option>
+                        </select>
+                    </div>
+
+                    <!-- Method B Settings -->
+                    <div class="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                        <label class="block text-sm font-medium text-blue-800 mb-2">Method B (Inner) Propagation</label>
+                        <select id="methodB_prop" onchange="updatePropDesc()" class="w-full p-2 border border-blue-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none mb-4 text-blue-900 font-bold">
+                            <option value="REQUIRED">REQUIRED (Default)</option>
+                            <option value="REQUIRES_NEW">REQUIRES_NEW</option>
+                            <option value="MANDATORY">MANDATORY</option>
+                            <option value="NESTED">NESTED</option>
+                            <option value="SUPPORTS">SUPPORTS</option>
+                            <option value="NOT_SUPPORTED">NOT_SUPPORTED</option>
+                            <option value="NEVER">NEVER</option>
+                        </select>
+
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="methodB_fail" class="w-4 h-4 text-blue-600 rounded">
+                            <label for="methodB_fail" class="text-sm text-blue-800 font-medium italic">Method B에서 RuntimeException 발생</label>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Description Box -->
+                    <div id="prop_desc_box" class="p-4 bg-gray-100 rounded-lg border border-gray-200 text-sm text-gray-700 leading-relaxed transition-all">
+                        <strong class="block text-gray-900 mb-1" id="prop_title">REQUIRED</strong>
+                        <span id="prop_desc">부모 트랜잭션이 존재하면 참여하고, 없으면 새로운 트랜잭션을 시작합니다. 가장 기본이 되는 옵션입니다.</span>
+                    </div>
+
+                    <button onclick="runSimulation()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg active:scale-95">
+                        시뮬레이션 시작 ▶
+                    </button>
+
+                    <button onclick="resetSim()" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-medium py-2 px-4 rounded-lg transition-colors">
+                        초기화
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Visualization Canvas -->
+        <div class="lg:col-span-2 space-y-6">
+            <div class="bg-white p-8 rounded-xl shadow-sm border border-gray-200 min-h-[400px] flex flex-col items-center justify-center relative overflow-hidden">
+                <h2 class="absolute top-4 left-4 text-sm font-bold text-gray-400 uppercase tracking-widest">Visualizer</h2>
+
+                <!-- Method A Box -->
+                <div id="boxA" class="relative w-full max-w-lg border-2 border-dashed border-gray-300 rounded-2xl p-12 transition-all duration-500">
+                    <span class="absolute top-2 left-4 text-xs font-bold text-gray-400">METHOD A (OUTER)</span>
+                    <div id="txLabelA" class="tx-label bg-gray-400 text-white hidden">TX #1</div>
+
+                    <!-- Method B Box -->
+                    <div id="boxB" class="relative mt-8 border-2 border-dashed border-gray-300 rounded-xl p-10 transition-all duration-500">
+                        <span class="absolute top-2 left-4 text-xs font-bold text-gray-400">METHOD B (INNER)</span>
+                        <div id="txLabelB" class="tx-label bg-gray-400 text-white hidden">TX #2</div>
+
+                        <div class="flex flex-col items-center gap-2">
+                            <div id="methodB_content" class="text-gray-400 font-medium text-center">Ready...</div>
+                            <div id="exceptionIcon" class="hidden text-red-500 text-2xl">⚠️ RuntimeException!</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Execution Logs -->
+            <div class="bg-slate-900 text-gray-100 p-6 rounded-xl shadow-inner font-mono text-sm h-64 overflow-y-auto" id="logContainer">
+                <div class="text-gray-500 italic mb-2">// 실행 로그가 여기에 표시됩니다.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const logContainer = document.getElementById('logContainer');
+    const boxA = document.getElementById('boxA');
+    const boxB = document.getElementById('boxB');
+    const txLabelA = document.getElementById('txLabelA');
+    const txLabelB = document.getElementById('txLabelB');
+    const methodBContent = document.getElementById('methodB_content');
+    const exceptionIcon = document.getElementById('exceptionIcon');
+
+    const descriptions = {
+        "REQUIRED": "부모 트랜잭션이 존재하면 참여하고, 없으면 새로운 트랜잭션을 시작합니다. 가장 일반적인 기본 옵션입니다.",
+        "REQUIRES_NEW": "항상 새로운 트랜잭션을 시작합니다. 부모 트랜잭션이 있다면 잠시 중단(Suspend)시키고 자신의 트랜잭션을 처리한 뒤 복귀합니다.",
+        "MANDATORY": "부모 트랜잭션 내에서만 실행 가능합니다. 부모 트랜잭션이 없으면 예외를 발생시킵니다.",
+        "NESTED": "부모 트랜잭션이 있으면 중첩 트랜잭션을 만듭니다(Savepoint 활용). 부모 롤백 시 함께 롤백되지만, 자신의 롤백은 부모에게 영향을 주지 않을 수 있습니다.",
+        "SUPPORTS": "부모 트랜잭션이 있으면 참여하고, 없으면 트랜잭션 없이 진행합니다.",
+        "NOT_SUPPORTED": "트랜잭션 없이 실행합니다. 부모 트랜잭션이 존재하면 해당 트랜잭션을 잠시 중단시킵니다.",
+        "NEVER": "트랜잭션 없이 실행되어야 합니다. 부모 트랜잭션이 존재하면 예외를 발생시킵니다."
+    };
+
+    function updatePropDesc() {
+        const prop = document.getElementById('methodB_prop').value;
+        document.getElementById('prop_title').innerText = prop;
+        document.getElementById('prop_desc').innerText = descriptions[prop];
+    }
+
+    function addLog(msg, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        const time = new Date().toLocaleTimeString([], { hour12: false, minute: "2-digit", second: "2-digit" });
+        entry.innerHTML = `<span class="text-gray-500 text-xs">[${time}]</span> ${msg}`;
+        logContainer.appendChild(entry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    function resetSim() {
+        boxA.className = 'relative w-full max-w-lg border-2 border-dashed border-gray-300 rounded-2xl p-12 transition-all duration-500';
+        boxB.className = 'relative mt-8 border-2 border-dashed border-gray-300 rounded-xl p-10 transition-all duration-500';
+        txLabelA.classList.add('hidden');
+        txLabelB.classList.add('hidden');
+        exceptionIcon.classList.add('hidden');
+        methodBContent.innerText = "Ready...";
+        methodBContent.classList.remove('text-red-500', 'text-green-500');
+        logContainer.innerHTML = '<div class="text-gray-500 italic mb-2">// 시뮬레이션 대기 중...</div>';
+    }
+
+    async function wait(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function runSimulation() {
+        resetSim();
+        const configA = document.getElementById('methodA_tx').value;
+        const configB = document.getElementById('methodB_prop').value;
+        const failB = document.getElementById('methodB_fail').checked;
+
+        addLog(`시뮬레이션 시작: A(${configA}) -> B(${configB})`, "info");
+        await wait(600);
+
+        // 1. Method A Start
+        let hasParentTx = configA === "REQUIRED";
+        addLog(`Method A 호출됨`);
+
+        if (hasParentTx) {
+            boxA.classList.add('active-tx', 'border-blue-500');
+            txLabelA.innerText = "TX #1 (Active)";
+            txLabelA.classList.remove('hidden', 'bg-gray-400');
+            txLabelA.classList.add('bg-blue-500');
+            addLog("Transaction Manager: 새로운 트랜잭션(TX #1) 생성", "success");
+        } else {
+            addLog("Transaction Manager: 비-트랜잭션 모드로 실행");
+        }
+
+        await wait(1000);
+
+        // 2. Method B Start
+        addLog(`Method B 호출됨 (Propagation: ${configB})`);
+        let bTxStatus = "NONE";
+
+        switch(configB) {
+            case "REQUIRED":
+                if (hasParentTx) {
+                    bTxStatus = "JOIN";
+                    addLog("REQUIRED: 기존 트랜잭션(TX #1)에 참여", "info");
+                } else {
+                    bTxStatus = "NEW";
+                    addLog("REQUIRED: 신규 트랜잭션(TX #2) 생성", "success");
+                }
+                break;
+            case "REQUIRES_NEW":
+                if (hasParentTx) {
+                    addLog("REQUIRES_NEW: TX #1 일시 중단(Suspend)", "info");
+                    boxA.classList.remove('active-tx');
+                    boxA.classList.add('opacity-50');
+                    txLabelA.innerText = "TX #1 (Suspended)";
+                    txLabelA.classList.replace('bg-blue-500', 'bg-yellow-600');
+                }
+                bTxStatus = "NEW";
+                addLog("REQUIRES_NEW: 신규 트랜잭션(TX #2) 생성", "success");
+                break;
+            case "MANDATORY":
+                if (!hasParentTx) {
+                    bTxStatus = "ERROR";
+                    addLog("MANDATORY: 기존 트랜잭션 부재! 예외 발생", "error");
+                } else {
+                    bTxStatus = "JOIN";
+                    addLog("MANDATORY: 기존 트랜잭션(TX #1)에 참여", "info");
+                }
+                break;
+            case "NESTED":
+                if (hasParentTx) {
+                    bTxStatus = "JOIN";
+                    addLog("NESTED: TX #1 내부에 세이브포인트 생성", "info");
+                } else {
+                    bTxStatus = "NEW";
+                    addLog("NESTED: 부모 트랜잭션이 없으므로 신규 TX #2 생성", "success");
+                }
+                break;
+            case "SUPPORTS":
+                if (hasParentTx) {
+                    bTxStatus = "JOIN";
+                    addLog("SUPPORTS: 기존 트랜잭션(TX #1)에 참여", "info");
+                } else {
+                    addLog("SUPPORTS: 트랜잭션 없이 실행");
+                }
+                break;
+            case "NOT_SUPPORTED":
+                if (hasParentTx) {
+                    addLog("NOT_SUPPORTED: TX #1 일시 중단 후 비-트랜잭션 실행", "info");
+                    boxA.classList.remove('active-tx');
+                    boxA.classList.add('opacity-50');
+                    txLabelA.innerText = "TX #1 (Suspended)";
+                }
+                break;
+            case "NEVER":
+                if (hasParentTx) {
+                    bTxStatus = "ERROR";
+                    addLog("NEVER: 기존 트랜잭션 존재! 예외 발생", "error");
+                }
+                break;
+        }
+
+        // UI Update for B
+        if (bTxStatus === "JOIN") {
+            boxB.classList.add('active-tx', 'border-blue-500');
+            txLabelB.innerText = configB === "NESTED" ? "TX #1 (Nested)" : "TX #1 (Joined)";
+            txLabelB.classList.remove('hidden', 'bg-gray-400');
+            txLabelB.classList.add('bg-blue-500');
+        } else if (bTxStatus === "NEW") {
+            boxB.classList.add('active-tx', 'border-green-500');
+            txLabelB.innerText = "TX #2 (New)";
+            txLabelB.classList.remove('hidden', 'bg-gray-400');
+            txLabelB.classList.add('bg-green-500');
+        } else if (bTxStatus === "ERROR") {
+            boxB.classList.add('border-red-500', 'bg-red-50');
+            exceptionIcon.classList.remove('hidden');
+            methodBContent.innerText = "Transaction Exception!";
+            addLog("Propagation 규칙 위반: IllegalTransactionStateException", "error");
+            return;
+        }
+
+        methodBContent.innerText = "비즈니스 로직 B 실행 중...";
+        await wait(1500);
+
+        // 3. Method B Result
+        let bFailed = failB;
+        if (bFailed) {
+            exceptionIcon.classList.remove('hidden');
+            methodBContent.innerText = "로직 B 실패 (Exception)";
+            methodBContent.classList.add('text-red-500');
+            addLog("Method B: RuntimeException 발생", "error");
+
+            if (bTxStatus === "JOIN" && configB !== "NESTED") {
+                addLog("참여 중인 TX #1을 rollback-only로 마킹", "error");
+                txLabelA.innerText = "TX #1 (Rollback Only)";
+                txLabelA.classList.replace('bg-blue-500', 'bg-red-500');
+            } else if (bTxStatus === "JOIN" && configB === "NESTED") {
+                addLog("NESTED: 세이브포인트로 롤백 (부모 트랜잭션 영향 미미)", "info");
+                txLabelB.innerText = "TX #1 (Savepoint Rollback)";
+            } else if (bTxStatus === "NEW") {
+                addLog("TX #2를 롤백합니다.", "error");
+                boxB.classList.replace('active-tx', 'border-red-300');
+                txLabelB.innerText = "TX #2 (Rolled back)";
+                txLabelB.classList.replace('bg-green-500', 'bg-red-500');
+            }
+        } else {
+            methodBContent.innerText = "로직 B 성공";
+            methodBContent.classList.add('text-green-500');
+            addLog("Method B: 정상 종료");
+
+            if (bTxStatus === "NEW") {
+                addLog("TX #2를 커밋(Commit)합니다.", "success");
+                boxB.classList.remove('active-tx');
+                txLabelB.innerText = "TX #2 (Committed)";
+            }
+        }
+
+        await wait(1000);
+
+        // 4. Back to A
+        addLog("Method A로 제어권 복귀");
+        if (configB === "REQUIRES_NEW" || configB === "NOT_SUPPORTED") {
+            if (hasParentTx) {
+                addLog("중단되었던 TX #1을 재개(Resume)합니다.");
+                boxA.classList.remove('opacity-50');
+                boxA.classList.add('active-tx');
+                txLabelA.innerText = "TX #1 (Active)";
+                txLabelA.classList.replace('bg-yellow-600', 'bg-blue-500');
+            }
+        }
+
+        await wait(1000);
+
+        // 5. Finalize A
+        if (hasParentTx) {
+            if (bFailed && bTxStatus === "JOIN" && configB !== "NESTED") {
+                addLog("Method A 최종 결과: TX #1이 rollback-only 상태이므로 강제 롤백", "error");
+                boxA.classList.replace('active-tx', 'border-red-300');
+                txLabelA.innerText = "TX #1 (Final Rolled back)";
+            } else {
+                addLog("Method A 최종 결과: TX #1 커밋 완료", "success");
+                boxA.classList.remove('active-tx');
+                txLabelA.innerText = "TX #1 (Committed)";
+            }
+        }
+
+        addLog("시뮬레이션 종료.", "info");
+    }
+</script>
+</body>
+</html>

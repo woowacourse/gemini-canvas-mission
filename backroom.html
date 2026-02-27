@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Backrooms - Balanced Maze</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        canvas { display: block; }
+
+        /* UI 레이어 */
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #4a412a;
+            pointer-events: none;
+            z-index: 60;
+            background: rgba(219, 197, 122, 0.4);
+            padding: 12px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.2);
+        }
+        .key-count { font-size: 18px; font-weight: bold; font-family: 'Courier New', Courier, monospace; letter-spacing: 1px; }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 6px;
+            height: 6px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 60;
+        }
+
+        /* 메뉴 오버레이 */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #111;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #ddd;
+            z-index: 100;
+            text-align: center;
+            transition: opacity 0.5s;
+        }
+
+        h1 { font-size: 3rem; margin-bottom: 10px; color: #dbc57a; letter-spacing: 4px; text-transform: uppercase; }
+        p { font-size: 1.1rem; margin-bottom: 30px; max-width: 600px; line-height: 1.6; color: #aaa; }
+        .btn {
+            padding: 14px 50px;
+            font-size: 1.1rem;
+            background: #dbc57a;
+            color: #111;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+            text-transform: uppercase;
+            box-shadow: 0 4px 0 #8e7d4d;
+        }
+        .btn:hover { background: #fff; transform: translateY(-2px); }
+        .btn:active { transform: translateY(2px); box-shadow: none; }
+
+        .hidden { display: none !important; opacity: 0; }
+
+        #msg { position: absolute; bottom: 40px; width: 100%; text-align: center; color: #dbc57a; font-size: 1.1rem; font-weight: bold; z-index: 60; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+
+        #vignette {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            box-shadow: inset 0 0 150px rgba(0,0,0,0.7);
+            pointer-events: none;
+            z-index: 55;
+        }
+    </style>
+</head>
+<body>
+
+<div id="vignette"></div>
+<div id="hud">
+    <div class="key-count">SYSTEM STATUS: <span id="keys-found">0</span>/3 KEYS DETECTED</div>
+</div>
+<div id="crosshair"></div>
+<div id="msg"></div>
+
+<div id="screen-start" class="overlay">
+    <h1>THE BACKROOMS</h1>
+    <p>현실에서 격리된 공간입니다.<br>무한히 반복되는 복도에서 3개의 글리치 열쇠를 찾아 탈출하십시오.<br><br><strong>조작: WASD(이동), 마우스(시선)</strong></p>
+    <button class="btn" id="start-btn">탐험 개시</button>
+</div>
+
+<div id="screen-gameover" class="overlay hidden" style="background: #050000;">
+    <h1 style="color: #a00;">SIGNAL LOST</h1>
+    <p>기록이 중단되었습니다. 정체불명의 개체와 조우했습니다.</p>
+    <button class="btn" id="retry-btn-fail" style="background: #a00; color: #fff; box-shadow: 0 4px 0 #500;">재시도</button>
+</div>
+
+<div id="screen-win" class="overlay hidden">
+    <h1 style="color: #2c5;">NOCLIP SUCCESS</h1>
+    <p>축하합니다. 현실 세계로 무사히 복귀했습니다.</p>
+    <button class="btn" id="retry-btn-win" style="background: #2c5; color: #111; box-shadow: 0 4px 0 #183;">다시 하기</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+    let scene, camera, renderer, clock;
+    let keysFound = 0;
+    let isGameOver = false;
+    let isLocked = false;
+
+    // 플레이어 속도 상향 (7.5 -> 8.5)
+    let player = { height: 1.6, speed: 8.5, radius: 0.3, shake: 0 };
+    let ghost;
+    let ghostLimbs = [];
+    let keys = [];
+    let exitDoor;
+    let walls = [];
+
+    const moveState = { forward: false, backward: false, left: false, right: false };
+
+    function init() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a15);
+
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(2, player.height, 2);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.BasicShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        clock = new THREE.Clock();
+
+        const ambientLight = new THREE.AmbientLight(0xfffae0, 0.4);
+        scene.add(ambientLight);
+
+        createWorld();
+        createGhost();
+        spawnItems();
+
+        setupControls();
+        animate();
+    }
+
+    function createWorld() {
+        const floorGeo = new THREE.PlaneGeometry(100, 100);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x7a6c4a, roughness: 0.9 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        const ceilMat = new THREE.MeshStandardMaterial({ color: 0xcfc8a9, roughness: 0.8 });
+        const ceil = new THREE.Mesh(floorGeo, ceilMat);
+        ceil.rotation.x = Math.PI / 2;
+        ceil.position.y = 3.2;
+        scene.add(ceil);
+
+        const wallColor = 0xdbc57a;
+        const trimColor = 0x4a412a;
+
+        const createWall = (x, z, w, d) => {
+            const group = new THREE.Group();
+            const h = 3.2;
+
+            const wallGeo = new THREE.BoxGeometry(w, h, d);
+            const wallMat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.7 });
+            const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+            wallMesh.position.y = h/2;
+            group.add(wallMesh);
+
+            const trimGeo = new THREE.BoxGeometry(w + 0.05, 0.15, d + 0.05);
+            const trimMat = new THREE.MeshStandardMaterial({ color: trimColor });
+            const trimMesh = new THREE.Mesh(trimGeo, trimMat);
+            trimMesh.position.y = 0.075;
+            group.add(trimMesh);
+
+            group.position.set(x, 0, z);
+            scene.add(group);
+
+            const wallBox = new THREE.Box3().setFromCenterAndSize(
+                new THREE.Vector3(x, h/2, z),
+                new THREE.Vector3(w, h, d)
+            );
+            walls.push(wallBox);
+        };
+
+        const createCeilingLight = (x, z) => {
+            const lightGroup = new THREE.Group();
+            const fixtureGeo = new THREE.PlaneGeometry(1.2, 0.6);
+            const fixtureMat = new THREE.MeshStandardMaterial({
+                color: 0x000000,
+                emissive: 0xffffee,
+                emissiveIntensity: 1.8
+            });
+            const fixture = new THREE.Mesh(fixtureGeo, fixtureMat);
+            fixture.rotation.x = Math.PI / 2;
+            fixture.position.y = 3.19;
+            lightGroup.add(fixture);
+
+            const pLight = new THREE.PointLight(0xfff9d6, 0.5, 15);
+            pLight.position.set(0, 3.0, 0);
+            lightGroup.add(pLight);
+
+            lightGroup.position.set(x, 0, z);
+            scene.add(lightGroup);
+        };
+
+        createWall(0, 50, 100, 1);
+        createWall(0, -50, 100, 1);
+        createWall(50, 0, 1, 100);
+        createWall(-50, 0, 1, 100);
+
+        const mazeData = [
+            {x: -15, z: -15, w: 20, d: 2}, {x: -5, z: 5, w: 2, d: 20},
+            {x: 10, z: 15, w: 25, d: 2}, {x: 25, z: -10, w: 2, d: 30},
+            {x: -30, z: 0, w: 2, d: 40}, {x: 0, z: 30, w: 40, d: 2},
+            {x: 15, z: -30, w: 2, d: 20}, {x: -20, z: -35, w: 30, d: 2},
+            {x: 35, z: 20, w: 2, d: 20}, {x: -40, z: 20, w: 10, d: 2},
+            {x: 5, z: -15, w: 2, d: 15}
+        ];
+        mazeData.forEach(m => createWall(m.x, m.z, m.w, m.d));
+
+        for(let ix = -40; ix <= 40; ix += 20) {
+            for(let iz = -40; iz <= 40; iz += 20) {
+                createCeilingLight(ix, iz);
+            }
+        }
+
+        const doorGeo = new THREE.BoxGeometry(2.5, 3, 0.3);
+        const doorMat = new THREE.MeshStandardMaterial({ color: 0x111, metalness: 0.6 });
+        exitDoor = new THREE.Mesh(doorGeo, doorMat);
+        scene.add(exitDoor);
+        randomizeExit();
+    }
+
+    function randomizeExit() {
+        const spots = [{ x: 48, z: 30, r: 0 }, { x: -48, z: -30, r: 0 }, { x: 30, z: 48, r: Math.PI/2 }, { x: -30, z: -48, r: Math.PI/2 }];
+        const spot = spots[Math.floor(Math.random() * spots.length)];
+        exitDoor.position.set(spot.x, 1.5, spot.z);
+        exitDoor.rotation.y = spot.r;
+        exitDoor.visible = false;
+    }
+
+    function createGhost() {
+        const ghostGroup = new THREE.Group();
+        const blackMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.1, 2.6, 6), blackMat);
+        torso.position.y = 1.3;
+        ghostGroup.add(torso);
+        for(let i=0; i<10; i++) {
+            const limbLen = 1.8 + Math.random();
+            const limb = new THREE.Mesh(new THREE.BoxGeometry(0.02, limbLen, 0.02), blackMat);
+            const pivot = new THREE.Group();
+            pivot.position.y = 0.5 + Math.random() * 2;
+            limb.position.y = -limbLen/2;
+            pivot.add(limb);
+            pivot.rotation.x = Math.random() * Math.PI;
+            pivot.rotation.z = Math.random() * Math.PI;
+            ghostGroup.add(pivot);
+            ghostLimbs.push(pivot);
+        }
+        ghost = ghostGroup;
+        scene.add(ghost);
+        resetGhostPosition();
+    }
+
+    function resetGhostPosition() { ghost.position.set(-45, 0, -45); }
+
+    function spawnItems() {
+        keys.forEach(k => scene.remove(k));
+        keys = [];
+        const spots = [{x: 40, z: -40}, {x: -40, z: 40}, {x: 10, z: 25}, {x: -25, z: -10}, {x: 5, z: 5}, {x: -15, z: -45}, {x: 35, z: 0}];
+        const selected = spots.sort(() => 0.5 - Math.random()).slice(0, 3);
+        selected.forEach(loc => {
+            const key = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.04, 8, 16), new THREE.MeshStandardMaterial({ color: 0x000, emissive: 0xffd700, emissiveIntensity: 0.5 }));
+            key.position.set(loc.x, 0.8, loc.z);
+            scene.add(key);
+            keys.push(key);
+        });
+    }
+
+    function setupControls() {
+        const handleKey = (e, isDown) => {
+            const code = e.code;
+            const key = e.key.toLowerCase();
+            if (code === 'KeyW' || key === 'w' || key === 'arrowup') moveState.forward = isDown;
+            if (code === 'KeyS' || key === 's' || key === 'arrowdown') moveState.backward = isDown;
+            if (code === 'KeyA' || key === 'a' || key === 'arrowleft') moveState.left = isDown;
+            if (code === 'KeyD' || key === 'd' || key === 'arrowright') moveState.right = isDown;
+        };
+
+        window.addEventListener('keydown', (e) => handleKey(e, true));
+        window.addEventListener('keyup', (e) => handleKey(e, false));
+        document.getElementById('start-btn').addEventListener('click', () => document.body.requestPointerLock());
+        document.getElementById('retry-btn-fail').addEventListener('click', resetGame);
+        document.getElementById('retry-btn-win').addEventListener('click', resetGame);
+
+        document.addEventListener('pointerlockchange', () => {
+            isLocked = (document.pointerLockElement === document.body);
+            if (isLocked) {
+                document.getElementById('screen-start').classList.add('hidden');
+                document.getElementById('screen-gameover').classList.add('hidden');
+                document.getElementById('screen-win').classList.add('hidden');
+            } else {
+                Object.keys(moveState).forEach(k => moveState[k] = false);
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isLocked || isGameOver) return;
+            camera.rotation.y -= e.movementX * 0.0025;
+            camera.rotation.x -= e.movementY * 0.0025;
+            camera.rotation.x = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, camera.rotation.x));
+        });
+        camera.rotation.order = 'YXZ';
+    }
+
+    function resetGame() {
+        keysFound = 0; isGameOver = false;
+        document.getElementById('keys-found').innerText = "0";
+        camera.position.set(2, player.height, 2);
+        camera.rotation.set(0, 0, 0);
+        resetGhostPosition(); randomizeExit(); spawnItems();
+        document.body.requestPointerLock();
+    }
+
+    function checkCollision(pos) {
+        const playerBox = new THREE.Box3().setFromCenterAndSize(
+            pos,
+            new THREE.Vector3(player.radius * 2, 2.0, player.radius * 2)
+        );
+        for (let i = 0; i < walls.length; i++) {
+            if (playerBox.intersectsBox(walls[i])) return true;
+        }
+        return false;
+    }
+
+    function update(delta) {
+        if (!isLocked || isGameOver) return;
+
+        // 이동 벡터 계산
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        forward.y = 0;
+        forward.normalize();
+
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        right.y = 0;
+        right.normalize();
+
+        const moveVec = new THREE.Vector3(0, 0, 0);
+        if (moveState.forward) moveVec.add(forward);
+        if (moveState.backward) moveVec.sub(forward);
+        if (moveState.left) moveVec.sub(right);
+        if (moveState.right) moveVec.add(right);
+
+        if (moveVec.length() > 0) {
+            moveVec.normalize();
+            const moveDist = player.speed * delta;
+
+            const currentPos = camera.position.clone();
+
+            const nextX = currentPos.clone();
+            nextX.x += moveVec.x * moveDist;
+            if (!checkCollision(nextX)) {
+                camera.position.x = nextX.x;
+            }
+
+            const nextZ = camera.position.clone();
+            nextZ.z += moveVec.z * moveDist;
+            if (!checkCollision(nextZ)) {
+                camera.position.z = nextZ.z;
+            }
+        }
+
+        // 괴물 AI 밸런싱 (기본 속도 4.0, 열쇠당 가중치 1.0)
+        const ghostToPlayer = new THREE.Vector3().subVectors(camera.position, ghost.position);
+        const horizontalDist = new THREE.Vector2(ghostToPlayer.x, ghostToPlayer.z).length();
+
+        const ghostSpeed = (4.0 + (keysFound * 1.0)) * delta;
+        ghostToPlayer.y = 0;
+        ghost.position.addScaledVector(ghostToPlayer.normalize(), ghostSpeed);
+        ghost.lookAt(camera.position.x, 1.3, camera.position.z);
+
+        ghostLimbs.forEach((limb, i) => {
+            limb.rotation.x += Math.sin(Date.now() * 0.01 + i) * 0.12;
+            limb.rotation.z += Math.cos(Date.now() * 0.012 + i) * 0.12;
+        });
+
+        // 공포 효과 및 충돌
+        if (horizontalDist < 10) {
+            player.shake = (10 - horizontalDist) * 0.03;
+            if (horizontalDist < 1.1) {
+                endGame(false);
+                return;
+            }
+        } else { player.shake = 0; }
+
+        if (player.shake > 0) {
+            camera.position.x += (Math.random() - 0.5) * player.shake;
+            camera.position.y = player.height + (Math.random() - 0.5) * player.shake;
+        } else {
+            camera.position.y = player.height;
+        }
+
+        // 열쇠 수집
+        keys.forEach((k) => {
+            if (k.visible) {
+                k.rotation.y += 0.05;
+                if (k.position.distanceTo(camera.position) < 1.5) {
+                    k.visible = false;
+                    keysFound++;
+                    document.getElementById('keys-found').innerText = keysFound;
+                    showMessage("글리치 열쇠를 획득했습니다.");
+                    if (keysFound === 3) {
+                        exitDoor.visible = true;
+                        exitDoor.material.emissive.setHex(0x22ff22);
+                        showMessage("탈출구 근처에 차원 균열이 발생했습니다.");
+                    }
+                }
+            }
+        });
+
+        if (keysFound === 3 && camera.position.distanceTo(exitDoor.position) < 2.0) {
+            endGame(true);
+        }
+    }
+
+    function showMessage(txt) {
+        const el = document.getElementById('msg');
+        el.innerText = txt;
+        setTimeout(() => { if(el.innerText === txt) el.innerText = ""; }, 3000);
+    }
+
+    function endGame(victory) {
+        if (isGameOver) return;
+        isGameOver = true;
+        isLocked = false;
+        document.exitPointerLock();
+        if (victory) document.getElementById('screen-win').classList.remove('hidden');
+        else document.getElementById('screen-gameover').classList.remove('hidden');
+    }
+
+    function animate() {
+        const delta = Math.min(clock.getDelta(), 0.05);
+        update(delta);
+        renderer.render(scene, camera);
+        requestAnimationFrame(animate);
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    window.onload = init;
+</script>
+</body>
+</html>

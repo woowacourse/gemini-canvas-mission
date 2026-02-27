@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spring Request Flow Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        :root {
+            --primary: #00C473;
+            --primary-dark: #00a35f;
+            --bg-gray: #f8fafc;
+            --card-border: #e2e8f0;
+            --text-main: #1e293b;
+            --error: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: var(--bg-gray);
+            color: var(--text-main);
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .code-font {
+            font-family: 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', monospace;
+        }
+
+        /* Layout - 고정 높이 레이아웃 */
+        .app-container {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Panels */
+        .sidebar, .info-panel {
+            background: white;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* 내부 개별 요소에서 스크롤 제어 */
+        }
+        .sidebar { border-right: 1px solid var(--card-border); }
+        .info-panel { border-left: 1px solid var(--card-border); gap: 0.75rem; }
+
+        .canvas-area {
+            background: #f1f5f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            position: relative;
+        }
+
+        /* Diagram Nodes - 크기 최적화 */
+        #diagramContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            width: 100%;
+        }
+
+        .node {
+            background: white;
+            border: 2px solid var(--card-border);
+            border-radius: 0.5rem;
+            padding: 0.4rem 0.75rem;
+            width: 170px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.75rem;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .node.active {
+            border-color: var(--primary);
+            background-color: #ecfdf5;
+            box-shadow: 0 0 0 3px rgba(0, 196, 115, 0.2);
+            transform: scale(1.05);
+        }
+
+        .node.error-state {
+            border-color: var(--error);
+            background-color: #fef2f2;
+            animation: shake 0.4s ease-in-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-3px); }
+            75% { transform: translateX(3px); }
+        }
+
+        .connector {
+            width: 2px;
+            height: 18px;
+            background: #cbd5e1;
+            position: relative;
+        }
+        .connector::after {
+            content: '▼';
+            position: absolute;
+            bottom: -6px;
+            left: -4px;
+            font-size: 8px;
+            color: #cbd5e1;
+        }
+        .connector.active { background: var(--primary); }
+        .connector.active::after { color: var(--primary); }
+
+        /* Scrollable areas inside panels */
+        .scroll-v { overflow-y: auto; flex-grow: 1; }
+
+        /* Console - 높이 고정 */
+        .console {
+            background: #0f172a;
+            color: #38bdf8;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            font-size: 0.7rem;
+            height: 140px;
+            overflow-y: auto;
+            border: 1px solid #1e293b;
+        }
+
+        .tx-status {
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-weight: 700;
+            font-size: 0.7rem;
+        }
+        .tx-none { background: #e2e8f0; color: #64748b; }
+        .tx-active { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+        .tx-committed { background: #dbeafe; color: #1e40af; }
+        .tx-rolledback { background: #fee2e2; color: #991b1b; }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            padding: 0.6rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+
+        /* Response Card Mini */
+        #responseCard {
+            background: #1e293b;
+            padding: 0.75rem;
+            border-radius: 0.75rem;
+            color: white;
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <!-- 1. Left Panel -->
+    <aside class="sidebar">
+        <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+            <span class="w-3 h-3 bg-green-500 rounded-full"></span>
+            Scenario Setting
+        </h2>
+
+        <div class="space-y-4 flex-grow scroll-v pr-1">
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Method & Path</label>
+                <div class="flex gap-1">
+                    <select id="httpMethod" class="bg-gray-50 border border-gray-300 text-xs rounded p-1.5 outline-none focus:border-green-500">
+                        <option>GET</option>
+                        <option selected>POST</option>
+                        <option>PUT</option>
+                        <option>DELETE</option>
+                    </select>
+                    <input type="text" id="httpPath" value="/api/orders" class="bg-gray-50 border border-gray-300 text-xs rounded p-1.5 flex-grow outline-none focus:border-green-500">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Request Body</label>
+                <textarea id="requestBody" class="w-full h-24 p-2 bg-gray-50 border border-gray-300 rounded text-[10px] code-font leading-relaxed" spellcheck="false">{
+  "productId": 102,
+  "qty": 2,
+  "comment": "Fast delivery, please"
+}</textarea>
+            </div>
+
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Failure Trigger</label>
+                <div class="space-y-0.5">
+                    <label class="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs">
+                        <input type="radio" name="trigger" value="none" checked class="accent-green-600">
+                        <span>✅ 정상 흐름 (200)</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs">
+                        <input type="radio" name="trigger" value="400" class="accent-green-600">
+                        <span>⚠️ Validation 실패 (400)</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs">
+                        <input type="radio" name="trigger" value="401" class="accent-green-600">
+                        <span>🔒 인증 실패 (401)</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs">
+                        <input type="radio" name="trigger" value="409" class="accent-green-600">
+                        <span>💥 비즈니스 충돌 (409)</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs">
+                        <input type="radio" name="trigger" value="500" class="accent-green-600">
+                        <span>🔥 DB 예외 (500)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="pt-2 border-t">
+                <label class="flex items-center gap-2 cursor-pointer font-bold text-xs">
+                    <input type="checkbox" id="useTransactional" checked class="w-3 h-3 accent-green-600">
+                    <span>@Transactional 적용</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="mt-4 pt-4 border-t space-y-2">
+            <button id="startBtn" onclick="initSimulation()" class="w-full btn-primary flex items-center justify-center gap-2 hover:bg-green-600 transition-colors">
+                ▶ 시뮬레이션 시작
+            </button>
+            <div class="flex gap-2">
+                <button id="nextBtn" onclick="nextStep()" disabled class="flex-grow border border-gray-200 p-2 rounded text-xs font-bold hover:bg-gray-50 disabled:opacity-30">
+                    다음 단계 ⏭
+                </button>
+                <button onclick="resetSimulation()" class="p-2 border border-gray-200 rounded hover:bg-gray-50">
+                    ↺
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- 2. Center Panel -->
+    <main class="canvas-area">
+        <div id="diagramContainer"></div>
+    </main>
+
+    <!-- 3. Right Panel -->
+    <section class="info-panel">
+        <!-- Step Info Card -->
+        <div id="stepInfoCard" class="bg-green-50 border border-green-100 p-3 rounded-lg flex flex-col max-h-[45%]">
+            <div class="flex justify-between items-start mb-1">
+                <h3 id="stepTitle" class="text-green-800 font-bold text-sm">준비 완료</h3>
+                <span id="scenarioTag" class="text-[9px] bg-green-200 text-green-800 px-1.5 py-0.5 rounded font-bold uppercase">NORMAL</span>
+            </div>
+            <div class="scroll-v pr-1">
+                <p id="stepDesc" class="text-green-700 text-[11px] leading-tight mb-3">설정 후 시뮬레이션을 시작하세요.</p>
+
+                <div id="stepDetails" class="hidden space-y-3">
+                    <div>
+                        <span class="text-[9px] font-bold text-green-600 uppercase block mb-1">Interview Point</span>
+                        <p id="stepInterview" class="text-[10px] text-gray-700 leading-snug italic bg-white/50 p-1.5 rounded"></p>
+                    </div>
+                    <div>
+                        <span class="text-[9px] font-bold text-green-600 uppercase block mb-1">Example Code</span>
+                        <pre id="stepCode" class="p-2 bg-gray-800 text-green-400 rounded text-[9px] code-font overflow-x-auto"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Transaction Mini -->
+        <div class="bg-white border border-gray-200 p-3 rounded-lg shadow-sm">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="font-bold text-[11px] uppercase text-gray-400">Transaction</h3>
+                <div id="txDisplay" class="tx-status tx-none">NONE</div>
+            </div>
+            <div class="w-full bg-gray-100 rounded-full h-1 overflow-hidden">
+                <div id="txProgress" class="bg-blue-500 h-full w-0 transition-all duration-300"></div>
+            </div>
+        </div>
+
+        <!-- Console Mini -->
+        <div class="flex flex-col flex-grow min-h-0">
+            <h3 class="font-bold text-[10px] text-gray-400 uppercase mb-1">Live Logs</h3>
+            <div id="logConsole" class="console flex flex-col gap-0.5"></div>
+        </div>
+
+        <!-- Final Response Mini -->
+        <div id="responseCard" class="hidden">
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-[9px] font-bold uppercase text-gray-400">Final Response</span>
+                <span id="respStatus" class="px-1.5 py-0.5 rounded text-[9px] font-bold">200 OK</span>
+            </div>
+            <pre id="respBody" class="text-[10px] code-font text-green-400 leading-tight"></pre>
+        </div>
+    </section>
+</div>
+
+<script>
+    const steps = [
+        { id: "CLIENT", label: "Client Request", icon: "📱" },
+        { id: "FILTER", label: "Security Filter", icon: "🛡️" },
+        { id: "DISPATCHER", label: "DispatcherServlet", icon: "📬" },
+        { id: "HANDLER_MAPPING", label: "HandlerMapping", icon: "🗺️" },
+        { id: "CONTROLLER", label: "Controller", icon: "🎮" },
+        { id: "VALIDATION", label: "Validation", icon: "✅" },
+        { id: "SERVICE", label: "Service (TX)", icon: "⚙️" },
+        { id: "REPOSITORY", label: "Repository", icon: "📂" },
+        { id: "DB", label: "Database", icon: "🗄️" },
+        { id: "TX_END", label: "Commit / Rollback", icon: "🏁" },
+        { id: "ADVICE", label: "ExceptionHandler", icon: "🩹" },
+        { id: "RESPONSE", label: "Response", icon: "📤" }
+    ];
+
+    // 기본 지식 베이스
+    const stepKnowledge = {
+        CLIENT: {
+            title: "Client Request",
+            desc: "사용자가 API를 호출합니다.",
+            interview: "HTTP Method별 의미와 멱등성의 개념을 아시나요?",
+            code: "curl -X POST /api/orders ..."
+        },
+        FILTER: {
+            title: "Security Filter",
+            desc: "Spring Security 등 필터가 요청을 가로채 인증을 확인합니다.",
+            interview: "Filter와 Interceptor의 실행 시점 차이는?",
+            code: "chain.doFilter(request, response);"
+        },
+        DISPATCHER: {
+            title: "DispatcherServlet",
+            desc: "모든 요청을 받는 Front Controller입니다.",
+            interview: "DispatcherServlet의 동작 과정을 설명해주세요.",
+            code: "doDispatch(request, response);"
+        },
+        HANDLER_MAPPING: {
+            title: "HandlerMapping",
+            desc: "요청 URL에 맞는 컨트롤러 메서드를 찾습니다.",
+            interview: "어떤 우선순위로 핸들러를 찾는지 아시나요?",
+            code: "@RequestMapping(\"/api/...\")"
+        },
+        CONTROLLER: {
+            title: "Controller",
+            desc: "사용자 요청을 수신하고 응답 형식을 결정합니다.",
+            interview: "@Controller와 @RestController의 차이는?",
+            code: "@RestController\npublic class OrderController { ... }"
+        },
+        VALIDATION: {
+            title: "Validation",
+            desc: "전달받은 데이터의 형식을 @Valid로 검증합니다.",
+            interview: "검증 실패 시 발생하는 예외 클래스명은?",
+            code: "@Valid OrderRequest request"
+        },
+        SERVICE: {
+            title: "Service",
+            desc: "비즈니스 로직을 수행하고 트랜잭션을 관리합니다.",
+            interview: "@Transactional이 프록시 기반으로 동작하는 원리는?",
+            code: "@Service @Transactional\npublic void placeOrder() { ... }"
+        },
+        REPOSITORY: {
+            title: "Repository",
+            desc: "DB에 접근하기 위한 추상화 계층입니다.",
+            interview: "JPA 영속성 컨텍스트의 장점은?",
+            code: "repository.save(entity);"
+        },
+        DB: {
+            title: "Database",
+            desc: "물리적으로 데이터를 영구 저장합니다.",
+            interview: "ACID 특성과 격리 수준에 대해 설명해주세요.",
+            code: "INSERT INTO orders ..."
+        },
+        TX_END: {
+            title: "Transaction End",
+            desc: "성공 시 Commit, 런타임 예외 발생 시 Rollback 합니다.",
+            interview: "Checked Exception 발생 시 롤백이 되나요?",
+            code: "// commit() or rollback()"
+        },
+        ADVICE: {
+            title: "ExceptionHandler",
+            desc: "발생한 예외를 잡아 클라이언트용 응답으로 변환합니다.",
+            interview: "@ControllerAdvice를 사용하는 이유는?",
+            code: "@ExceptionHandler(Exception.class)"
+        },
+        RESPONSE: {
+            title: "Response",
+            desc: "최종 처리 결과를 반환합니다.",
+            interview: "REST API에서 적절한 상태 코드를 사용하는 기준은?",
+            code: "return ResponseEntity.ok(data);"
+        }
+    };
+
+    let currentIndex = -1;
+    let isRunning = false;
+    let txState = "NONE";
+    let activeTrigger = "none";
+    let useTx = true;
+
+    function renderDiagram() {
+        const container = document.getElementById('diagramContainer');
+        container.innerHTML = '';
+        steps.forEach((step, idx) => {
+            const node = document.createElement('div');
+            node.id = `node-${step.id}`;
+            node.className = 'node';
+            node.innerHTML = `<span>${step.icon}</span> ${step.label}`;
+            node.onclick = () => showStepInfo(step.id);
+            container.appendChild(node);
+            if (idx < steps.length - 1) {
+                const conn = document.createElement('div');
+                conn.id = `conn-${idx}`;
+                conn.className = 'connector';
+                container.appendChild(conn);
+            }
+        });
+    }
+
+    // 시나리오에 따른 동적 설명 업데이트 함수
+    function getScenarioAwareInfo(stepId) {
+        let info = { ...stepKnowledge[stepId] };
+
+        // 시나리오별 텍스트 변조
+        if (activeTrigger === "401" && stepId === "FILTER") {
+            info.desc = "🔒 인증 실패 시나리오 활성화: Security Filter에서 유효하지 않은 토큰으로 판단하여 요청을 즉시 거부합니다.";
+            info.interview = "401과 403 에러의 차이는 무엇인가요?";
+            info.code = "throw new InsufficientAuthenticationException();";
+        }
+        else if (activeTrigger === "400" && stepId === "VALIDATION") {
+            info.desc = "⚠️ 검증 실패 시나리오 활성화: 전달받은 'qty' 값이 0 이하이므로 @Min(1) 제약조건에 걸려 예외가 발생합니다.";
+            info.interview = "BindingResult 객체의 역할은 무엇인가요?";
+            info.code = "@Min(1) private int qty; // qty=0 인 경우 예외 발생";
+        }
+        else if (activeTrigger === "409" && stepId === "SERVICE") {
+            info.desc = "💥 비즈니스 충돌 시나리오 활성화: 이미 존재하는 주문 번호로 인해 중복 데이터 예외가 발생합니다.";
+            info.interview = "비즈니스 예외를 Custom Exception으로 만드는 이유는?";
+            info.code = "if(exists) throw new DuplicateOrderException();";
+        }
+        else if (activeTrigger === "500" && stepId === "DB") {
+            info.desc = "🔥 DB 장애 시나리오 활성화: 데이터베이스 서버와의 연결이 유실되었거나 제약 조건 위반 에러가 발생합니다.";
+            info.interview = "SQLException을 RuntimeException으로 감싸서 던지는 이유는?";
+            info.code = "Caused by: java.sql.SQLException: Connection refused";
+        }
+
+        // 트랜잭션 여부에 따른 설명 추가
+        if (stepId === "SERVICE" && !useTx) {
+            info.desc += " (현재 @Transactional이 적용되지 않아 원자성이 보장되지 않습니다.)";
+        }
+        if (stepId === "TX_END") {
+            if (txState === "ROLLED_BACK") {
+                info.desc = "🔄 롤백 발생: RuntimeException 전파로 인해 DB 작업이 이전 상태로 되돌려졌습니다.";
+            } else if (txState === "COMMITTED") {
+                info.desc = "✅ 커밋 완료: 모든 로직이 정상 종료되어 DB에 영구 반영되었습니다.";
+            }
+        }
+
+        return info;
+    }
+
+    function showStepInfo(stepId) {
+        const data = getScenarioAwareInfo(stepId);
+        document.getElementById('stepDetails').classList.remove('hidden');
+        document.getElementById('stepTitle').innerText = data.title;
+        document.getElementById('stepDesc').innerText = data.desc;
+        document.getElementById('stepInterview').innerText = `"${data.interview}"`;
+        document.getElementById('stepCode').innerText = data.code;
+
+        const tag = document.getElementById('scenarioTag');
+        tag.innerText = activeTrigger === 'none' ? 'NORMAL' : `FAIL: ${activeTrigger}`;
+        tag.className = `text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${activeTrigger === 'none' ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`;
+    }
+
+    function initSimulation() {
+        resetSimulation();
+        isRunning = true;
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('nextBtn').disabled = false;
+        activeTrigger = document.querySelector('input[name="trigger"]:checked').value;
+        useTx = document.getElementById('useTransactional').checked;
+        addLog(`🚀 [${document.getElementById('httpMethod').value}] ${document.getElementById('httpPath').value} 시작`);
+        nextStep();
+    }
+
+    function resetSimulation() {
+        currentIndex = -1;
+        isRunning = false;
+        txState = "NONE";
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('nextBtn').disabled = true;
+        document.getElementById('responseCard').classList.add('hidden');
+        document.querySelectorAll('.node').forEach(n => n.classList.remove('active', 'error-state'));
+        document.querySelectorAll('.connector').forEach(c => c.classList.remove('active'));
+        updateTransactionState("NONE");
+        clearLogs();
+    }
+
+    function nextStep() {
+        if (!isRunning) return;
+        currentIndex++;
+        const step = steps[currentIndex];
+        if (!step) return;
+        processStepLogic(step.id);
+        updateUI(step.id);
+    }
+
+    function processStepLogic(stepId) {
+        switch(stepId) {
+            case "FILTER":
+                if (activeTrigger === "401") handleException("인증 실패");
+                else addLog("Filter: 인증 확인 완료");
+                break;
+            case "VALIDATION":
+                if (activeTrigger === "400") handleException("검증 실패");
+                else addLog("Validation: 검증 통과");
+                break;
+            case "SERVICE":
+                if (useTx) { updateTransactionState("ACTIVE"); addLog("TX: 트랜잭션 시작"); }
+                if (activeTrigger === "409") handleException("비즈니스 충돌");
+                else addLog("Service: 로직 수행");
+                break;
+            case "DB":
+                if (activeTrigger === "500") handleException("DB 장애");
+                else addLog("DB: Query 성공");
+                break;
+            case "TX_END":
+                if (useTx) {
+                    if (txState === "ACTIVE") { updateTransactionState("COMMITTED"); addLog("TX: 커밋 완료"); }
+                    else if (txState === "ROLLED_BACK") addLog("TX: 롤백 마킹 감지");
+                }
+                break;
+            case "ADVICE": addLog("Advice: 예외 처리 중"); break;
+            case "RESPONSE": renderResponse(); break;
+            default: addLog(`${stepId}: 처리 중`);
+        }
+    }
+
+    function handleException(msg) {
+        addLog(`❌ ${msg} 발생`, "text-red-400");
+        if (useTx && txState === "ACTIVE") updateTransactionState("ROLLED_BACK");
+        const adviceIdx = steps.findIndex(s => s.id === "ADVICE");
+        document.getElementById(`node-${steps[currentIndex].id}`).classList.add('error-state');
+        currentIndex = adviceIdx - 1;
+    }
+
+    function updateUI(activeId) {
+        document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+        document.querySelectorAll('.connector').forEach(c => c.classList.remove('active'));
+        document.getElementById(`node-${activeId}`).classList.add('active');
+        for (let i = 0; i < currentIndex; i++) document.getElementById(`conn-${i}`).classList.add('active');
+        showStepInfo(activeId);
+    }
+
+    function updateTransactionState(state) {
+        txState = state;
+        const display = document.getElementById('txDisplay');
+        const progress = document.getElementById('txProgress');
+        display.className = `tx-status tx-${state.toLowerCase()}`;
+        display.innerText = state;
+        progress.style.width = state === "ACTIVE" ? "50%" : (state === "NONE" ? "0%" : "100%");
+        if (state === "ROLLED_BACK") progress.classList.replace('bg-blue-500', 'bg-red-500');
+        else progress.classList.replace('bg-blue-500', 'bg-red-500');
+    }
+
+    function addLog(msg, color = "text-blue-300") {
+        const console = document.getElementById('logConsole');
+        const entry = document.createElement('div');
+        entry.className = color;
+        entry.innerHTML = `<span class="text-gray-600 mr-1">></span>${msg}`;
+        console.appendChild(entry);
+        console.scrollTop = console.scrollHeight;
+    }
+
+    function clearLogs() { document.getElementById('logConsole').innerHTML = ''; }
+
+    function renderResponse() {
+        const card = document.getElementById('responseCard');
+        const status = document.getElementById('respStatus');
+        const body = document.getElementById('respBody');
+        card.classList.remove('hidden');
+
+        let code = activeTrigger === 'none' ? 200 : parseInt(activeTrigger);
+        let statusText = code === 200 ? 'OK' : 'ERROR';
+        let message = "요청이 성공적으로 완료되었습니다.";
+
+        // 시나리오별 메시지 분기
+        if (code === 400) message = "Validation Failed: 입력 데이터 형식이 올바르지 않습니다.";
+        else if (code === 401) message = "Unauthorized: 인증 토큰이 만료되었거나 권한이 없습니다.";
+        else if (code === 409) message = "Conflict: 이미 존재하는 데이터와 충돌이 발생했습니다.";
+        else if (code === 500) message = "Internal Server Error: 서버 내부 로직 혹은 DB 처리 중 오류가 발생했습니다.";
+
+        status.innerText = `${code} ${statusText}`;
+        status.className = `px-1.5 py-0.5 rounded text-[9px] font-bold ${code === 200 ? 'bg-green-600' : 'bg-red-600'}`;
+
+        const responseData = {
+            status: code,
+            message: message,
+            timestamp: new Date().toISOString()
+        };
+
+        body.innerText = JSON.stringify(responseData, null, 2);
+        isRunning = false;
+        document.getElementById('nextBtn').disabled = true;
+        document.getElementById('startBtn').disabled = false;
+    }
+
+    window.onload = renderDiagram;
+</script>
+</body>
+</html>

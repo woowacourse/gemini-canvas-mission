@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 세계 여행 다트 - 여행지 정하기</title>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- GSAP for smooth animations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+    <!-- Tailwind CSS for UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+        font-family: "Pretendard", sans-serif;
+      }
+      canvas {
+        display: block;
+      }
+
+      #ui-overlay {
+        pointer-events: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 10;
+      }
+
+      .interactive {
+        pointer-events: auto;
+      }
+
+      .glass-morphism {
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1.25rem;
+      }
+
+      #info-panel {
+        position: absolute;
+        bottom: 1.5rem;
+        left: 50%;
+        transform: translate(-50%, 120%);
+        transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+        width: calc(100% - 3rem);
+        max-width: 42rem;
+      }
+
+      #info-panel.active {
+        transform: translate(-50%, 0);
+      }
+
+      .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-left-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      #location-image {
+        width: 100%;
+        height: 220px;
+        object-fit: cover;
+        border-radius: 1rem;
+        margin-bottom: 1.5rem;
+        background-color: rgba(255, 255, 255, 0.05);
+      }
+
+      .stepper-btn {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 0.4rem;
+        transition: all 0.2s;
+        font-weight: bold;
+      }
+      .stepper-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+      .stepper-btn:active {
+        transform: scale(0.9);
+      }
+      .stepper-btn:disabled {
+        opacity: 0.2;
+        cursor: not-allowed;
+      }
+
+      .view-option {
+        padding: 0.4rem 0.75rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 0.5rem;
+        font-size: 0.7rem;
+        color: #aaa;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 1px solid transparent;
+        text-align: center;
+        white-space: nowrap;
+      }
+      .view-option.active {
+        background: rgba(59, 130, 246, 0.4);
+        border-color: rgba(59, 130, 246, 0.5);
+        color: white;
+        font-weight: bold;
+      }
+
+      /* 중앙 안내 문구 고정 위치 */
+      #click-prompt {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui-overlay" class="p-6">
+      <!-- Top Row -->
+      <div class="flex justify-between items-start w-full relative">
+        <!-- Title -->
+        <div class="glass-morphism px-5 py-3 text-white">
+          <h1 class="text-xl font-bold tracking-tight">🌍 AI 세계 여행 다트</h1>
+        </div>
+
+        <!-- Controls (Grouped Right) -->
+        <div class="flex flex-col gap-2 items-end">
+          <!-- Rotation Speed -->
+          <div
+            class="glass-morphism px-4 py-3 text-white flex items-center gap-4 interactive shadow-xl"
+          >
+            <div class="flex flex-col">
+              <span
+                class="text-[9px] uppercase tracking-wider text-blue-400 font-bold"
+                >Rotation</span
+              >
+              <span id="speed-display" class="text-base font-mono font-black"
+                >1.0x</span
+              >
+            </div>
+            <div class="flex gap-1">
+              <button
+                id="speed-down"
+                onclick="adjustSpeed(-0.1)"
+                class="stepper-btn text-lg"
+                title="Slow down"
+              >
+                -
+              </button>
+              <button
+                id="speed-up"
+                onclick="adjustSpeed(0.1)"
+                class="stepper-btn text-lg"
+                title="Speed up"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <!-- View Angle -->
+          <div
+            class="glass-morphism px-4 py-3 text-white flex flex-col gap-2 interactive shadow-xl w-full max-w-[220px]"
+          >
+            <span
+              class="text-[9px] uppercase tracking-wider text-blue-400 font-bold text-left"
+              >View Angle</span
+            >
+            <div class="flex gap-1 justify-between">
+              <div
+                class="view-option"
+                data-view="north"
+                onclick="setViewAngle('north')"
+              >
+                North
+              </div>
+              <div
+                class="view-option active"
+                data-view="equator"
+                onclick="setViewAngle('equator')"
+              >
+                Equat.
+              </div>
+              <div
+                class="view-option"
+                data-view="south"
+                onclick="setViewAngle('south')"
+              >
+                South
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Prompt (Fixed Position) -->
+      <div
+        id="click-prompt"
+        class="text-white/40 text-lg font-light tracking-[0.2em] animate-pulse"
+      >
+        지구본을 클릭하여 다트를 던지세요
+      </div>
+
+      <!-- Info Panel (Bottom Fixed) -->
+      <div
+        id="info-panel"
+        class="interactive glass-morphism p-8 text-white mb-4 max-h-[85vh] overflow-y-auto shadow-2xl"
+      >
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <h2
+              id="loc-name"
+              class="text-3xl font-black text-blue-400 uppercase tracking-tighter"
+            >
+              탐색 중...
+            </h2>
+            <p
+              id="loc-coords"
+              class="text-[10px] text-gray-500 mt-1 font-mono"
+            ></p>
+          </div>
+          <button
+            onclick="resetApp()"
+            class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div id="loading-ai" class="flex flex-col items-center py-10">
+          <div class="loading-spinner mb-4"></div>
+          <p
+            class="text-gray-400 animate-pulse text-sm text-center leading-relaxed"
+          >
+            AI가 현지 정보를 분석하고<br />장소의 이미지를 생성하고 있습니다...
+          </p>
+        </div>
+
+        <div id="ai-content" class="hidden">
+          <div id="image-wrapper" class="relative mb-6">
+            <img
+              id="location-image"
+              src=""
+              alt="Location Image"
+              class="shadow-lg border border-white/10"
+            />
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div>
+              <h3
+                class="text-sm uppercase tracking-widest font-bold text-blue-400 mb-3 flex items-center gap-2"
+              >
+                🏰 추천 명소
+              </h3>
+              <ul
+                id="landmarks-list"
+                class="space-y-2 text-gray-300 text-sm leading-relaxed"
+              ></ul>
+            </div>
+            <div>
+              <h3
+                class="text-sm uppercase tracking-widest font-bold text-blue-400 mb-3 flex items-center gap-2"
+              >
+                💡 여행 꿀팁
+              </h3>
+              <p
+                id="travel-tips"
+                class="text-gray-300 text-sm leading-relaxed"
+              ></p>
+            </div>
+          </div>
+          <div
+            class="mt-8 pt-6 border-t border-white/10 flex justify-between items-center"
+          >
+            <span class="text-[9px] text-gray-600 uppercase tracking-widest"
+              >Powered by Google Gemini & Imagen AI</span
+            >
+            <button
+              onclick="resetApp()"
+              class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-lg text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-blue-900/20"
+            >
+              다시 던지기
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const apiKey = "";
+      let scene, camera, renderer, globe, stars, pin;
+      let isRotating = true;
+      let isZooming = false;
+
+      const baseRotationSpeed = 0.02;
+      let speedMultiplier = 1.0;
+      let rotationSpeed = baseRotationSpeed;
+
+      const globeRadius = 80;
+      let currentView = "equator";
+
+      const ui = {
+        panel: document.getElementById("info-panel"),
+        name: document.getElementById("loc-name"),
+        coords: document.getElementById("loc-coords"),
+        aiContent: document.getElementById("ai-content"),
+        loading: document.getElementById("loading-ai"),
+        landmarks: document.getElementById("landmarks-list"),
+        tips: document.getElementById("travel-tips"),
+        prompt: document.getElementById("click-prompt"),
+        speedDisplay: document.getElementById("speed-display"),
+        btnUp: document.getElementById("speed-up"),
+        btnDown: document.getElementById("speed-down"),
+        image: document.getElementById("location-image"),
+        viewOptions: document.querySelectorAll(".view-option"),
+      };
+
+      function init() {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(
+          45,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          1000,
+        );
+        camera.position.set(0, 0, 250);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        sunLight.position.set(5, 3, 5);
+        scene.add(sunLight);
+
+        const starGeometry = new THREE.BufferGeometry();
+        const starMaterial = new THREE.PointsMaterial({
+          color: 0xffffff,
+          size: 0.7,
+        });
+        const starVertices = [];
+        for (let i = 0; i < 10000; i++) {
+          starVertices.push(
+            (Math.random() - 0.5) * 2000,
+            (Math.random() - 0.5) * 2000,
+            (Math.random() - 0.5) * 2000,
+          );
+        }
+        starGeometry.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(starVertices, 3),
+        );
+        stars = new THREE.Points(starGeometry, starMaterial);
+        scene.add(stars);
+
+        const globeGeometry = new THREE.SphereGeometry(globeRadius, 64, 64);
+        const textureLoader = new THREE.TextureLoader();
+        const earthTexture = textureLoader.load(
+          "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg",
+        );
+        const bumpMap = textureLoader.load(
+          "https://unpkg.com/three-globe/example/img/earth-topology.png",
+        );
+
+        const globeMaterial = new THREE.MeshPhongMaterial({
+          map: earthTexture,
+          bumpMap: bumpMap,
+          bumpScale: 2,
+          specular: new THREE.Color("grey"),
+          shininess: 5,
+        });
+        globe = new THREE.Mesh(globeGeometry, globeMaterial);
+        scene.add(globe);
+
+        const pinGeo = new THREE.ConeGeometry(1, 4, 32);
+        pinGeo.translate(0, 2, 0);
+        const pinMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
+        pin = new THREE.Mesh(pinGeo, pinMat);
+        pin.visible = false;
+        scene.add(pin);
+
+        animate();
+
+        window.addEventListener("resize", onWindowResize);
+        renderer.domElement.addEventListener("mousedown", onGlobeClick);
+      }
+
+      function setViewAngle(view) {
+        if (isZooming) return;
+        currentView = view;
+        ui.viewOptions.forEach((opt) => {
+          if (opt.dataset.view === view) opt.classList.add("active");
+          else opt.classList.remove("active");
+        });
+
+        const R = 250;
+        let targetY = 0,
+          targetZ = R;
+        if (view === "north") {
+          targetY = 150;
+          targetZ = 200;
+        } else if (view === "equator") {
+          targetY = 0;
+          targetZ = 250;
+        } else if (view === "south") {
+          targetY = -150;
+          targetZ = 200;
+        }
+
+        gsap.to(camera.position, {
+          x: 0,
+          y: targetY,
+          z: targetZ,
+          duration: 1.5,
+          ease: "power2.inOut",
+          onUpdate: () => camera.lookAt(0, 0, 0),
+        });
+      }
+
+      function adjustSpeed(delta) {
+        speedMultiplier = parseFloat((speedMultiplier + delta).toFixed(1));
+        // 스테퍼 범위를 0.1x ~ 2.0x로 수정
+        if (speedMultiplier < 0.1) speedMultiplier = 0.1;
+        if (speedMultiplier > 2.0) speedMultiplier = 2.0;
+
+        rotationSpeed = baseRotationSpeed * speedMultiplier;
+        ui.speedDisplay.innerText = `${speedMultiplier.toFixed(1)}x`;
+        ui.btnDown.disabled = speedMultiplier <= 0.1;
+        ui.btnUp.disabled = speedMultiplier >= 2.0;
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      function onGlobeClick(event) {
+        if (!isRotating || isZooming) return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera({ x, y }, camera);
+        const intersects = raycaster.intersectObject(globe);
+        if (intersects.length > 0) {
+          const worldPoint = intersects[0].point;
+          const localPoint = globe.worldToLocal(worldPoint.clone());
+          placePin(worldPoint);
+          stopRotation();
+          ui.prompt.classList.add("hidden");
+          setTimeout(() => zoomToPoint(worldPoint, localPoint), 3000);
+        }
+      }
+
+      function placePin(point) {
+        pin.position.copy(point);
+        pin.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          point.clone().normalize(),
+        );
+        pin.visible = true;
+        gsap.from(pin.scale, {
+          x: 0,
+          y: 0,
+          z: 0,
+          duration: 0.5,
+          ease: "back.out(2)",
+        });
+      }
+
+      function stopRotation() {
+        isRotating = false;
+      }
+
+      function zoomToPoint(worldPoint, localPoint) {
+        isZooming = true;
+        const latLon = cartesianToLatLon(localPoint);
+        ui.coords.innerText = `LAT: ${latLon.lat.toFixed(4)} / LON: ${latLon.lon.toFixed(4)}`;
+        const targetPos = worldPoint
+          .clone()
+          .normalize()
+          .multiplyScalar(globeRadius + 30);
+        gsap.to(camera.position, {
+          x: targetPos.x,
+          y: targetPos.y,
+          z: targetPos.z,
+          duration: 2.5,
+          ease: "power3.inOut",
+          onUpdate: () => camera.lookAt(worldPoint),
+          onComplete: () => showInfoPanel(latLon),
+        });
+      }
+
+      function cartesianToLatLon(vec) {
+        const r = vec.length();
+        const lat = 90 - (Math.acos(vec.y / r) * 180) / Math.PI;
+        let lon = (Math.atan2(-vec.z, vec.x) * 180) / Math.PI;
+        return { lat, lon };
+      }
+
+      async function showInfoPanel(latLon) {
+        ui.panel.classList.add("active");
+        ui.loading.classList.remove("hidden");
+        ui.aiContent.classList.add("hidden");
+        ui.name.innerText = "데이터 분석 중...";
+        ui.image.src = "";
+        try {
+          const infoPrompt = `You are a travel expert. Use Latitude ${latLon.lat}, Longitude ${latLon.lon} to identify the exact city or region. Respond in JSON: {"name": "Location Name", "landmarks": ["L1", "L2", "L3"], "tips": "Advice"}. Language: Korean.`;
+          const data = await fetchGeminiContent(infoPrompt);
+          ui.name.innerText = data.name || "알 수 없는 지역";
+          ui.landmarks.innerHTML = (data.landmarks || [])
+            .map((l) => `<li>• ${l}</li>`)
+            .join("");
+          ui.tips.innerText = data.tips || "정보를 불러올 수 없습니다.";
+          const imagePrompt = `A high-quality, cinematic travel photography of ${data.name}, beautiful landscape, clear weather, 8k resolution.`;
+          const imageUrl = await generateImage(imagePrompt);
+          ui.image.src = imageUrl;
+          ui.loading.classList.add("hidden");
+          ui.aiContent.classList.remove("hidden");
+        } catch (error) {
+          ui.name.innerText = "분석 오류";
+          ui.tips.innerText = "정보를 가져오는 중 문제가 발생했습니다.";
+          ui.loading.classList.add("hidden");
+          ui.aiContent.classList.remove("hidden");
+        }
+      }
+
+      async function fetchGeminiContent(userQuery) {
+        const systemPrompt =
+          "당신은 세계 여행 전문가입니다. 좌표 정보를 기반으로 여행지를 추천합니다.";
+        let retries = 0;
+        const maxRetries = 5;
+        while (retries < maxRetries) {
+          try {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: userQuery }] }],
+                  systemInstruction: { parts: [{ text: systemPrompt }] },
+                  generationConfig: { responseMimeType: "application/json" },
+                }),
+              },
+            );
+            const result = await response.json();
+            return JSON.parse(result.candidates[0].content.parts[0].text);
+          } catch (e) {
+            retries++;
+            await new Promise((res) =>
+              setTimeout(res, Math.pow(2, retries) * 1000),
+            );
+          }
+        }
+      }
+
+      async function generateImage(promptText) {
+        let retries = 0;
+        const maxRetries = 5;
+        while (retries < maxRetries) {
+          try {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  instances: { prompt: promptText },
+                  parameters: { sampleCount: 1 },
+                }),
+              },
+            );
+            const result = await response.json();
+            return `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`;
+          } catch (e) {
+            retries++;
+            await new Promise((res) =>
+              setTimeout(res, Math.pow(2, retries) * 1000),
+            );
+          }
+        }
+      }
+
+      function resetApp() {
+        ui.panel.classList.remove("active");
+        ui.prompt.classList.remove("hidden");
+        isZooming = false;
+        const R = 250;
+        let targetY = 0,
+          targetZ = R;
+        if (currentView === "north") {
+          targetY = 150;
+          targetZ = 200;
+        } else if (currentView === "south") {
+          targetY = -150;
+          targetZ = 200;
+        }
+        gsap.to(camera.position, {
+          x: 0,
+          y: targetY,
+          z: targetZ,
+          duration: 2,
+          ease: "power2.inOut",
+          onUpdate: () => camera.lookAt(0, 0, 0),
+        });
+        gsap.to(globe.rotation, {
+          y: 0,
+          duration: 2,
+          ease: "power2.inOut",
+          onComplete: () => {
+            pin.visible = false;
+            isRotating = true;
+          },
+        });
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        if (isRotating) {
+          globe.rotation.y += rotationSpeed;
+          stars.rotation.y += 0.0002;
+        }
+        renderer.render(scene, camera);
+      }
+      window.onload = init;
+    </script>
+  </body>
+</html>

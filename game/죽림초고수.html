@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>죽림고수 카피 게임</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #2c3e50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
+            overflow: hidden;
+        }
+
+        .game-wrapper {
+            position: relative;
+            width: 600px;
+            height: 600px;
+            background-color: #1a252f;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        /* 게임 UI 레이어 (캔버스 위에 겹침) */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* 클릭 이벤트가 캔버스로 통과하도록 설정 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+
+        #timer-display {
+            position: absolute;
+            top: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            color: #ecf0f1;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .screen {
+            background-color: rgba(0, 0, 0, 0.75);
+            padding: 30px 50px;
+            border-radius: 15px;
+            text-align: center;
+            pointer-events: auto; /* 화면 내부 버튼 클릭 활성화 */
+            color: #ecf0f1;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        }
+
+        h1, h2 {
+            margin-top: 0;
+            color: #f1c40f;
+        }
+
+        p {
+            font-size: 16px;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #2ecc71;
+        }
+
+        .slider-group {
+            margin: 15px 0;
+            text-align: left;
+        }
+
+        .slider-group label {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 5px;
+            color: #bdc3c7;
+        }
+
+        .slider-group input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        #settings-panel {
+            margin-top: 20px;
+            padding: 20px 40px;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+
+<div class="game-wrapper">
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
+
+    <div id="ui-layer">
+        <div id="timer-display">0.00초</div>
+
+        <!-- 시작 화면 -->
+        <div id="start-screen" class="screen">
+            <h1>죽림고수</h1>
+            <p>큰 원의 둘레에서 날아오는 대나무를 피하세요.<br>오래 버틸수록 대나무가 많아집니다.</p>
+            <p><strong>조작: W, A, S, D</strong></p>
+            <button id="start-btn">게임 시작</button>
+        </div>
+
+        <!-- 게임 오버 화면 -->
+        <div id="game-over-screen" class="screen" style="display: none;">
+            <h2>사망!</h2>
+            <p>버틴 시간: <span id="final-time" style="font-size: 24px; font-weight: bold; color: #e74c3c;"></span>초</p>
+            <button id="restart-btn">다시 하기</button>
+        </div>
+
+        <!-- 난이도 설정 화면 -->
+        <div id="settings-panel" class="screen">
+            <h3 style="margin-top:0; color:#f1c40f; font-size:18px;">난이도 설정</h3>
+            <div class="slider-group">
+                <label>대나무 굵기: <span id="width-val">4</span>px</label>
+                <input type="range" id="width-slider" min="2" max="15" step="1" value="4">
+            </div>
+            <div class="slider-group">
+                <label>대나무 속도: <span id="speed-val">100</span>%</label>
+                <input type="range" id="speed-slider" min="50" max="200" step="10" value="100">
+            </div>
+            <div class="slider-group">
+                <label>초당 생성 증가량: <span id="spawn-val">0.4</span>개</label>
+                <input type="range" id="spawn-slider" min="0.1" max="2.0" step="0.1" value="0.4">
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const uiTimer = document.getElementById('timer-display');
+    const startScreen = document.getElementById('start-screen');
+    const gameOverScreen = document.getElementById('game-over-screen');
+    const finalTimeSpan = document.getElementById('final-time');
+
+    const startBtn = document.getElementById('start-btn');
+    const restartBtn = document.getElementById('restart-btn');
+
+    const settingsPanel = document.getElementById('settings-panel');
+    const widthSlider = document.getElementById('width-slider');
+    const speedSlider = document.getElementById('speed-slider');
+    const spawnSlider = document.getElementById('spawn-slider');
+    const widthVal = document.getElementById('width-val');
+    const speedVal = document.getElementById('speed-val');
+    const spawnVal = document.getElementById('spawn-val');
+
+    // 게임 설정 (원작 조사 결과 기반)
+    const ARENA_X = 300;
+    const ARENA_Y = 300;
+    const ARENA_RADIUS = 250; // 지름 500px
+
+    // 상태 변수
+    let isPlaying = false;
+    let lastTime = 0;
+    let survivedTime = 0;
+    let spawnTimer = 0;
+    let bamboos = [];
+
+    // 난이도 설정 변수
+    let currentBambooWidth = 4;
+    let currentBambooSpeedMult = 1.0;
+    let currentSpawnRate = 0.4;
+
+    // 키보드 입력 상태
+    const keys = { w: false, a: false, s: false, d: false };
+
+    // 플레이어 객체
+    const player = {
+        x: ARENA_X,
+        y: ARENA_Y,
+        radius: 8, // 작은 원 (피격 판정용)
+        speed: 260 // 픽셀/초
+    };
+
+    // 대나무(장애물) 클래스
+    class Bamboo {
+        constructor() {
+            // 원 둘레의 임의의 각도에서 스폰
+            const angle = Math.random() * Math.PI * 2;
+            // 둘레 밖에서 스폰되도록 반지름보다 조금 더 먼 거리 설정
+            this.x = ARENA_X + (ARENA_RADIUS + 20) * Math.cos(angle);
+            this.y = ARENA_Y + (ARENA_RADIUS + 20) * Math.sin(angle);
+
+            // 타겟 지점: 원 내부 중심 부근의 임의의 점을 향하도록 설정 (완전 중심만 지나면 단조로우므로 변수 추가)
+            const targetAngle = angle + Math.PI + (Math.random() - 0.5) * (Math.PI / 1.5);
+            const speed = (250 + Math.random() * 200) * currentBambooSpeedMult; // 속도에 배율 적용
+
+            this.vx = Math.cos(targetAngle) * speed;
+            this.vy = Math.sin(targetAngle) * speed;
+
+            this.length = 40; // 대나무 길이
+            this.width = currentBambooWidth;   // 대나무 굵기 설정 적용
+            this.active = true;
+        }
+
+        update(dt) {
+            this.x += this.vx * dt;
+            this.y += this.vy * dt;
+
+            // 대나무가 원 반대편으로 완전히 빠져나갔는지 검사
+            const dx = this.x - ARENA_X;
+            const dy = this.y - ARENA_Y;
+            const dotProduct = dx * this.vx + dy * this.vy; // 중심에서 멀어지는 방향인지 확인
+            const distanceToCenter = Math.hypot(dx, dy);
+
+            // 중심에서 멀어지면서, 원 반지름 밖으로 나갔으면 삭제
+            if (distanceToCenter > ARENA_RADIUS + 30 && dotProduct > 0) {
+                this.active = false;
+            }
+        }
+
+        draw(ctx) {
+            ctx.beginPath();
+            // 이동 방향의 역방향으로 선을 그림 (x, y가 막대의 꼬리가 아니라 앞부분)
+            const speedLen = Math.hypot(this.vx, this.vy);
+            const dx = (this.vx / speedLen) * this.length;
+            const dy = (this.vy / speedLen) * this.length;
+
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x - dx, this.y - dy);
+
+            // 대나무 색상
+            ctx.strokeStyle = '#27ae60';
+            ctx.lineWidth = this.width;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+        }
+
+        // 점(플레이어)과 선분(대나무)의 최소 거리의 제곱을 구하는 함수
+        getPointToSegmentSq(px, py) {
+            const speedLen = Math.hypot(this.vx, this.vy);
+            const dx = (this.vx / speedLen) * this.length;
+            const dy = (this.vy / speedLen) * this.length;
+
+            const x1 = this.x;
+            const y1 = this.y;
+            const x2 = this.x - dx;
+            const y2 = this.y - dy;
+
+            const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+            if (l2 === 0) return (px - x1) * (px - x1) + (py - y1) * (py - y1);
+
+            let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+            t = Math.max(0, Math.min(1, t));
+
+            const cx = x1 + t * (x2 - x1);
+            const cy = y1 + t * (y2 - y1);
+
+            return (px - cx) * (px - cx) + (py - cy) * (py - cy);
+        }
+    }
+
+    // 키보드 이벤트 리스너 설정
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'w' || e.key === 'W') keys.w = true;
+        if (e.key === 'a' || e.key === 'A') keys.a = true;
+        if (e.key === 's' || e.key === 'S') keys.s = true;
+        if (e.key === 'd' || e.key === 'D') keys.d = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (e.key === 'w' || e.key === 'W') keys.w = false;
+        if (e.key === 'a' || e.key === 'A') keys.a = false;
+        if (e.key === 's' || e.key === 'S') keys.s = false;
+        if (e.key === 'd' || e.key === 'D') keys.d = false;
+    });
+
+    // 게임 초기화 및 시작
+    function startGame() {
+        isPlaying = true;
+        survivedTime = 0;
+        bamboos = [];
+        spawnTimer = 0;
+
+        // 플레이어 중앙 배치
+        player.x = ARENA_X;
+        player.y = ARENA_Y;
+
+        // UI 조작
+        startScreen.style.display = 'none';
+        gameOverScreen.style.display = 'none';
+        settingsPanel.style.display = 'none'; // 게임 시작 시 설정 창 숨기기
+        uiTimer.innerText = '0.00초';
+
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function gameOver() {
+        isPlaying = false;
+        gameOverScreen.style.display = 'block';
+        settingsPanel.style.display = 'block'; // 게임 오버 시 설정 창 다시 표시
+        finalTimeSpan.innerText = survivedTime.toFixed(2);
+        // 매 판 점수를 저장하지 않으므로 로컬 스토리지 등은 사용하지 않음
+    }
+
+    function updatePlayer(dt) {
+        let dx = 0;
+        let dy = 0;
+
+        if (keys.w) dy -= 1;
+        if (keys.s) dy += 1;
+        if (keys.a) dx -= 1;
+        if (keys.d) dx += 1;
+
+        // 대각선 이동 시 속도 정규화 (1.4배 빨라지는 것 방지)
+        if (dx !== 0 || dy !== 0) {
+            const len = Math.hypot(dx, dy);
+            dx = (dx / len) * player.speed * dt;
+            dy = (dy / len) * player.speed * dt;
+        }
+
+        player.x += dx;
+        player.y += dy;
+
+        // 플레이어가 원(게임 판) 밖으로 나가지 못하게 제한
+        const distFromCenter = Math.hypot(player.x - ARENA_X, player.y - ARENA_Y);
+        if (distFromCenter > ARENA_RADIUS - player.radius) {
+            const angle = Math.atan2(player.y - ARENA_Y, player.x - ARENA_X);
+            player.x = ARENA_X + (ARENA_RADIUS - player.radius) * Math.cos(angle);
+            player.y = ARENA_Y + (ARENA_RADIUS - player.radius) * Math.sin(angle);
+        }
+    }
+
+    function drawGame() {
+        // 배경 지우기
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 게임 판(큰 원) 그리기
+        ctx.beginPath();
+        ctx.arc(ARENA_X, ARENA_Y, ARENA_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = '#f4eec9'; // 죽림 느낌의 은은한 바탕
+        ctx.fill();
+        ctx.strokeStyle = '#bdc3c7';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 대나무 그리기
+        for (let i = 0; i < bamboos.length; i++) {
+            bamboos[i].draw(ctx);
+        }
+
+        // 플레이어 그리기
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#e74c3c'; // 빨간색 캐릭터
+        ctx.fill();
+        ctx.strokeStyle = '#c0392b';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 플레이어 내부 표시 (약간의 디테일)
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.radius * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+    }
+
+    function gameLoop(timestamp) {
+        if (!isPlaying) return;
+
+        // Delta time 계산 (초 단위), 브라우저 탭 이동 시 과도하게 커지는 것 방지
+        let dt = (timestamp - lastTime) / 1000;
+        if (dt > 0.1) dt = 0.1;
+        lastTime = timestamp;
+
+        // 생존 시간 업데이트
+        survivedTime += dt;
+        uiTimer.innerText = survivedTime.toFixed(2) + '초';
+
+        // 시간 경과에 따른 대나무 스폰 확률(난이도) 증가 로직
+        // 공식: 초당 기본 2개 생성 + (생존 시간 * 난이도 설정값)개씩 추가 생성
+        const spawnsPerSecond = 2 + (survivedTime * currentSpawnRate);
+        const spawnInterval = 1 / spawnsPerSecond; // 스폰 주기(초)
+
+        spawnTimer += dt;
+        while (spawnTimer >= spawnInterval) {
+            bamboos.push(new Bamboo());
+            spawnTimer -= spawnInterval;
+        }
+
+        // 플레이어 업데이트
+        updatePlayer(dt);
+
+        // 대나무 업데이트 및 충돌 검사
+        let hasCollided = false;
+        for (let i = bamboos.length - 1; i >= 0; i--) {
+            const b = bamboos[i];
+            b.update(dt);
+
+            // 충돌 검사: 플레이어 원과 대나무 선분의 최단 거리를 구함
+            const distSq = b.getPointToSegmentSq(player.x, player.y);
+            const collisionThreshold = player.radius + (b.width / 2); // 1~2px 여유
+
+            if (distSq < collisionThreshold * collisionThreshold) {
+                hasCollided = true;
+                break;
+            }
+
+            // 화면 밖으로 나간 대나무 배열에서 제거
+            if (!b.active) {
+                bamboos.splice(i, 1);
+            }
+        }
+
+        // 그리기
+        drawGame();
+
+        if (hasCollided) {
+            gameOver();
+        } else {
+            requestAnimationFrame(gameLoop);
+        }
+    }
+
+    // 버튼 이벤트 바인딩
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', startGame);
+
+    // 슬라이더 이벤트 바인딩
+    widthSlider.addEventListener('input', (e) => {
+        currentBambooWidth = parseInt(e.target.value);
+        widthVal.innerText = currentBambooWidth;
+    });
+
+    speedSlider.addEventListener('input', (e) => {
+        currentBambooSpeedMult = parseInt(e.target.value) / 100;
+        speedVal.innerText = e.target.value;
+    });
+
+    spawnSlider.addEventListener('input', (e) => {
+        currentSpawnRate = parseFloat(e.target.value);
+        spawnVal.innerText = currentSpawnRate.toFixed(1);
+    });
+
+    // 초기 화면 그리기 (아무것도 안 한 빈 화면 렌더링)
+    drawGame();
+
+</script>
+</body>
+</html>

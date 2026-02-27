@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자바 Stream 시각화 학습 시뮬레이터</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.0/lucide.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .step-card {
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .stream-node {
+            position: relative;
+        }
+
+        .stream-node::after {
+            content: '↓';
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #475569;
+            font-size: 20px;
+        }
+
+        .stream-node:last-child::after {
+            display: none;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+
+        .choice-card-selected {
+            background-color: rgba(79, 70, 229, 0.15) !important;
+            border-color: #6366f1 !important;
+            border-left-color: #6366f1 !important;
+        }
+
+        .choice-card-selected .radio-indicator {
+            border-color: #6366f1 !important;
+            background-color: #6366f1 !important;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .modal-active {
+            display: flex !important;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-6 lg:p-8">
+
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <header class="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                <i data-lucide="terminal" class="text-blue-500"></i>
+                자바 Stream 시각화 학습 시뮬레이터
+            </h1>
+            <p class="text-slate-400 text-sm mt-1">AI 기반 배치 문제 생성 및 단계별 스트림 시각화 도구</p>
+        </div>
+
+        <div class="flex items-center bg-slate-800 p-1 rounded-lg border border-slate-700">
+            <button onclick="switchMode('LEARN')" id="mode-learn-btn" class="px-4 py-1.5 rounded-md text-sm font-medium transition-all bg-blue-600 text-white shadow-lg">
+                개념 학습 모드
+            </button>
+            <button onclick="switchMode('PRACTICE')" id="mode-practice-btn" class="px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white">
+                실습 모드
+            </button>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Sidebar -->
+        <aside class="lg:col-span-3 space-y-6">
+            <div id="sidebar-mission-list" class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                        <i data-lucide="book-open" class="w-4 h-4"></i> 학습 주제 (5종)
+                    </h3>
+                </div>
+                <div id="mission-list" class="space-y-2 max-h-[350px] overflow-y-auto pr-2">
+                    <!-- Loaded by JS -->
+                </div>
+            </div>
+
+            <div id="data-preview" class="bg-slate-900 rounded-xl border border-slate-800 p-4">
+                <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">현재 데이터셋 스키마</h3>
+                <pre id="schema-display" class="code-font text-[10px] text-blue-300 whitespace-pre-wrap break-words leading-relaxed"></pre>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="lg:col-span-9 space-y-6">
+            <!-- View: Learn -->
+            <div id="view-learn" class="space-y-6">
+                <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden min-h-[450px] flex flex-col">
+                    <div class="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+                            <span class="text-sm font-bold text-slate-300 flex items-center gap-2">
+                                <i data-lucide="eye" class="w-4 h-4"></i> Pipeline Visualizer
+                            </span>
+                        <button onclick="runSimulation()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/20">
+                            <i data-lucide="play" class="w-4 h-4 fill-current"></i> 시뮬레이션 시작
+                        </button>
+                    </div>
+                    <div id="viz-container" class="p-8 flex flex-col items-center gap-12 overflow-y-auto max-h-[500px]">
+                        <!-- Steps rendered here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- View: Practice -->
+            <div id="view-practice" class="hidden space-y-6">
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-6 min-h-[450px]">
+                    <div class="flex items-center justify-between mb-6">
+                        <div class="flex-1 mr-4">
+                            <h2 id="quiz-title" class="text-xl font-bold text-white">문제를 불러오는 중...</h2>
+                            <p id="quiz-desc" class="text-slate-400 text-sm mt-2 leading-relaxed"></p>
+                        </div>
+                        <div class="flex flex-col items-end gap-2 shrink-0">
+                            <div id="queue-status" class="px-2 py-1 bg-slate-800 rounded text-[10px] text-indigo-400 font-bold border border-indigo-500/20">
+                                남은 문제: 0
+                            </div>
+                            <div id="quiz-badge" class="bg-indigo-900/30 px-3 py-1 rounded text-[10px] font-bold text-indigo-400 border border-indigo-500/20">
+                                AI BATCH GENERATED
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-950 rounded-lg p-6 border border-slate-800 mb-6 relative min-h-[200px]" id="quiz-content-area">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2 text-xs font-mono text-slate-500">
+                                <i data-lucide="file-code" class="w-4 h-4"></i> Solution.java
+                            </div>
+                            <div id="lambda-hint-badge" class="hidden px-2 py-1 bg-blue-900/40 border border-blue-500/30 rounded text-[10px] text-blue-300 font-bold">
+                                람다 변수: <span id="target-variable-name">x</span>
+                            </div>
+                        </div>
+                        <div id="quiz-editor-container" class="space-y-4">
+                            <!-- Quiz UI injected here -->
+                        </div>
+                    </div>
+
+                    <!-- Buttons Section -->
+                    <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button onclick="checkAnswer()" class="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-900/20">
+                                <i data-lucide="check-circle" class="w-4 h-4"></i> 정답 확인
+                            </button>
+                            <button onclick="showHint()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-lg font-medium transition-all border border-slate-700">
+                                힌트
+                            </button>
+                            <button onclick="handleShowAnswerRequest()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-lg font-medium transition-all border border-slate-700 flex items-center justify-center gap-2">
+                                <i data-lucide="eye" class="w-4 h-4"></i> 정답 보기
+                            </button>
+                        </div>
+                        <button onclick="handleNextProblemRequest()" id="next-prob-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/20 group">
+                            <span>다음 문제</span>
+                            <i data-lucide="arrow-right" class="w-4 h-4 group-hover:translate-x-1 transition-transform"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Code Comparison -->
+            <div id="code-comparison-section" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden">
+                    <div class="px-4 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center gap-2">
+                        <i data-lucide="code" class="w-4 h-4 text-slate-400"></i>
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">명령형 스타일 (Imperative - For-loop)</span>
+                    </div>
+                    <div class="p-4 overflow-x-auto min-h-[120px]">
+                        <pre id="code-for" class="code-font text-xs text-slate-400 leading-relaxed"></pre>
+                    </div>
+                </div>
+                <div class="bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden">
+                    <div class="px-4 py-2 bg-blue-900/10 border-b border-slate-800 flex items-center gap-2">
+                        <i data-lucide="zap" class="w-4 h-4 text-blue-400"></i>
+                        <span class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">선언형 스타일 (Functional - Stream API)</span>
+                    </div>
+                    <div class="p-4 overflow-x-auto min-h-[120px]">
+                        <pre id="code-stream" class="code-font text-xs text-blue-200/80 leading-relaxed"></pre>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<!-- 정답 보기 모달 -->
+<div id="answer-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl transition-all duration-300">
+        <h3 class="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <i data-lucide="check-square" class="text-indigo-400"></i> 정답 코드 확인
+        </h3>
+        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 mb-6">
+            <pre id="modal-answer-text" class="code-font text-blue-400 whitespace-pre-wrap break-all text-sm leading-relaxed"></pre>
+        </div>
+        <button onclick="closeModal('answer-modal')" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-900/20">
+            닫기
+        </button>
+    </div>
+</div>
+
+<!-- 미완료 확인 모달 (Confirm) -->
+<div id="confirm-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[110] hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+        <div class="w-12 h-12 bg-amber-900/20 rounded-full flex items-center justify-center mb-4 border border-amber-900/30">
+            <i data-lucide="alert-triangle" class="text-amber-500 w-6 h-6"></i>
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2">알림</h3>
+        <p id="confirm-modal-text" class="text-slate-400 text-sm mb-6 leading-relaxed">
+            문제 풀이가 완료되지 않았습니다. 계속 진행하시겠습니까?
+        </p>
+        <div class="flex gap-3">
+            <button onclick="closeModal('confirm-modal')" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg transition-all">
+                취소
+            </button>
+            <button id="confirm-modal-action" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-lg transition-all shadow-lg shadow-indigo-900/20">
+                확인
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Message Toast -->
+<div id="toast" class="fixed bottom-8 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full bg-slate-800 text-white text-sm font-medium shadow-2xl border border-slate-700 opacity-0 pointer-events-none transition-all duration-300 z-[120]">
+    메시지 내용
+</div>
+
+<script>
+    const apiKey = "";
+
+    const DATASETS = {
+        ORDERS: {
+            name: '주문 데이터',
+            schema: 'class Order {\n  int id;\n  String menu;\n  int price;\n  String category;\n}',
+            data: [
+                { id: 101, label: "치킨", price: 20000, category: "KOREAN" },
+                { id: 102, label: "피자", price: 25000, category: "WESTERN" },
+                { id: 103, label: "김밥", price: 5000, category: "KOREAN" },
+                { id: 104, label: "초밥", price: 30000, category: "JAPANESE" },
+                { id: 105, label: "파스타", price: 18000, category: "WESTERN" }
+            ]
+        },
+        STUDENTS: {
+            name: '성적 데이터',
+            schema: 'class Student {\n  String name;\n  int score;\n  int grade;\n}',
+            data: [
+                { name: "김철수", score: 95, grade: 1 },
+                { name: "이영희", score: 82, grade: 2 },
+                { name: "박지성", score: 70, grade: 1 },
+                { name: "최민수", score: 88, grade: 3 },
+                { name: "정소민", score: 91, grade: 2 }
+            ]
+        },
+        EMPLOYEES: {
+            name: '인사 데이터',
+            schema: 'class Employee {\n  String name;\n  String dept;\n  int years;\n}',
+            data: [
+                { name: "Alice", dept: "IT", years: 5 },
+                { name: "Bob", dept: "HR", years: 2 },
+                { name: "Charlie", dept: "IT", years: 10 },
+                { name: "David", dept: "SALES", years: 4 },
+                { name: "Eve", dept: "HR", years: 7 }
+            ]
+        },
+        INVENTORY: {
+            name: '재고 데이터',
+            schema: 'class Item {\n  String name;\n  int stock;\n  String category;\n}',
+            data: [
+                { name: "모니터", stock: 5, category: "ELECTRONICS" },
+                { name: "키보드", stock: 20, category: "ELECTRONICS" },
+                { name: "데스크", stock: 2, category: "FURNITURE" },
+                { name: "의자", stock: 0, category: "FURNITURE" },
+                { name: "마우스", stock: 15, category: "ELECTRONICS" }
+            ]
+        },
+        MOVIES: {
+            name: '영화 데이터',
+            schema: 'class Movie {\n  String title;\n  double rating;\n  String genre;\n}',
+            data: [
+                { title: "인셉션", rating: 8.8, genre: "SF" },
+                { title: "기생충", rating: 8.6, genre: "DRAMA" },
+                { title: "다크나이트", rating: 9.0, genre: "ACTION" },
+                { title: "라라랜드", rating: 8.0, genre: "ROMANCE" },
+                { title: "어벤져스", rating: 8.4, genre: "ACTION" }
+            ]
+        }
+    };
+
+    let learnMissions = [
+        {
+            id: 'm1',
+            dataset: 'ORDERS',
+            title: '2만원 이상 주문 추출',
+            desc: '20,000원 이상의 주문만 필터링하세요.',
+            streamCode: `.filter(o -> o.getPrice() >= 20000)\n.collect(Collectors.toList())`,
+            forCode: `List<Order> res = new ArrayList<>();\nfor(Order o : list) {\n  if(o.price >= 20000) res.add(o);\n}`,
+            steps: [
+                { type: 'source', label: 'Source (원본 데이터)', logic: d => d },
+                { type: 'filter', label: 'filter(price >= 20000)', logic: d => d.filter(i => i.price >= 20000) },
+                { type: 'terminal', label: 'collect(toList)', logic: d => d }
+            ]
+        },
+        {
+            id: 'm2',
+            dataset: 'STUDENTS',
+            title: '90점 이상 우수 학생',
+            desc: '점수가 90점 이상인 학생들만 추출합니다.',
+            streamCode: `.filter(s -> s.getScore() >= 90)\n.collect(Collectors.toList())`,
+            forCode: `List<Student> res = new ArrayList<>();\nfor(Student s : list) {\n  if(s.score >= 90) res.add(s);\n}`,
+            steps: [
+                { type: 'source', label: 'Source (원본 데이터)', logic: d => d },
+                { type: 'filter', label: 'filter(score >= 90)', logic: d => d.filter(i => i.score >= 90) },
+                { type: 'terminal', label: 'collect(toList)', logic: d => d }
+            ]
+        },
+        {
+            id: 'm3',
+            dataset: 'EMPLOYEES',
+            title: 'IT 부서 베테랑 찾기',
+            desc: 'IT 부서이면서 경력이 5년 이상인 사원을 필터링합니다.',
+            streamCode: `.filter(e -> "IT".equals(e.getDept()))\n.filter(e -> e.getYears() >= 5)\n.collect(Collectors.toList())`,
+            forCode: `List<Employee> res = new ArrayList<>();\nfor(Employee e : list) {\n  if("IT".equals(e.dept) && e.years >= 5) res.add(e);\n}`,
+            steps: [
+                { type: 'source', label: 'Source (원본 데이터)', logic: d => d },
+                { type: 'filter', label: 'filter(dept == IT)', logic: d => d.filter(i => i.dept === 'IT') },
+                { type: 'filter', label: 'filter(years >= 5)', logic: d => d.filter(i => i.years >= 5) },
+                { type: 'terminal', label: 'collect(toList)', logic: d => d }
+            ]
+        },
+        {
+            id: 'm4',
+            dataset: 'INVENTORY',
+            title: '품절 임박 전자제품',
+            desc: '전자제품 카테고리 중 재고가 10개 미만인 상품을 찾습니다.',
+            streamCode: `.filter(i -> "ELECTRONICS".equals(i.getCategory()))\n.filter(i -> i.getStock() < 10)\n.collect(Collectors.toList())`,
+            forCode: `List<Item> res = new ArrayList<>();\nfor(Item i : list) {\n  if("ELECTRONICS".equals(i.category) && i.stock < 10) res.add(i);\n}`,
+            steps: [
+                { type: 'source', label: 'Source (원본 데이터)', logic: d => d },
+                { type: 'filter', label: 'filter(ELECTRONICS)', logic: d => d.filter(i => i.category === 'ELECTRONICS') },
+                { type: 'filter', label: 'filter(stock < 10)', logic: d => d.filter(i => i.stock < 10) },
+                { type: 'terminal', label: 'collect(toList)', logic: d => d }
+            ]
+        },
+        {
+            id: 'm5',
+            dataset: 'MOVIES',
+            title: '고득점 액션 영화명',
+            desc: '평점이 8.5 이상인 액션 영화의 제목만 추출합니다.',
+            streamCode: `.filter(m -> "ACTION".equals(m.getGenre()))\n.filter(m -> m.getRating() >= 8.5)\n.map(Movie::getTitle)\n.collect(Collectors.toList())`,
+            forCode: `List<String> titles = new ArrayList<>();\nfor(Movie m : list) {\n  if("ACTION".equals(m.genre) && m.rating >= 8.5) titles.add(m.title);\n}`,
+            steps: [
+                { type: 'source', label: 'Source (원본 데이터)', logic: d => d },
+                { type: 'filter', label: 'filter(genre == ACTION)', logic: d => d.filter(i => i.genre === 'ACTION') },
+                { type: 'filter', label: 'filter(rating >= 8.5)', logic: d => d.filter(i => i.rating >= 8.5) },
+                { type: 'map', label: 'map(Movie::getTitle)', logic: d => d.map(i => i.title) },
+                { type: 'terminal', label: 'collect(toList)', logic: d => d }
+            ]
+        }
+    ];
+
+    let activeMission = learnMissions[0];
+    let practiceMission = null;
+    let currentMode = 'LEARN';
+    let isSolved = false;
+
+    let problemQueue = [];
+    const BATCH_SIZE = 5;
+    let isFetchingBatch = false;
+
+    function init() {
+        renderLearnMissionList();
+        selectMission('m1');
+        safeCreateIcons();
+    }
+
+    function safeCreateIcons() {
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    function switchMode(mode) {
+        currentMode = mode;
+        document.getElementById('mode-learn-btn').className = mode === 'LEARN' ? 'px-4 py-1.5 rounded-md text-sm font-medium transition-all bg-blue-600 text-white shadow-lg' : 'px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white';
+        document.getElementById('mode-practice-btn').className = mode === 'PRACTICE' ? 'px-4 py-1.5 rounded-md text-sm font-medium transition-all bg-blue-600 text-white shadow-lg' : 'px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white';
+
+        document.getElementById('view-learn').classList.toggle('hidden', mode !== 'LEARN');
+        document.getElementById('view-practice').classList.toggle('hidden', mode !== 'PRACTICE');
+        document.getElementById('sidebar-mission-list').classList.toggle('hidden', mode !== 'LEARN');
+
+        const comparisonSection = document.getElementById('code-comparison-section');
+        if (mode === 'PRACTICE') {
+            comparisonSection.classList.add('hidden');
+            if (!practiceMission && problemQueue.length === 0) {
+                generateNextProblem();
+            } else if (practiceMission) {
+                updatePracticeUI();
+            }
+        } else {
+            comparisonSection.classList.remove('hidden');
+            selectMission(activeMission.id);
+        }
+    }
+
+    function renderLearnMissionList() {
+        const list = document.getElementById('mission-list');
+        list.innerHTML = learnMissions.map(m => `
+                <button onclick="selectMission('${m.id}')" id="btn-${m.id}" class="w-full text-left p-3 rounded-lg border border-slate-800 hover:border-slate-700 transition-all group ${activeMission.id === m.id ? 'border-blue-600 bg-blue-600/5' : ''}">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-slate-500">${DATASETS[m.dataset].name}</span>
+                        <i data-lucide="chevron-right" class="w-3 h-3 text-slate-600"></i>
+                    </div>
+                    <div class="text-sm font-semibold text-slate-200 mt-1 truncate">${m.title}</div>
+                </button>
+            `).join('');
+        safeCreateIcons();
+    }
+
+    function selectMission(id) {
+        const found = learnMissions.find(m => m.id === id);
+        if (!found) return;
+        activeMission = found;
+        renderLearnMissionList();
+
+        document.getElementById('schema-display').textContent = DATASETS[activeMission.dataset].schema;
+        document.getElementById('code-for').textContent = activeMission.forCode || '// 생략됨';
+        document.getElementById('code-stream').textContent = `list.stream()\n${activeMission.streamCode};`;
+
+        resetViz();
+    }
+
+    async function fetchProblemsInBatch() {
+        if (isFetchingBatch) return;
+        isFetchingBatch = true;
+
+        const btn = document.getElementById('next-prob-btn');
+        const container = document.getElementById('quiz-editor-container');
+
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> ${BATCH_SIZE}개 생성 중...`;
+        btn.disabled = true;
+
+        // 처음 생성하는 경우에만 로딩 표시
+        if (problemQueue.length === 0 && !practiceMission) {
+            container.innerHTML = `<div class="h-32 flex flex-col items-center justify-center text-slate-500 italic gap-2">
+                    <i data-lucide="sparkles" class="w-6 h-6 animate-pulse text-indigo-400"></i>
+                    <span>AI가 ${BATCH_SIZE}개의 상세한 실습 문제를 한 번에 준비하고 있습니다...</span>
+                    <span class="text-[10px] opacity-60">(다양한 시나리오를 설계 중입니다)</span>
+                </div>`;
+        }
+        safeCreateIcons();
+
+        const systemPrompt = `You are a Java Stream Expert Instructor. Generate exactly ${BATCH_SIZE} quiz problems. Output ONLY a JSON object with a "problems" key containing an array of ${BATCH_SIZE} problems.
+
+            MANDATORY PROBLEM GUIDELINES:
+            1. DESCRIPTION (desc): Provide a detailed story-based context (in Korean). (e.g., "우리는 창고 관리자입니다. 현재 전자제품 카테고리의 재고가 부족하다는 보고를 받았습니다. 재고가 10개 미만인 상품들을 식별하여 발주 리스트를 작성해야 합니다.")
+            2. FOR-LOOP (forCode): Always provide a valid, functional Java for-loop snippet that achieves the exact same result. DO NOT omit this.
+            3. LAMBDA VARIABLE: Use specific variable names for each dataset ('o' for ORDERS, 's' for STUDENTS, 'e' for EMPLOYEES, 'i' for INVENTORY, 'm' for MOVIES).
+            4. DOT REQUIREMENT: For 'WRITE' type, the answer string MUST start with '.' (dot).
+            5. QUESTION: Include specific instructions about the variable name to use (e.g., "람다 매개변수는 'o'를 사용하세요").
+
+            JSON structure:
+            {
+                "problems": [
+                    {
+                        "dataset": "ORDERS",
+                        "title": "Title (Korean)",
+                        "desc": "Detailed educational story context (Korean)",
+                        "streamCode": ".filter(...)",
+                        "forCode": "Mandatory valid Java for-loop code",
+                        "quizType": "WRITE",
+                        "targetVar": "o",
+                        "question": "Clear instruction including variable requirement (Korean)",
+                        "options": ["opt1", "opt2", "opt3", "opt4"],
+                        "prefix": "stream()...",
+                        "suffix": "(...)...",
+                        "answer": "correct string/index",
+                        "explanation": "Brief tip (Korean)"
+                    },
+                    ...
+                ]
+            }`;
+
+        const userPrompt = `Datasets available: ${Object.keys(DATASETS).join(', ')}. Generate in Korean. Ensure WRITE answer starts with a dot. Be verbose in the 'desc' field.`;
+
+        try {
+            const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: userPrompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: { responseMimeType: "application/json" }
+                })
+            });
+
+            const result = await response.json();
+            const aiData = JSON.parse(result.candidates[0].content.parts[0].text);
+
+            if (aiData.problems && Array.isArray(aiData.problems)) {
+                problemQueue = [...problemQueue, ...aiData.problems];
+                showToast(`${BATCH_SIZE}개의 새로운 문제가 충전되었습니다!`, "success");
+
+                // 핵심 수정사항: 생성 직후 큐에서 하나를 즉시 꺼내 UI 업데이트
+                if (!practiceMission || problemQueue.length === BATCH_SIZE) {
+                    practiceMission = problemQueue.shift();
+                    isSolved = false;
+                    updatePracticeUI();
+                }
+            }
+        } catch (error) {
+            console.error(error);
+            showToast("문제 번들 생성 실패. 다시 시도해 주세요.", "error");
+        } finally {
+            isFetchingBatch = false;
+            btn.innerHTML = '<span>다음 문제</span><i data-lucide="arrow-right" class="w-4 h-4 group-hover:translate-x-1 transition-transform"></i>';
+            btn.disabled = false;
+            safeCreateIcons();
+        }
+    }
+
+    async function generateNextProblem() {
+        if (problemQueue.length > 0) {
+            practiceMission = problemQueue.shift();
+            isSolved = false;
+            updatePracticeUI();
+            showToast("다음 문제를 불러왔습니다.", "info");
+        } else {
+            // 큐가 비었으면 새로 생성 시작
+            practiceMission = null; // 현재 문제 초기화하여 로딩 표시 유도
+            await fetchProblemsInBatch();
+        }
+    }
+
+    function updateQueueStatus() {
+        const status = document.getElementById('queue-status');
+        if (status) status.textContent = `남은 문제: ${problemQueue.length}`;
+    }
+
+    async function fetchWithRetry(url, options, retries = 5, delay = 1000) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                const res = await fetch(url, options);
+                if (res.ok) return res;
+            } catch (e) {
+                if (i === retries - 1) throw e;
+            }
+            await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+        }
+    }
+
+    function formatOptionCode(code) {
+        if (code.includes('\n')) return code;
+        return code.trim()
+            .replace(/\.(filter|map|sorted|collect|flatMap|distinct|peek|limit|skip|forEach|anyMatch|allMatch|noneMatch|findFirst|findAny|reduce|count|min|max)/g, '\n  .$1');
+    }
+
+    function updatePracticeUI() {
+        if (!practiceMission) return;
+
+        document.getElementById('quiz-title').textContent = practiceMission.title;
+        document.getElementById('quiz-desc').textContent = practiceMission.desc;
+        document.getElementById('schema-display').textContent = DATASETS[practiceMission.dataset].schema;
+        document.getElementById('code-for').textContent = practiceMission.forCode || "// 전통적 for문 예시";
+        document.getElementById('code-stream').textContent = `list.stream()\n${practiceMission.streamCode};`;
+
+        const lambdaBadge = document.getElementById('lambda-hint-badge');
+        const targetVarSpan = document.getElementById('target-variable-name');
+        if (practiceMission.targetVar && practiceMission.quizType !== 'CHOICE') {
+            targetVarSpan.textContent = practiceMission.targetVar;
+            lambdaBadge.classList.remove('hidden');
+        } else {
+            lambdaBadge.classList.add('hidden');
+        }
+
+        const container = document.getElementById('quiz-editor-container');
+
+        if (practiceMission.quizType === 'CHOICE') {
+            container.innerHTML = `
+                    <div class="text-sm text-slate-300 mb-4 font-medium">${practiceMission.question}</div>
+                    <div class="grid grid-cols-1 gap-3">
+                        ${practiceMission.options.map((opt, i) => `
+                            <div onclick="selectChoice(${i})" id="choice-card-${i}" class="choice-card p-4 bg-slate-900 border border-slate-800 rounded-xl cursor-pointer hover:bg-slate-800/50 transition-all group border-l-4 border-l-transparent">
+                                <div class="flex items-start gap-4">
+                                    <div class="radio-indicator w-5 h-5 rounded-full border-2 border-slate-700 flex-shrink-0 mt-1 group-hover:border-indigo-500 flex items-center justify-center transition-all">
+                                        <div class="w-2 h-2 rounded-full bg-white opacity-0 transition-opacity"></div>
+                                    </div>
+                                    <pre class="code-font text-xs text-slate-300 whitespace-pre-wrap leading-relaxed flex-grow pt-0.5">${formatOptionCode(opt)}</pre>
+                                </div>
+                                <input type="radio" name="quiz-opt" value="${i}" class="hidden">
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+        } else if (practiceMission.quizType === 'BLANK') {
+            container.innerHTML = `
+                    <div class="text-sm text-slate-300 mb-4 font-medium">${practiceMission.question}</div>
+                    <div class="code-font text-sm leading-relaxed text-slate-400 bg-slate-950 p-4 rounded-lg border border-slate-800">
+                        ${practiceMission.prefix}
+                        <input type="text" id="blank-input" placeholder="..." class="bg-indigo-900/30 border-b-2 border-indigo-500 text-indigo-200 focus:outline-none px-2 py-0.5 w-32 text-center transition-all focus:w-48">
+                        ${practiceMission.suffix}
+                    </div>
+                `;
+        } else if (practiceMission.quizType === 'WRITE') {
+            container.innerHTML = `
+                    <div class="text-sm text-slate-300 mb-4 font-medium">${practiceMission.question}</div>
+                    <div class="flex items-start gap-2">
+                        <span class="code-font text-slate-500 mt-2">list.stream()</span>
+                        <textarea id="write-input" rows="3" placeholder=".filter(...).collect(...)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 code-font text-blue-300 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"></textarea>
+                    </div>
+                    <div class="mt-1 text-[10px] text-slate-500 italic">* 마침표(.)로 연산을 시작하세요. (예: .filter...)</div>
+                `;
+        }
+        updateQueueStatus();
+        safeCreateIcons();
+    }
+
+    function selectChoice(index) {
+        document.querySelectorAll('.choice-card').forEach(card => {
+            card.classList.remove('choice-card-selected');
+            const indicator = card.querySelector('.radio-indicator div');
+            if (indicator) indicator.classList.add('opacity-0');
+        });
+        const selectedCard = document.getElementById(`choice-card-${index}`);
+        selectedCard.classList.add('choice-card-selected');
+        const indicator = selectedCard.querySelector('.radio-indicator div');
+        if (indicator) indicator.classList.remove('opacity-0');
+        const radio = selectedCard.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+    }
+
+    function normalizeCode(code) {
+        if (!code) return "";
+        let normalized = code.trim().replace(/\s+/g, "").toLowerCase();
+        const lambdaMatch = normalized.match(/^([a-z0-9_$]+)->/);
+        if (lambdaMatch) {
+            const paramName = lambdaMatch[1];
+            const escapedParam = paramName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp('(?<![a-z0-9_$])' + escapedParam + '(?![a-z0-9_$])', 'g');
+            normalized = normalized.replace(regex, 'it');
+            normalized = normalized.replace(/^it->/, 'it->');
+        }
+        return normalized.replace(/;$/, "");
+    }
+
+    function checkAnswer() {
+        if (!practiceMission) return;
+        let isCorrect = false;
+
+        if (practiceMission.quizType === 'CHOICE') {
+            const sel = document.querySelector('input[name="quiz-opt"]:checked');
+            if (sel && parseInt(sel.value) === parseInt(practiceMission.answer)) isCorrect = true;
+        } else {
+            let userInput = "";
+            if (practiceMission.quizType === 'BLANK') userInput = document.getElementById('blank-input').value;
+            else if (practiceMission.quizType === 'WRITE') userInput = document.getElementById('write-input').value;
+
+            const normUser = normalizeCode(userInput);
+            const normAns = normalizeCode(practiceMission.answer.toString());
+
+            if (normUser === normAns) isCorrect = true;
+            else if (normAns.replace('collectors.tolist()', 'tolist()') === normUser) isCorrect = true;
+        }
+
+        if (isCorrect) {
+            isSolved = true;
+            showToast("🎉 정답입니다! 축하합니다!", "success");
+            confetti();
+        } else {
+            showToast("❌ 정답이 아닙니다. 다시 시도해 보세요.", "error");
+        }
+    }
+
+    function showHint() {
+        showToast(`Hint: ${practiceMission.explanation || '코드를 자세히 살펴보세요.'}`);
+    }
+
+    function handleNextProblemRequest() {
+        if (!isSolved) {
+            showConfirmModal("문제 풀이가 완료되지 않았습니다. 다음 문제로 넘어가시겠습니까?", () => {
+                closeModal('confirm-modal');
+                generateNextProblem();
+            });
+        } else {
+            generateNextProblem();
+        }
+    }
+
+    function handleShowAnswerRequest() {
+        if (!isSolved) {
+            showConfirmModal("문제 풀이가 완료되지 않았습니다. 정답을 확인하시겠습니까?", () => {
+                closeModal('confirm-modal');
+                showAnswer();
+            });
+        } else {
+            showAnswer();
+        }
+    }
+
+    function showConfirmModal(text, onConfirm) {
+        const modal = document.getElementById('confirm-modal');
+        document.getElementById('confirm-modal-text').textContent = text;
+        const actionBtn = document.getElementById('confirm-modal-action');
+        actionBtn.onclick = onConfirm;
+        modal.classList.add('modal-active');
+        safeCreateIcons();
+    }
+
+    function showAnswer() {
+        if (!practiceMission) return;
+        const modal = document.getElementById('answer-modal');
+        const text = document.getElementById('modal-answer-text');
+        let answerStr = "";
+        if (practiceMission.quizType === 'CHOICE') {
+            answerStr = `[정답 번호: ${parseInt(practiceMission.answer) + 1}번]\n${practiceMission.options[practiceMission.answer]}`;
+        } else if (practiceMission.quizType === 'BLANK') {
+            answerStr = `${practiceMission.prefix} [ ${practiceMission.answer} ] ${practiceMission.suffix}`;
+        } else {
+            answerStr = `list.stream()${practiceMission.answer}`;
+        }
+        text.textContent = answerStr;
+        modal.classList.add('modal-active');
+        safeCreateIcons();
+    }
+
+    function closeModal(id) {
+        document.getElementById(id).classList.remove('modal-active');
+    }
+
+    function showToast(msg, type = "info") {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.className = `fixed bottom-8 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full text-white text-sm font-medium shadow-2xl border transition-all duration-300 z-[120] opacity-100`;
+        if (type === 'success') toast.classList.add('bg-emerald-600', 'border-emerald-500');
+        else if (type === 'error') toast.classList.add('bg-rose-600', 'border-rose-500');
+        else toast.classList.add('bg-slate-800', 'border-slate-700');
+        if (window.toastTimeout) clearTimeout(window.toastTimeout);
+        window.toastTimeout = setTimeout(() => { toast.classList.replace('opacity-100', 'opacity-0'); }, 3000);
+    }
+
+    function resetViz() {
+        const container = document.getElementById('viz-container');
+        container.innerHTML = `
+                <div class="text-slate-500 text-center mt-20 opacity-40">
+                    <i data-lucide="play-circle" class="w-16 h-16 mx-auto mb-4"></i>
+                    <p>파이프라인을 분석하려면 '시뮬레이션 시작' 버튼을 누르세요.</p>
+                </div>
+            `;
+        safeCreateIcons();
+    }
+
+    async function runSimulation() {
+        const container = document.getElementById('viz-container');
+        container.innerHTML = '';
+        const dataset = DATASETS[activeMission.dataset];
+        let currentData = [...dataset.data];
+        const steps = activeMission.steps;
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            currentData = step.logic(currentData);
+            const node = document.createElement('div');
+            node.className = 'stream-node w-full max-w-2xl bg-slate-800/50 border border-slate-700 rounded-xl p-4 opacity-0 transform translate-y-4 transition-all duration-500';
+            const nodeColor = i === 0 ? 'text-slate-400' : i === steps.length - 1 ? 'text-emerald-400' : 'text-blue-400';
+            node.innerHTML = `
+                    <div class="flex items-center justify-between mb-3 font-bold text-xs uppercase italic ${nodeColor}">
+                        <div class="flex items-center gap-2"><i data-lucide="layers" class="w-4 h-4"></i>${step.label}</div>
+                        <span class="text-[10px] text-slate-500 font-mono">Elements: ${currentData.length}</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        ${currentData.length === 0 ? '<span class="text-slate-600 text-[10px] italic">No elements matched.</span>' :
+                currentData.map(item => `<div class="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[10px] code-font text-slate-300 animate-in fade-in zoom-in">${formatItem(item)}</div>`).join('')
+            }
+                    </div>`;
+            container.appendChild(node);
+            setTimeout(() => node.classList.remove('opacity-0', 'translate-y-4'), 50);
+            safeCreateIcons();
+            container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+            await new Promise(r => setTimeout(r, 800));
+        }
+    }
+
+    function formatItem(item) {
+        if (typeof item !== 'object') return item;
+        if (item.name && item.stock !== undefined) return `${item.name}(${item.stock})`;
+        if (item.name && item.score !== undefined) return `${item.name}(${item.score})`;
+        if (item.label && item.price !== undefined) return `${item.label}(₩${item.price.toLocaleString()})`;
+        if (item.name && item.dept) return `${item.name}(${item.dept})`;
+        if (item.title && item.rating) return `${item.title}(★${item.rating})`;
+        return item.name || item.label || item.title || JSON.stringify(item);
+    }
+
+    function confetti() {
+        for (let i = 0; i < 20; i++) {
+            const p = document.createElement('div');
+            p.className = 'fixed w-2 h-2 bg-blue-500 rounded-full z-50';
+            p.style.left = '50%'; p.style.top = '50%';
+            document.body.appendChild(p);
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 100 + Math.random() * 200;
+            p.animate([{ transform: 'translate(0, 0)', opacity: 1 }, { transform: `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`, opacity: 0 }], { duration: 1000, easing: 'ease-out' }).onfinish = () => p.remove();
+        }
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>

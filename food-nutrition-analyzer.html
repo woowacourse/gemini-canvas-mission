@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI 영양 성분 분석기</title>
+    <style>
+        :root {
+            --primary-color: #28A745;
+            --secondary-color: #218838;
+            --accent-color: #e67e22;
+            --bg-color: #F0F2F5;
+            --card-bg: #FFFFFF;
+            --text-main: #1A1A1B;
+            --text-muted: #5F6368;
+            --shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            --radius: 16px;
+        }
+
+        * {
+            box-sizing: border-box;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: env(safe-area-inset-top) 15px env(safe-area-inset-bottom) 15px;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 0;
+            gap: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 10px 0;
+        }
+
+        header h1 {
+            color: var(--primary-color);
+            margin: 0;
+            font-size: 1.6rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-top: 6px;
+        }
+
+        /* 컨트롤 카드 */
+        .main-card {
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            text-align: center;
+        }
+
+        .preview-container {
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            background: #f8f9fa;
+            border-radius: var(--radius);
+            overflow: hidden;
+            border: 2px dashed #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        #imagePreview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .placeholder-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #999;
+            gap: 10px;
+        }
+
+        .placeholder-content svg {
+            width: 48px;
+            height: 48px;
+            fill: #ccc;
+        }
+
+        /* 버튼 그룹 */
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .btn {
+            border: none;
+            padding: 14px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-outline {
+            background: #fff;
+            border: 1.5px solid var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--secondary-color);
+        }
+
+        .btn-analyze {
+            width: 100%;
+            background: var(--primary-color);
+            color: white;
+            padding: 18px;
+            font-size: 1.1rem;
+        }
+
+        .btn:disabled {
+            background: #e0e0e0;
+            border-color: #e0e0e0;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        /* 카메라 모달 */
+        #cameraOverlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            z-index: 2000;
+            display: none;
+            flex-direction: column;
+        }
+
+        #cameraStream {
+            flex: 1;
+            width: 100%;
+            object-fit: cover;
+        }
+
+        .camera-controls {
+            padding: 30px;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            background: rgba(0,0,0,0.8);
+        }
+
+        .capture-circle {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: white;
+            border: 5px solid rgba(255,255,255,0.3);
+            cursor: pointer;
+        }
+
+        .close-camera {
+            color: white;
+            font-size: 0.9rem;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        /* 결과 디자인 */
+        #resultArea {
+            display: none;
+        }
+
+        .result-card {
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            animation: fadeIn 0.5s ease;
+        }
+
+        .food-header {
+            border-bottom: 1px solid #f0f0f0;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .food-title {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: var(--primary-color);
+            margin-bottom: 4px;
+        }
+
+        .food-kcal {
+            font-size: 1.1rem;
+            color: var(--accent-color);
+            font-weight: 700;
+        }
+
+        .nutrient-container {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .nutrient-box {
+            flex: 1;
+            background: #F8F9FA;
+            padding: 12px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .nutrient-name {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .nutrient-val {
+            font-weight: 800;
+            font-size: 1rem;
+        }
+
+        .food-desc {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: var(--text-muted);
+            background: #fdfdfd;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        /* 로딩/메시지 */
+        .loading-view {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            z-index: 3000;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>🥗 AI 영양 성분 분석기</h1>
+        <p>식단 촬영 한 번으로 주요 영양소를 체크하세요</p>
+    </header>
+
+    <div class="main-card">
+        <div class="preview-container" id="previewBox">
+            <div class="placeholder-content" id="placeholder">
+                <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                <span>사진을 추가해주세요</span>
+            </div>
+            <img id="imagePreview" alt="미리보기">
+        </div>
+
+        <div class="button-group">
+            <button class="btn btn-outline" id="cameraBtn">
+                📸 카메라 촬영
+            </button>
+            <button class="btn btn-outline" id="galleryBtn">
+                🖼️ 갤러리 선택
+            </button>
+        </div>
+
+        <input type="file" id="fileInput" accept="image/*" hidden>
+
+        <button class="btn btn-primary btn-analyze" id="analyzeBtn" disabled>
+            분석 시작하기
+        </button>
+    </div>
+
+    <div class="loading-view" id="loadingView">
+        <div class="spinner"></div>
+        <p>AI 영양사가 사진을 분석하고 있습니다...</p>
+    </div>
+
+    <div id="resultArea"></div>
+</div>
+
+<!-- 카메라 오버레이 -->
+<div id="cameraOverlay">
+    <video id="cameraStream" autoplay playsinline></video>
+    <div class="camera-controls">
+        <span class="close-camera" id="closeCamera">취소</span>
+        <div class="capture-circle" id="captureBtn"></div>
+        <div style="width: 30px;"></div> <!-- 밸런스용 공백 -->
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    const apiKey = ""; // 시스템 환경에서 주입됨
+    let selectedImageBase64 = "";
+    let stream = null;
+
+    // Elements
+    const fileInput = document.getElementById('fileInput');
+    const galleryBtn = document.getElementById('galleryBtn');
+    const cameraBtn = document.getElementById('cameraBtn');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const previewBox = document.getElementById('previewBox');
+    const imagePreview = document.getElementById('imagePreview');
+    const placeholder = document.getElementById('placeholder');
+    const loadingView = document.getElementById('loadingView');
+    const resultArea = document.getElementById('resultArea');
+    const toast = document.getElementById('toast');
+
+    // Camera Elements
+    const cameraOverlay = document.getElementById('cameraOverlay');
+    const cameraStream = document.getElementById('cameraStream');
+    const captureBtn = document.getElementById('captureBtn');
+    const closeCamera = document.getElementById('closeCamera');
+
+    // --- 카메라 기능 ---
+    async function startCamera() {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment" },
+                audio: false
+            });
+            cameraStream.srcObject = stream;
+            cameraOverlay.style.display = 'flex';
+        } catch (err) {
+            showToast("카메라 권한이 필요합니다.");
+            console.error(err);
+        }
+    }
+
+    function stopCamera() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+        cameraOverlay.style.display = 'none';
+    }
+
+    cameraBtn.addEventListener('click', startCamera);
+    closeCamera.addEventListener('click', stopCamera);
+
+    captureBtn.addEventListener('click', () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = cameraStream.videoWidth;
+        canvas.height = cameraStream.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(cameraStream, 0, 0);
+
+        const dataUrl = canvas.toDataURL('image/jpeg');
+        processImage(dataUrl);
+        stopCamera();
+    });
+
+    // --- 갤러리 기능 ---
+    galleryBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => processImage(event.target.result);
+            reader.readAsDataURL(file);
+        }
+    });
+
+    function processImage(dataUrl) {
+        selectedImageBase64 = dataUrl.split(',')[1];
+        imagePreview.src = dataUrl;
+        imagePreview.style.display = 'block';
+        placeholder.style.display = 'none';
+        analyzeBtn.disabled = false;
+        resultArea.style.display = 'none';
+
+        // 미리보기로 스크롤
+        previewBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // --- 분석 기능 ---
+    analyzeBtn.addEventListener('click', async () => {
+        if (!selectedImageBase64) return;
+
+        loadingView.style.display = 'block';
+        resultArea.style.display = 'none';
+        analyzeBtn.disabled = true;
+
+        try {
+            const result = await callGemini(selectedImageBase64);
+            renderResult(result);
+        } catch (err) {
+            console.error(err);
+            showToast("분석에 실패했습니다. 다시 시도해 주세요.");
+        } finally {
+            loadingView.style.display = 'none';
+            analyzeBtn.disabled = false;
+        }
+    });
+
+    async function callGemini(base64) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        const payload = {
+            contents: [{
+                parts: [
+                    { text: "이 사진 속 음식의 이름, 추정 칼로리(숫자 위주), 주요 영양소(탄수화물, 단백질, 지방)를 분석해서 JSON 형식으로 응답해줘. 응답 형식: { \"foodName\": \"\", \"calories\": \"\", \"nutrients\": { \"carbs\": \"\", \"protein\": \"\", \"fat\": \"\" }, \"description\": \"\" }" },
+                    { inlineData: { mimeType: "image/jpeg", data: base64 } }
+                ]
+            }],
+            generationConfig: { responseMimeType: "application/json" }
+        };
+
+        let delay = 1000;
+        for (let i = 0; i < 5; i++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error("API Failure");
+                const data = await response.json();
+                return JSON.parse(data.candidates[0].content.parts[0].text);
+            } catch (err) {
+                if (i === 4) throw err;
+                await new Promise(r => setTimeout(r, delay));
+                delay *= 2;
+            }
+        }
+    }
+
+    function renderResult(data) {
+        // AI가 "약" 글자를 포함해서 보내더라도 중복되지 않도록 처리
+        let displayKcal = (data.calories || '0').toString();
+        displayKcal = displayKcal.replace(/약/g, '').trim();
+
+        resultArea.innerHTML = `
+            <div class="result-card">
+                <div class="food-header">
+                    <div class="food-title">🥗 ${data.foodName || '식별된 음식'}</div>
+                    <div class="food-kcal">🔥 약 ${displayKcal} kcal</div>
+                </div>
+
+                <div class="nutrient-container">
+                    <div class="nutrient-box">
+                        <span class="nutrient-name">탄수화물</span>
+                        <span class="nutrient-val">${data.nutrients?.carbs || '0g'}</span>
+                    </div>
+                    <div class="nutrient-box">
+                        <span class="nutrient-name">단백질</span>
+                        <span class="nutrient-val">${data.nutrients?.protein || '0g'}</span>
+                    </div>
+                    <div class="nutrient-box">
+                        <span class="nutrient-name">지방</span>
+                        <span class="nutrient-val">${data.nutrients?.fat || '0g'}</span>
+                    </div>
+                </div>
+
+                <div class="food-desc">
+                    ${data.description || '성분 분석 정보가 없습니다.'}
+                </div>
+            </div>
+        `;
+        resultArea.style.display = 'block';
+        setTimeout(() => {
+            resultArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+    }
+
+    function showToast(msg) {
+        toast.innerText = msg;
+        toast.style.display = 'block';
+        setTimeout(() => toast.style.display = 'none', 3000);
+    }
+</script>
+</body>
+</html>

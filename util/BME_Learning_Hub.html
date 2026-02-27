@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>의공학 AI 퀴즈 앱 (해부학/생리학)</title>
+    <!-- Three.js (3D 시각화 라이브러리) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body { font-family: 'Pretendard', sans-serif; background-color: #f8fafc; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .option-btn { transition: all 0.2s; }
+        .option-btn:hover:not(:disabled) { transform: translateX(5px); border-color: #6366f1; background-color: #e0e7ff; }
+        .option-btn:disabled { cursor: not-allowed; }
+        .card-hover { transition: all 0.2s; }
+        .card-hover:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c7c7cc; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+        
+        /* Timer Animation */
+        .timer-warning { color: #ef4444; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 text-gray-800">
+
+    <div id="app-container" class="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden relative flex flex-col h-[85vh] min-h-[600px]">
+        
+        <!-- Header -->
+        <header class="bg-indigo-600 text-white p-5 text-center shadow-md z-10 shrink-0 relative">
+            <h1 class="text-2xl font-bold flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+                의공학 AI 학습 플랫폼
+            </h1>
+            <p class="text-indigo-200 text-sm mt-1">인체해부학 & 생리학 마스터 코스</p>
+            <div id="user-info" class="hidden absolute top-4 right-5 text-xs bg-indigo-800/50 px-3 py-1.5 rounded-full border border-indigo-400">
+                <!-- User info injected here -->
+            </div>
+        </header>
+
+        <div class="flex-1 p-6 overflow-y-auto relative bg-slate-50">
+            
+            <!-- Screen 0: Login -->
+            <div id="screen-login" class="fade-in h-full flex flex-col justify-center items-center space-y-6 max-w-sm mx-auto">
+                <div class="text-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">학습자 로그인</h2>
+                    <p class="text-gray-500 text-sm mt-2">학습 데이터를 기록하고 취약점 분석을 받기 위해 학번과 이름을 입력해주세요.</p>
+                </div>
+                <div class="w-full space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">학번 (Student ID)</label>
+                        <input type="number" id="input-student-id" placeholder="예: 20241234" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">이름 (Name)</label>
+                        <input type="text" id="input-student-name" placeholder="예: 홍길동" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
+                    </div>
+                    <button id="btn-login" class="w-full mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl transition duration-200 shadow-md">
+                        접속하기
+                    </button>
+                </div>
+            </div>
+
+            <!-- Screen 1: Dashboard -->
+            <div id="screen-dashboard" class="hidden fade-in h-full flex flex-col justify-center max-w-lg mx-auto space-y-5">
+                <div class="text-center mb-2">
+                    <h2 class="text-2xl font-bold text-gray-800">환영합니다, <span id="dash-name" class="text-indigo-600"></span>님!</h2>
+                    <p class="text-gray-500 mt-2 text-sm">오늘도 기초 전공 학습을 이어나가 보세요.</p>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3">
+                    <!-- 퀴즈 버튼 -->
+                    <div class="bg-white border-2 border-indigo-100 rounded-2xl p-5 cursor-pointer card-hover" onclick="switchScreen('quiz-setup')">
+                        <div class="flex items-center gap-4">
+                            <div class="bg-indigo-100 p-3 rounded-full text-indigo-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">새 퀴즈 시작하기</h3>
+                                <p class="text-gray-500 text-xs mt-1">해부학/생리학 과목과 주차를 선택하여 풉니다.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 용어 사전 버튼 -->
+                    <div class="bg-white border-2 border-teal-100 rounded-2xl p-5 cursor-pointer card-hover" onclick="showGlossaryScreen()">
+                        <div class="flex items-center gap-4">
+                            <div class="bg-teal-100 p-3 rounded-full text-teal-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M8 11h8"/><path d="M8 7h6"/></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">의학 용어 사전</h3>
+                                <p class="text-gray-500 text-xs mt-1">주요 어근, 접두사, 질병명을 검색하고 추가합니다.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 분석 버튼 -->
+                    <div class="bg-white border-2 border-blue-100 rounded-2xl p-5 cursor-pointer card-hover" onclick="showAnalysisScreen()">
+                        <div class="flex items-center gap-4">
+                            <div class="bg-blue-100 p-3 rounded-full text-blue-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">내 데이터 분석</h3>
+                                <p class="text-gray-500 text-xs mt-1">취약 주차를 확인하고 AI 복습 추천을 받습니다.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3D 해부학 모델 버튼 -->
+                    <div class="bg-white border-2 border-purple-100 rounded-2xl p-5 cursor-pointer card-hover" onclick="show3DScreen()">
+                        <div class="flex items-center gap-4">
+                            <div class="bg-purple-100 p-3 rounded-full text-purple-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">인터랙티브 3D 모델</h3>
+                                <p class="text-gray-500 text-xs mt-1">골격, 근육, 혈관 레이어를 회전/터치하여 학습합니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 로그아웃 버튼 -->
+                <button onclick="logout()" class="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-red-500 transition py-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+                    다른 계정으로 로그아웃
+                </button>
+            </div>
+
+            <!-- Screen 2: Quiz Setup -->
+            <div id="screen-quiz-setup" class="hidden fade-in space-y-5 pb-6 bg-white p-6 rounded-xl border border-gray-200">
+                <div class="flex justify-between items-center border-b pb-3 mb-2">
+                    <h2 class="text-xl font-bold text-gray-800">퀴즈 설정</h2>
+                    <button class="text-gray-500 hover:text-gray-800 text-sm font-medium" onclick="switchScreen('dashboard')">대시보드로 돌아가기</button>
+                </div>
+
+                <div class="space-y-2">
+                    <h2 class="text-sm font-semibold text-gray-800">1. 과목 선택</h2>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="flex items-center justify-center gap-2 p-3 border-2 rounded-xl cursor-pointer transition subject-label border-indigo-500 bg-indigo-50 text-indigo-700 font-bold">
+                            <input type="radio" name="subject" value="anatomy" class="hidden" checked onchange="updateSubjectUI()">
+                            <span>인체해부학</span>
+                        </label>
+                        <label class="flex items-center justify-center gap-2 p-3 border-2 border-gray-200 rounded-xl cursor-pointer transition subject-label text-gray-600 font-bold hover:border-indigo-300">
+                            <input type="radio" name="subject" value="physiology" class="hidden" onchange="updateSubjectUI()">
+                            <span>생리학</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <div class="flex justify-between items-end">
+                        <h2 class="text-sm font-semibold text-gray-800">2. 출제 주차 선택</h2>
+                        <button id="btn-toggle-all-weeks" class="text-xs text-indigo-600 font-medium hover:underline">전체 선택/해제</button>
+                    </div>
+                    <div class="grid grid-cols-4 sm:grid-cols-7 gap-2" id="week-checkboxes">
+                        <!-- Checkboxes generated by JS -->
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <div class="space-y-2">
+                        <h2 class="text-sm font-semibold text-gray-800">3. 난이도</h2>
+                        <select id="select-difficulty" class="w-full p-2.5 border border-gray-300 rounded-lg outline-none focus:border-indigo-500 text-sm">
+                            <option value="all">전체 혼합 (기본+심화)</option>
+                            <option value="기본">기본 개념</option>
+                            <option value="심화">심화 응용</option>
+                        </select>
+                    </div>
+                    <div class="space-y-2">
+                        <h2 class="text-sm font-semibold text-gray-800">4. 문제 수</h2>
+                        <select id="select-qcount" class="w-full p-2.5 border border-gray-300 rounded-lg outline-none focus:border-indigo-500 text-sm">
+                            <option value="5">5문제 (가볍게)</option>
+                            <option value="10" selected>10문제 (추천)</option>
+                            <option value="20">20문제 (실전 연습)</option>
+                            <option value="all">선택 범위 전체 풀기</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <label class="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-xl cursor-pointer hover:bg-red-100 transition">
+                        <input type="checkbox" id="check-timer-mode" class="w-5 h-5 text-red-600 rounded focus:ring-red-500">
+                        <div>
+                            <span class="font-bold text-red-700 block text-sm">실전 타이머 모드 ⏳</span>
+                            <span class="text-xs text-red-600">문제당 30초 제한 (긴장감 UP!)</span>
+                        </div>
+                    </label>
+                </div>
+
+                <button id="btn-start" class="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition duration-200 shadow-lg text-lg">
+                    퀴즈 시작하기
+                </button>
+            </div>
+
+            <!-- Screen 3: Quiz -->
+            <div id="screen-quiz" class="hidden fade-in flex flex-col h-full">
+                <div class="flex justify-between items-center mb-3 text-sm font-medium text-gray-500 shrink-0">
+                    <div class="flex gap-2">
+                        <span id="quiz-meta" class="bg-white border border-gray-200 px-3 py-1 rounded-full shadow-sm text-xs"></span>
+                        <span id="timer-display" class="hidden bg-red-100 text-red-700 border border-red-200 px-3 py-1 rounded-full shadow-sm text-xs font-bold flex items-center gap-1">
+                            ⏱ <span id="time-left">30</span>초
+                        </span>
+                    </div>
+                    <span id="quiz-progress" class="font-bold">문제 1 / 10</span>
+                </div>
+                
+                <div class="w-full bg-gray-200 rounded-full h-2 mb-5 shrink-0">
+                    <div id="progress-bar" class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: 10%"></div>
+                </div>
+
+                <div class="flex items-center gap-2 mb-2 shrink-0">
+                    <span id="type-badge" class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded"></span>
+                </div>
+                
+                <h3 id="question-text" class="text-lg sm:text-xl font-bold mb-5 text-gray-800 leading-relaxed shrink-0">
+                    문제가 여기에 표시됩니다.
+                </h3>
+
+                <div id="options-container" class="space-y-3 shrink-0"></div>
+                <div id="sa-container" class="hidden shrink-0 space-y-3">
+                    <input type="text" id="sa-input" placeholder="정답을 입력하세요" class="w-full p-4 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-base">
+                    <button id="btn-sa-submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition shadow-md">정답 제출</button>
+                </div>
+
+                <div id="explanation-area" class="hidden mt-5 bg-gray-50 border border-gray-200 rounded-lg p-4 fade-in shrink-0">
+                    <div class="flex items-center gap-2 mb-2 border-b pb-2">
+                        <span id="result-badge" class="px-2 py-1 text-xs font-bold rounded-md"></span>
+                        <span id="correct-answer-text" class="text-sm font-semibold text-gray-700"></span>
+                    </div>
+                    <p id="explanation-text" class="text-sm text-gray-600 leading-relaxed"></p>
+                </div>
+
+                <div class="mt-auto pt-4">
+                    <button id="btn-next" class="hidden w-full bg-gray-800 hover:bg-gray-900 text-white font-bold py-4 rounded-xl transition duration-200 text-base shadow-md">
+                        다음 문제
+                    </button>
+                </div>
+            </div>
+
+            <!-- Screen 4: Result -->
+            <div id="screen-result" class="hidden fade-in text-center py-6 h-full flex flex-col justify-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-indigo-100 text-indigo-600 mb-4 mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l-2 5l9-9l-9-18l-2 5l9 9l-9 18Z" opacity="0"/><path d="m8 11 2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">학습 완료!</h2>
+                <p class="text-gray-600 text-sm mb-6" id="result-message"></p>
+                
+                <div class="bg-white rounded-xl p-6 mb-6 max-w-sm mx-auto shadow-sm border border-gray-200 w-full">
+                    <div class="text-4xl font-extrabold text-indigo-600 mb-2">
+                        <span id="score-correct">0</span><span class="text-xl text-gray-400"> / <span id="score-total">0</span></span>
+                    </div>
+                    <p class="text-sm font-medium text-gray-500">정답률: <span id="score-percent">0</span>%</p>
+                </div>
+
+                <div class="flex flex-col gap-3 justify-center mt-auto">
+                    <button id="btn-review" class="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2">
+                        오답 노트 (<span id="wrong-count">0</span>)
+                    </button>
+                    <button class="bg-gray-800 text-white hover:bg-gray-900 font-bold py-3 px-6 rounded-xl transition" onclick="switchScreen('dashboard')">
+                        대시보드로 돌아가기
+                    </button>
+                </div>
+            </div>
+
+            <!-- Screen 5: Review -->
+            <div id="screen-review" class="hidden fade-in flex flex-col h-full">
+                <div class="flex items-center gap-3 mb-4 border-b pb-3 shrink-0">
+                    <button class="text-gray-500 hover:text-gray-800 transition" onclick="switchScreen('result')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h2 class="text-xl font-bold text-gray-800">나의 오답 노트</h2>
+                </div>
+                <div id="review-list" class="space-y-4 overflow-y-auto mb-4 flex-1 pr-2"></div>
+                <div class="shrink-0 mt-auto">
+                    <button id="btn-retry-wrong" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition shadow-md">
+                        오답 문제만 다시 풀기
+                    </button>
+                </div>
+            </div>
+
+            <!-- Screen 6: Analysis -->
+            <div id="screen-analysis" class="hidden fade-in flex flex-col h-full">
+                <div class="flex items-center gap-3 mb-4 border-b pb-3 shrink-0">
+                    <button class="text-gray-500 hover:text-gray-800 transition" onclick="switchScreen('dashboard')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h2 class="text-xl font-bold text-gray-800">데이터 분석</h2>
+                </div>
+                <div id="analysis-content" class="flex-1 overflow-y-auto pr-2 space-y-5">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                            <p class="text-xs text-gray-500 font-semibold mb-1">총 풀이 문제</p>
+                            <p class="text-2xl font-bold text-indigo-600" id="stat-total-q">0<span class="text-sm font-normal">개</span></p>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                            <p class="text-xs text-gray-500 font-semibold mb-1">평균 정답률</p>
+                            <p class="text-2xl font-bold text-blue-600" id="stat-avg-score">0<span class="text-sm font-normal">%</span></p>
+                        </div>
+                    </div>
+                    <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-5 relative">
+                        <h3 class="text-sm font-bold text-indigo-800 mb-2">🤖 AI 맞춤형 학습 처방</h3>
+                        <p id="ai-recommendation-text" class="text-xs text-indigo-900 leading-relaxed font-medium">분석 중...</p>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-gray-700 mb-3 border-b pb-2">취약점 TOP 3 (오답 빈도)</h3>
+                        <div id="weak-chart-container" class="space-y-3"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Screen 7: Glossary -->
+            <div id="screen-glossary" class="hidden fade-in flex flex-col h-full relative">
+                <div class="flex items-center justify-between mb-4 border-b pb-3 shrink-0">
+                    <div class="flex items-center gap-3">
+                        <button class="text-gray-500 hover:text-gray-800 transition" onclick="switchScreen('dashboard')">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <h2 class="text-xl font-bold text-gray-800">의학 용어 사전</h2>
+                    </div>
+                    <button onclick="showAddTermModal()" class="bg-teal-100 text-teal-700 hover:bg-teal-200 p-2.5 rounded-full transition shadow-sm" title="새 용어 추가">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                </div>
+                <div class="mb-4 shrink-0">
+                    <input type="text" id="glossary-search" placeholder="용어 검색 (예: pseudo, 빈맥...)" class="w-full p-3 border border-teal-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm bg-teal-50" onkeyup="filterGlossary()">
+                </div>
+                <div id="glossary-list" class="flex-1 overflow-y-auto space-y-2 pr-2 pb-4">
+                    <!-- Injected via JS -->
+                </div>
+
+                <!-- Add Term Modal -->
+                <div id="modal-add-term" class="hidden absolute inset-0 bg-slate-900/40 z-30 flex items-center justify-center p-2 fade-in rounded-xl backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl border border-gray-100">
+                        <h3 class="text-lg font-bold text-gray-800 mb-4 border-b pb-2 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-teal-600"><path d="M14 2H6a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 3v5h5"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                            나만의 용어 추가
+                        </h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">용어 (Term)</label>
+                                <input type="text" id="input-term-name" placeholder="예: Hyperglycemia" class="w-full p-2.5 border border-gray-300 rounded-lg outline-none focus:border-teal-500 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">의미 (Meaning)</label>
+                                <input type="text" id="input-term-meaning" placeholder="예: 고혈당증" class="w-full p-2.5 border border-gray-300 rounded-lg outline-none focus:border-teal-500 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">상세 설명 (Description)</label>
+                                <textarea id="input-term-desc" placeholder="혈액 속에 당분이 비정상적으로 많은 상태." class="w-full p-2.5 border border-gray-300 rounded-lg outline-none focus:border-teal-500 text-sm resize-none" rows="2"></textarea>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 mt-5">
+                            <button onclick="hideAddTermModal()" class="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition">취소</button>
+                            <button onclick="saveNewTerm()" class="flex-1 py-2.5 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-700 transition shadow-md">추가하기</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Screen 8: 3D Anatomy Interactive -->
+            <div id="screen-3d" class="hidden fade-in flex flex-col h-full relative">
+                <div class="flex items-center gap-3 mb-4 border-b pb-3 shrink-0 absolute top-0 left-0 right-0 bg-white/90 backdrop-blur z-20 p-4 rounded-t-xl">
+                    <button class="text-gray-500 hover:text-gray-800 transition" onclick="switchScreen('dashboard')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h2 class="text-xl font-bold text-gray-800">3D 해부학 탐험</h2>
+                </div>
+                
+                <!-- 3D Canvas Container -->
+                <div id="canvas-container" class="flex-1 w-full bg-slate-200 rounded-xl overflow-hidden relative mt-16 shadow-inner">
+                    <!-- Loading Indicator -->
+                    <div id="loading-3d" class="absolute inset-0 flex items-center justify-center bg-slate-100 z-10">
+                        <p class="text-indigo-600 font-bold animate-pulse text-lg">3D 모델 렌더링 중...</p>
+                    </div>
+                </div>
+
+                <!-- UI Overlays -->
+                <!-- Layer Controls -->
+                <div class="absolute top-20 right-4 bg-white/95 p-3.5 rounded-xl shadow-lg border border-gray-200 z-10 text-sm">
+                    <h3 class="font-bold text-gray-800 mb-2 border-b pb-1 flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                        레이어 제어
+                    </h3>
+                    <label class="flex items-center gap-2 cursor-pointer mb-2 hover:bg-gray-50 p-1 rounded transition"><input type="checkbox" checked class="w-4 h-4 text-gray-600 focus:ring-gray-500" onchange="toggle3DLayer('bone', this.checked)"> <span class="font-medium text-gray-700">🦴 골격계 (Bones)</span></label>
+                    <label class="flex items-center gap-2 cursor-pointer mb-2 hover:bg-red-50 p-1 rounded transition"><input type="checkbox" checked class="w-4 h-4 text-red-600 focus:ring-red-500" onchange="toggle3DLayer('muscle', this.checked)"> <span class="font-medium text-red-700">🥩 근육계 (Muscles)</span></label>
+                    <label class="flex items-center gap-2 cursor-pointer mb-2 hover:bg-blue-50 p-1 rounded transition"><input type="checkbox" checked class="w-4 h-4 text-blue-600 focus:ring-blue-500" onchange="toggle3DLayer('vessel', this.checked)"> <span class="font-medium text-blue-700">🩸 혈관계 (Vessels)</span></label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:bg-yellow-50 p-1 rounded transition"><input type="checkbox" checked class="w-4 h-4 text-yellow-500 focus:ring-yellow-500" onchange="toggle3DLayer('nerve', this.checked)"> <span class="font-medium text-yellow-700">⚡ 신경계 (Nerves)</span></label>
+                </div>
+
+                <!-- Info Panel -->
+                <div class="absolute bottom-4 left-4 right-4 bg-white/95 p-4 rounded-xl shadow-xl border-l-4 border-indigo-500 z-10 pointer-events-none transition-all duration-300">
+                    <p class="text-xs text-indigo-500 font-bold mb-1 tracking-wider uppercase">Touch-to-Identify</p>
+                    <h3 id="info-3d-title" class="text-lg font-extrabold text-gray-800">원하는 부위를 터치하세요</h3>
+                    <p id="info-3d-desc" class="text-sm text-gray-600 mt-1">화면 드래그: 회전 | 스크롤/핀치: 줌 확대/축소</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 퀴즈 문제 데이터베이스 ---
+        const questionsDB = [
+            // 해부학 1~10주차
+            { id: 101, subject: 'anatomy', week: 1, type: 'mc', difficulty: '기본', text: "해부학(Anatomy)의 어원인 'tome' 또는 'temnein'의 의미는?", options: ["관찰하다", "자르다 (to cut up)", "구조", "기능"], answer: 1, explanation: "Anatomy는 ana(apart) + tome(to cut up)에서 유래되었습니다." },
+            { id: 102, subject: 'anatomy', week: 1, type: 'sa', difficulty: '심화', text: "의학 용어 접두사 중 'before' 또는 'in front of'를 의미하는 접두사를 1개 작성하시오. (영어로 작성)", answer: ["ante", "pre", "pro"], explanation: "ante-, pre-, pro- 모두 'before' 또는 'in front of'를 의미합니다." },
+            { id: 104, subject: 'anatomy', week: 1, type: 'sa', difficulty: '기본', text: "의학 용어 접두사 중 'false(가짜의)'를 의미하는 접두사는 무엇인가? (영어로 작성)", answer: ["pseudo"], explanation: "pseudo-는 false를 의미합니다. (예: pseudoplegia - 가성마비)" },
+            { id: 105, subject: 'anatomy', week: 1, type: 'mc', difficulty: '기본', text: "접미사 '-plegia'가 의미하는 것은 무엇인가?", options: ["염증 (inflammation)", "통증 (pain)", "마비 (paralysis)", "종양 (tumor)"], answer: 2, explanation: "-plegia는 paralysis(마비)를 의미합니다." },
+            { id: 106, subject: 'anatomy', week: 1, type: 'mc', difficulty: '심화', text: "다음 중 'after, behind'를 의미하는 접두사는?", options: ["ante-", "post-", "pro-", "ec-"], answer: 1, explanation: "post-는 after 또는 behind를 의미합니다. (예: postnasal)" },
+            { id: 107, subject: 'anatomy', week: 1, type: 'mc', difficulty: '기본', text: "육안으로 관찰 가능한 구조를 연구하는 해부학 분야는?", options: ["Microscopic anatomy", "Gross anatomy", "Embryology", "Systemic anatomy"], answer: 1, explanation: "Gross anatomy (육안해부학)은 현미경 없이 눈으로 관찰하는 분야입니다." },
+
+            { id: 201, subject: 'anatomy', week: 2, type: 'mc', difficulty: '기본', text: "생명체를 구성하는 단계를 가장 작은 것부터 순서대로 나열한 것은?", options: ["세포->조직->화학물질->기관", "화학물질->조직->세포->기관", "화학물질->세포->조직->기관", "조직->기관->세포->개체"], answer: 2, explanation: "Chemicals -> Cells -> Tissues -> Organs -> Organ systems -> Body" },
+            { id: 202, subject: 'anatomy', week: 2, type: 'sa', difficulty: '심화', text: "선(gland)을 의미하는 어근(root)은 무엇인가? (형식: xxxx/o)", answer: ["aden/o"], explanation: "aden/o는 gland(선/샘)를 의미합니다." },
+            { id: 204, subject: 'anatomy', week: 2, type: 'sa', difficulty: '기본', text: "세포나 조직에서 이물질을 '먹다(eat, swallow)'라는 의미를 가진 어근은? (형식: xxxx/o)", answer: ["phag/o"], explanation: "phag/o는 먹거나 삼키는 작용을 뜻합니다. (예: phagocytosis - 식세포작용)" },
+            { id: 205, subject: 'anatomy', week: 2, type: 'mc', difficulty: '심화', text: "접미사 중 '-oma'가 뜻하는 바는?", options: ["세포 (cell)", "질병 (disease)", "종양 (tumor)", "확장 (dilation)"], answer: 2, explanation: "-oma는 종양(tumor)을 의미합니다." },
+            { id: 206, subject: 'anatomy', week: 2, type: 'sa', difficulty: '기본', text: "점액(mucus)을 뜻하는 어근은 무엇인가? (형식: xxxx/o)", answer: ["muc/o", "myx/o"], explanation: "muc/o 또는 myx/o는 점액(mucus)을 의미합니다." },
+            { id: 207, subject: 'anatomy', week: 2, type: 'mc', difficulty: '심화', text: "섬유(fiber)를 뜻하는 어근은?", options: ["reticul/o", "fibr/o", "hist/o", "blast/o"], answer: 1, explanation: "fibr/o는 fiber(섬유)를 의미합니다." },
+
+            { id: 301, subject: 'anatomy', week: 3, type: 'mc', difficulty: '기본', text: "몸의 중심선(midline)에서 멀어지는 쪽을 의미하는 방향 용어는?", options: ["Medial", "Lateral", "Proximal", "Distal"], answer: 1, explanation: "Lateral(가쪽)은 중심선에서 멀어지는 쪽입니다." },
+            { id: 302, subject: 'anatomy', week: 3, type: 'mc', difficulty: '기본', text: "신체를 상부(Superior)와 하부(Inferior)로 나누는 해부학적 평면은?", options: ["Sagittal plane", "Frontal plane", "Transverse plane", "Coronal plane"], answer: 2, explanation: "Transverse (horizontal) plane은 몸을 위/아래로 나눕니다." },
+            { id: 303, subject: 'anatomy', week: 3, type: 'sa', difficulty: '기본', text: "Anterior(앞쪽)와 같은 의미로 쓰이는 해부학 용어는? (영어로 작성)", answer: ["ventral"], explanation: "Anterior와 Ventral은 모두 배쪽(앞쪽)을 의미합니다." },
+            { id: 304, subject: 'anatomy', week: 3, type: 'mc', difficulty: '심화', text: "부착점(attachment point)에서 더 멀리 떨어져 있는 것을 나타내는 용어는?", options: ["Medial", "Lateral", "Proximal", "Distal"], answer: 3, explanation: "Distal은 참조점이나 부착점에서 더 멀리 있는 위치를 뜻합니다." },
+            
+            { id: 401, subject: 'anatomy', week: 4, type: 'mc', difficulty: '기본', text: "두개골(Skull)을 구성하는 뼈의 총 개수(청소골 제외)는?", options: ["14개", "8개", "22개", "26개"], answer: 2, explanation: "뇌머리뼈 8개 + 얼굴뼈 14개 = 총 22개입니다." },
+            { id: 402, subject: 'anatomy', week: 4, type: 'sa', difficulty: '기본', text: "얼굴뼈 중 위턱뼈를 구성하는 뼈의 이름은? (영어로 작성)", answer: ["maxilla"], explanation: "Maxilla는 위턱뼈, Mandible은 아래턱뼈입니다." },
+            { id: 403, subject: 'anatomy', week: 4, type: 'mc', difficulty: '심화', text: "척추 디스크 탈출증(Herniated disk)이 주로 발생하는 부위는?", options: ["경추와 요추", "경추와 흉추", "흉추와 요추", "천추와 미추"], answer: 0, explanation: "허리(Lumbosacral)와 목(Cervical) 부위에서 자주 발생합니다." },
+            { id: 404, subject: 'anatomy', week: 4, type: 'mc', difficulty: '기본', text: "얼굴뼈(Facial bones)의 주요 기능이 아닌 것은?", options: ["감각기관 보호", "저작 근육 부착점", "뇌를 둘러싸고 보호", "치아 소켓 제공"], answer: 2, explanation: "뇌를 둘러싸고 보호하는 것은 뇌머리뼈(Cranial bones)의 역할입니다." },
+
+            { id: 501, subject: 'anatomy', week: 5, type: 'mc', difficulty: '기본', text: "두개골 봉합선(Suture)처럼 움직일 수 없는 관절은 어떤 조직으로 결합되어 있는가?", options: ["섬유결합조직", "섬유연골", "윤활액", "근육조직"], answer: 0, explanation: "Suture(봉합)는 섬유결합조직으로 강하게 연결된 부동관절입니다." },
+            { id: 502, subject: 'anatomy', week: 5, type: 'mc', difficulty: '심화', text: "섬유연골(fibrous cartilage)로 연결되어 약간의 움직임만 허용하는 관절은?", options: ["Suture (봉합)", "Symphysis (결합)", "Synovial (윤활)", "Diarthrosis (자유관절)"], answer: 1, explanation: "Symphysis는 약간의 움직임을 허용하는 연골관절입니다." },
+            { id: 503, subject: 'anatomy', week: 5, type: 'sa', difficulty: '기본', text: "관절 내에서 윤활액을 생성하는 막의 이름은? (영어로 OO membrane)", answer: ["synovial", "synovial membrane"], explanation: "Synovial membrane(윤활막)이 Synovial fluid(윤활액)를 생성합니다." },
+            { id: 504, subject: 'anatomy', week: 5, type: 'mc', difficulty: '심화', text: "자가면역 질환으로 발생하는 관절염의 종류는?", options: ["Osteoarthritis", "Rheumatoid arthritis", "Gout", "Lyme disease"], answer: 1, explanation: "Rheumatoid(류마티스) 관절염은 자가면역 질환의 일종입니다." },
+
+            { id: 601, subject: 'anatomy', week: 6, type: 'mc', difficulty: '기본', text: "신경근육접합부(Neuromuscular junction)는 근육과 무엇 사이의 연결인가?", options: ["선 (Gland)", "신경세포 (Neuron)", "뼈 (Bone)", "인대 (Ligament)"], answer: 1, explanation: "운동 신경(Neuron)과 근육 섬유 간의 시냅스입니다." },
+            { id: 602, subject: 'anatomy', week: 6, type: 'sa', difficulty: '기본', text: "관절 각도가 감소하는 굽힘(Flexion)의 반대 운동은? (영어로 작성)", answer: ["extension"], explanation: "Flexion의 반대는 Extension(폄)입니다." },
+            { id: 603, subject: 'anatomy', week: 6, type: 'sa', difficulty: '심화', text: "건, 건초 및 윤활막의 염증을 나타내는 용어는? (영어로 작성)", answer: ["tendonitis"], explanation: "Tendonitis는 힘줄(Tendon) 주변의 염증입니다." },
+            { id: 604, subject: 'anatomy', week: 6, type: 'mc', difficulty: '심화', text: "수근관 증후군(Carpal tunnel syndrome) 시 압박되는 신경은?", options: ["척골신경", "요골신경", "정중신경(Median nerve)", "좌골신경"], answer: 2, explanation: "수근관의 압박으로 인해 Median nerve가 눌려 손 저림이 발생합니다." },
+            { id: 605, subject: 'anatomy', week: 6, type: 'sa', difficulty: '심화', text: "루게릭병이라고도 불리며 운동 신경이 퇴화하는 질환의 약어는?", answer: ["als"], explanation: "Amyotrophic Lateral Sclerosis(ALS)입니다." },
+
+            { id: 701, subject: 'anatomy', week: 7, type: 'mc', difficulty: '기본', text: "혈장의 약 91%를 차지하는 성분은?", options: ["단백질", "물", "백혈구", "적혈구"], answer: 1, explanation: "혈장(Plasma)의 91%는 물(Water)입니다." },
+            { id: 702, subject: 'anatomy', week: 7, type: 'mc', difficulty: '심화', text: "체순환(Systemic circulation) 과정 중 심장에서 나가는 혈액이 통과하는 가장 큰 동맥은?", options: ["Pulmonary artery", "Vena cava", "Aorta (대동맥)", "Pulmonary vein"], answer: 2, explanation: "산소가 풍부한 혈액은 좌심실에서 Aorta(대동맥)를 타고 전신으로 갑니다." },
+
+            { id: 801, subject: 'anatomy', week: 8, type: 'mc', difficulty: '기본', text: "외호흡(External respiration)에 대한 설명으로 옳은 것은?", options: ["혈액과 조직 사이 가스 교환", "폐포와 폐모세혈관 사이 가스 교환", "세포 내 ATP 생성", "단순 공기 유입"], answer: 1, explanation: "폐포와 혈액 사이의 가스 교환입니다." },
+            { id: 802, subject: 'anatomy', week: 8, type: 'sa', difficulty: '심화', text: "흉막(가슴막)에 생긴 염증을 무엇이라 하는가? (영어로 작성)", answer: ["pleurisy"], explanation: "Pleurisy(흉막염)는 호흡 시 통증을 유발합니다." },
+
+            { id: 901, subject: 'anatomy', week: 9, type: 'mc', difficulty: '기본', text: "담즙(Bile)이 생성되는 기관과 저장되는 기관은?", options: ["위 - 간", "간 - 췌장", "간 - 담낭", "담낭 - 소장"], answer: 2, explanation: "간에서 생성되고 담낭(쓸개)에 저장됩니다." },
+            { id: 902, subject: 'anatomy', week: 9, type: 'mc', difficulty: '심화', text: "대장(Large intestine)이 시작되는 맹장을 뜻하는 의학 용어 어근은?", options: ["col/o", "cec/o", "enter/o", "gastr/o"], answer: 1, explanation: "Cecum(맹장)은 대장의 시작 부위로 어근은 cec/o 입니다." },
+
+            { id: 1001, subject: 'anatomy', week: 10, type: 'mc', difficulty: '기본', text: "신장 내 소변을 형성하는 구조적/기능적 단위는?", options: ["Calyx", "Ureter", "Nephron", "Alveoli"], answer: 2, explanation: "Nephron(네프론)이 소변 생성 단위입니다." },
+            { id: 1002, subject: 'anatomy', week: 10, type: 'sa', difficulty: '심화', text: "이뇨(소변 배출 증가)를 뜻하는 용어는? (영어로 작성)", answer: ["diuresis"], explanation: "Diuresis는 소변 배설 증가를 뜻합니다." },
+
+            // 생리학 2~13주차
+            { id: 2001, subject: 'physiology', week: 2, type: 'mc', difficulty: '기본', text: "항상성(Homeostasis) 유지를 위해 초기 변화의 반대 방향으로 반응을 유도하는 기전은?", options: ["Positive feedback", "Negative feedback", "Feedforward", "Pathophysiology"], answer: 1, explanation: "음성 피드백(Negative feedback)이 항상성의 핵심입니다." },
+            { id: 2003, subject: 'physiology', week: 2, type: 'sa', difficulty: '기본', text: "체내의 모든 화학 반응의 총합을 뜻하는 단어는? (영어로 작성, m으로 시작)", answer: ["metabolism"], explanation: "Metabolism(물질대사)은 신체의 모든 화학적 활동입니다." },
+            { id: 2004, subject: 'physiology', week: 2, type: 'mc', difficulty: '심화', text: "Positive feedback(양성 피드백)의 해로운 예시에 해당하는 것은?", options: ["출산(Childbirth)", "혈압 하강에 이은 심장 펌핑력 저하", "체온 조절", "혈당 상승 시 인슐린 분비"], answer: 1, explanation: "출혈 시 혈압 저하가 심장 기능을 더 악화시키는 것은 해로운 양성 피드백의 예입니다." },
+            { id: 2005, subject: 'physiology', week: 2, type: 'sa', difficulty: '기본', text: "질병과 관련된 몸의 비정상적인 기능을 연구하는 학문은? (영어로 작성)", answer: ["pathophysiology"], explanation: "Pathophysiology(병태생리학)입니다." },
+            { id: 2006, subject: 'physiology', week: 2, type: 'mc', difficulty: '기본', text: "생명체의 특성 중 일반적인 세포에서 특정 세포로 변하는 것을 뜻하는 것은?", options: ["Growth", "Reproduction", "Differentiation", "Metabolism"], answer: 2, explanation: "Differentiation(분화)은 세포가 특화되는 과정입니다." },
+            
+            { id: 3001, subject: 'physiology', week: 3, type: 'mc', difficulty: '기본', text: "치밀뼈(Compact bone)를 구성하는 동심원 모양의 기본 구조는?", options: ["Spongy bone", "Periosteum", "Osteon", "Volkmann's canal"], answer: 2, explanation: "Osteon(오스테온/하버스계)입니다." },
+            { id: 3003, subject: 'physiology', week: 3, type: 'mc', difficulty: '기본', text: "연골(Cartilage)의 세 가지 주요 종류가 올바르게 짝지어진 것은?", options: ["Hyaline, Fibrocartilage, Elastic", "Compact, Spongy, Hyaline", "Osteon, Trabeculae, Elastic", "Ligament, Tendon, Meniscus"], answer: 0, explanation: "유리연골, 섬유연골, 탄성연골입니다." },
+            { id: 3004, subject: 'physiology', week: 3, type: 'mc', difficulty: '심화', text: "근육과 뼈를 연결하는 조직은?", options: ["Ligament (인대)", "Tendon (힘줄)", "Cartilage (연골)", "Meniscus (반달연골)"], answer: 1, explanation: "Tendon(건/힘줄)은 근육-뼈를, Ligament(인대)는 뼈-뼈를 연결합니다." },
+            { id: 3005, subject: 'physiology', week: 3, type: 'sa', difficulty: '심화', text: "무릎뼈(Patella) 뒤쪽 연골이 비정상적으로 연화되는 증상은? (영어로 작성)", answer: ["chondromalacia"], explanation: "Chondromalacia(연골연화증)입니다." },
+
+            { id: 4001, subject: 'physiology', week: 4, type: 'mc', difficulty: '기본', text: "무릎 관절 내에서 앞뒤 안정성을 유지하며 십자 형태로 교차하는 인대는?", options: ["MCL & LCL", "ACL & PCL", "Patellar ligament", "Meniscus"], answer: 1, explanation: "Anterior/Posterior cruciate ligament (전후방십자인대)입니다." },
+            { id: 4002, subject: 'physiology', week: 4, type: 'mc', difficulty: '심화', text: "Patellar ligament(슬개인대)는 어디와 어디를 연결하는가?", options: ["Femur to Tibia", "Patella to Tibia", "Fibula to Tibia", "Femur to Fibula"], answer: 1, explanation: "슬개골(Patella)과 정강뼈(Tibia) 결절을 연결합니다." },
+
+            { id: 7001, subject: 'physiology', week: 7, type: 'mc', difficulty: '기본', text: "좌심방과 좌심실 사이에 위치하며 역류를 방지하는 판막은?", options: ["Tricuspid valve (삼첨판)", "Bicuspid valve / Mitral valve (이첨판)", "Pulmonary valve", "Aortic valve"], answer: 1, explanation: "좌측은 이첨판/승모판, 우측은 삼첨판입니다." },
+            { id: 7004, subject: 'physiology', week: 7, type: 'mc', difficulty: '심화', text: "심장 초음파(Echo) 중 심장 벽의 미세한 움직임을 시간 축으로 기록하는 모드는?", options: ["B-mode", "Color Doppler", "M-mode", "Power Doppler"], answer: 2, explanation: "M-mode(Motion mode)입니다." },
+            { id: 7005, subject: 'physiology', week: 7, type: 'mc', difficulty: '기본', text: "초음파의 Color Doppler에서 색상은 무엇을 나타내는가?", options: ["조직의 밀도", "혈류의 방향과 속도", "온도 변화", "혈류의 존재 여부만"], answer: 1, explanation: "Color Doppler는 방향(적/청)과 속도를 보여줍니다." },
+            { id: 7006, subject: 'physiology', week: 7, type: 'sa', difficulty: '기본', text: "심장과 폐 사이의 혈액 순환을 무엇이라 하는가? (영어로 작성)", answer: ["pulmonary circulation", "pulmonary"], explanation: "Pulmonary circulation(폐순환)입니다." },
+
+            { id: 9003, subject: 'physiology', week: 9, type: 'mc', difficulty: '심화', text: "우심실과 우심방 사이의 삼첨판(Tricuspid valve)이 뒤집히는 것을 방지하는 힘줄 모양의 끈은?", options: ["Papillary muscle", "Chordae tendineae", "Interventricular septum", "Trabeculae carneae"], answer: 1, explanation: "건삭(Chordae tendineae)이 판막의 뒤집힘(eversion)을 방지합니다." },
+            { id: 9004, subject: 'physiology', week: 9, type: 'sa', difficulty: '기본', text: "대동맥(Aorta)으로 혈액을 강하게 뿜어내는 심장의 방(chamber)은 어디인가? (영어로 Left OOOO)", answer: ["ventricle", "left ventricle"], explanation: "좌심실(Left ventricle)이 전신으로 피를 보냅니다." },
+
+            { id: 10001, subject: 'physiology', week: 10, type: 'sa', difficulty: '기본', text: "전체 혈액 중 약 55%를 차지하는 액체 성분은? (영어로 작성)", answer: ["plasma"], explanation: "혈장(Plasma)입니다." },
+            { id: 10004, subject: 'physiology', week: 10, type: 'mc', difficulty: '기본', text: "혈액에서 적혈구가 차지하는 용적률(Hematocrit)의 정상 범위는?", options: ["10~15%", "42~45%", "55~58%", "90~92%"], answer: 1, explanation: "Hematocrit은 약 42~45%입니다." },
+            { id: 10005, subject: 'physiology', week: 10, type: 'mc', difficulty: '심화', text: "혈관 손상 시 지혈(Hemostasis) 과정의 올바른 순서는?", options: ["Coagulation -> Spasm -> Platelet plug", "Platelet plug -> Coagulation -> Spasm", "Spasm -> Platelet plug -> Coagulation", "Spasm -> Coagulation -> Platelet plug"], answer: 2, explanation: "혈관수축 -> 혈소판 마개 -> 혈액 응고 순입니다." },
+            { id: 10006, subject: 'physiology', week: 10, type: 'mc', difficulty: '심화', text: "혈액 응고 과정에서 Fibrinogen을 Fibrin으로 활성화시키는 효소는?", options: ["Prothrombin", "Thrombin", "Factor X", "Tissue factor"], answer: 1, explanation: "Thrombin(트롬빈)이 Fibrinogen을 Fibrin으로 변환시킵니다." },
+            { id: 10007, subject: 'physiology', week: 10, type: 'sa', difficulty: '심화', text: "백혈구가 감염 부위로 가기 위해 모세혈관 벽을 빠져나가는 과정은? (영어로 작성)", answer: ["diapedesis"], explanation: "혈관외유출(Diapedesis)입니다." },
+
+            { id: 13001, subject: 'physiology', week: 13, type: 'mc', difficulty: '기본', text: "심전도(ECG) 파형에서 심실 탈분극(Ventricular depolarization)을 나타내는 것은?", options: ["P wave", "PR segment", "QRS complex", "T wave"], answer: 2, explanation: "QRS complex가 심실 탈분극을 나타냅니다." },
+            { id: 13004, subject: 'physiology', week: 13, type: 'sa', difficulty: '심화', text: "심박수가 비정상적으로 느려진 상태(60bpm 미만)를 뜻하는 용어는? (영어로 작성)", answer: ["bradycardia"], explanation: "Bradycardia(서맥)입니다." },
+            { id: 13005, subject: 'physiology', week: 13, type: 'mc', difficulty: '심화', text: "심근 세포 중 스스로 활동 전위를 생성하며 박동을 주도하는 세포는?", options: ["Contractile cells", "Autorhythmic cells", "Fibroblasts", "Erythrocytes"], answer: 1, explanation: "자동조율 세포(Autorhythmic cells)는 스스로 전위를 만듭니다." },
+            { id: 13006, subject: 'physiology', week: 13, type: 'mc', difficulty: '심화', text: "ECG에서 심실 재분극(Ventricular repolarization)을 의미하는 파형은?", options: ["P wave", "QRS complex", "ST segment", "T wave"], answer: 3, explanation: "T wave가 심실의 재분극입니다." },
+            { id: 13007, subject: 'physiology', week: 13, type: 'sa', difficulty: '기본', text: "관상동맥 막힘으로 산소 공급이 끊겨 심근 세포가 괴사하는 현상(심장마비)의 의학용어는? (영어로 Myocardial OOOOO)", answer: ["infarction"], explanation: "Myocardial infarction(심근경색)입니다." }
+        ];
+
+        // --- 2. 용어 사전 데이터베이스 ---
+        const defaultTermDB = [
+            { term: 'Anatomy', meaning: '해부학', desc: 'ana(분리) + tome(자르다)에서 유래. 인체 구조 연구.' },
+            { term: 'Physiology', meaning: '생리학', desc: '인체의 생명 현상과 장기 기능(Mechanism) 연구.' },
+            { term: 'pseudo-', meaning: '가짜의 (false)', desc: '접두사. 예: pseudoplegia (가성마비)' },
+            { term: '-plegia', meaning: '마비 (paralysis)', desc: '접미사. 신경 손상 등으로 인한 운동 기능 상실.' },
+            { term: 'dextr/o-', meaning: '오른쪽 (right)', desc: '방향 접두사. 반대말: sinistr/o-' },
+            { term: 'sinistr/o-', meaning: '왼쪽 (left)', desc: '방향 접두사. 반대말: dextr/o-' },
+            { term: 'aden/o', meaning: '선, 샘 (gland)', desc: '어근. 예: adenoma (선종)' },
+            { term: 'phag/o', meaning: '먹다, 삼키다 (eat)', desc: '어근. 예: phagocytosis (식세포작용)' },
+            { term: 'Anterior / Ventral', meaning: '앞쪽, 배쪽', desc: '몸의 앞면을 향하는 방향.' },
+            { term: 'Posterior / Dorsal', meaning: '뒤쪽, 등쪽', desc: '몸의 뒷면을 향하는 방향.' },
+            { term: 'Lordosis', meaning: '척추전만증', desc: '요추(허리)가 앞으로 과도하게 휘어지는 증상.' },
+            { term: 'Kyphosis', meaning: '척추후만증', desc: '흉추(등)가 과도하게 뒤로 굽는 증상 (곱사등).' },
+            { term: 'Scoliosis', meaning: '척추측만증', desc: '척추가 측면으로 휘어지는 증상.' },
+            { term: 'Diarthrosis', meaning: '자유가동관절', desc: '윤활액이 있어 자유롭게 움직이는 관절 (=Synovial joint).' },
+            { term: 'Homeostasis', meaning: '항상성', desc: '외부 환경 변화에도 체내 상태를 일정하게 유지하려는 성질.' },
+            { term: 'Tachycardia', meaning: '빈맥', desc: '심장 박동이 비정상적으로 빠른 상태 (>100 bpm).' },
+            { term: 'Bradycardia', meaning: '서맥', desc: '심장 박동이 비정상적으로 느린 상태 (<60 bpm).' },
+            { term: 'Plasma', meaning: '혈장', desc: '혈액의 액체 성분. 전체 혈액의 약 55% 차지.' },
+            { term: 'Erythrocyte', meaning: '적혈구', desc: '산소를 운반하는 혈액 세포.' },
+            { term: 'Diapedesis', meaning: '혈관외유출', desc: '백혈구가 염증 부위로 가기 위해 모세혈관 벽을 빠져나가는 현상.' },
+            { term: 'Chondromalacia', meaning: '연골연화증', desc: '무릎 뼈 뒤쪽 연골이 부드러워지거나 약해지는 현상.' },
+            { term: 'Myocardial Infarction', meaning: '심근경색', desc: '혈류 차단으로 인한 심장 근육 세포 괴사 (심장마비).' }
+        ];
+
+        // localStorage 연동 사전
+        let termDB = JSON.parse(localStorage.getItem('custom_term_db')) || defaultTermDB;
+
+        // --- 3. 앱 상태 및 캐싱 ---
+        let state = {
+            user: { id: '', name: '' },
+            subject: 'anatomy',
+            selectedWeeks: [], 
+            difficulty: 'all',
+            qCountLimit: 10,
+            timerMode: false,
+            questions: [],
+            currentIndex: 0,
+            score: 0,
+            wrongQuestions: [],
+            isRetryMode: false
+        };
+
+        const WEEKS_MAX = 13;
+        let timerInterval;
+        let timeLeft;
+
+        const els = {
+            screens: {
+                login: document.getElementById('screen-login'),
+                dashboard: document.getElementById('screen-dashboard'),
+                'quiz-setup': document.getElementById('screen-quiz-setup'),
+                quiz: document.getElementById('screen-quiz'),
+                result: document.getElementById('screen-result'),
+                review: document.getElementById('screen-review'),
+                analysis: document.getElementById('screen-analysis'),
+                glossary: document.getElementById('screen-glossary'),
+                model3d: document.getElementById('screen-3d')
+            },
+            login: { id: document.getElementById('input-student-id'), name: document.getElementById('input-student-name'), btn: document.getElementById('btn-login') },
+            headerUserInfo: document.getElementById('user-info'),
+            dashName: document.getElementById('dash-name'),
+            setup: { weekContainer: document.getElementById('week-checkboxes'), btnStart: document.getElementById('btn-start'), chkTimer: document.getElementById('check-timer-mode') },
+            quiz: { meta: document.getElementById('quiz-meta'), timerDisp: document.getElementById('timer-display'), timeLeftTxt: document.getElementById('time-left'), progressTxt: document.getElementById('quiz-progress'), bar: document.getElementById('progress-bar'), typeBadge: document.getElementById('type-badge'), qText: document.getElementById('question-text'), optCont: document.getElementById('options-container'), saCont: document.getElementById('sa-container'), saInput: document.getElementById('sa-input'), btnSaSubmit: document.getElementById('btn-sa-submit'), expArea: document.getElementById('explanation-area'), resBadge: document.getElementById('result-badge'), correctAnsTxt: document.getElementById('correct-answer-text'), expText: document.getElementById('explanation-text'), btnNext: document.getElementById('btn-next') },
+            result: { msg: document.getElementById('result-message'), scoreCorr: document.getElementById('score-correct'), scoreTot: document.getElementById('score-total'), scorePerc: document.getElementById('score-percent'), wrongCount: document.getElementById('wrong-count'), btnReview: document.getElementById('btn-review') },
+            review: { list: document.getElementById('review-list'), btnRetry: document.getElementById('btn-retry-wrong') },
+            analysis: { statTot: document.getElementById('stat-total-q'), statAvg: document.getElementById('stat-avg-score'), aiText: document.getElementById('ai-recommendation-text'), chartCont: document.getElementById('weak-chart-container') },
+            glossary: { 
+                list: document.getElementById('glossary-list'), 
+                search: document.getElementById('glossary-search'),
+                modal: document.getElementById('modal-add-term'),
+                inputName: document.getElementById('input-term-name'),
+                inputMeaning: document.getElementById('input-term-meaning'),
+                inputDesc: document.getElementById('input-term-desc')
+            },
+            model3d: { container: document.getElementById('canvas-container'), loading: document.getElementById('loading-3d'), title: document.getElementById('info-3d-title'), desc: document.getElementById('info-3d-desc') }
+        };
+
+        // --- 4. 초기화 ---
+        function init() {
+            els.setup.weekContainer.innerHTML = '';
+            for(let i = 1; i <= WEEKS_MAX; i++) {
+                els.setup.weekContainer.innerHTML += `<label class="flex items-center gap-1.5 p-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-indigo-50"><input type="checkbox" value="${i}" class="week-cb w-4 h-4 text-indigo-600 rounded" checked><span class="text-xs font-medium">${i}주</span></label>`;
+            }
+
+            els.login.btn.addEventListener('click', handleLogin);
+            document.getElementById('btn-toggle-all-weeks').addEventListener('click', () => {
+                const cbs = document.querySelectorAll('.week-cb');
+                const allChecked = Array.from(cbs).every(cb => cb.checked);
+                cbs.forEach(cb => cb.checked = !allChecked);
+            });
+            els.setup.btnStart.addEventListener('click', startQuizNormal);
+            els.quiz.btnSaSubmit.addEventListener('click', handleShortAnswerSubmit);
+            els.quiz.saInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') handleShortAnswerSubmit(); });
+            els.quiz.btnNext.addEventListener('click', handleNext);
+            els.result.btnReview.addEventListener('click', showReviewScreen);
+            els.review.btnRetry.addEventListener('click', startQuizRetry);
+
+            const savedUser = localStorage.getItem('quiz_user');
+            if (savedUser) {
+                state.user = JSON.parse(savedUser);
+                els.login.id.value = state.user.id; 
+                els.login.name.value = state.user.name;
+                updateHeaderUser(); 
+                switchScreen('dashboard');
+            }
+        }
+
+        // --- 5. 화면 전환 및 유저 기능 ---
+        function switchScreen(screenId) {
+            Object.values(els.screens).forEach(screen => screen.classList.add('hidden'));
+            els.screens[screenId].classList.remove('hidden');
+            if(screenId === 'dashboard') els.dashName.textContent = state.user.name;
+            if(timerInterval) clearInterval(timerInterval);
+        }
+
+        function handleLogin() {
+            const id = els.login.id.value.trim(), name = els.login.name.value.trim();
+            if (!id || !name) return alert("학번과 이름을 입력해주세요.");
+            state.user = { id, name }; 
+            localStorage.setItem('quiz_user', JSON.stringify(state.user));
+            updateHeaderUser(); 
+            switchScreen('dashboard');
+        }
+
+        function updateHeaderUser() {
+            els.headerUserInfo.textContent = `${state.user.name}(${state.user.id})`;
+            els.headerUserInfo.classList.remove('hidden');
+        }
+
+        function logout() {
+            if(confirm("정말로 로그아웃 하시겠습니까?\n(기기에 저장된 학습 기록은 사라지지 않습니다.)")) {
+                localStorage.removeItem('quiz_user'); 
+                els.headerUserInfo.classList.add('hidden'); 
+                els.login.id.value = '';
+                els.login.name.value = '';
+                switchScreen('login');
+            }
+        }
+
+        // --- 6. 퀴즈 기능 ---
+        function updateSubjectUI() {
+            document.querySelectorAll('input[name="subject"]').forEach(radio => {
+                const p = radio.parentElement;
+                if(radio.checked) {
+                    p.classList.add('border-indigo-500', 'bg-indigo-50', 'text-indigo-700'); 
+                    p.classList.remove('border-gray-200', 'text-gray-600');
+                    state.subject = radio.value;
+                } else {
+                    p.classList.remove('border-indigo-500', 'bg-indigo-50', 'text-indigo-700'); 
+                    p.classList.add('border-gray-200', 'text-gray-600');
+                }
+            });
+        }
+
+        function startQuizNormal() {
+            const checkedWeeks = Array.from(document.querySelectorAll('.week-cb')).filter(cb => cb.checked).map(cb => parseInt(cb.value));
+            if (checkedWeeks.length === 0) return alert("최소 1개 이상의 주차를 선택해주세요.");
+            
+            const diff = document.getElementById('select-difficulty').value;
+            let limit = document.getElementById('select-qcount').value;
+            state.timerMode = els.setup.chkTimer.checked;
+
+            let filtered = questionsDB.filter(q => q.subject === state.subject && checkedWeeks.includes(q.week));
+            if (diff !== 'all') filtered = filtered.filter(q => q.difficulty === diff);
+            if (filtered.length === 0) return alert("해당 조건에 맞는 문제가 없습니다.");
+
+            filtered = filtered.sort(() => 0.5 - Math.random());
+            if (limit !== 'all') filtered = filtered.slice(0, parseInt(limit));
+
+            state.questions = filtered; state.currentIndex = 0; state.score = 0; state.wrongQuestions = []; state.isRetryMode = false;
+            renderQuestion(); switchScreen('quiz');
+        }
+
+        function startQuizRetry() {
+            if(state.wrongQuestions.length === 0) return;
+            state.questions = [...state.wrongQuestions]; 
+            state.currentIndex = 0; state.score = 0; state.wrongQuestions = []; state.isRetryMode = true;
+            renderQuestion(); switchScreen('quiz');
+        }
+
+        function startTimer() {
+            if(!state.timerMode) {
+                els.quiz.timerDisp.classList.add('hidden');
+                return;
+            }
+            els.quiz.timerDisp.classList.remove('hidden');
+            els.quiz.timerDisp.classList.remove('timer-warning');
+            timeLeft = 30;
+            els.quiz.timeLeftTxt.textContent = timeLeft;
+            
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                els.quiz.timeLeftTxt.textContent = timeLeft;
+                if(timeLeft <= 5) els.quiz.timerDisp.classList.add('timer-warning');
+                
+                if(timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    handleTimeOut();
+                }
+            }, 1000);
+        }
+
+        function handleTimeOut() {
+            const q = state.questions[state.currentIndex];
+            if(q.type === 'mc') {
+                const buttons = els.quiz.optCont.querySelectorAll('button');
+                buttons.forEach(btn => btn.disabled = true);
+            } else {
+                els.quiz.saInput.disabled = true; els.quiz.btnSaSubmit.disabled = true;
+            }
+            showFeedback(false, q, "⏳ 시간 초과!");
+        }
+
+        function renderQuestion() {
+            const q = state.questions[state.currentIndex];
+            const total = state.questions.length;
+
+            els.quiz.expArea.classList.add('hidden'); els.quiz.btnNext.classList.add('hidden');
+            els.quiz.optCont.innerHTML = ''; els.quiz.saInput.value = '';
+            els.quiz.optCont.classList.add('hidden'); els.quiz.saCont.classList.add('hidden');
+
+            const subjName = q.subject === 'anatomy' ? '해부학' : '생리학';
+            els.quiz.meta.textContent = state.isRetryMode ? `[오답 복습]` : `[${subjName}] ${q.week}주차`;
+            els.quiz.progressTxt.textContent = `문제 ${state.currentIndex + 1} / ${total}`;
+            els.quiz.bar.style.width = `${((state.currentIndex + 1) / total) * 100}%`;
+
+            if (q.type === 'mc') {
+                els.quiz.typeBadge.textContent = "객관식"; els.quiz.typeBadge.className = "px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded";
+                els.quiz.optCont.classList.remove('hidden');
+                q.options.forEach((opt, index) => {
+                    const btn = document.createElement('button');
+                    btn.className = "option-btn w-full text-left bg-white border-2 border-gray-200 rounded-xl p-4 text-gray-700 font-medium";
+                    btn.innerHTML = `<span class="inline-block w-6 h-6 rounded-full bg-gray-100 text-center leading-6 mr-3 text-sm text-gray-500">${index + 1}</span>${opt}`;
+                    btn.onclick = () => checkAnswer(index);
+                    els.quiz.optCont.appendChild(btn);
+                });
+            } else {
+                els.quiz.typeBadge.textContent = "단답형"; els.quiz.typeBadge.className = "px-2 py-1 bg-purple-100 text-purple-700 text-xs font-bold rounded";
+                els.quiz.saCont.classList.remove('hidden'); 
+                setTimeout(() => els.quiz.saInput.focus(), 100);
+            }
+            els.quiz.qText.textContent = q.text;
+            startTimer();
+        }
+
+        function checkAnswer(selectedIndex) {
+            clearInterval(timerInterval); 
+            const q = state.questions[state.currentIndex];
+            const isCorrect = (selectedIndex === q.answer);
+            const buttons = els.quiz.optCont.querySelectorAll('button');
+            buttons.forEach((btn, idx) => {
+                btn.disabled = true; btn.classList.remove('hover:border-indigo-400');
+                if (idx === q.answer) {
+                    btn.classList.add('border-green-500', 'bg-green-50'); btn.querySelector('span').classList.add('bg-green-500', 'text-white');
+                } else if (idx === selectedIndex && !isCorrect) {
+                    btn.classList.add('border-red-500', 'bg-red-50'); btn.querySelector('span').classList.add('bg-red-500', 'text-white');
+                } else { btn.classList.add('opacity-50'); }
+            });
+            showFeedback(isCorrect, q);
+        }
+
+        function handleShortAnswerSubmit() {
+            const userAnswer = els.quiz.saInput.value.trim().toLowerCase();
+            if(!userAnswer) return alert("정답을 입력해주세요.");
+            clearInterval(timerInterval); 
+            
+            const q = state.questions[state.currentIndex];
+            const isCorrect = q.answer.some(ans => ans.toLowerCase() === userAnswer);
+            els.quiz.saInput.disabled = true; els.quiz.btnSaSubmit.disabled = true;
+            els.quiz.saInput.classList.add(isCorrect ? 'border-green-500' : 'border-red-500', isCorrect ? 'bg-green-50' : 'bg-red-50', isCorrect ? 'text-green-700' : 'text-red-700');
+            showFeedback(isCorrect, q);
+        }
+
+        function showFeedback(isCorrect, q, customMsg = null) {
+            if (isCorrect) {
+                state.score++;
+                els.quiz.resBadge.textContent = "정답!"; els.quiz.resBadge.className = "px-3 py-1 text-sm font-bold rounded-md bg-green-100 text-green-700";
+            } else {
+                state.wrongQuestions.push(q);
+                els.quiz.resBadge.textContent = customMsg || "오답!"; 
+                els.quiz.resBadge.className = "px-3 py-1 text-sm font-bold rounded-md bg-red-100 text-red-700";
+            }
+            els.quiz.correctAnsTxt.textContent = `정답: ${q.type === 'mc' ? q.answer + 1 + '번' : q.answer.join(', ')}`;
+            els.quiz.expText.innerHTML = `<strong>해설:</strong><br>${q.explanation}`;
+            els.quiz.expArea.classList.remove('hidden');
+            els.quiz.btnNext.textContent = (state.currentIndex === state.questions.length - 1) ? "결과 보기" : "다음 문제";
+            els.quiz.btnNext.classList.remove('hidden');
+        }
+
+        function handleNext() {
+            els.quiz.saInput.disabled = false; els.quiz.saInput.classList.remove('border-green-500', 'bg-green-50', 'text-green-700', 'border-red-500', 'bg-red-50', 'text-red-700');
+            els.quiz.btnSaSubmit.disabled = false;
+            if (state.currentIndex < state.questions.length - 1) { state.currentIndex++; renderQuestion(); } 
+            else { saveDataAndShowResult(); }
+        }
+
+        function saveDataAndShowResult() {
+            const total = state.questions.length, percent = Math.round((state.score / total) * 100);
+            if (!state.isRetryMode) {
+                const historyKey = `quiz_history_${state.user.id}`;
+                let history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+                history.push({ date: new Date().toISOString(), score: state.score, total: total, percent: percent, subject: state.subject, wrongQs: state.wrongQuestions.map(q => ({ id: q.id, week: q.week, subject: q.subject })) });
+                localStorage.setItem(historyKey, JSON.stringify(history));
+            }
+            els.result.msg.innerHTML = `<strong>${state.user.name}</strong>님의 학습 결과가 저장되었습니다.`;
+            els.result.scoreCorr.textContent = state.score; els.result.scoreTot.textContent = total; els.result.scorePerc.textContent = percent;
+            
+            if (state.wrongQuestions.length > 0) { els.result.wrongCount.textContent = state.wrongQuestions.length; els.result.btnReview.classList.remove('hidden'); } 
+            else { els.result.btnReview.classList.add('hidden'); }
+            switchScreen('result');
+        }
+
+        function showReviewScreen() {
+            els.review.list.innerHTML = '';
+            state.wrongQuestions.forEach((q, idx) => {
+                els.review.list.innerHTML += `
+                    <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                        <div class="flex gap-2 items-start"><span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded mt-0.5">Q${idx+1}</span>
+                        <p class="font-semibold text-gray-800 text-sm mb-2">[${q.subject==='anatomy'?'해부학':'생리학'} ${q.week}주] ${q.text}</p></div>
+                        <div class="pl-9"><p class="text-sm text-green-700 font-bold mb-1">정답: ${q.type === 'mc' ? q.options[q.answer] : q.answer.join(', ')}</p>
+                        <p class="text-xs text-gray-600 bg-gray-50 p-2 border rounded">해설: ${q.explanation}</p></div>
+                    </div>`;
+            });
+            switchScreen('review');
+        }
+
+        // --- 7. 데이터 분석 ---
+        function showAnalysisScreen() {
+            const history = JSON.parse(localStorage.getItem(`quiz_history_${state.user.id}`) || '[]');
+            if (history.length === 0) {
+                els.analysis.statTot.innerHTML = `0<span class="text-sm">개</span>`; els.analysis.statAvg.innerHTML = `0<span class="text-sm">%</span>`;
+                els.analysis.aiText.textContent = "데이터 부족. 먼저 퀴즈를 풀어주세요!"; els.analysis.chartCont.innerHTML = "";
+                switchScreen('analysis'); return;
+            }
+            let totalQ = 0, totalScore = 0, weekErrors = {};
+            history.forEach(s => {
+                totalQ += s.total; totalScore += s.score;
+                if(s.wrongQs) s.wrongQs.forEach(wq => { const k = `${wq.subject==='anatomy'?'해부학':'생리학'} ${wq.week}주`; weekErrors[k] = (weekErrors[k]||0)+1; });
+            });
+            const avg = Math.round((totalScore/totalQ)*100);
+            els.analysis.statTot.innerHTML = `${totalQ}<span class="text-sm">개</span>`; els.analysis.statAvg.innerHTML = `${avg}<span class="text-sm">%</span>`;
+
+            const sortedWeak = Object.entries(weekErrors).sort((a,b)=>b[1]-a[1]);
+            els.analysis.chartCont.innerHTML = '';
+            if (sortedWeak.length === 0) els.analysis.aiText.innerHTML = "완벽합니다! 오답이 없습니다.";
+            else {
+                const maxE = sortedWeak[0][1];
+                sortedWeak.slice(0,3).forEach(([name, count]) => {
+                    els.analysis.chartCont.innerHTML += `<div class="mb-2 flex justify-between text-xs font-semibold text-gray-700"><span>${name}</span><span class="text-red-500">${count}회 오답</span></div><div class="w-full bg-gray-200 rounded-full h-2 mb-3"><div class="bg-red-400 h-2 rounded-full" style="width:${(count/maxE)*100}%"></div></div>`;
+                });
+                els.analysis.aiText.innerHTML = `현재 정답률 ${avg}%! 가장 취약한 파트는 <strong>[${sortedWeak[0][0]}]</strong>입니다. 해당 주차 PDF를 우선 복습하세요.`;
+            }
+            switchScreen('analysis');
+        }
+
+        // --- 8. 용어 사전 (커스텀 추가 포함) ---
+        function showGlossaryScreen() {
+            els.glossary.search.value = '';
+            renderGlossaryList(termDB);
+            switchScreen('glossary');
+        }
+
+        function filterGlossary() {
+            const query = els.glossary.search.value.toLowerCase();
+            const filtered = termDB.filter(t => t.term.toLowerCase().includes(query) || t.meaning.includes(query));
+            renderGlossaryList(filtered);
+        }
+
+        function renderGlossaryList(list) {
+            els.glossary.list.innerHTML = '';
+            if(list.length === 0) {
+                els.glossary.list.innerHTML = `<p class="text-center text-sm text-gray-500 mt-5">검색 결과가 없습니다.</p>`;
+                return;
+            }
+            list.forEach(t => {
+                els.glossary.list.innerHTML += `
+                    <div class="bg-white border border-teal-100 rounded-lg p-4 shadow-sm relative group">
+                        <h4 class="text-base font-bold text-teal-800">${t.term} <span class="text-sm font-medium text-gray-600 ml-2">${t.meaning}</span></h4>
+                        <p class="text-xs text-gray-500 mt-2">${t.desc}</p>
+                    </div>
+                `;
+            });
+        }
+
+        function showAddTermModal() {
+            els.glossary.inputName.value = '';
+            els.glossary.inputMeaning.value = '';
+            els.glossary.inputDesc.value = '';
+            els.glossary.modal.classList.remove('hidden');
+            setTimeout(() => els.glossary.inputName.focus(), 100);
+        }
+
+        function hideAddTermModal() {
+            els.glossary.modal.classList.add('hidden');
+        }
+
+        function saveNewTerm() {
+            const term = els.glossary.inputName.value.trim();
+            const meaning = els.glossary.inputMeaning.value.trim();
+            const desc = els.glossary.inputDesc.value.trim();
+
+            if (!term || !meaning) {
+                alert("용어와 의미를 모두 입력해주세요.");
+                return;
+            }
+
+            termDB.unshift({ term, meaning, desc }); // 최신순 정렬
+            localStorage.setItem('custom_term_db', JSON.stringify(termDB));
+            
+            hideAddTermModal();
+            els.glossary.search.value = '';
+            renderGlossaryList(termDB);
+        }
+
+        // --- 9. 인터랙티브 3D 해부학 로직 (Three.js) ---
+        let scene, camera, renderer, controls, raycaster, mouse;
+        let is3DInitialized = false;
+        let highlightedObj = null;
+        
+        const layers3D = {
+            bone: new THREE.Group(),
+            muscle: new THREE.Group(),
+            vessel: new THREE.Group(),
+            nerve: new THREE.Group()
+        };
+
+        function show3DScreen() {
+            switchScreen('model3d');
+            if (!is3DInitialized) {
+                setTimeout(init3DEnvironment, 100);
+            } else {
+                resize3DCanvas();
+            }
+        }
+
+        function init3DEnvironment() {
+            const container = els.model3d.container;
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xe2e8f0); 
+            
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(0, 15, 45); 
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(0, 15, 0); 
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            directionalLight.position.set(20, 30, 20);
+            scene.add(directionalLight);
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            renderer.domElement.addEventListener('pointerdown', onModelInteract, false);
+            window.addEventListener('resize', resize3DCanvas);
+
+            buildAnatomyModel();
+            scene.add(layers3D.bone);
+            scene.add(layers3D.muscle);
+            scene.add(layers3D.vessel);
+            scene.add(layers3D.nerve);
+
+            is3DInitialized = true;
+            els.model3d.loading.classList.add('hidden');
+            
+            animate3D();
+        }
+
+        function createOrgan(geometry, material, name, desc, x, y, z, scaleX=1, scaleY=1, scaleZ=1, rotX=0, rotY=0, rotZ=0) {
+            const uniqueMaterial = material.clone(); // 독립적인 질감 생성 (전체 선택 방지)
+            const mesh = new THREE.Mesh(geometry, uniqueMaterial);
+            mesh.position.set(x, y, z);
+            mesh.scale.set(scaleX, scaleY, scaleZ); 
+            mesh.rotation.set(rotX, rotY, rotZ); 
+            mesh.userData = { name: name, desc: desc };
+            return mesh;
+        }
+
+        function buildAnatomyModel() {
+            const matBone = new THREE.MeshLambertMaterial({ color: 0xeae6d5 }); 
+            const matMuscle = new THREE.MeshLambertMaterial({ color: 0xcd5c5c, transparent: true, opacity: 0.85 }); 
+            const matVein = new THREE.MeshLambertMaterial({ color: 0x3b82f6 }); 
+            const matArtery = new THREE.MeshLambertMaterial({ color: 0xdc2626 }); 
+            const matNerve = new THREE.MeshLambertMaterial({ color: 0xfacc15 }); 
+            const matOrgan = new THREE.MeshLambertMaterial({ color: 0xec4899 }); 
+
+            // --- 골격계 (Bones) ---
+            layers3D.bone.add(createOrgan(new THREE.SphereGeometry(2.2, 32, 32), matBone, "뇌머리뼈 (Cranial Bones, 8개)", "전두골, 두정골, 후두골 등으로 이루어져 뇌를 보호합니다.", 0, 28, 0));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(2.5, 1.5, 2.5), matBone, "얼굴뼈 & 하악골 (Facial Bones, 14개)", "안면부를 구성하며 유일하게 움직이는 관절인 아래턱뼈를 포함합니다.", 0, 26.5, 0.5));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.5, 0.5, 2.5, 16), matBone, "경추 (Cervical Vertebrae, 7개)", "목을 지탱하는 7개의 척추뼈입니다.", 0, 24.5, -0.5));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.6, 0.6, 5, 16), matBone, "흉추 (Thoracic Vertebrae, 12개)", "가슴 부위의 12개 척추뼈로 늑골과 연결됩니다.", 0, 20.5, -1));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.8, 0.8, 3, 16), matBone, "요추 (Lumbar Vertebrae, 5개)", "가장 크고 튼튼한 5개의 허리뼈입니다.", 0, 16.5, -0.8));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(1.5, 2, 1), matBone, "천골 & 미골 (Sacrum & Coccyx)", "골반과 연결되는 엉치뼈와 꼬리뼈입니다.", 0, 14, -1));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(0.8, 4, 0.5), matBone, "흉골 (Sternum, 1개)", "가슴 앞쪽 중앙에 위치한 납작한 뼈입니다.", 0, 20.5, 2));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(2.5, 3.2, 5, 16, 1, true), matBone, "늑골 (Ribs, 12쌍/24개)", "심장과 폐를 새장처럼 둘러싸 보호합니다.", 0, 20.5, 0.5, 1, 1, 0.8));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.2, 0.2, 3), matBone, "우측 쇄골 (Right Clavicle)", "흉골과 견갑골을 잇는 빗장뼈입니다.", -1.5, 23.5, 1.2, 1, 1, 1, 0, 0, 1.4));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.2, 0.2, 3), matBone, "좌측 쇄골 (Left Clavicle)", "흉골과 견갑골을 잇는 빗장뼈입니다.", 1.5, 23.5, 1.2, 1, 1, 1, 0, 0, -1.4));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(2, 3, 0.3), matBone, "우측 견갑골 (Right Scapula)", "등 상부의 납작한 삼각형 모양의 날개뼈입니다.", -2.2, 22, -1.8, 1, 1, 1, 0.2, -0.3, 0));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(2, 3, 0.3), matBone, "좌측 견갑골 (Left Scapula)", "등 상부의 납작한 삼각형 모양의 날개뼈입니다.", 2.2, 22, -1.8, 1, 1, 1, 0.2, 0.3, 0));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.4, 0.35, 6), matBone, "우측 상완골 (Right Humerus)", "어깨와 팔꿈치를 잇는 위팔뼈입니다.", -4.5, 19.5, 0, 1, 1, 1, 0, 0, 0.2));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.4, 0.35, 6), matBone, "좌측 상완골 (Left Humerus)", "어깨와 팔꿈치를 잇는 위팔뼈입니다.", 4.5, 19.5, 0, 1, 1, 1, 0, 0, -0.2));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.25, 0.2, 5), matBone, "우측 요골 (Right Radius)", "엄지손가락 쪽의 아래팔뼈입니다.", -5.3, 14.5, 0.3, 1, 1, 1, 0, 0, 0.1));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.2, 0.15, 5.2), matBone, "우측 척골 (Right Ulna)", "새끼손가락 쪽의 아래팔뼈입니다.", -5.7, 14.5, -0.3, 1, 1, 1, 0, 0, 0.1));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.25, 0.2, 5), matBone, "좌측 요골 (Left Radius)", "엄지손가락 쪽의 아래팔뼈입니다.", 5.3, 14.5, 0.3, 1, 1, 1, 0, 0, -0.1));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.2, 0.15, 5.2), matBone, "좌측 척골 (Left Ulna)", "새끼손가락 쪽의 아래팔뼈입니다.", 5.7, 14.5, -0.3, 1, 1, 1, 0, 0, -0.1));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(1.2, 1.8, 0.5), matBone, "우측 손뼈 (Carpals/Metacarpals/Phalanges, 27개)", "수근골(8), 중수골(5), 수지골(14)로 이루어집니다.", -6, 11, 0));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(1.2, 1.8, 0.5), matBone, "좌측 손뼈 (Carpals/Metacarpals/Phalanges, 27개)", "수근골(8), 중수골(5), 수지골(14)로 이루어집니다.", 6, 11, 0));
+            layers3D.bone.add(createOrgan(new THREE.SphereGeometry(2.5, 16, 16), matBone, "우측 관골 (Right Coxal Bone)", "장골, 좌골, 치골이 융합된 골반뼈입니다.", -1.8, 13.5, 0, 1, 1.2, 0.8, 0, 0, 0.2));
+            layers3D.bone.add(createOrgan(new THREE.SphereGeometry(2.5, 16, 16), matBone, "좌측 관골 (Left Coxal Bone)", "장골, 좌골, 치골이 융합된 골반뼈입니다.", 1.8, 13.5, 0, 1, 1.2, 0.8, 0, 0, -0.2));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.6, 0.45, 8.5), matBone, "우측 대퇴골 (Right Femur)", "인체에서 가장 길고 튼튼한 넙다리뼈입니다.", -2.2, 8.5, 0.2, 1, 1, 1, 0.1, 0, -0.1));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.6, 0.45, 8.5), matBone, "좌측 대퇴골 (Left Femur)", "인체에서 가장 길고 튼튼한 넙다리뼈입니다.", 2.2, 8.5, 0.2, 1, 1, 1, 0.1, 0, 0.1));
+            layers3D.bone.add(createOrgan(new THREE.SphereGeometry(0.4, 16, 16), matBone, "우측 슬개골 (Right Patella)", "무릎 관절을 보호하는 무릎뼈(종자골)입니다.", -2.2, 4.3, 1));
+            layers3D.bone.add(createOrgan(new THREE.SphereGeometry(0.4, 16, 16), matBone, "좌측 슬개골 (Left Patella)", "무릎 관절을 보호하는 무릎뼈(종자골)입니다.", 2.2, 4.3, 1));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.4, 0.3, 7), matBone, "우측 경골 (Right Tibia)", "체중을 지탱하는 굵은 정강뼈입니다.", -2.1, 0.5, 0));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.2, 0.15, 7), matBone, "우측 비골 (Right Fibula)", "경골 옆에 위치한 가는 종아리뼈입니다.", -2.7, 0.5, -0.2));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.4, 0.3, 7), matBone, "좌측 경골 (Left Tibia)", "체중을 지탱하는 굵은 정강뼈입니다.", 2.1, 0.5, 0));
+            layers3D.bone.add(createOrgan(new THREE.CylinderGeometry(0.2, 0.15, 7), matBone, "좌측 비골 (Left Fibula)", "경골 옆에 위치한 가는 종아리뼈입니다.", 2.7, 0.5, -0.2));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(1.5, 1, 2.5), matBone, "우측 발뼈 (Tarsals/Metatarsals/Phalanges, 26개)", "족근골(7), 중족골(5), 족지골(14)로 이루어집니다.", -2.2, -3.5, 0.5));
+            layers3D.bone.add(createOrgan(new THREE.BoxGeometry(1.5, 1, 2.5), matBone, "좌측 발뼈 (Tarsals/Metatarsals/Phalanges, 26개)", "족근골(7), 중족골(5), 족지골(14)로 이루어집니다.", 2.2, -3.5, 0.5));
+
+            // --- 근육계 (Muscles) ---
+            layers3D.muscle.add(createOrgan(new THREE.CylinderGeometry(0.3, 0.3, 2.5), matMuscle, "흉쇄유돌근 (Sternocleidomastoid)", "목을 굽히거나 돌리는 목빗근입니다.", -0.8, 25, 0.8, 1, 1, 1, 0.3, 0, -0.3));
+            layers3D.muscle.add(createOrgan(new THREE.CylinderGeometry(0.3, 0.3, 2.5), matMuscle, "흉쇄유돌근 (Sternocleidomastoid)", "목을 굽히거나 돌리는 목빗근입니다.", 0.8, 25, 0.8, 1, 1, 1, 0.3, 0, 0.3));
+            layers3D.muscle.add(createOrgan(new THREE.BoxGeometry(4, 5, 0.8), matMuscle, "승모근 (Trapezius)", "목 뒤부터 등 상부까지 이어지는 다이아몬드형 근육입니다.", 0, 23, -1.8, 1, 1, 1, -0.2, 0, 0));
+            layers3D.muscle.add(createOrgan(new THREE.BoxGeometry(5, 5, 0.8), matMuscle, "광배근 (Latissimus Dorsi)", "등 하부를 넓게 덮고 있는 크고 평평한 근육입니다.", 0, 18, -1.8, 1, 1, 1, 0.1, 0, 0));
+            layers3D.muscle.add(createOrgan(new THREE.CylinderGeometry(0.6, 0.6, 9), matMuscle, "척추기립근 (Erector Spinae)", "척추 양옆을 따라 세로로 뻗어 몸통을 펴게 합니다.", 0, 19, -1.3));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1.6, 32, 32), matMuscle, "우측 대흉근 (Pectoralis Major)", "팔을 안쪽으로 모으는 가슴 앞쪽 큰 근육입니다.", -1.6, 22, 1.8, 1, 0.8, 0.4, 0, 0, -0.2));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1.6, 32, 32), matMuscle, "좌측 대흉근 (Pectoralis Major)", "팔을 안쪽으로 모으는 가슴 앞쪽 큰 근육입니다.", 1.6, 22, 1.8, 1, 0.8, 0.4, 0, 0, 0.2));
+            layers3D.muscle.add(createOrgan(new THREE.BoxGeometry(2.5, 4.5, 1), matMuscle, "복직근 (Rectus Abdominis)", "몸통을 굽히는 소위 '식스팩' 근육입니다.", 0, 18, 2));
+            layers3D.muscle.add(createOrgan(new THREE.BoxGeometry(1.5, 4, 1), matMuscle, "우측 외복사근 (External Oblique)", "복부 측면에 위치하여 몸통을 비틀게 합니다.", -2, 17.5, 1.5, 1, 1, 1, 0, -0.5, 0));
+            layers3D.muscle.add(createOrgan(new THREE.BoxGeometry(1.5, 4, 1), matMuscle, "좌측 외복사근 (External Oblique)", "복부 측면에 위치하여 몸통을 비틀게 합니다.", 2, 17.5, 1.5, 1, 1, 1, 0, 0.5, 0));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1.3, 32, 32), matMuscle, "우측 삼각근 (Deltoid)", "어깨를 덮으며 팔을 들어올리는 어깨 근육입니다.", -4.5, 23, 0));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1.3, 32, 32), matMuscle, "좌측 삼각근 (Deltoid)", "어깨를 덮으며 팔을 들어올리는 어깨 근육입니다.", 4.5, 23, 0));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(0.8, 32, 32), matMuscle, "우측 상완이두근 (Biceps Brachii)", "팔꿈치를 굽히는 위팔 앞쪽 근육입니다.", -4.5, 19.5, 0.6, 1, 2.5, 1, 0, 0, 0.2));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(0.8, 32, 32), matMuscle, "좌측 상완이두근 (Biceps Brachii)", "팔꿈치를 굽히는 위팔 앞쪽 근육입니다.", 4.5, 19.5, 0.6, 1, 2.5, 1, 0, 0, -0.2));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(0.8, 32, 32), matMuscle, "우측 상완삼두근 (Triceps Brachii)", "팔꿈치를 펴는 위팔 뒤쪽 근육입니다.", -4.8, 19.5, -0.5, 1, 2.8, 1, 0, 0, 0.2));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(0.8, 32, 32), matMuscle, "좌측 상완삼두근 (Triceps Brachii)", "팔꿈치를 펴는 위팔 뒤쪽 근육입니다.", 4.8, 19.5, -0.5, 1, 2.8, 1, 0, 0, -0.2));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1.8, 32, 32), matMuscle, "우측 대둔근 (Gluteus Maximus)", "고관절을 펴고 자세를 유지하는 강력한 엉덩이 근육입니다.", -2, 13, -1.5, 1, 1.2, 0.8));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1.8, 32, 32), matMuscle, "좌측 대둔근 (Gluteus Maximus)", "고관절을 펴고 자세를 유지하는 강력한 엉덩이 근육입니다.", 2, 13, -1.5, 1, 1.2, 0.8));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1.2, 32, 32), matMuscle, "우측 대퇴사두근 (Quadriceps)", "무릎 관절을 펴는 허벅지 앞쪽 4갈래 근육입니다.", -2.2, 8.5, 0.8, 1, 3.2, 1));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1.2, 32, 32), matMuscle, "좌측 대퇴사두근 (Quadriceps)", "무릎 관절을 펴는 허벅지 앞쪽 4갈래 근육입니다.", 2.2, 8.5, 0.8, 1, 3.2, 1));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1, 32, 32), matMuscle, "우측 햄스트링 (Hamstrings)", "무릎 관절을 굽히는 허벅지 뒤쪽 근육군입니다.", -2.2, 8.5, -0.8, 1, 3, 1));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(1, 32, 32), matMuscle, "좌측 햄스트링 (Hamstrings)", "무릎 관절을 굽히는 허벅지 뒤쪽 근육군입니다.", 2.2, 8.5, -0.8, 1, 3, 1));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(0.9, 32, 32), matMuscle, "우측 비복근 (Gastrocnemius)", "발목을 아래로 굽히는 종아리 뒤쪽 근육(장딴지근)입니다.", -2.1, 1.5, -0.6, 1, 2.5, 1));
+            layers3D.muscle.add(createOrgan(new THREE.SphereGeometry(0.9, 32, 32), matMuscle, "좌측 비복근 (Gastrocnemius)", "발목을 아래로 굽히는 종아리 뒤쪽 근육(장딴지근)입니다.", 2.1, 1.5, -0.6, 1, 2.5, 1));
+
+            // --- 혈관계 & 장기 (Vessels & Organs) ---
+            layers3D.vessel.add(createOrgan(new THREE.SphereGeometry(1.3, 32, 32), matOrgan, "심장 (Heart)", "혈액을 전신과 폐로 펌프질하는 핵심 장기 (좌측 치우침).", -0.6, 21.5, 0.8));
+            layers3D.vessel.add(createOrgan(new THREE.CylinderGeometry(0.25, 0.25, 8), matArtery, "대동맥 (Aorta)", "좌심실에서 산소가 풍부한 혈액을 전신으로 보냅니다.", -0.4, 16.5, 0.2));
+            layers3D.vessel.add(createOrgan(new THREE.CylinderGeometry(0.25, 0.25, 8), matVein, "하대정맥 (Inferior Vena Cava)", "하반신의 산소 부족 혈액을 우심방으로 회수합니다.", 0.4, 16.5, 0.2));
+            layers3D.vessel.add(createOrgan(new THREE.CylinderGeometry(0.15, 0.15, 8.5), matArtery, "대퇴동맥 (Femoral Artery)", "다리로 혈액을 공급하는 주요 동맥입니다.", -1.8, 8.5, 0.6));
+            layers3D.vessel.add(createOrgan(new THREE.CylinderGeometry(0.15, 0.15, 8.5), matArtery, "대퇴동맥 (Femoral Artery)", "다리로 혈액을 공급하는 주요 동맥입니다.", 1.8, 8.5, 0.6));
+            layers3D.vessel.add(createOrgan(new THREE.CylinderGeometry(0.15, 0.15, 6), matArtery, "상완동맥 (Brachial Artery)", "위팔을 지나며 혈압 측정의 기준이 되는 동맥입니다.", -4.2, 19.5, 0.3, 1, 1, 1, 0, 0, 0.2));
+            layers3D.vessel.add(createOrgan(new THREE.CylinderGeometry(0.15, 0.15, 6), matArtery, "상완동맥 (Brachial Artery)", "위팔을 지나며 혈압 측정의 기준이 되는 동맥입니다.", 4.2, 19.5, 0.3, 1, 1, 1, 0, 0, -0.2));
+            layers3D.vessel.add(createOrgan(new THREE.CylinderGeometry(0.15, 0.15, 3), matArtery, "경동맥 (Carotid Artery)", "뇌로 혈류를 올리는 주요 동맥입니다.", -0.8, 25, 0.3));
+            layers3D.vessel.add(createOrgan(new THREE.CylinderGeometry(0.15, 0.15, 3), matVein, "경정맥 (Jugular Vein)", "뇌에서 사용된 혈액을 심장으로 돌려보냅니다.", 0.8, 25, 0.3));
+
+            // --- 신경계 (Nerves) ---
+            layers3D.nerve.add(createOrgan(new THREE.SphereGeometry(1.8, 32, 32), matNerve, "뇌 (Brain)", "중추신경계의 핵심으로 신체 활동을 관장합니다.", 0, 28.2, 0.2, 1, 0.8, 1));
+            layers3D.nerve.add(createOrgan(new THREE.CylinderGeometry(0.2, 0.2, 11), matNerve, "척수 (Spinal Cord)", "뇌와 전신을 연결하는 중추신경계의 고속도로입니다.", 0, 20.5, -1.2));
+            layers3D.nerve.add(createOrgan(new THREE.CylinderGeometry(0.12, 0.12, 9), matNerve, "우측 좌골신경 (Sciatic Nerve)", "가장 굵은 신경으로 다리 뒤쪽을 지배합니다.", -2.2, 8.5, -0.5));
+            layers3D.nerve.add(createOrgan(new THREE.CylinderGeometry(0.12, 0.12, 9), matNerve, "좌측 좌골신경 (Sciatic Nerve)", "가장 굵은 신경으로 다리 뒤쪽을 지배합니다.", 2.2, 8.5, -0.5));
+            layers3D.nerve.add(createOrgan(new THREE.CylinderGeometry(0.1, 0.1, 5), matNerve, "우측 요골신경 (Radial Nerve)", "아래팔과 손등의 감각/운동을 담당합니다.", -5.3, 14.5, -0.1, 1, 1, 1, 0, 0, 0.1));
+            layers3D.nerve.add(createOrgan(new THREE.CylinderGeometry(0.1, 0.1, 5), matNerve, "좌측 요골신경 (Radial Nerve)", "아래팔과 손등의 감각/운동을 담당합니다.", 5.3, 14.5, -0.1, 1, 1, 1, 0, 0, -0.1));
+        }
+
+        function resize3DCanvas() {
+            if(!camera || !renderer) return;
+            const container = els.model3d.container;
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            controls.update(); 
+
+            // 선택된 객체 반짝임(Blinking) 애니메이션
+            if (highlightedObj) {
+                const time = Date.now() * 0.005;
+                highlightedObj.material.emissiveIntensity = 0.5 + Math.sin(time) * 0.5; // 0~1 사이 깜빡임
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function toggle3DLayer(layerKey, isVisible) {
+            if(layers3D[layerKey]) {
+                layers3D[layerKey].visible = isVisible;
+            }
+        }
+
+        function onModelInteract(event) {
+            const container = els.model3d.container;
+            const rect = container.getBoundingClientRect();
+            
+            mouse.x = ((event.clientX - rect.left) / container.clientWidth) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / container.clientHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersectableObjects = [];
+            Object.values(layers3D).forEach(group => {
+                if(group.visible) {
+                    group.children.forEach(child => intersectableObjects.push(child));
+                }
+            });
+
+            const intersects = raycaster.intersectObjects(intersectableObjects);
+
+            // 이전 객체 발광 효과 끄기
+            if (highlightedObj) {
+                highlightedObj.material.emissive.setHex(0x000000);
+                highlightedObj = null;
+            }
+
+            if (intersects.length > 0) {
+                const object = intersects[0].object;
+                
+                // 새 객체 발광 효과 (에메랄드 그린)
+                highlightedObj = object;
+                highlightedObj.material.emissive.setHex(0x10b981); 
+
+                const data = object.userData;
+                els.model3d.title.textContent = data.name;
+                els.model3d.desc.textContent = data.desc;
+                els.model3d.title.classList.add('text-emerald-600');
+            } else {
+                els.model3d.title.textContent = "원하는 부위를 터치하세요";
+                els.model3d.desc.textContent = "화면 드래그: 회전 | 스크롤/핀치: 줌 확대/축소";
+                els.model3d.title.classList.remove('text-emerald-600');
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

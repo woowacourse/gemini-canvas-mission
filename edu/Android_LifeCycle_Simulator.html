@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android Activity 생명 주기 시뮬레이터</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+
+        .node {
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .node.active {
+            background-color: #3DDC84; /* Android Green */
+            color: #0f172a;
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(61, 220, 132, 0.6);
+            border-color: #3DDC84;
+            font-weight: 700;
+        }
+
+        .node.completed {
+            border-color: #3DDC84;
+            color: #3DDC84;
+        }
+
+        /* 화살표 스타일 */
+        .arrow-down::after {
+            content: '↓';
+            position: absolute;
+            bottom: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #475569;
+            font-size: 1.2rem;
+        }
+
+        .log-enter {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 커스텀 스크롤바 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b; 
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center shadow-md z-10 shrink-0">
+        <div class="flex items-center gap-3">
+            <div id="header-icon" class="w-8 h-8 rounded-full bg-[#3DDC84] flex items-center justify-center text-slate-900 font-bold transition-colors">A</div>
+            <h1 class="text-xl font-bold tracking-tight"><span id="header-title">Activity</span> Lifecycle <span class="text-slate-400 font-normal">Simulator</span></h1>
+        </div>
+        <div class="text-sm text-slate-400 hidden sm:block">우아한 테크코스 Android 크루를 위한 학습 도구</div>
+    </header>
+
+    <!-- Component Tabs -->
+    <div class="bg-slate-900 border-b border-slate-800 flex px-6 shrink-0 shadow-sm z-10">
+        <button id="tab-activity" onclick="switchTab('activity')" class="tab-btn px-4 py-3 border-b-2 border-[#3DDC84] text-[#3DDC84] font-bold transition-colors">Activity</button>
+        <button id="tab-fragment" onclick="switchTab('fragment')" class="tab-btn px-4 py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">Fragment</button>
+        <button id="tab-service" onclick="switchTab('service')" class="tab-btn px-4 py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">Service</button>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- Left: Flowchart -->
+        <section class="w-1/3 bg-slate-900 border-r border-slate-800 p-6 flex flex-col items-center overflow-y-auto relative">
+            <h2 class="text-lg font-semibold mb-6 text-slate-300 w-full text-center">생명 주기 플로우 차트</h2>
+            <div id="flowchart-container" class="flex flex-col items-center gap-8 w-full max-w-xs relative mt-4 pb-12">
+                <!-- Injected via JS -->
+            </div>
+        </section>
+
+        <!-- Middle: Controls & Scenarios -->
+        <section class="w-1/3 bg-slate-950 p-6 flex flex-col relative overflow-y-auto">
+            <h2 class="text-lg font-semibold text-slate-300 mb-6">상황별 시뮬레이션</h2>
+            <div id="scenario-container" class="flex flex-col gap-3 pb-24">
+                <!-- Injected via JS -->
+            </div>
+
+            <!-- Current State Indicator -->
+            <div class="fixed bottom-0 w-1/3 -ml-6 p-6 bg-gradient-to-t from-slate-950 via-slate-950 to-transparent pointer-events-none flex items-end">
+                <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 w-full pointer-events-auto shadow-xl shadow-black/50">
+                    <div class="text-xs text-slate-400 mb-1">현재 상태 (Current State)</div>
+                    <div id="current-state-display" class="text-lg font-bold text-[#3DDC84]">DESTROYED (Not Initialized)</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right: Log & Info -->
+        <section class="w-1/3 flex flex-col border-l border-slate-800 bg-slate-900">
+            
+            <!-- Log Panel -->
+            <div class="h-1/2 flex flex-col border-b border-slate-800">
+                <div class="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
+                    <h2 class="text-sm font-semibold text-slate-300">실시간 로그 (Timeline)</h2>
+                    <button onclick="clearLog()" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">Clear</button>
+                </div>
+                <div id="log-container" class="flex-1 overflow-y-auto p-4 flex flex-col gap-2 font-mono text-sm pb-10">
+                    <div class="text-slate-500 text-xs text-center my-2">시뮬레이션을 시작해주세요.</div>
+                </div>
+            </div>
+
+            <!-- Info Panel -->
+            <div class="h-1/2 flex flex-col bg-slate-950 relative">
+                <div class="p-4 bg-slate-900 border-b border-slate-800 shrink-0">
+                    <h2 class="text-sm font-semibold text-slate-300">콜백 상세 정보 (Code & Info)</h2>
+                </div>
+                <div class="p-5 overflow-y-auto flex-1 pb-10">
+                    <div id="info-title" class="text-xl font-bold text-[#3DDC84] mb-2">메서드를 선택하세요</div>
+                    <p id="info-desc" class="text-sm text-slate-300 mb-4 leading-relaxed">
+                        플로우 차트의 노드를 클릭하거나 시나리오를 실행하면 해당 생명 주기 콜백의 상세 정보와 권장 작업 내역이 표시됩니다.
+                    </p>
+                    
+                    <div class="bg-slate-900 rounded border border-slate-700 overflow-hidden">
+                        <div class="bg-slate-800 px-3 py-1 text-xs text-slate-400 border-b border-slate-700 font-mono">Kotlin</div>
+                        <pre id="info-code" class="p-3 text-sm font-mono text-emerald-400 overflow-x-auto whitespace-pre-wrap"><code>// Code snippet will appear here...</code></pre>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <script>
+        // 전역 상태 관리
+        const appState = {
+            currentComponent: 'activity', // activity, fragment, service
+            currentState: 'DESTROYED',
+            isAnimating: false
+        };
+
+        // UI 템플릿
+        const templates = {
+            activity: {
+                flowchart: `
+                    <div id="node-act_onCreate" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('act_onCreate')">onCreate()</div>
+                    <div id="node-act_onStart" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('act_onStart')">onStart()</div>
+                    <div id="node-act_onResume" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('act_onResume')">onResume()</div>
+                    <div class="w-full flex justify-center my-2"><span class="text-xs font-bold text-[#3DDC84] bg-[#3DDC84]/10 px-3 py-1 rounded-full border border-[#3DDC84]/20">Activity Running (Foreground)</span></div>
+                    <div id="node-act_onPause" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('act_onPause')">onPause()</div>
+                    <div id="node-act_onStop" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('act_onStop')">onStop()</div>
+                    <div id="node-act_onDestroy" class="node w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('act_onDestroy')">onDestroy()</div>
+                    <div id="node-act_onRestart" class="node absolute border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800 w-32" style="right: -140px; top: 320px;" onclick="showInfo('act_onRestart')">onRestart()<div class="absolute w-8 border-t-2 border-slate-600 border-dashed" style="left: -32px; top: 50%;"></div></div>
+                `,
+                scenarios: `
+                    <button id="btn-act-start" onclick="runScenario('start')" class="scenario-btn bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>📱 Activity 실행</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">Foreground 진입</span></button>
+                    <button id="btn-act-home" onclick="runScenario('home')" class="scenario-btn bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>🏠 홈 버튼 누름</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">Background 진입</span></button>
+                    <button id="btn-act-return" onclick="runScenario('return')" class="scenario-btn bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>🔄 다시 앱으로 복귀</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">Foreground 복귀</span></button>
+                    <button id="btn-act-rotate" onclick="runScenario('rotate')" class="scenario-btn bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>📱 화면 회전</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">Configuration Change</span></button>
+                    <button id="btn-act-back" onclick="runScenario('back')" class="scenario-btn bg-red-900/50 hover:bg-red-800/60 border border-red-800 text-red-100 font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>🔙 뒤로가기 종료</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">종료 (Finish)</span></button>
+                    <button id="btn-act-death" onclick="runScenario('process_death')" class="scenario-btn bg-purple-900/50 hover:bg-purple-800/60 border border-purple-800 text-purple-100 font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed mt-2">
+                        <span>💥 시스템 강제 종료</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">Process Death</span></button>
+                `
+            },
+            fragment: {
+                flowchart: `
+                    <div id="node-frag_onAttach" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onAttach')">onAttach()</div>
+                    <div id="node-frag_onCreate" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onCreate')">onCreate()</div>
+                    <div id="node-frag_onCreateView" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onCreateView')">onCreateView()</div>
+                    <div id="node-frag_onViewCreated" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onViewCreated')">onViewCreated()</div>
+                    <div id="node-frag_onStart" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onStart')">onStart()</div>
+                    <div id="node-frag_onResume" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onResume')">onResume()</div>
+                    <div class="w-full flex justify-center my-2"><span class="text-xs font-bold text-amber-400 bg-amber-400/10 px-3 py-1 rounded-full border border-amber-400/20">Fragment Resumed</span></div>
+                    <div id="node-frag_onPause" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onPause')">onPause()</div>
+                    <div id="node-frag_onStop" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onStop')">onStop()</div>
+                    <div id="node-frag_onDestroyView" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onDestroyView')">onDestroyView()</div>
+                    <div id="node-frag_onDestroy" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onDestroy')">onDestroy()</div>
+                    <div id="node-frag_onDetach" class="node w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('frag_onDetach')">onDetach()</div>
+                `,
+                scenarios: `
+                    <button id="btn-frag-add" onclick="runScenario('add')" class="scenario-btn bg-amber-600 hover:bg-amber-500 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>🧩 Fragment 추가 (Add)</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">UI 표시</span></button>
+                    <button id="btn-frag-home" onclick="runScenario('home')" class="scenario-btn bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>🏠 화면 가려짐 (Home)</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">Background</span></button>
+                    <button id="btn-frag-return" onclick="runScenario('return')" class="scenario-btn bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>🔄 화면 복귀</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">Foreground</span></button>
+                    <button id="btn-frag-remove" onclick="runScenario('remove')" class="scenario-btn bg-red-900/50 hover:bg-red-800/60 border border-red-800 text-red-100 font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed mt-2">
+                        <span>🗑️ Fragment 제거 (Remove)</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">소멸</span></button>
+                `
+            },
+            service: {
+                flowchart: `
+                    <div id="node-svc_onCreate" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('svc_onCreate')">onCreate()</div>
+                    <div class="flex gap-4 w-full justify-between relative mt-6 mb-6">
+                        <div class="flex flex-col items-center w-1/2 gap-4 relative">
+                            <div class="absolute w-px bg-slate-600 h-6" style="top: -24px; left: 50%;"></div>
+                            <div id="node-svc_onStartCommand" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('svc_onStartCommand')">onStartCommand()</div>
+                            <div class="text-xs font-bold text-indigo-400 bg-indigo-400/10 px-3 py-1 rounded-full border border-indigo-400/20 mt-1">Service Started</div>
+                        </div>
+                        <div class="flex flex-col items-center w-1/2 gap-4 relative">
+                            <div class="absolute w-px bg-slate-600 h-6" style="top: -24px; left: 50%;"></div>
+                            <div id="node-svc_onBind" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('svc_onBind')">onBind()</div>
+                            <div class="text-xs font-bold text-sky-400 bg-sky-400/10 px-3 py-1 rounded-full border border-sky-400/20 mt-1 mb-1">Clients Bound</div>
+                            <div id="node-svc_onUnbind" class="node arrow-down w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('svc_onUnbind')">onUnbind()</div>
+                        </div>
+                    </div>
+                    <div class="relative w-full flex justify-center mt-4">
+                        <div class="absolute w-px bg-slate-600 h-6" style="top: -20px; left: 25%;"></div>
+                        <div class="absolute w-px bg-slate-600 h-6" style="top: -20px; left: 75%;"></div>
+                        <div id="node-svc_onDestroy" class="node w-full border-2 border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-500 bg-slate-800" onclick="showInfo('svc_onDestroy')">onDestroy()</div>
+                    </div>
+                `,
+                scenarios: `
+                    <div class="text-xs text-slate-500 mb-1">Started Service 패턴</div>
+                    <button id="btn-svc-start" onclick="runScenario('start')" class="scenario-btn bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>▶️ startService() 호출</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">작업 실행</span></button>
+                    <button id="btn-svc-stop" onclick="runScenario('stop')" class="scenario-btn bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed mb-2">
+                        <span>⏹️ stopService() 호출</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">종료 요청</span></button>
+                    
+                    <div class="text-xs text-slate-500 mb-1 mt-2">Bound Service 패턴</div>
+                    <button id="btn-svc-bind" onclick="runScenario('bind')" class="scenario-btn bg-sky-600 hover:bg-sky-500 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>🔗 bindService() 호출</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">연결 (Bind)</span></button>
+                    <button id="btn-svc-unbind" onclick="runScenario('unbind')" class="scenario-btn bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex justify-between items-center group disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>🔌 unbindService() 호출</span><span class="text-xs bg-black/20 px-2 py-1 rounded group-hover:bg-black/30">연결 해제</span></button>
+                `
+            }
+        };
+
+        // 생명 주기 상세 데이터 사전
+        const lifecycleData = {
+            // Activity (act_)
+            act_onCreate: { title: "onCreate()", desc: "Activity가 생성될 때 한 번만 호출됩니다. UI 초기화(setContentView)와 기본 설정 작업을 수행합니다.", code: "override fun onCreate(savedInstanceState: Bundle?) {\n    super.onCreate(savedInstanceState)\n    setContentView(R.layout.activity_main)\n}" },
+            act_onStart: { title: "onStart()", desc: "Activity가 사용자에게 표시되기 직전에 호출됩니다. UI를 관리하는 코드를 준비합니다.", code: "override fun onStart() {\n    super.onStart()\n}" },
+            act_onResume: { title: "onResume()", desc: "Activity가 포그라운드에 위치하여 사용자와 상호작용할 수 있는 상태입니다.", code: "override fun onResume() {\n    super.onResume()\n    // 카메라 등 리소스 점유\n}" },
+            act_onPause: { title: "onPause()", desc: "사용자가 Activity를 떠나기 시작할 때 호출됩니다. 무거운 작업 저장은 피해야 합니다.", code: "override fun onPause() {\n    super.onPause()\n    // 애니메이션 일시 정지\n}" },
+            act_onStop: { title: "onStop()", desc: "Activity가 더 이상 화면에 보이지 않을 때 호출됩니다. 리소스를 대폭 해제합니다.", code: "override fun onStop() {\n    super.onStop()\n    // DB 초안 저장 등 무거운 작업\n}" },
+            act_onRestart: { title: "onRestart()", desc: "백그라운드에 있던 Activity가 다시 포그라운드로 복귀할 때 onStart() 직전에 호출됩니다.", code: "override fun onRestart() {\n    super.onRestart()\n}" },
+            act_onDestroy: { title: "onDestroy()", desc: "Activity가 완전히 메모리에서 소멸되기 직전에 호출됩니다. 모든 참조를 해제합니다.", code: "override fun onDestroy() {\n    super.onDestroy()\n    // 메모리 누수 방지를 위한 해제\n}" },
+            
+            // Fragment (frag_)
+            frag_onAttach: { title: "onAttach()", desc: "Fragment가 호스트 Activity에 처음으로 연결될 때 호출됩니다. Context를 얻을 수 있습니다.", code: "override fun onAttach(context: Context) {\n    super.onAttach(context)\n    // Activity 콜백 인터페이스 연결\n}" },
+            frag_onCreate: { title: "onCreate()", desc: "Fragment 객체가 생성됩니다. 아직 UI 뷰는 생성되지 않은 상태이며 기본 로직을 초기화합니다.", code: "override fun onCreate(savedInstanceState: Bundle?) {\n    super.onCreate(savedInstanceState)\n}" },
+            frag_onCreateView: { title: "onCreateView()", desc: "Fragment의 뷰 레이아웃을 인플레이트(Inflate)하여 View 객체로 반환합니다.", code: "override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {\n    _binding = FragmentExampleBinding.inflate(inflater)\n    return binding.root\n}" },
+            frag_onViewCreated: { title: "onViewCreated()", desc: "뷰가 성공적으로 생성된 직후 호출됩니다. 뷰 바인딩 접근, 클릭 리스너 설정 등에 가장 적합합니다.", code: "override fun onViewCreated(view: View, savedInstanceState: Bundle?) {\n    super.onViewCreated(view, savedInstanceState)\n    // UI 초기화 및 데이터 바인딩\n}" },
+            frag_onStart: { title: "onStart()", desc: "Fragment가 사용자에게 보이기 시작합니다. (Activity의 onStart와 유사)", code: "override fun onStart() {\n    super.onStart()\n}" },
+            frag_onResume: { title: "onResume()", desc: "Fragment가 포그라운드에 나와 사용자와 상호작용합니다.", code: "override fun onResume() {\n    super.onResume()\n}" },
+            frag_onPause: { title: "onPause()", desc: "Fragment가 포커스를 잃거나 가려지기 시작할 때 호출됩니다.", code: "override fun onPause() {\n    super.onPause()\n}" },
+            frag_onStop: { title: "onStop()", desc: "Fragment가 화면에서 완전히 사라졌을 때 호출됩니다.", code: "override fun onStop() {\n    super.onStop()\n}" },
+            frag_onDestroyView: { title: "onDestroyView()", desc: "Fragment의 뷰 리소스가 해제됩니다. 객체는 살아있으므로 뷰 참조(Binding)를 null로 처리해 누수를 막아야 합니다.", code: "override fun onDestroyView() {\n    super.onDestroyView()\n    _binding = null // 필수 메모리 누수 방지\n}" },
+            frag_onDestroy: { title: "onDestroy()", desc: "Fragment 상태 자체가 파괴될 때 호출됩니다.", code: "override fun onDestroy() {\n    super.onDestroy()\n}" },
+            frag_onDetach: { title: "onDetach()", desc: "Fragment가 호스트 Activity로부터 완전히 분리될 때 마지막으로 호출됩니다.", code: "override fun onDetach() {\n    super.onDetach()\n}" },
+
+            // Service (svc_)
+            svc_onCreate: { title: "onCreate()", desc: "Service가 처음 생성될 때 단 한 번 호출됩니다. 백그라운드 스레드 등 초기 설정을 진행합니다.", code: "override fun onCreate() {\n    super.onCreate()\n    // 스레드 풀, 알림(Notification) 초기화\n}" },
+            svc_onStartCommand: { title: "onStartCommand()", desc: "클라이언트가 startService()를 호출할 때마다 실행됩니다. 메인 로직을 수행하며, Service가 죽었을 때 재시작 정책(START_STICKY 등)을 반환합니다.", code: "override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {\n    // 작업 수행\n    return START_STICKY\n}" },
+            svc_onBind: { title: "onBind()", desc: "클라이언트가 bindService()로 연결을 요청할 때 실행됩니다. 통신을 위한 IBinder 인터페이스를 반환해야 합니다.", code: "override fun onBind(intent: Intent): IBinder {\n    return binder\n}" },
+            svc_onUnbind: { title: "onUnbind()", desc: "모든 클라이언트가 unbindService()를 호출하여 연결이 전부 끊어질 때 호출됩니다.", code: "override fun onUnbind(intent: Intent): Boolean {\n    return super.onUnbind(intent)\n}" },
+            svc_onDestroy: { title: "onDestroy()", desc: "Service가 더 이상 사용되지 않아 소멸될 때 호출됩니다. 실행 중인 스레드나 리스너를 모두 종료해야 합니다.", code: "override fun onDestroy() {\n    super.onDestroy()\n    // 작업 스레드 종료\n}" }
+        };
+
+        // UI 탭 전환 로직
+        function switchTab(component) {
+            if (appState.isAnimating) return;
+            
+            appState.currentComponent = component;
+            appState.currentState = 'DESTROYED';
+            
+            // 탭 스타일 업데이트
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('border-[#3DDC84]', 'border-amber-500', 'border-indigo-500', 'text-[#3DDC84]', 'text-amber-500', 'text-indigo-500', 'font-bold');
+                btn.classList.add('border-transparent', 'text-slate-400');
+            });
+            
+            const activeTab = document.getElementById(`tab-${component}`);
+            activeTab.classList.remove('border-transparent', 'text-slate-400');
+            
+            const colors = { activity: '3DDC84', fragment: 'f59e0b', service: '6366f1' }; // green, amber, indigo
+            const colorCode = colors[component];
+            
+            activeTab.classList.add(`border-[#${colorCode}]`, `text-[#${colorCode}]`, 'font-bold');
+            
+            // 헤더 스타일 업데이트
+            const headerIcon = document.getElementById('header-icon');
+            headerIcon.style.backgroundColor = `#${colorCode}`;
+            headerIcon.innerText = component.charAt(0).toUpperCase();
+            document.getElementById('header-title').innerText = component.charAt(0).toUpperCase() + component.slice(1);
+
+            // 템플릿 렌더링
+            document.getElementById('flowchart-container').innerHTML = templates[component].flowchart;
+            document.getElementById('scenario-container').innerHTML = templates[component].scenarios;
+            
+            // 초기화
+            clearLog();
+            document.getElementById('info-title').innerText = "메서드를 선택하세요";
+            document.getElementById('info-desc').innerText = "플로우 차트의 노드를 클릭하거나 시나리오를 실행하면 상세 정보가 표시됩니다.";
+            document.getElementById('info-code').innerHTML = `<code>// Code snippet will appear here...</code>`;
+            document.getElementById('current-state-display').innerText = 'DESTROYED (Not Initialized)';
+            
+            updateButtonStates();
+        }
+
+        // 버튼 상태 갱신
+        function updateButtonStates() {
+            const state = appState.currentState;
+            const isAnim = appState.isAnimating;
+            
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.disabled = isAnim);
+
+            if (appState.currentComponent === 'activity') {
+                document.getElementById('btn-act-start').disabled = isAnim || state !== 'DESTROYED';
+                document.getElementById('btn-act-home').disabled = isAnim || state !== 'RESUMED';
+                document.getElementById('btn-act-rotate').disabled = isAnim || state !== 'RESUMED';
+                document.getElementById('btn-act-back').disabled = isAnim || state !== 'RESUMED';
+                document.getElementById('btn-act-return').disabled = isAnim || state !== 'STOPPED';
+                document.getElementById('btn-act-death').disabled = isAnim || state !== 'STOPPED';
+            } 
+            else if (appState.currentComponent === 'fragment') {
+                document.getElementById('btn-frag-add').disabled = isAnim || state !== 'DESTROYED';
+                document.getElementById('btn-frag-home').disabled = isAnim || state !== 'RESUMED';
+                document.getElementById('btn-frag-return').disabled = isAnim || state !== 'STOPPED';
+                document.getElementById('btn-frag-remove').disabled = isAnim || state === 'DESTROYED';
+            }
+            else if (appState.currentComponent === 'service') {
+                document.getElementById('btn-svc-start').disabled = isAnim || state === 'BOUND'; // 간단한 시뮬을 위해 바인드 상태에선 막음
+                document.getElementById('btn-svc-stop').disabled = isAnim || state !== 'STARTED';
+                document.getElementById('btn-svc-bind').disabled = isAnim || state !== 'DESTROYED';
+                document.getElementById('btn-svc-unbind').disabled = isAnim || state !== 'BOUND';
+            }
+        }
+
+        // 플로우 노드 시각화 초기화
+        function resetNodes() {
+            document.querySelectorAll('.node').forEach(node => {
+                node.classList.remove('active', 'completed');
+                node.style.backgroundColor = '';
+                node.style.borderColor = '';
+                node.style.boxShadow = '';
+                node.style.color = '';
+            });
+        }
+
+        // 상세 정보 표시
+        function showInfo(methodId) {
+            const data = lifecycleData[methodId];
+            if(data) {
+                document.getElementById('info-title').innerText = data.title;
+                document.getElementById('info-desc').innerText = data.desc;
+                document.getElementById('info-code').innerHTML = `<code>${data.code}</code>`;
+            }
+        }
+
+        // 로그 및 상태명 관리
+        function getStatusName(methodId) {
+            const method = methodId.split('_')[1]; // act_onCreate -> onCreate
+            const map = {
+                'onCreate': 'CREATED', 'onStart': 'STARTED', 'onResume': 'RESUMED',
+                'onPause': 'PAUSED', 'onStop': 'STOPPED', 'onRestart': 'STARTED',
+                'onDestroy': 'DESTROYED', 'onAttach': 'ATTACHED', 'onCreateView': 'VIEW_CREATED',
+                'onViewCreated': 'VIEW_CREATED', 'onDestroyView': 'VIEW_DESTROYED', 'onDetach': 'DETACHED',
+                'onStartCommand': 'STARTED', 'onBind': 'BOUND', 'onUnbind': 'UNBOUND'
+            };
+            return map[method] || method;
+        }
+
+        function addLog(methodId) {
+            const container = document.getElementById('log-container');
+            const time = new Date().toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit', fractionalSecondDigits: 3 });
+            
+            if(container.children[0] && container.children[0].innerText.includes('시뮬레이션을 시작')) {
+                container.innerHTML = '';
+            }
+
+            const displayMethod = methodId.split('_')[1] + '()';
+            const logColor = appState.currentComponent === 'activity' ? 'text-[#3DDC84]' : 
+                             appState.currentComponent === 'fragment' ? 'text-amber-400' : 'text-indigo-400';
+
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-enter flex gap-2 items-start border-b border-slate-800 pb-2';
+            logEntry.innerHTML = `
+                <span class="text-slate-500 shrink-0">[${time}]</span>
+                <span class="${logColor} font-bold shrink-0">${displayMethod}</span>
+                <span class="text-slate-400 text-xs mt-0.5">호출됨</span>
+            `;
+            container.appendChild(logEntry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function addSystemLog(message) {
+            const container = document.getElementById('log-container');
+            const time = new Date().toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-enter flex gap-2 items-start border-b border-slate-800 pb-2 bg-slate-800/50 p-2 rounded';
+            logEntry.innerHTML = `<span class="text-slate-500 shrink-0">[${time}]</span><span class="text-slate-300 font-bold text-xs mt-0.5">${message}</span>`;
+            container.appendChild(logEntry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log-container').innerHTML = '<div class="text-slate-500 text-xs text-center my-2">로그가 초기화되었습니다.</div>';
+        }
+
+        // 특정 노드 활성화 애니메이션
+        async function activateNode(nodeId) {
+            const colors = {
+                activity: '#3DDC84', // green
+                fragment: '#f59e0b', // amber
+                service: '#6366f1'   // indigo
+            };
+            const currentColor = colors[appState.currentComponent];
+
+            document.querySelectorAll('.node.active').forEach(node => {
+                node.classList.remove('active');
+                node.classList.add('completed');
+                
+                // active 상태의 인라인 배경색과 그림자 제거하여 글씨가 보이게 수정
+                node.style.backgroundColor = '';
+                node.style.boxShadow = '';
+                
+                // completed 상태일 때 현재 탭 색상에 맞게 텍스트/테두리 색상 지정
+                node.style.color = currentColor;
+                node.style.borderColor = currentColor;
+            });
+
+            const node = document.getElementById(`node-${nodeId}`);
+            if(node) {
+                node.classList.remove('completed');
+                node.classList.add('active');
+                
+                // Color tweaks per component
+                node.style.backgroundColor = currentColor;
+                node.style.borderColor = currentColor;
+                node.style.boxShadow = `0 0 15px ${currentColor}99`; // 99 = 60% opacity hex
+                node.style.color = '#0f172a'; // active 상태일 때는 어두운 텍스트
+            }
+            
+            showInfo(nodeId);
+            addLog(nodeId);
+            document.getElementById('current-state-display').innerText = getStatusName(nodeId);
+
+            return new Promise(resolve => setTimeout(resolve, 800));
+        }
+
+        // 통합 시나리오 실행기
+        async function runScenario(actionType) {
+            if (appState.isAnimating) return;
+            appState.isAnimating = true;
+            updateButtonStates();
+
+            const container = document.getElementById('log-container');
+            if(container.children.length > 0 && !container.innerHTML.includes('초기화')) {
+                const divider = document.createElement('div');
+                divider.className = 'text-center text-slate-600 text-xs my-2 border-t border-slate-800 pt-2';
+                divider.innerText = `--- Action: ${actionType.toUpperCase()} ---`;
+                container.appendChild(divider);
+                container.scrollTop = container.scrollHeight;
+            }
+
+            let sequence = [];
+            const comp = appState.currentComponent;
+
+            if (comp === 'activity') {
+                switch(actionType) {
+                    case 'start': resetNodes(); sequence = ['act_onCreate', 'act_onStart', 'act_onResume']; appState.currentState = 'RESUMED'; break;
+                    case 'home': sequence = ['act_onPause', 'act_onStop']; appState.currentState = 'STOPPED'; break;
+                    case 'return': sequence = ['act_onRestart', 'act_onStart', 'act_onResume']; appState.currentState = 'RESUMED'; break;
+                    case 'back': sequence = ['act_onPause', 'act_onStop', 'act_onDestroy']; appState.currentState = 'DESTROYED'; break;
+                    case 'rotate': sequence = ['act_onPause', 'act_onStop', 'act_onDestroy', 'act_onCreate', 'act_onStart', 'act_onResume']; appState.currentState = 'RESUMED'; break;
+                    case 'process_death': sequence = []; addSystemLog('⚠️ 시스템 메모리 확보로 프로세스 강제 종료됨'); appState.currentState = 'DESTROYED'; 
+                        document.querySelectorAll('.node.active').forEach(n => { n.classList.remove('active'); n.classList.add('completed'); n.style.backgroundColor=''; n.style.borderColor=''; n.style.boxShadow=''; n.style.color=''; });
+                        document.getElementById('current-state-display').innerText = 'DESTROYED (Process Dead)'; break;
+                }
+            } else if (comp === 'fragment') {
+                switch(actionType) {
+                    case 'add': resetNodes(); sequence = ['frag_onAttach', 'frag_onCreate', 'frag_onCreateView', 'frag_onViewCreated', 'frag_onStart', 'frag_onResume']; appState.currentState = 'RESUMED'; break;
+                    case 'home': sequence = ['frag_onPause', 'frag_onStop']; appState.currentState = 'STOPPED'; break;
+                    case 'return': sequence = ['frag_onStart', 'frag_onResume']; appState.currentState = 'RESUMED'; break;
+                    case 'remove': 
+                        sequence = appState.currentState === 'RESUMED' ? 
+                            ['frag_onPause', 'frag_onStop', 'frag_onDestroyView', 'frag_onDestroy', 'frag_onDetach'] :
+                            ['frag_onDestroyView', 'frag_onDestroy', 'frag_onDetach'];
+                        appState.currentState = 'DESTROYED'; break;
+                }
+            } else if (comp === 'service') {
+                switch(actionType) {
+                    case 'start': 
+                        if(appState.currentState === 'DESTROYED') { resetNodes(); sequence = ['svc_onCreate', 'svc_onStartCommand']; }
+                        else { sequence = ['svc_onStartCommand']; } // 이미 생성된 상태면 onStartCommand만 다시 호출
+                        appState.currentState = 'STARTED'; break;
+                    case 'stop': sequence = ['svc_onDestroy']; appState.currentState = 'DESTROYED'; break;
+                    case 'bind': resetNodes(); sequence = ['svc_onCreate', 'svc_onBind']; appState.currentState = 'BOUND'; break;
+                    case 'unbind': sequence = ['svc_onUnbind', 'svc_onDestroy']; appState.currentState = 'DESTROYED'; break;
+                }
+            }
+
+            for (const methodId of sequence) {
+                await activateNode(methodId);
+            }
+
+            // 완전 소멸 시 시각적 초기화
+            if (appState.currentState === 'DESTROYED') {
+                document.querySelectorAll('.node.active, .node.completed').forEach(n => { 
+                    n.classList.remove('active', 'completed'); 
+                    n.style.backgroundColor = '';
+                    n.style.borderColor = '';
+                    n.style.boxShadow = '';
+                    n.style.color = '';
+                });
+            }
+
+            appState.isAnimating = false;
+            updateButtonStates();
+        }
+
+        // 초기화 실행
+        switchTab('activity');
+    </script>
+</body>
+</html>

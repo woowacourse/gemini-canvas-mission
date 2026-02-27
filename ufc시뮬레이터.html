@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UFC SIMULATOR - Pro Version</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&family=Noto+Sans+KR:wght@300;400;700&display=swap');
+
+        :root {
+            --ufc-red: #D20A0A;
+            --ufc-black: #080808;
+            --ufc-gold: #c5a059;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: var(--ufc-black);
+            color: #e5e7eb;
+        }
+
+        .oswald { font-family: 'Oswald', sans-serif; }
+
+        .nav-btn {
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+        .nav-btn.active {
+            color: var(--ufc-red);
+            border-bottom-color: var(--ufc-red);
+        }
+
+        .division-btn {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: linear-gradient(145deg, #1a1a1a, #0a0a0a);
+            border: 1px solid #333;
+        }
+
+        .division-btn:hover {
+            border-color: var(--ufc-red);
+            transform: translateY(-3px);
+        }
+
+        .stat-bar-bg {
+            height: 4px;
+            background: #262626;
+            border-radius: 2px;
+        }
+
+        .stat-bar-fill {
+            height: 100%;
+            background: var(--ufc-red);
+            border-radius: 2px;
+            transition: width 1s ease-in-out;
+        }
+
+        .rank-card {
+            background: #111;
+            border-left: 4px solid #333;
+            transition: transform 0.2s;
+        }
+        .rank-card:hover {
+            transform: scale(1.01);
+        }
+
+        .champion-card {
+            background: linear-gradient(135deg, #1a1a1a 0%, #050505 100%);
+            border: 2px solid var(--ufc-gold);
+        }
+
+        .simulator-panel {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 1rem;
+        }
+
+        .vs-badge {
+            background: var(--ufc-red);
+            transform: rotate(-10deg);
+            font-style: italic;
+        }
+
+        .log-entry {
+            border-left: 2px solid var(--ufc-red);
+            padding-left: 1rem;
+            margin-bottom: 0.5rem;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+
+        .radar-container {
+            width: 180px;
+            height: 180px;
+        }
+
+        .loading-shimmer {
+            background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+    </style>
+</head>
+<body class="pb-10">
+
+<header class="p-6 border-b border-zinc-800 sticky top-0 bg-black/95 backdrop-blur-sm z-50">
+    <div class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+        <h1 onclick="goHome(); showPage('home');" class="oswald text-3xl font-bold italic tracking-tighter cursor-pointer uppercase">
+            UFC <span class="text-red-600">SIMULATOR</span>
+        </h1>
+
+        <nav class="flex gap-8">
+            <button onclick="showPage('home')" id="nav-home" class="nav-btn active oswald uppercase font-bold tracking-widest py-2">Encyclopedia</button>
+            <button onclick="showPage('simulator')" id="nav-sim" class="nav-btn oswald uppercase font-bold tracking-widest py-2">Match Simulator</button>
+        </nav>
+    </div>
+</header>
+
+<main class="max-w-6xl mx-auto p-6">
+
+    <div id="page-home" class="page-content">
+        <div id="home-view">
+            <div class="mb-10 text-center">
+                <h2 class="oswald text-4xl font-black italic uppercase mb-2">2026 Global Rankings</h2>
+                <p class="text-zinc-500">체급별 공식 랭킹</p>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="division-grid"></div>
+        </div>
+
+        <div id="division-view" class="hidden">
+            <button onclick="goHome()" class="mb-6 text-zinc-500 hover:text-white flex items-center gap-2 transition-colors">
+                <i class="fas fa-arrow-left"></i> <span class="oswald uppercase font-bold tracking-widest text-sm">Back to Divisions</span>
+            </button>
+            <div id="division-content"></div>
+        </div>
+    </div>
+
+    <div id="page-simulator" class="page-content hidden">
+        <div class="mb-10 text-center">
+            <h2 class="oswald text-4xl font-black italic uppercase mb-2">Elite Fight Simulator</h2>
+            <p class="text-zinc-500">챔피언 포함 경기 시 자동으로 5라운드로 진행됩니다.</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+            <div class="lg:col-span-1 space-y-6">
+                <div class="simulator-panel p-6">
+                    <label class="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">1. Select Division</label>
+                    <select id="sim-division" onchange="updateSimFighters()" class="w-full bg-zinc-800 border border-zinc-700 p-3 rounded-lg focus:outline-none focus:border-red-600 oswald uppercase">
+                    </select>
+                </div>
+
+                <div class="simulator-panel p-6">
+                    <label class="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">2. Blue Corner</label>
+                    <select id="sim-fighter-1" class="w-full bg-zinc-800 border border-zinc-700 p-3 rounded-lg focus:outline-none focus:border-blue-600 mb-4 oswald"></select>
+
+                    <label class="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-2">3. Red Corner</label>
+                    <select id="sim-fighter-2" class="w-full bg-zinc-800 border border-zinc-700 p-3 rounded-lg focus:outline-none focus:border-red-600 oswald"></select>
+                </div>
+
+                <button id="btn-start" onclick="runSimulation()" class="w-full bg-red-600 hover:bg-red-700 text-white oswald font-black italic text-xl py-4 rounded-xl transition-all shadow-lg uppercase tracking-tighter">
+                    START FIGHT
+                </button>
+            </div>
+
+            <div class="lg:col-span-2">
+                <div id="sim-result-container" class="hidden">
+                    <div id="sim-panel-main" class="simulator-panel p-8 mb-6 relative overflow-hidden bg-zinc-900">
+                        <div id="title-fight-badge" class="hidden absolute top-0 left-1/2 -translate-x-1/2 bg-yellow-500 text-black px-6 py-1 oswald font-black text-xs tracking-widest uppercase rounded-b-lg z-20">Title Fight - 5 Rounds</div>
+
+                        <div class="flex justify-between items-center mb-8 relative z-10">
+                            <div id="display-f1" class="text-center w-1/2">
+                                <span class="oswald text-blue-500 text-sm font-bold uppercase tracking-widest mb-1 block">Corner</span>
+                                <h3 id="name-f1" class="oswald text-3xl font-black italic uppercase leading-tight"></h3>
+                            </div>
+                            <div class="vs-badge px-4 py-1 text-2xl font-black">VS</div>
+                            <div id="display-f2" class="text-center w-1/2">
+                                <span class="oswald text-red-500 text-sm font-bold uppercase tracking-widest mb-1 block">Corner</span>
+                                <h3 id="name-f2" class="oswald text-3xl font-black italic uppercase leading-tight"></h3>
+                            </div>
+                        </div>
+
+                        <div id="sim-log" class="bg-black rounded-xl p-6 h-96 overflow-y-auto no-scrollbar font-mono text-sm text-zinc-300 border border-zinc-800"></div>
+                    </div>
+
+                    <div id="match-summary" class="hidden space-y-6 pb-10">
+                        <div class="simulator-panel p-8 border-2 border-red-600 text-center bg-zinc-900">
+                            <p class="oswald text-red-500 text-lg font-bold tracking-widest uppercase mb-2">Official Result: <span id="finish-type">Decision</span></p>
+                            <h2 id="winner-name" class="oswald text-5xl font-black italic uppercase text-white"></h2>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="simulator-panel p-6">
+                                <h4 class="oswald text-zinc-500 uppercase text-xs font-bold tracking-widest mb-4">Match Statistics</h4>
+                                <div id="match-stats" class="space-y-4"></div>
+                            </div>
+                            <div class="simulator-panel p-6">
+                                <h4 class="oswald text-zinc-500 uppercase text-xs font-bold tracking-widest mb-4">Expert Analysis</h4>
+                                <div id="analysis-loading" class="hidden space-y-2">
+                                    <div class="h-4 w-full loading-shimmer rounded"></div>
+                                    <div class="h-4 w-5/6 loading-shimmer rounded"></div>
+                                    <div class="h-4 w-4/6 loading-shimmer rounded"></div>
+                                </div>
+                                <p id="winner-analysis" class="text-sm text-zinc-400 leading-relaxed italic"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="sim-placeholder" class="simulator-panel h-full min-h-[500px] flex flex-col items-center justify-center border-dashed border-zinc-800 text-zinc-700">
+                    <i class="fas fa-fist-raised text-6xl mb-4 opacity-10"></i>
+                    <p class="oswald uppercase tracking-widest font-bold text-center px-6">옥타곤 문이 열리기를 기다리고 있습니다.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<script>
+    const apiKey = "";
+    const ufcData = {
+        'Flyweight': {
+            title: 'Flyweight Division', limit: '125 lbs',
+            fighters: [
+                { rank: 'C', name: 'Joshua Van', height: '165cm', reach: '173cm', style: 'Striker', stats: [94, 82, 95, 90, 92], bio: '미얀마의 신성 챔피언. 압도적인 타격 볼륨.' },
+                { rank: '1', name: 'Alexandre Pantoja', height: '165cm', reach: '168cm', style: 'Grappler', stats: [88, 98, 92, 94, 96], bio: '강력한 그래플링과 서브미션 마스터.' },
+                { rank: '2', name: 'Manel Kape', height: '165cm', reach: '173cm', style: 'Striker', stats: [96, 75, 88, 92, 90], bio: '폭발적인 카운터 스트라이킹.' },
+                { rank: '3', name: 'Tatsuro Taira', height: '170cm', reach: '178cm', style: 'Grappler', stats: [82, 97, 92, 91, 88], bio: '무패의 일본 그래플링 천재.' },
+                { rank: '4', name: 'Brandon Royval', height: '175cm', reach: '178cm', style: 'Hybrid', stats: [89, 92, 94, 88, 93], bio: '예측 불허의 화려한 공격 스타일.' },
+                { rank: '5', name: 'Kyoji Horiguchi', height: '165cm', reach: '168cm', style: 'Striker', stats: [93, 85, 90, 92, 89], bio: '전통 카라테 베이스의 정교한 타격.' },
+                { rank: '6', name: 'Brandon Moreno', height: '170cm', reach: '178cm', style: 'Hybrid', stats: [90, 90, 96, 91, 98], bio: '맷집과 근성의 상징.' },
+                { rank: '7', name: 'Amir Albazi', height: '165cm', reach: '173cm', style: 'Grappler', stats: [84, 95, 91, 88, 92], bio: '안정적인 레슬링 운영.' },
+                { rank: '8', name: 'Asu Almabayev', height: '163cm', reach: '165cm', style: 'Grappler', stats: [82, 96, 93, 87, 85], bio: '카자흐스탄의 강력한 레슬러.' },
+                { rank: '9', name: 'Tim Elliott', height: '170cm', reach: '168cm', style: 'Grappler', stats: [80, 93, 95, 85, 94], bio: '변칙적인 움직임의 베테랑.' },
+                { rank: '10', name: 'Alex Perez', height: '168cm', reach: '165cm', style: 'Striker', stats: [91, 82, 85, 88, 86], bio: '강력한 로우킥과 펀치.' },
+                { rank: '11', name: 'Steve Erceg', height: '173cm', reach: '174cm', style: 'Hybrid', stats: [92, 86, 88, 90, 91], bio: '깔끔한 타격 테크닉.' },
+                { rank: '12', name: 'Tagir Ulanbekov', height: '168cm', reach: '178cm', style: 'Grappler', stats: [78, 96, 92, 85, 84], bio: '다게스탄 레슬링의 정석.' },
+                { rank: '13', name: 'Charles Johnson', height: '175cm', reach: '178cm', style: 'Striker', stats: [88, 80, 97, 86, 95], bio: '엄청난 경기 소화력과 체력.' },
+                { rank: '14', name: 'Bruno Silva', height: '163cm', reach: '165cm', style: 'Striker', stats: [93, 78, 84, 82, 83], bio: '폭발적인 화력을 가진 브라질리언.' },
+                { rank: '15', name: 'Joseph Morales', height: '168cm', reach: '170cm', style: 'Hybrid', stats: [85, 88, 86, 84, 85], bio: '잠재력 있는 랭킹 진입자.' }
+            ]
+        },
+        'Bantamweight': {
+            title: 'Bantamweight Division', limit: '135 lbs',
+            fighters: [
+                { rank: 'C', name: 'Petr Yan', height: '170cm', reach: '170cm', style: 'Striker', stats: [98, 88, 96, 97, 98], bio: '복싱의 정수. 슬로우 스타터이자 터미네이터.' },
+                { rank: '1', name: 'Merab Dvalishvili', height: '168cm', reach: '173cm', style: 'Grappler', stats: [78, 100, 100, 88, 96], bio: '무한 동력 레슬링 머신.' },
+                { rank: '2', name: 'Umar Nurmagomedov', height: '173cm', reach: '175cm', style: 'Hybrid', stats: [92, 98, 95, 96, 92], bio: '누르마고메도프 가문의 차세대 주자.' },
+                { rank: '3', name: 'Sean O\'Malley', height: '180cm', reach: '183cm', style: 'Striker', stats: [100, 75, 90, 95, 88], bio: '최고의 저격수이자 스타.' },
+                { rank: '4', name: 'Cory Sandhagen', height: '180cm', reach: '178cm', style: 'Striker', stats: [95, 86, 94, 96, 92], bio: '창의적인 타격과 스텝.' },
+                { rank: '5', name: 'Song Yadong', height: '173cm', reach: '170cm', style: 'Striker', stats: [96, 82, 92, 88, 95], bio: '강력한 펀치 파워의 쿵푸 키드.' },
+                { rank: '6', name: 'Aiemann Zahabi', height: '173cm', reach: '174cm', style: 'Hybrid', stats: [88, 88, 90, 89, 87], bio: '영리한 경기 운영.' },
+                { rank: '7', name: 'Deiveson Figueiredo', height: '165cm', reach: '173cm', style: 'Striker', stats: [97, 90, 88, 93, 91], bio: '체급을 올린 전 플라이급 제왕.' },
+                { rank: '8', name: 'Mario Bautista', height: '175cm', reach: '175cm', style: 'Hybrid', stats: [89, 90, 92, 88, 86], bio: '다재다능한 신성.' },
+                { rank: '9', name: 'Marlon Vera', height: '173cm', reach: '179cm', style: 'Striker', stats: [92, 85, 98, 90, 100], bio: '맷집과 후반 화력의 화신.' },
+                { rank: '10', name: 'David Martinez', height: '170cm', reach: '172cm', style: 'Striker', stats: [91, 80, 88, 86, 84], bio: '새로운 멕시칸 스트라이커.' },
+                { rank: '11', name: 'Payton Talbott', height: '178cm', reach: '179cm', style: 'Striker', stats: [94, 78, 91, 89, 90], bio: '엄청난 타격 재능.' },
+                { rank: '12', name: 'Vinicius Oliveira', height: '175cm', reach: '178cm', style: 'Striker', stats: [95, 75, 86, 85, 82], bio: '피니시 본능이 탁월함.' },
+                { rank: '13', name: 'Rob Font', height: '173cm', reach: '182cm', style: 'Striker', stats: [93, 80, 88, 92, 85], bio: '수준 높은 잽과 복싱.' },
+                { rank: '14', name: 'Kyler Phillips', height: '173cm', reach: '183cm', style: 'Hybrid', stats: [90, 88, 91, 91, 88], bio: '창의적인 움직임의 매트릭스.' },
+                { rank: '15', name: 'Montel Jackson', height: '178cm', reach: '192cm', style: 'Striker', stats: [92, 88, 88, 86, 89], bio: '긴 리치를 활용한 타격.' }
+            ]
+        },
+        'Featherweight': {
+            title: 'Featherweight Division', limit: '145 lbs',
+            fighters: [
+                { rank: 'C', name: 'Alexander Volkanovski', height: '168cm', reach: '180cm', style: 'Hybrid', stats: [98, 94, 99, 100, 96], bio: 'P4P 최상위권의 완전체.' },
+                { rank: '1', name: 'Movsar Evloev', height: '170cm', reach: '183cm', style: 'Grappler', stats: [82, 100, 98, 94, 94], bio: '무결점 레슬링 컨트롤.' },
+                { rank: '2', name: 'Diego Lopes', height: '180cm', reach: '184cm', style: 'Hybrid', stats: [94, 98, 90, 92, 95], bio: '피니시 머신, 주짓수 블랙벨트.' },
+                { rank: '3', name: 'Lerone Murphy', height: '175cm', reach: '180cm', style: 'Striker', stats: [94, 85, 93, 91, 90], bio: '세련된 영국산 타격.' },
+                { rank: '4', name: 'Yair Rodriguez', height: '180cm', reach: '180cm', style: 'Striker', stats: [98, 82, 90, 94, 88], bio: '가장 화려한 킥의 소유자.' },
+                { rank: '5', name: 'Aljamain Sterling', height: '170cm', reach: '180cm', style: 'Grappler', stats: [80, 98, 94, 93, 85], bio: '펑크 마스터, 강력한 백 컨트롤.' },
+                { rank: '6', name: 'Jean Silva', height: '173cm', reach: '175cm', style: 'Striker', stats: [95, 82, 88, 86, 92], bio: '브라질리언 킬러.' },
+                { rank: '7', name: 'Arnold Allen', height: '173cm', reach: '178cm', style: 'Hybrid', stats: [91, 88, 94, 92, 96], bio: '단단하고 정교한 경기력.' },
+                { rank: '8', name: 'Youssef Zalal', height: '178cm', reach: '185cm', style: 'Hybrid', stats: [88, 91, 90, 89, 87], bio: '모로코의 악마.' },
+                { rank: '9', name: 'Steve Garcia', height: '183cm', reach: '191cm', style: 'Striker', stats: [96, 75, 85, 84, 82], bio: '피니시 중독자.' },
+                { rank: '10', name: 'Brian Ortega', height: '173cm', reach: '175cm', style: 'Grappler', stats: [88, 99, 92, 93, 98], bio: '위기에서 터지는 서브미션.' },
+                { rank: '11', name: 'Josh Emmett', height: '168cm', reach: '178cm', style: 'Striker', stats: [100, 84, 88, 87, 95], bio: '핵펀치 한 방의 주인공.' },
+                { rank: '12', name: 'Patricio Pitbull', height: '168cm', reach: '166cm', style: 'Hybrid', stats: [93, 91, 90, 94, 91], bio: '타 단체 전설의 UFC 합류.' },
+                { rank: '13', name: 'Melquizael Costa', height: '178cm', reach: '183cm', style: 'Striker', stats: [89, 82, 88, 85, 86], bio: '신성 라이징 스타.' },
+                { rank: '14', name: 'Kevin Vallejos', height: '175cm', reach: '178cm', style: 'Striker', stats: [90, 80, 87, 86, 84], bio: '남미의 기대주.' },
+                { rank: '15', name: 'David Onama', height: '180cm', reach: '188cm', style: 'Striker', stats: [93, 84, 89, 87, 90], bio: '화력 좋은 공격수.' }
+            ]
+        },
+        'Lightweight': {
+            title: 'Lightweight Division', limit: '155 lbs',
+            fighters: [
+                { rank: 'C', name: 'Ilia Topuria', height: '170cm', reach: '175cm', style: 'Striker', stats: [100, 90, 94, 98, 95], bio: '무패의 챔피언. 완벽한 복싱 테크닉.' },
+                { rank: '1', name: 'Justin Gaethje', height: '180cm', reach: '178cm', style: 'Striker', stats: [99, 84, 95, 94, 98], bio: '하이라이트 머신. 체급 내 최강의 맷집.' },
+                { rank: '2', name: 'Arman Tsarukyan', height: '170cm', reach: '183cm', style: 'Hybrid', stats: [92, 98, 96, 96, 94], bio: '체급 내 가장 위협적인 대항마.' },
+                { rank: '3', name: 'Charles Oliveira', height: '178cm', reach: '188cm', style: 'Grappler', stats: [93, 100, 88, 95, 91], bio: '최다 서브미션 승리 기록자.' },
+                { rank: '4', name: 'Max Holloway', height: '180cm', reach: '175cm', style: 'Striker', stats: [97, 85, 100, 96, 100], bio: '인간 금강불괴. 지치지 않는 심장.' },
+                { rank: '5', name: 'Benoît Saint Denis', height: '180cm', reach: '185cm', style: 'Hybrid', stats: [94, 94, 92, 90, 92], bio: '프랑스 특수부대 출신 전사.' },
+                { rank: '6', name: 'Paddy Pimblett', height: '178cm', reach: '185cm', style: 'Grappler', stats: [88, 93, 91, 88, 90], bio: '영국의 슈퍼스타.' },
+                { rank: '7', name: 'Mateusz Gamrot', height: '178cm', reach: '180cm', style: 'Grappler', stats: [82, 99, 98, 93, 92], bio: '폴란드 레슬링의 정수.' },
+                { rank: '8', name: 'Dan Hooker', height: '183cm', reach: '191cm', style: 'Striker', stats: [93, 84, 92, 90, 96], bio: '전쟁을 두려워하지 않는 행맨.' },
+                { rank: '9', name: 'Mauricio Ruffy', height: '180cm', reach: '185cm', style: 'Striker', stats: [95, 80, 86, 85, 88], bio: '제2의 앤더슨 실바.' },
+                { rank: '10', name: 'Renato Moicano', height: '180cm', reach: '183cm', style: 'Grappler', stats: [88, 95, 91, 92, 89], bio: '모이카노는 승리한다.' },
+                { rank: '11', name: 'Rafael Fiziev', height: '173cm', reach: '180cm', style: 'Striker', stats: [98, 80, 90, 94, 90], bio: '무에타이 베이스의 초고속 타격.' },
+                { rank: '12', name: 'Beneil Dariush', height: '178cm', reach: '183cm', style: 'Hybrid', stats: [90, 94, 91, 92, 84], bio: '기술적으로 매우 완성된 베테랑.' },
+                { rank: '13', name: 'Michael Chandler', height: '173cm', reach: '180cm', style: 'Striker', stats: [97, 88, 85, 90, 91], bio: '폭발적인 운동 능력.' },
+                { rank: '14', name: 'Manuel Torres', height: '178cm', reach: '185cm', style: 'Striker', stats: [94, 78, 84, 85, 82], bio: '피니시가 빠른 신성.' },
+                { rank: '15', name: 'Farès Ziam', height: '185cm', reach: '191cm', style: 'Striker', stats: [89, 82, 88, 86, 85], bio: '스마일 킬러.' }
+            ]
+        },
+        'Welterweight': {
+            title: 'Welterweight Division', limit: '170 lbs',
+            fighters: [
+                { rank: 'C', name: 'Islam Makhachev', height: '178cm', reach: '179cm', style: 'Grappler', stats: [94, 100, 98, 100, 95], bio: '다게스탄 레슬링의 완성형. P4P 1위.' },
+                { rank: '1', name: 'Jack Della Maddalena', height: '180cm', reach: '185cm', style: 'Striker', stats: [99, 85, 92, 96, 92], bio: '현 체급 최고의 타격 테크닉.' },
+                { rank: '2', name: 'Ian Machado Garry', height: '191cm', reach: '188cm', style: 'Striker', stats: [95, 82, 94, 94, 88], bio: '아일랜드산 초신성 스트라이커.' },
+                { rank: '3', name: 'Michael Morales', height: '183cm', reach: '201cm', style: 'Hybrid', stats: [93, 90, 91, 89, 90], bio: '엄청난 피지컬의 에콰도르 신성.' },
+                { rank: '4', name: 'Belal Muhammad', height: '178cm', reach: '183cm', style: 'Grappler', stats: [82, 96, 99, 93, 94], bio: '압박과 전술의 대가.' },
+                { rank: '5', name: 'Carlos Prates', height: '185cm', reach: '191cm', style: 'Striker', stats: [97, 78, 88, 90, 85], bio: '타격 하나는 보증된 선수.' },
+                { rank: '6', name: 'Sean Brady', height: '178cm', reach: '183cm', style: 'Grappler', stats: [80, 98, 95, 91, 89], bio: '필라델피아 레슬링 머신.' },
+                { rank: '7', name: 'Kamaru Usman', height: '183cm', reach: '193cm', style: 'Hybrid', stats: [91, 95, 94, 97, 95], bio: '전설적인 전 제왕.' },
+                { rank: '8', name: 'Leon Edwards', height: '183cm', reach: '188cm', style: 'Striker', stats: [95, 88, 93, 96, 94], bio: '록키, 최고의 웰라운더.' },
+                { rank: '9', name: 'Joaquin Buckley', height: '173cm', reach: '193cm', style: 'Striker', stats: [96, 82, 90, 87, 92], bio: '압도적인 운동 능력과 탄력.' },
+                { rank: '10', name: 'Gabriel Bonfim', height: '185cm', reach: '184cm', style: 'Hybrid', stats: [90, 94, 88, 89, 84], bio: '피니시 능력이 탁월한 브라질리언.' },
+                { rank: '11', name: 'Gilbert Burns', height: '178cm', reach: '180cm', style: 'Grappler', stats: [91, 97, 90, 93, 88], bio: '두리뉴, 주짓수 세계 챔피언.' },
+                { rank: '12', name: 'Uroš Medić', height: '185cm', reach: '180cm', style: 'Striker', stats: [94, 80, 86, 85, 83], bio: '화력 좋은 세르비아 전사.' },
+                { rank: '13', name: 'Colby Covington', height: '180cm', reach: '183cm', style: 'Grappler', stats: [82, 95, 100, 94, 94], bio: '최강의 체력과 압박 레슬링.' },
+                { rank: '14', name: 'Michael Page', height: '191cm', reach: '201cm', style: 'Striker', stats: [96, 70, 88, 91, 84], bio: '가장 변칙적인 타격가.' },
+                { rank: '15', name: 'Daniel Rodriguez', height: '185cm', reach: '188cm', style: 'Striker', stats: [91, 84, 89, 88, 87], bio: '터프한 타격가.' }
+            ]
+        },
+        'Middleweight': {
+            title: 'Middleweight Division', limit: '185 lbs',
+            fighters: [
+                { rank: 'C', name: 'Khamzat Chimaev', height: '188cm', reach: '191cm', style: 'Grappler', stats: [94, 100, 90, 96, 88], bio: '늑대. 상대를 압도하는 초반 화력.' },
+                { rank: '1', name: 'Dricus Du Plessis', height: '183cm', reach: '193cm', style: 'Hybrid', stats: [96, 90, 98, 93, 98], bio: '남아공의 야수. 투박하지만 강력함.' },
+                { rank: '2', name: 'Nassourdine Imavov', height: '191cm', reach: '191cm', style: 'Striker', stats: [95, 86, 92, 94, 92], bio: '프랑스의 정교한 타격가.' },
+                { rank: '3', name: 'Sean Strickland', height: '185cm', reach: '193cm', style: 'Striker', stats: [93, 88, 99, 95, 96], bio: '최고의 방어와 잽 운영.' },
+                { rank: '4', name: 'Brendan Allen', height: '188cm', reach: '191cm', style: 'Grappler', stats: [85, 96, 92, 91, 89], bio: '서브미션 캐치 능력이 일품.' },
+                { rank: '5', name: 'Israel Adesanya', height: '193cm', reach: '203cm', style: 'Striker', stats: [99, 80, 94, 98, 91], bio: '미들급 역사상 최고의 스트라이커.' },
+                { rank: '6', name: 'Anthony Hernandez', height: '183cm', reach: '191cm', style: 'Grappler', stats: [82, 97, 100, 89, 94], bio: '지치지 않는 페이스 머신.' },
+                { rank: '7', name: 'Caio Borralho', height: '185cm', reach: '191cm', style: 'Hybrid', stats: [91, 93, 92, 91, 92], bio: '영리한 파이팅 아이큐.' },
+                { rank: '8', name: 'Reinier de Ridder', height: '193cm', reach: '201cm', style: 'Grappler', stats: [80, 98, 91, 90, 88], bio: '주짓수 기반의 괴수.' },
+                { rank: '9', name: 'Robert Whittaker', height: '183cm', reach: '187cm', style: 'Hybrid', stats: [95, 90, 94, 97, 94], bio: '리퍼, 무결점의 테크니션.' },
+                { rank: '10', name: 'Jared Cannonier', height: '180cm', reach: '197cm', style: 'Striker', stats: [96, 85, 91, 91, 93], bio: '고릴라, 무시무시한 파워.' },
+                { rank: '11', name: 'Roman Dolidze', height: '188cm', reach: '193cm', style: 'Grappler', stats: [88, 94, 88, 89, 94], bio: '변칙적인 그라운드 테크닉.' },
+                { rank: '12', name: 'Paulo Costa', height: '185cm', reach: '183cm', style: 'Striker', stats: [94, 82, 90, 88, 91], bio: '강력한 압박과 화력.' },
+                { rank: '13', name: 'Gregory Rodrigues', height: '191cm', reach: '191cm', style: 'Striker', stats: [95, 90, 86, 85, 87], bio: '로보캅, 전진 압박.' },
+                { rank: '14', name: 'Joe Pyfer', height: '188cm', reach: '191cm', style: 'Striker', stats: [94, 85, 88, 86, 90], bio: '차세대 하드펀처.' },
+                { rank: '15', name: 'Brunno Ferreira', height: '178cm', reach: '183cm', style: 'Striker', stats: [97, 78, 84, 82, 85], bio: '헐크, 무서운 펀치력.' }
+            ]
+        },
+        'Light Heavyweight': {
+            title: 'Light Heavyweight Division', limit: '205 lbs',
+            fighters: [
+                { rank: 'C', name: 'Alex Pereira', height: '193cm', reach: '201cm', style: 'Striker', stats: [100, 75, 92, 97, 92], bio: '포아탄. 스치면 끝나는 왼손 훅.' },
+                { rank: '1', name: 'Magomed Ankalaev', height: '191cm', reach: '191cm', style: 'Hybrid', stats: [94, 96, 95, 97, 94], bio: '체급 내 가장 완성된 파이터.' },
+                { rank: '2', name: 'Jiří Procházka', height: '191cm', reach: '203cm', style: 'Striker', stats: [97, 82, 94, 92, 96], bio: '사무라이 정신, 변칙의 끝판왕.' },
+                { rank: '3', name: 'Carlos Ulberg', height: '193cm', reach: '196cm', style: 'Striker', stats: [96, 80, 91, 93, 89], bio: '시티 킥복싱의 정교한 타격가.' },
+                { rank: '4', name: 'Khalil Rountree Jr.', height: '185cm', reach: '194cm', style: 'Striker', stats: [98, 72, 88, 90, 93], bio: '가장 파괴적인 무에타이 타격.' },
+                { rank: '5', name: 'Jan Błachowicz', height: '188cm', reach: '198cm', style: 'Hybrid', stats: [92, 93, 90, 94, 94], bio: '폴란드 파워.' },
+                { rank: '6', name: 'Azamat Murzakanov', height: '178cm', reach: '182cm', style: 'Striker', stats: [95, 88, 88, 89, 90], bio: '무패의 하드펀처.' },
+                { rank: '7', name: 'Jamahal Hill', height: '193cm', reach: '201cm', style: 'Striker', stats: [96, 80, 90, 92, 88], bio: '수준 높은 복싱 스킬.' },
+                { rank: '8', name: 'Volkan Oezdemir', height: '188cm', reach: '191cm', style: 'Striker', stats: [93, 85, 88, 87, 91], bio: '노 타임, 빠른 피니시.' },
+                { rank: '9', name: 'Bogdan Guskov', height: '191cm', reach: '193cm', style: 'Striker', stats: [94, 78, 85, 84, 85], bio: '우즈벡의 타격가.' },
+                { rank: '10', name: 'Dominick Reyes', height: '193cm', reach: '196cm', style: 'Striker', stats: [91, 80, 85, 86, 83], bio: '돌아온 디베스테이터.' },
+                { rank: '11', name: 'Aleksandar Rakić', height: '193cm', reach: '198cm', style: 'Hybrid', stats: [92, 90, 91, 92, 90], bio: '강력한 신체 조건과 운영.' },
+                { rank: '12', name: 'Johnny Walker', height: '198cm', reach: '208cm', style: 'Striker', stats: [94, 78, 86, 85, 82], bio: '피지컬 괴물, 변칙 타격.' },
+                { rank: '13', name: 'Nikita Krylov', height: '191cm', reach: '197cm', style: 'Hybrid', stats: [90, 92, 90, 91, 91], bio: '피니시율이 높은 올라운더.' },
+                { rank: '14', name: 'Dustin Jacoby', height: '191cm', reach: '193cm', style: 'Striker', stats: [92, 80, 89, 88, 87], bio: '글로리 킥복서 출신.' },
+                { rank: '15', name: 'Zhang Mingyang', height: '188cm', reach: '191cm', style: 'Striker', stats: [93, 75, 84, 82, 86], bio: '중국의 중량급 기대주.' }
+            ]
+        },
+        'Heavyweight': {
+            title: 'Heavyweight Division', limit: '265 lbs',
+            fighters: [
+                { rank: 'C', name: 'Tom Aspinall', height: '196cm', reach: '198cm', style: 'Hybrid', stats: [96, 96, 94, 98, 93], bio: '완벽한 스피드와 기술의 헤비급.' },
+                { rank: '1', name: 'Ciryl Gane', height: '193cm', reach: '206cm', style: 'Striker', stats: [98, 80, 94, 97, 88], bio: '본 가민. 무에타이 마스터.' },
+                { rank: '2', name: 'Alexander Volkov', height: '201cm', reach: '203cm', style: 'Striker', stats: [94, 88, 92, 95, 91], bio: '드라고. 거대한 신장을 활용한 타격.' },
+                { rank: '3', name: 'Sergei Pavlovich', height: '191cm', reach: '213cm', style: 'Striker', stats: [100, 82, 88, 90, 90], bio: '체급 내 최고의 화력과 리치.' },
+                { rank: '4', name: 'Curtis Blaydes', height: '193cm', reach: '203cm', style: 'Grappler', stats: [84, 98, 94, 92, 94], bio: '최강의 레슬링 압박.' },
+                { rank: '5', name: 'Waldo Cortes Acosta', height: '193cm', reach: '198cm', style: 'Striker', stats: [91, 80, 95, 88, 89], bio: '빠른 핸드 스피드의 복서.' },
+                { rank: '6', name: 'Serghei Spivac', height: '191cm', reach: '198cm', style: 'Grappler', stats: [78, 96, 92, 88, 92], bio: '몰도바의 곰. 강력한 삼보.' },
+                { rank: '7', name: 'Rizvan Kuniev', height: '193cm', reach: '195cm', style: 'Hybrid', stats: [88, 92, 89, 87, 88], bio: '러시아의 올라운더.' },
+                { rank: '8', name: 'Derrick Lewis', height: '191cm', reach: '201cm', style: 'Striker', stats: [99, 75, 82, 80, 95], bio: '검은 야수. 한 방의 제왕.' },
+                { rank: '9', name: 'Marcin Tybura', height: '191cm', reach: '198cm', style: 'Hybrid', stats: [88, 92, 91, 89, 93], bio: '안정적인 운영의 베테랑.' },
+                { rank: '10', name: 'Ante Delija', height: '196cm', reach: '201cm', style: 'Grappler', stats: [84, 94, 90, 86, 88], bio: '크로아티아의 거구.' },
+                { rank: '11', name: 'Tallison Teixeira', height: '201cm', reach: '210cm', style: 'Striker', stats: [94, 75, 85, 82, 84], bio: '거대한 신예 스트라이커.' },
+                { rank: '12', name: 'Shamil Gaziev', height: '193cm', reach: '199cm', style: 'Grappler', stats: [82, 95, 88, 85, 86], bio: '다게스탄산 헤비급.' },
+                { rank: '13', name: 'Mick Parkin', height: '193cm', reach: '201cm', style: 'Hybrid', stats: [89, 90, 91, 88, 90], bio: '영국의 무패 기대주.' },
+                { rank: '14', name: 'Valter Walker', height: '198cm', reach: '201cm', style: 'Grappler', stats: [80, 93, 88, 85, 84], bio: '워커 가문의 동생.' },
+                { rank: '15', name: 'Vitor Petrino', height: '188cm', reach: '197cm', style: 'Hybrid', stats: [91, 90, 90, 89, 94], bio: '강력한 피지컬의 브라질리언.' }
+            ]
+        }
+    };
+
+    let activeCharts = [];
+
+    function showPage(pageId) {
+        document.querySelectorAll('.page-content').forEach(p => p.classList.add('hidden'));
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(`page-${pageId}`).classList.remove('hidden');
+        document.getElementById(`nav-${pageId === 'home' ? 'home' : 'sim'}`).classList.add('active');
+        if(pageId === 'simulator') initSimulator();
+    }
+
+    function initEncyclopedia() {
+        const grid = document.getElementById('division-grid');
+        grid.innerHTML = Object.keys(ufcData).map(div => `
+                <button onclick="showDivision('${div}')" class="division-btn p-8 rounded-2xl flex flex-col items-center group">
+                    <span class="oswald text-zinc-500 text-xs mb-2 tracking-widest">${ufcData[div].limit}</span>
+                    <span class="oswald text-xl font-bold group-hover:text-red-600 transition-colors uppercase">${div}</span>
+                </button>
+            `).join('');
+    }
+
+    function showDivision(division) {
+        const data = ufcData[division];
+        document.getElementById('home-view').classList.add('hidden');
+        document.getElementById('division-view').classList.remove('hidden');
+        const content = document.getElementById('division-content');
+
+        activeCharts.forEach(c => c.destroy());
+        activeCharts = [];
+
+        content.innerHTML = `
+                <div class="mb-12 border-b border-zinc-800 pb-8">
+                    <h2 class="oswald text-6xl font-black italic uppercase tracking-tighter text-white mb-2">${data.title}</h2>
+                    <p class="text-red-600 oswald font-bold tracking-widest uppercase">Weight Limit: ${data.limit}</p>
+                </div>
+                <div class="grid grid-cols-1 gap-6">
+                    ${data.fighters.map((f, idx) => `
+                        <div class="rank-card ${f.rank === 'C' ? 'champion-card' : ''} p-8 rounded-2xl">
+                            <div class="flex flex-col md:flex-row gap-8 items-center">
+                                <div class="md:w-1/4">
+                                    <div class="flex items-start gap-4 mb-4">
+                                        <span class="oswald text-4xl font-black ${f.rank === 'C' ? 'text-yellow-500' : 'text-zinc-600'}">
+                                            ${f.rank === 'C' ? '<i class="fas fa-crown"></i>' : '#' + f.rank}
+                                        </span>
+                                        <div>
+                                            <h3 class="oswald text-2xl font-bold uppercase leading-none mb-2">${f.name}</h3>
+                                            <p class="text-xs text-zinc-500 font-bold tracking-widest uppercase">${f.style}</p>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-2 text-sm">
+                                        <div class="flex justify-between border-b border-zinc-800 py-1"><span class="text-zinc-500 uppercase text-[10px] font-bold">Height</span><span class="font-bold">${f.height}</span></div>
+                                        <div class="flex justify-between border-b border-zinc-800 py-1"><span class="text-zinc-500 uppercase text-[10px] font-bold">Reach</span><span class="font-bold">${f.reach}</span></div>
+                                    </div>
+                                </div>
+                                <div class="md:w-1/4 flex justify-center">
+                                    <div class="radar-container">
+                                        <canvas id="chart-${division}-${idx}"></canvas>
+                                    </div>
+                                </div>
+                                <div class="md:w-1/4">
+                                    <div class="space-y-3">
+                                        ${renderStat('Striking', f.stats[0])}
+                                        ${renderStat('Grappling', f.stats[1])}
+                                        ${renderStat('Cardio', f.stats[2])}
+                                        ${renderStat('Technique', f.stats[3])}
+                                        ${renderStat('Chin', f.stats[4])}
+                                    </div>
+                                </div>
+                                <div class="md:w-1/4 border-l border-zinc-800 pl-6 h-full flex flex-col justify-center">
+                                    <p class="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Analyst Note</p>
+                                    <p class="text-sm text-zinc-400 leading-relaxed italic">"${f.bio}"</p>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+        setTimeout(() => {
+            data.fighters.forEach((f, idx) => {
+                createRadarChart(`chart-${division}-${idx}`, f.stats);
+            });
+        }, 0);
+
+        window.scrollTo(0, 0);
+    }
+
+    function createRadarChart(canvasId, stats) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const newChart = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: ['STR', 'GRP', 'CRD', 'TEC', 'CHN'],
+                datasets: [{
+                    data: stats,
+                    backgroundColor: 'rgba(210, 10, 10, 0.2)',
+                    borderColor: '#D20A0A',
+                    borderWidth: 2,
+                    pointBackgroundColor: '#D20A0A',
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                scales: {
+                    r: {
+                        min: 50,
+                        max: 100,
+                        ticks: { display: false },
+                        grid: { color: '#333' },
+                        angleLines: { color: '#333' },
+                        pointLabels: {
+                            color: '#777',
+                            font: { size: 10, family: 'Oswald', weight: 'bold' }
+                        }
+                    }
+                },
+                plugins: { legend: { display: false } },
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+        activeCharts.push(newChart);
+    }
+
+    function renderStat(label, value) {
+        return `
+                <div>
+                    <div class="flex justify-between text-[10px] font-bold mb-1"><span class="text-zinc-500 uppercase">${label}</span><span class="text-zinc-300">${value}</span></div>
+                    <div class="stat-bar-bg"><div class="stat-bar-fill" style="width: ${value}%"></div></div>
+                </div>
+            `;
+    }
+
+    function goHome() {
+        document.getElementById('home-view').classList.remove('hidden');
+        document.getElementById('division-view').classList.add('hidden');
+    }
+
+    function initSimulator() {
+        const divSelect = document.getElementById('sim-division');
+        if(divSelect.options.length === 0) {
+            Object.keys(ufcData).forEach(div => {
+                const opt = document.createElement('option');
+                opt.value = div; opt.textContent = div;
+                divSelect.appendChild(opt);
+            });
+            updateSimFighters();
+        }
+    }
+
+    function updateSimFighters() {
+        const division = document.getElementById('sim-division').value;
+        const fighters = ufcData[division].fighters;
+        const s1 = document.getElementById('sim-fighter-1');
+        const s2 = document.getElementById('sim-fighter-2');
+        s1.innerHTML = ''; s2.innerHTML = '';
+        fighters.forEach((f, idx) => {
+            const nameStr = `${f.rank === 'C' ? '🏆' : '#' + f.rank} ${f.name} (${f.style})`;
+            s1.add(new Option(nameStr, idx));
+            s2.add(new Option(nameStr, idx));
+        });
+        s2.selectedIndex = fighters.length > 1 ? 1 : 0;
+    }
+
+    async function runSimulation() {
+        const division = document.getElementById('sim-division').value;
+        const idx1 = document.getElementById('sim-fighter-1').value;
+        const idx2 = document.getElementById('sim-fighter-2').value;
+        if (idx1 === idx2) { alert("상대 선수를 다르게 선택해주세요."); return; }
+
+        const f1 = ufcData[division].fighters[idx1];
+        const f2 = ufcData[division].fighters[idx2];
+
+        const isTitleFight = f1.rank === 'C' || f2.rank === 'C';
+        const totalRounds = isTitleFight ? 5 : 3;
+
+        document.getElementById('sim-placeholder').classList.add('hidden');
+        document.getElementById('sim-result-container').classList.remove('hidden');
+        document.getElementById('match-summary').classList.add('hidden');
+        document.getElementById('winner-analysis').textContent = "";
+        document.getElementById('name-f1').textContent = f1.name;
+        document.getElementById('name-f2').textContent = f2.name;
+
+        const titleBadge = document.getElementById('title-fight-badge');
+        const mainPanel = document.getElementById('sim-panel-main');
+        if(isTitleFight) {
+            titleBadge.classList.remove('hidden');
+            mainPanel.classList.add('border-yellow-500');
+        } else {
+            titleBadge.classList.add('hidden');
+            mainPanel.classList.remove('border-yellow-500');
+        }
+
+        const btn = document.getElementById('btn-start');
+        btn.disabled = true; btn.classList.add('opacity-50');
+
+        const log = document.getElementById('sim-log');
+        log.innerHTML = `<div class="log-entry text-yellow-500 font-bold uppercase">[System] ${isTitleFight ? 'Title Main Event' : 'Ranking Fight'} Starting...</div>`;
+        await sleep(500);
+
+        let roundStats = { f1: { strikes: 0, td: 0, score: 0 }, f2: { strikes: 0, td: 0, score: 0 } };
+        let isFinished = false;
+        let finishReason = "Decision";
+        let winner = null;
+        let lastRound = totalRounds;
+
+        const strikeEvents = ["날카로운 잽이 적중합니다!", "강력한 바디킥!", "오버핸드 훅이 가드를 뚫습니다.", "클린치 상태에서의 니킥 공격.", "압박하며 원투 스트레이트를 꽂습니다."];
+        const grapplingEvents = ["기습적인 태클 성공!", "싱글렉 시도 후 상대를 눕힙니다.", "백 포지션을 점유하며 압박합니다.", "케이지 몰아넣고 더블렉 테이크다운.", "서브미션 그립을 깊게 시도합니다."];
+
+        for (let r = 1; r <= totalRounds && !isFinished; r++) {
+            await sleep(500);
+            addLog(`<div class="mt-4 text-red-500 font-black oswald border-b border-zinc-800 pb-1 uppercase italic">ROUND ${r}</div>`);
+
+            for (let i = 0; i < 5 && !isFinished; i++) {
+                await sleep(400);
+                const luck = Math.random() * 20;
+
+                // Fatigue impact (Cardio)
+                const f1_stamina = 1 - (r * (105 - f1.stats[2]) / 600);
+                const f2_stamina = 1 - (r * (105 - f2.stats[2]) / 600);
+
+                let p1_power = (f1.stats[0] * 0.4 + f1.stats[3] * 0.2) * f1_stamina + luck;
+                let p2_power = (f2.stats[0] * 0.4 + f2.stats[3] * 0.2) * f2_stamina + (20 - luck);
+
+                const attacker = p1_power > p2_power ? f1 : f2;
+                const defender = p1_power > p2_power ? f2 : f1;
+                const attKey = p1_power > p2_power ? 'f1' : 'f2';
+
+                if (Math.random() > (attacker.style === 'Grappler' ? 0.4 : 0.7)) {
+                    const ev = strikeEvents[Math.floor(Math.random() * strikeEvents.length)];
+                    addLog(`<span class="text-blue-400 font-bold">${attacker.name}</span>: ${ev}`);
+                    roundStats[attKey].strikes += Math.floor(Math.random() * 8) + 4;
+                    roundStats[attKey].score += 1;
+
+                    // CHIN Balance: High Chin significantly reduces KO chance
+                    // KO Probability = (Striking Power / Chin Power^2) * Multiplier
+                    let koChance = (attacker.stats[0] / Math.pow(defender.stats[4], 1.5)) * 0.25;
+                    if (Math.random() < koChance) {
+                        addLog(`<span class="text-red-600 font-black text-lg uppercase">CRITICAL! ${attacker.name}의 한방에 ${defender.name} 선수가 고꾸라집니다! KO!</span>`);
+                        isFinished = true; finishReason = "KO/TKO"; winner = attacker; lastRound = r;
+                    }
+                } else {
+                    const ev = grapplingEvents[Math.floor(Math.random() * grapplingEvents.length)];
+                    addLog(`<span class="text-green-400 font-bold">${attacker.name}</span>: ${ev}`);
+                    roundStats[attKey].td += 1;
+                    roundStats[attKey].score += 2;
+
+                    let subChance = (attacker.stats[1] / Math.pow(defender.stats[1], 1.2)) * 0.1;
+                    if (Math.random() < subChance) {
+                        addLog(`<span class="text-yellow-500 font-black text-lg uppercase">SUBMISSION! ${attacker.name}가 탭을 받아냅니다!</span>`);
+                        isFinished = true; finishReason = "Submission"; winner = attacker; lastRound = r;
+                    }
+                }
+            }
+        }
+
+        if(!isFinished) {
+            winner = roundStats.f1.score >= roundStats.f2.score ? f1 : f2;
+            finishReason = "Unanimous Decision";
+        }
+
+        displaySummary(winner, finishReason, roundStats, lastRound, isTitleFight);
+        btn.disabled = false; btn.classList.remove('opacity-50');
+
+        generateAIBreakdown(winner, f1, f2, finishReason, roundStats, lastRound, isTitleFight);
+    }
+
+    async function generateAIBreakdown(winner, f1, f2, type, stats, lastRound, isTitle) {
+        const loading = document.getElementById('analysis-loading');
+        const analysisText = document.getElementById('winner-analysis');
+        loading.classList.remove('hidden');
+        analysisText.textContent = "";
+
+        const prompt = `UFC 경기 결과를 전문 해설가 조 로건처럼 분석해줘.
+            경기 정보:
+            - 선수: ${f1.name} (Blue) vs ${f2.name} (Red)
+            - 승자: ${winner.name}
+            - 방식: ${type}
+            - 마지막 라운드: ${lastRound}R
+            - 총 경기 성격: ${isTitle ? '5라운드 챔피언십 매치' : '3라운드 랭킹 매치'}
+            - 통계 (F1): 타격 ${stats.f1.strikes}회, 테이크다운 ${stats.f1.td}회
+            - 통계 (F2): 타격 ${stats.f2.strikes}회, 테이크다운 ${stats.f2.td}회
+
+            요구사항:
+            1. 매우 박진감 넘치고 흥미롭게 작성할 것.
+            2. 승자의 핵심 전략이 무엇이었는지 구체적 통계(타격/레슬링)를 언급하며 칭찬할 것.
+            3. 패자에게 아쉬웠던 점을 한 문장 추가할 것.
+            4. 한국어로 작성하되 중간중간 전문 용어(카프킥, 그라운드 앤 파운드 등)를 사용할 것.
+            5. 전체 길이는 4~5문장 내외로 강렬하게 끝낼 것.`;
+
+        try {
+            let retries = 5;
+            let delay = 1000;
+            let resultText = "";
+
+            while(retries > 0) {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+
+                if(response.ok) {
+                    const data = await response.json();
+                    resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    break;
+                }
+                await sleep(delay);
+                delay *= 2; retries--;
+            }
+
+            loading.classList.add('hidden');
+            analysisText.textContent = resultText || "경기가 끝난 후 옥타곤은 고요함에 잠겼습니다. 승자는 자신의 모든 것을 증명했고, 패자는 다시 일어설 준비를 합니다.";
+        } catch (e) {
+            loading.classList.add('hidden');
+            analysisText.textContent = "통신 장애로 인해 현장 리포트를 가져오지 못했습니다.";
+        }
+    }
+
+    function displaySummary(winner, type, stats, lastRound, isTitle) {
+        document.getElementById('match-summary').classList.remove('hidden');
+        document.getElementById('winner-name').textContent = winner.name;
+        document.getElementById('finish-type').textContent = type;
+
+        const statHtml = `
+                <div class="grid grid-cols-3 gap-2 text-center items-center">
+                    <div class="oswald text-2xl text-blue-500">${stats.f1.strikes}</div>
+                    <div class="text-[10px] text-zinc-500 font-bold uppercase">Strikes</div>
+                    <div class="oswald text-2xl text-red-500">${stats.f2.strikes}</div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center items-center">
+                    <div class="oswald text-2xl text-blue-500">${stats.f1.td}</div>
+                    <div class="text-[10px] text-zinc-500 font-bold uppercase">Takedowns</div>
+                    <div class="oswald text-2xl text-red-500">${stats.f2.td}</div>
+                </div>
+                <div class="text-center mt-4">
+                    <span class="oswald text-xs font-bold text-zinc-600 uppercase tracking-widest italic">Stopped in Round ${lastRound}</span>
+                </div>
+            `;
+        document.getElementById('match-stats').innerHTML = statHtml;
+
+        setTimeout(() => {
+            document.getElementById('match-summary').scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+    }
+
+    function addLog(msg) {
+        const log = document.getElementById('sim-log');
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+        div.innerHTML = msg;
+        log.appendChild(div);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+    window.onload = () => { initEncyclopedia(); initSimulator(); };
+</script>
+</body>
+</html>

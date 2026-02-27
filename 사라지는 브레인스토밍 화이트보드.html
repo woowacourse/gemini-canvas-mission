@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>에페머럴 화이트보드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 부드러운 느낌의 한글 폰트 적용 */
+        @import url('https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Noto+Sans+KR:wght@300;500&display=swap');
+
+        :root {
+            --warm-bg: #fdfaf5;
+            --bubble-bg: #ffffff;
+            --accent-color: #ff9a8b;
+            --text-color: #5d5750;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: var(--warm-bg);
+            overflow: hidden;
+            margin: 0;
+            height: 100vh;
+            touch-action: none;
+            color: var(--text-color);
+        }
+
+        #whiteboard {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            /* 따뜻한 격자무늬 또는 부드러운 도트 배경 */
+            background-image:
+                    radial-gradient(#eee1d5 1.5px, transparent 1.5px);
+            background-size: 50px 50px;
+        }
+
+        .thought-bubble {
+            position: absolute;
+            padding: 1.2rem 2.2rem;
+            background: var(--bubble-bg);
+            border-radius: 40px;
+            /* 손글씨 느낌의 폰트 적용 */
+            font-family: 'Gaegu', cursive;
+            box-shadow: 0 8px 20px rgba(230, 210, 190, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+            font-weight: 400;
+            color: #6d6155;
+            white-space: nowrap;
+            opacity: 0;
+            transform: scale(0.8) rotate(-2deg);
+            transition: opacity 1.2s ease-out, transform 1.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: none;
+            z-index: 10;
+            border: 2px solid #fff5ea;
+        }
+
+        .thought-bubble.visible {
+            opacity: 1;
+            transform: scale(1) rotate(0deg);
+        }
+
+        .thought-bubble.fade-out {
+            opacity: 0;
+            transform: scale(1.3) translateY(-30px);
+            filter: blur(12px);
+            transition: opacity 2.5s ease-in, transform 2.5s ease-in, filter 2.5s ease-in;
+        }
+
+        .input-container {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            width: 90%;
+            max-width: 550px;
+        }
+
+        .input-box {
+            display: flex;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            padding: 10px;
+            border-radius: 50px;
+            border: 2px solid #f3e9e0;
+            box-shadow: 0 10px 30px rgba(100, 80, 60, 0.08);
+        }
+
+        input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 10px 20px;
+            font-size: 1.1rem;
+            outline: none;
+            color: #6d6155;
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+
+        input::placeholder {
+            color: #c5b8ad;
+        }
+
+        button {
+            background: linear-gradient(135deg, #ff9a8b 0%, #ff6a88 100%);
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 50px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 12px rgba(255, 106, 136, 0.3);
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            filter: brightness(1.05);
+        }
+
+        .user-count {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px 18px;
+            border-radius: 30px;
+            font-size: 0.85rem;
+            color: #a09388;
+            border: 1px solid #f3e9e0;
+            font-weight: 500;
+        }
+
+        /* 따뜻한 애니메이션 효과를 위한 데코 */
+        .decoration {
+            position: absolute;
+            z-index: 1;
+            opacity: 0.3;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="whiteboard"></div>
+
+<div class="user-count" id="userCount">연결 중...</div>
+
+<div class="input-container">
+    <form id="thoughtForm" class="input-box">
+        <input type="text" id="thoughtInput" placeholder="마음속의 생각을 적어보세요..." maxlength="50" autocomplete="off">
+        <button type="submit">띄우기</button>
+    </form>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const firebaseConfig = JSON.parse(__firebase_config);
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'ephemeral-warm-whiteboard';
+
+    const whiteboard = document.getElementById('whiteboard');
+    const thoughtForm = document.getElementById('thoughtForm');
+    const thoughtInput = document.getElementById('thoughtInput');
+    const userCountDisplay = document.getElementById('userCount');
+
+    let user = null;
+    let activeBubbles = [];
+
+    const initAuth = async () => {
+        try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        } catch (error) {
+            console.error("Authentication failed", error);
+        }
+    };
+
+    onAuthStateChanged(auth, (userData) => {
+        user = userData;
+        if (user) {
+            userCountDisplay.textContent = `함께 생각 나누는 중`;
+            listenToThoughts();
+        }
+    });
+
+    function listenToThoughts() {
+        if (!user) return;
+        const thoughtsCol = collection(db, 'artifacts', appId, 'public', 'data', 'thoughts');
+
+        onSnapshot(thoughtsCol, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added") {
+                    const data = change.doc.data();
+                    const now = Date.now();
+                    const createdAt = data.createdAt?.toMillis() || now;
+
+                    if (now - createdAt < 3000) {
+                        createBubble(data.text);
+                    }
+                }
+            });
+        }, (error) => console.error("Firestore Error:", error));
+    }
+
+    function findSafePosition(bubbleWidth, bubbleHeight) {
+        const margin = 50;
+        const maxAttempts = 50;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        for (let i = 0; i < maxAttempts; i++) {
+            const x = Math.random() * (vw - bubbleWidth - margin * 2) + margin;
+            const y = Math.random() * (vh - bubbleHeight - 220) + margin;
+
+            let overlap = false;
+            for (const active of activeBubbles) {
+                if (!(x + bubbleWidth + 20 < active.x ||
+                    x > active.x + active.w + 20 ||
+                    y + bubbleHeight + 20 < active.y ||
+                    y > active.y + active.h + 20)) {
+                    overlap = true;
+                    break;
+                }
+            }
+            if (!overlap) return { x, y };
+        }
+        return { x: Math.random() * (vw - bubbleWidth), y: Math.random() * (vh - 220) };
+    }
+
+    function createBubble(text) {
+        const bubble = document.createElement('div');
+        bubble.className = 'thought-bubble';
+        bubble.textContent = text;
+        whiteboard.appendChild(bubble);
+
+        const rect = bubble.getBoundingClientRect();
+        const pos = findSafePosition(rect.width, rect.height);
+
+        bubble.style.left = `${pos.x}px`;
+        bubble.style.top = `${pos.y}px`;
+
+        const bubbleInfo = { x: pos.x, y: pos.y, w: rect.width, h: rect.height };
+        activeBubbles.push(bubbleInfo);
+
+        requestAnimationFrame(() => {
+            bubble.classList.add('visible');
+        });
+
+        setTimeout(() => {
+            bubble.classList.remove('visible');
+            bubble.classList.add('fade-out');
+            activeBubbles = activeBubbles.filter(b => b !== bubbleInfo);
+            setTimeout(() => bubble.remove(), 3000);
+        }, 7000);
+    }
+
+    thoughtForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = thoughtInput.value.trim();
+        if (!text || !user) return;
+        thoughtInput.value = '';
+
+        try {
+            const thoughtsCol = collection(db, 'artifacts', appId, 'public', 'data', 'thoughts');
+            await addDoc(thoughtsCol, {
+                text: text,
+                userId: user.uid,
+                createdAt: serverTimestamp()
+            });
+        } catch (error) {
+            console.error("Save Error:", error);
+        }
+    });
+
+    initAuth();
+    window.addEventListener('resize', () => { activeBubbles = []; });
+</script>
+</body>
+</html>

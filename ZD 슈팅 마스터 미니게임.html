@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZD 슈팅 마스터</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --grass-color: #2d5a27;
+            --line-color: rgba(255, 255, 255, 0.6);
+            --ui-panel: rgba(0, 0, 0, 0.7);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: var(--bg-color);
+            font-family: 'Pretendard', sans-serif;
+            color: white;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background-color: var(--grass-color);
+            border: 4px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* UI Overlay */
+        .ui-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+        }
+
+        .score-board {
+            background: var(--ui-panel);
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-left: 4px solid #ffd700;
+        }
+
+        .controls-hint {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: var(--ui-panel);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .gauge-wrapper {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            display: none;
+        }
+
+        .gauge-label {
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            text-shadow: 1px 1px 2px black;
+        }
+
+        .gauge-container {
+            width: 250px;
+            height: 20px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid #fff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .gauge-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #4caf50 0%, #ffeb3b 50%, #f44336 100%);
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
+            transition: width 0.05s linear;
+        }
+
+        .result-message {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 4rem;
+            font-weight: 900;
+            text-shadow: 0 0 20px rgba(0,0,0,0.8);
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .position-selector {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            background: #fff;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #ffd700;
+        }
+
+        button.active {
+            background: #ffd700;
+            box-shadow: 0 0 15px #ffd700;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="ui-overlay">
+        <div class="score-board">GOALS: <span id="goalCount">0</span></div>
+    </div>
+
+    <div class="position-selector">
+        <button id="btnLeft" class="active" onclick="setSide('left')">왼쪽 모서리</button>
+        <button id="btnRight" onclick="setSide('right')">오른쪽 모서리</button>
+    </div>
+
+    <div class="gauge-wrapper" id="gaugeWrapper">
+        <div class="gauge-label">ZD POWER</div>
+        <div class="gauge-container">
+            <div class="gauge-fill" id="gaugeFill"></div>
+        </div>
+    </div>
+
+    <div class="result-message" id="resultMsg">GOAL!</div>
+
+    <div class="controls-hint">
+        <b>조작 방법</b><br>
+        방향 조절: 좌우 방향키 (←, →)<br>
+        ZD 감아차기: Z + D 길게 누르기
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const goalCountEl = document.getElementById('goalCount');
+    const gaugeWrapper = document.getElementById('gaugeWrapper');
+    const gaugeFill = document.getElementById('gaugeFill');
+    const resultMsg = document.getElementById('resultMsg');
+
+    // 게임 설정
+    canvas.width = 800;
+    canvas.height = 600;
+
+    const GOAL_WIDTH = 240;
+    const GOAL_HEIGHT = 100;
+    const GOAL_X = (canvas.width - GOAL_WIDTH) / 2;
+    const GOAL_Y = 50;
+
+    let score = 0;
+    let side = 'left';
+    let isCharging = false;
+    let power = 0;
+    let angle = -0.8;
+    let keys = {};
+
+    // 공 상태
+    let ball = {
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        radius: 8,
+        active: false,
+        trail: [],
+        curve: 0
+    };
+
+    function initBall() {
+        ball.active = false;
+        ball.trail = [];
+        ball.vx = 0;
+        ball.vy = 0;
+        ball.curve = 0;
+        if (side === 'left') {
+            ball.x = 150;
+            ball.y = 480;
+            angle = -0.65; // 초기 각도 약간 상향 조정 (조준 편의성)
+        } else {
+            ball.x = 650;
+            ball.y = 480;
+            angle = -2.45;
+        }
+    }
+
+    function setSide(newSide) {
+        side = newSide;
+        document.getElementById('btnLeft').className = side === 'left' ? 'active' : '';
+        document.getElementById('btnRight').className = side === 'right' ? 'active' : '';
+        initBall();
+    }
+
+    window.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+    });
+
+    window.addEventListener('keyup', e => {
+        const key = e.key.toLowerCase();
+        if ((key === 'd' || key === 'z') && isCharging) {
+            shoot();
+        }
+        keys[key] = false;
+    });
+
+    function shoot() {
+        if (ball.active || !isCharging) return;
+
+        isCharging = false;
+        gaugeWrapper.style.display = 'none';
+
+        ball.active = true;
+
+        // 1. 발사 파워
+        const shootPower = (power / 100) * 11 + 6;
+        ball.vx = Math.cos(angle) * shootPower;
+        ball.vy = Math.sin(angle) * shootPower;
+
+        // 2. [수정] 굴곡 계수 하향 조정
+        // 요청 사항: 조금 덜 감기도록 0.65에서 0.38로 축소
+        const maxCurveCoefficient = 0.38;
+        const curveFactor = Math.pow(power / 100, 1.1) * maxCurveCoefficient;
+
+        // 좌측에서 차면 왼쪽으로, 우측에서 차면 오른쪽으로 감김
+        ball.curve = side === 'left' ? -curveFactor : curveFactor;
+
+        power = 0;
+    }
+
+    function showMessage(text, color) {
+        resultMsg.innerText = text;
+        resultMsg.style.color = color;
+        resultMsg.style.opacity = '1';
+        resultMsg.style.transform = 'translate(-50%, -50%) scale(1.1)';
+        setTimeout(() => {
+            resultMsg.style.opacity = '0';
+            resultMsg.style.transform = 'translate(-50%, -50%) scale(1)';
+            initBall();
+        }, 1500);
+    }
+
+    function update() {
+        if (!ball.active) {
+            if (keys['arrowleft']) angle -= 0.025;
+            if (keys['arrowright']) angle += 0.025;
+
+            if (keys['z'] && keys['d']) {
+                isCharging = true;
+                gaugeWrapper.style.display = 'block';
+                power = Math.min(power + 1.5, 100);
+                gaugeFill.style.width = power + '%';
+            }
+        }
+
+        if (ball.active) {
+            ball.trail.push({x: ball.x, y: ball.y});
+            if (ball.trail.length > 30) ball.trail.shift();
+
+            // 굴곡 물리 적용
+            ball.vx += ball.curve;
+
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // 마찰력 (감아차기 느낌을 위해 항력 유지)
+            ball.vx *= 0.994;
+            ball.vy *= 0.994;
+
+            // 결과 판정
+            if (ball.y < GOAL_Y + 10 && ball.x > GOAL_X && ball.x < GOAL_X + GOAL_WIDTH) {
+                ball.active = false;
+                score++;
+                goalCountEl.innerText = score;
+                showMessage("FANTASTIC GOAL!", "#ffd700");
+            }
+            else if (ball.y < GOAL_Y + 20 && (
+                (Math.abs(ball.x - GOAL_X) < 12) ||
+                (Math.abs(ball.x - (GOAL_X + GOAL_WIDTH)) < 12) ||
+                (Math.abs(ball.y - GOAL_Y) < 12 && ball.x > GOAL_X && ball.x < GOAL_X + GOAL_WIDTH)
+            )) {
+                ball.active = false;
+                showMessage("UNLUCKY!", "#fff");
+            }
+            else if (ball.y < -40 || ball.x < -100 || ball.x > canvas.width + 100 || ball.y > canvas.height + 40) {
+                ball.active = false;
+                showMessage("MISS", "#ff4444");
+            }
+        }
+    }
+
+    function drawField() {
+        ctx.fillStyle = '#2d5a27';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#275222';
+        for(let i=0; i<canvas.width; i+=80) {
+            ctx.fillRect(i, 0, 40, canvas.height);
+        }
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(150, 50, 500, 350);
+
+        ctx.beginPath();
+        ctx.moveTo(0, 50);
+        ctx.lineTo(canvas.width, 50);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 6;
+        ctx.strokeRect(GOAL_X, GOAL_Y - 40, GOAL_WIDTH, 40);
+        ctx.strokeRect(GOAL_X, GOAL_Y - 40, GOAL_WIDTH, GOAL_HEIGHT);
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        for(let i = 1; i < 15; i++) {
+            ctx.beginPath();
+            ctx.moveTo(GOAL_X + (GOAL_WIDTH/15)*i, GOAL_Y);
+            ctx.lineTo(GOAL_X + (GOAL_WIDTH/15)*i, GOAL_Y - 40);
+            ctx.stroke();
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawField();
+
+        if (!ball.active) {
+            ctx.save();
+            ctx.translate(ball.x, ball.y);
+            ctx.rotate(angle);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(60, 0);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        ball.trail.forEach((pos, index) => {
+            const alpha = (index / ball.trail.length) * 0.4;
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, ball.radius * (0.3 + index / ball.trail.length * 0.7), 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        ctx.save();
+        ctx.translate(ball.x, ball.y);
+        if (ball.active) {
+            ctx.rotate(Date.now() * 0.012 * (ball.curve * 12));
+        }
+
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        for(let i=0; i<3; i++) {
+            ctx.rotate(Math.PI/3);
+            ctx.moveTo(-ball.radius, 0);
+            ctx.lineTo(ball.radius, 0);
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    initBall();
+    gameLoop();
+</script>
+</body>
+</html>

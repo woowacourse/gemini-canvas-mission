@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>빼빼로 게임</title>
+    <!-- Tailwind CSS를 활용하여 UI 레이아웃을 빠르게 구성합니다. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 모바일 환경에서 텍스트가 선택되거나 기본 터치 동작이 발생하는 것을 방지합니다. */
+        body {
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            background-color: #f3f4f6;
+        }
+
+        /* 아이템이 등장하고 사라지는 핵심 애니메이션을 정의합니다. */
+        @keyframes popupAndHide {
+            0% {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            15% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            85% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+        }
+
+        /* 카운트다운 숫자가 커지면서 사라지는 애니메이션을 정의합니다. */
+        @keyframes countScale {
+            0% { transform: scale(0.5) translate(-50%, -50%); opacity: 0; }
+            50% { transform: scale(1.2) translate(-50%, -50%); opacity: 1; }
+            100% { transform: scale(1) translate(-50%, -50%); opacity: 0; }
+        }
+
+        .item-animation {
+            animation-name: popupAndHide;
+            animation-timing-function: ease-in-out;
+            animation-fill-mode: forwards;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .countdown-text {
+            animation: countScale 1s ease-in-out;
+            transform-origin: top left;
+        }
+
+        /* 4x4 그리드의 셀을 정사각형 비율로 유지합니다. */
+        .grid-cell {
+            aspect-ratio: 1 / 1;
+            position: relative;
+        }
+
+        /* 기본 색상(Primary Color)을 빼빼로 패키지의 붉은색 계열로 지정합니다. */
+        .bg-primary { background-color: #E53935; }
+        .text-primary { color: #E53935; }
+        .border-primary { border-color: #E53935; }
+        .hover-primary:hover { background-color: #D32F2F; }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+
+    <!-- 애플리케이션의 메인 컨테이너입니다. 모바일 기기 화면 비율을 모방합니다. -->
+    <div id="app" class="relative w-full max-w-md h-[100dvh] bg-white shadow-xl overflow-hidden flex flex-col">
+        
+        <!-- 1. 시작 화면 (Intro Screen) -->
+        <div id="screen-intro" class="absolute inset-0 flex flex-col items-center justify-between p-8 bg-white z-10">
+            <div class="flex flex-col items-center mt-12 text-center space-y-4">
+                <h1 class="text-3xl font-extrabold text-gray-800 break-keep">빼빼로를 줍고<br>빼빼로 받아가세요!</h1>
+                <!-- 메인 화면의 빼빼로 SVG 아이콘입니다. -->
+                <div class="w-48 h-48 mt-8">
+                    <svg viewBox="0 0 100 200" width="100%" height="100%">
+                        <rect x="42" y="10" width="16" height="180" rx="8" fill="#E8C396"/>
+                        <rect x="38" y="10" width="24" height="120" rx="12" fill="#3D2314"/>
+                        <path d="M 40 30 Q 50 40 60 30" stroke="#E8C396" stroke-width="2" fill="none" opacity="0.5"/>
+                        <path d="M 40 60 Q 50 50 60 60" stroke="#E8C396" stroke-width="2" fill="none" opacity="0.5"/>
+                    </svg>
+                </div>
+            </div>
+            <button id="btn-start" class="w-full py-4 bg-primary hover-primary text-white text-xl font-bold rounded-2xl shadow-lg transition-colors mb-8">
+                빼빼로 줍기 시작
+            </button>
+        </div>
+
+        <!-- 2. 카운트다운 화면 (Countdown Screen) -->
+        <div id="screen-countdown" class="absolute inset-0 flex items-center justify-center bg-white z-20 hidden">
+            <div id="countdown-number" class="absolute top-1/2 left-1/2 text-primary font-black text-9xl">3</div>
+        </div>
+
+        <!-- 3. 게임 플레이 화면 (Game Screen) -->
+        <div id="screen-game" class="absolute inset-0 flex flex-col bg-amber-50 z-0 hidden">
+            <!-- 상단 상태 표시줄 (타이머 및 목표 진행도) -->
+            <div class="flex items-center justify-between px-6 py-4 bg-white shadow-sm">
+                <div class="flex flex-col">
+                    <span class="text-sm text-gray-500 font-bold">Stage <span id="ui-stage">1</span></span>
+                    <span id="ui-time" class="text-2xl font-black text-gray-800">8.0초</span>
+                </div>
+                <div class="bg-red-50 px-4 py-2 rounded-xl border border-red-100">
+                    <span id="ui-score" class="text-xl font-bold text-primary">0/5 개를 주었어요!</span>
+                </div>
+            </div>
+
+            <!-- 4x4 게임 그리드 영역 -->
+            <div class="flex-grow flex items-center justify-center p-4">
+                <div id="game-grid" class="w-full grid grid-cols-4 gap-2 bg-amber-100 p-2 rounded-2xl border-4 border-amber-200 shadow-inner">
+                    <!-- 자바스크립트를 통해 16개의 그리드 셀이 동적으로 생성됩니다. -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. 결과 화면 (Result Screen - 실패, 스테이지 성공, 최종 성공 겸용) -->
+        <div id="screen-result" class="absolute inset-0 flex flex-col items-center justify-center p-8 bg-white/95 backdrop-blur-sm z-30 hidden text-center">
+            
+            <div id="result-icon-container" class="w-32 h-32 mb-6">
+                <!-- 결과 아이콘이 동적으로 삽입됩니다. -->
+            </div>
+            
+            <h2 id="result-title" class="text-3xl font-extrabold text-gray-800 mb-2">결과 제목</h2>
+            <p id="result-desc" class="text-lg text-gray-600 mb-10 break-keep">상세 설명이 여기에 표시됩니다.</p>
+            
+            <div id="result-buttons" class="w-full space-y-3 mt-auto mb-8">
+                <!-- 자바스크립트를 통해 버튼들이 동적으로 렌더링됩니다. -->
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /**
+         * 게임 내에 사용될 시각적 에셋(SVG)과 아이템 정보들을 객체로 정의합니다.
+         * 모든 에셋은 외부 이미지 없이 렌더링되도록 SVG 문자열로 작성되었습니다.
+         */
+        const ITEMS = {
+            pepero: {
+                id: 'pepero',
+                name: '빼빼로',
+                svg: `
+                    <svg viewBox="0 0 100 200" width="80%" height="80%">
+                        <rect x="42" y="10" width="16" height="180" rx="8" fill="#E8C396"/>
+                        <rect x="38" y="10" width="24" height="120" rx="12" fill="#3D2314"/>
+                        <path d="M 40 30 Q 50 40 60 30" stroke="#E8C396" stroke-width="2" fill="none" opacity="0.4"/>
+                        <path d="M 40 60 Q 50 50 60 60" stroke="#E8C396" stroke-width="2" fill="none" opacity="0.4"/>
+                    </svg>`
+            },
+            pencil: {
+                id: 'pencil',
+                name: '연필',
+                svg: `
+                    <svg viewBox="0 0 100 200" width="80%" height="80%">
+                        <rect x="40" y="40" width="20" height="110" fill="#FFC107"/>
+                        <path d="M 40 150 L 50 180 L 60 150 Z" fill="#FFCC80"/>
+                        <path d="M 47 170 L 50 180 L 53 170 Z" fill="#424242"/>
+                        <rect x="40" y="25" width="20" height="15" fill="#BDBDBD"/>
+                        <rect x="40" y="5" width="20" height="20" rx="4" fill="#F48FB1"/>
+                    </svg>`
+            },
+            chopstick: {
+                id: 'chopstick',
+                name: '젓가락',
+                svg: `
+                    <svg viewBox="0 0 100 200" width="80%" height="80%">
+                        <rect x="44" y="5" width="12" height="190" rx="4" fill="#8D6E63"/>
+                        <rect x="44" y="20" width="12" height="5" fill="#5D4037" opacity="0.3"/>
+                        <rect x="44" y="30" width="12" height="2" fill="#5D4037" opacity="0.3"/>
+                    </svg>`
+            },
+            carrot: {
+                id: 'carrot',
+                name: '당근',
+                svg: `
+                    <svg viewBox="0 0 100 200" width="80%" height="80%">
+                        <path d="M 30 60 Q 50 200 70 60 Q 50 40 30 60 Z" fill="#FF9800"/>
+                        <path d="M 50 50 Q 30 10 40 30" stroke="#4CAF50" stroke-width="6" stroke-linecap="round" fill="none"/>
+                        <path d="M 50 50 Q 70 10 60 30" stroke="#4CAF50" stroke-width="6" stroke-linecap="round" fill="none"/>
+                        <path d="M 50 50 L 50 20" stroke="#4CAF50" stroke-width="6" stroke-linecap="round" fill="none"/>
+                        <line x1="45" y1="80" x2="60" y2="85" stroke="#E65100" stroke-width="2" opacity="0.3"/>
+                        <line x1="40" y1="120" x2="55" y2="115" stroke="#E65100" stroke-width="2" opacity="0.3"/>
+                    </svg>`
+            }
+        };
+
+        // 요구사항에 맞추어 1단계 기준의 무작위 주기(수명) 배열을 정의합니다. (단위: ms)
+        const BASE_LIFESPANS = [1000, 1200, 1400, 1600, 1800];
+        const FAKE_ITEMS = [ITEMS.pencil, ITEMS.chopstick, ITEMS.carrot];
+        const GOAL_SCORE = 5;
+
+        // 게임의 전체 상태를 관리하는 변수들입니다.
+        let currentStage = 1;
+        let currentScore = 0;
+        let timeRemaining = 0;
+        let isPlaying = false;
+        
+        // 타이머 참조 변수들입니다. 메모리 누수 방지를 위해 철저히 관리되어야 합니다.
+        let countdownInterval = null;
+        let gameTimerInterval = null;
+
+        // DOM 요소들을 참조합니다.
+        const screens = {
+            intro: document.getElementById('screen-intro'),
+            countdown: document.getElementById('screen-countdown'),
+            game: document.getElementById('screen-game'),
+            result: document.getElementById('screen-result')
+        };
+        const gridContainer = document.getElementById('game-grid');
+        const uiScore = document.getElementById('ui-score');
+        const uiTime = document.getElementById('ui-time');
+        const uiStage = document.getElementById('ui-stage');
+
+        /**
+         * 애플리케이션 초기화 함수입니다.
+         * 그리드 셀을 생성하고 시작 버튼에 이벤트를 할당합니다.
+         */
+        function initApp() {
+            // 4x4 크기의 16개 셀을 미리 생성합니다.
+            for (let i = 0; i < 16; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'grid-cell bg-white rounded-xl shadow-sm overflow-hidden flex items-center justify-center';
+                cell.dataset.index = i;
+                
+                // 모바일 환경에서의 빠른 반응을 위해 포인터 다운 이벤트를 사용합니다.
+                cell.addEventListener('pointerdown', handleCellTap);
+                gridContainer.appendChild(cell);
+            }
+
+            document.getElementById('btn-start').addEventListener('click', startGameFlow);
+        }
+
+        /**
+         * 화면 전환을 처리하는 유틸리티 함수입니다.
+         */
+        function showScreen(screenName) {
+            Object.values(screens).forEach(screen => screen.classList.add('hidden'));
+            screens[screenName].classList.remove('hidden');
+        }
+
+        /**
+         * 게임 로직의 흐름을 시작합니다. (1단계 진입 전)
+         */
+        function startGameFlow() {
+            currentStage = 1;
+            startStage();
+        }
+
+        /**
+         * 특정 단계를 시작하기 전 카운트다운을 실행하는 함수입니다.
+         */
+        function startStage() {
+            currentScore = 0;
+            isPlaying = false;
+            updateScoreUI();
+            
+            // 이전 단계의 잔여 아이템들을 화면에서 모두 제거합니다.
+            clearGrid();
+            
+            showScreen('countdown');
+            const numberEl = document.getElementById('countdown-number');
+            let count = 3;
+            
+            numberEl.textContent = count;
+            numberEl.classList.remove('countdown-text');
+            // 애니메이션 재시작을 위한 리플로우 강제 트리거
+            void numberEl.offsetWidth; 
+            numberEl.classList.add('countdown-text');
+
+            countdownInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    numberEl.textContent = count;
+                    numberEl.classList.remove('countdown-text');
+                    void numberEl.offsetWidth;
+                    numberEl.classList.add('countdown-text');
+                } else {
+                    clearInterval(countdownInterval);
+                    beginGameplay();
+                }
+            }, 1000);
+        }
+
+        /**
+         * 카운트다운이 종료된 후 실제 게임 플레이 상태로 전환하는 함수입니다.
+         */
+        function beginGameplay() {
+            showScreen('game');
+            uiStage.textContent = currentStage;
+            
+            // 단계별 제한 시간을 설정합니다. (1단계: 8초, 단계마다 1초 감소, 5단계: 4초)
+            timeRemaining = 9 - currentStage; 
+            updateTimeUI();
+            
+            isPlaying = true;
+
+            // 게임 메인 타이머 시작
+            gameTimerInterval = setInterval(() => {
+                timeRemaining -= 0.1;
+                updateTimeUI();
+
+                if (timeRemaining <= 0) {
+                    timeRemaining = 0;
+                    updateTimeUI();
+                    endGameByTimeout();
+                }
+            }, 100);
+
+            // 각 셀마다 독립적인 스폰 사이클을 시작합니다. 동시에 나타나는 것을 방지하기 위해 초기 지연을 부여합니다.
+            const cells = document.querySelectorAll('.grid-cell');
+            cells.forEach(cell => {
+                const initialDelay = Math.random() * 500;
+                cell.spawnTimeoutId = setTimeout(() => runCellCycle(cell), initialDelay);
+            });
+        }
+
+        /**
+         * 화면 갱신: 현재 획득한 빼빼로 개수를 표시합니다.
+         */
+        function updateScoreUI() {
+            uiScore.textContent = `${currentScore}/${GOAL_SCORE} 개를 주었어요!`;
+        }
+
+        /**
+         * 화면 갱신: 남은 시간을 소수점 첫째 자리까지 표시합니다.
+         */
+        function updateTimeUI() {
+            uiTime.textContent = timeRemaining.toFixed(1) + '초';
+        }
+
+        /**
+         * 모든 셀의 내용을 비우고 실행 중인 아이템 소멸 및 스폰 타이머를 정지합니다.
+         */
+        function clearGrid() {
+            const cells = document.querySelectorAll('.grid-cell');
+            cells.forEach(cell => {
+                cell.innerHTML = '';
+                clearTimeout(cell.removeTimeoutId);
+                clearTimeout(cell.spawnTimeoutId);
+                cell.removeTimeoutId = null;
+                cell.spawnTimeoutId = null;
+            });
+        }
+
+        /**
+         * 각 칸이 독립적으로 아이템을 생성하고 지우는 사이클을 관리하는 함수입니다.
+         */
+        function runCellCycle(cell) {
+            if (!isPlaying) return;
+
+            // 새로운 아이템 생성 전 셀을 비웁니다.
+            cell.innerHTML = '';
+
+            // 진짜 빼빼로와 함정 아이템의 등장 확률을 제어합니다. (진짜 20%, 함정 80%)
+            const isPepero = Math.random() < 0.2;
+            let itemData;
+            
+            if (isPepero) {
+                itemData = ITEMS.pepero;
+            } else {
+                const randomFakeIndex = Math.floor(Math.random() * FAKE_ITEMS.length);
+                itemData = FAKE_ITEMS[randomFakeIndex];
+            }
+
+            // 각 단계마다 0.2초(200ms)씩 주기를 감소시킵니다.
+            const currentLifespans = BASE_LIFESPANS.map(time => time - (currentStage - 1) * 200);
+            const lifespan = currentLifespans[Math.floor(Math.random() * currentLifespans.length)];
+
+            const itemEl = document.createElement('div');
+            itemEl.className = 'item-animation';
+            // CSS 애니메이션 길이를 생존 시간에 맞추어 동기화합니다.
+            itemEl.style.animationDuration = `${lifespan}ms`; 
+            itemEl.dataset.type = itemData.id;
+            itemEl.innerHTML = itemData.svg;
+
+            cell.appendChild(itemEl);
+
+            // 수명이 다하면 셀에서 해당 아이템을 제거하고 잠시 후 다시 사이클을 시작합니다.
+            cell.removeTimeoutId = setTimeout(() => {
+                if (cell.contains(itemEl)) {
+                    cell.removeChild(itemEl);
+                }
+                if (isPlaying) {
+                    // 아이템이 사라진 후 새로운 아이템이 나타날 때까지의 빈 시간 (100ms ~ 400ms)
+                    const emptyDuration = 100 + Math.random() * 300;
+                    cell.spawnTimeoutId = setTimeout(() => runCellCycle(cell), emptyDuration);
+                }
+            }, lifespan);
+        }
+
+        /**
+         * 사용자가 그리드 셀을 터치했을 때 발생하는 이벤트를 처리합니다.
+         */
+        function handleCellTap(event) {
+            // 게임 진행 중이 아닐 때는 입력을 무시합니다.
+            if (!isPlaying) return;
+
+            const cell = event.currentTarget;
+            const itemEl = cell.querySelector('.item-animation');
+
+            // 빈 칸을 터치한 경우는 무시합니다.
+            if (!itemEl) return;
+
+            const itemType = itemEl.dataset.type;
+
+            // 터치한 아이템을 화면에서 즉시 제거하고 타이머를 초기화합니다.
+            cell.removeChild(itemEl);
+            clearTimeout(cell.removeTimeoutId);
+            clearTimeout(cell.spawnTimeoutId);
+
+            if (itemType === 'pepero') {
+                handleSuccessTap();
+                // 게임이 계속 진행 중이라면 빈 시간을 가진 후 다시 아이템을 띄웁니다.
+                if (isPlaying) {
+                    const emptyDuration = 100 + Math.random() * 300;
+                    cell.spawnTimeoutId = setTimeout(() => runCellCycle(cell), emptyDuration);
+                }
+            } else {
+                handleFailTap(itemType);
+            }
+        }
+
+        /**
+         * 사용자가 진짜 빼빼로를 올바르게 터치했을 때의 처리 로직입니다.
+         */
+        function handleSuccessTap() {
+            currentScore++;
+            updateScoreUI();
+
+            if (currentScore >= GOAL_SCORE) {
+                handleStageClear();
+            }
+        }
+
+        /**
+         * 사용자가 함정 아이템을 잘못 터치했을 때의 처리 로직입니다.
+         */
+        function handleFailTap(itemType) {
+            let fakeItemName = '무언가';
+            let fakeItemSvg = '';
+
+            Object.values(ITEMS).forEach(item => {
+                if (item.id === itemType) {
+                    fakeItemName = item.name;
+                    fakeItemSvg = item.svg;
+                }
+            });
+
+            stopGameProcess();
+            showResultScreen(
+                fakeItemSvg,
+                '게임 오버!',
+                `앗 ${fakeItemName}을 주었어요..!!`,
+                [
+                    { text: '다시 빼빼로 줍기', onClick: startGameFlow, isPrimary: true },
+                    { text: '친구에게 공유하기', onClick: shareGameLink, isPrimary: false }
+                ]
+            );
+        }
+
+        /**
+         * 제한 시간 내에 목표 점수를 달성하지 못했을 때의 처리 로직입니다.
+         */
+        function endGameByTimeout() {
+            stopGameProcess();
+            showResultScreen(
+                ITEMS.pepero.svg, // 시간 초과 시에는 일반 빼빼로 아이콘을 보여줍니다.
+                '시간 초과!',
+                `아쉽게도 제한 시간 내에<br>빼빼로를 모두 줍지 못했어요.`,
+                [
+                    { text: '다시 빼빼로 줍기', onClick: startGameFlow, isPrimary: true },
+                    { text: '친구에게 공유하기', onClick: shareGameLink, isPrimary: false }
+                ]
+            );
+        }
+
+        /**
+         * 해당 단계의 목표 점수를 모두 채웠을 때의 처리 로직입니다.
+         */
+        function handleStageClear() {
+            stopGameProcess();
+            
+            if (currentStage === 5) {
+                // 5단계를 모두 클리어한 경우 최종 성공 화면을 렌더링합니다.
+                showResultScreen(
+                    ITEMS.pepero.svg,
+                    '최종 성공!',
+                    `축하합니다!<br>5단계까지 모든 빼빼로를 완벽하게 모았습니다!`,
+                    [
+                        { text: '처음부터 다시 하기', onClick: startGameFlow, isPrimary: true },
+                        { text: '성공 자랑하기', onClick: shareGameLink, isPrimary: false }
+                    ]
+                );
+            } else {
+                // 아직 남은 단계가 있는 경우 다음 단계로 넘어갈 수 있도록 안내합니다.
+                showResultScreen(
+                    ITEMS.pepero.svg,
+                    `${currentStage}단계 성공!`,
+                    `훌륭합니다! 제한 시간 안에<br>빼빼로 5개를 모두 주웠습니다.`,
+                    [
+                        { text: '다음 단계 도전하기', onClick: () => { currentStage++; startStage(); }, isPrimary: true }
+                    ]
+                );
+            }
+        }
+
+        /**
+         * 게임의 진행(타이머 및 반복 스폰)을 완전히 중지하는 함수입니다.
+         */
+        function stopGameProcess() {
+            isPlaying = false;
+            clearInterval(gameTimerInterval);
+            clearGrid();
+        }
+
+        /**
+         * 게임의 다양한 상황에 맞추어 동적으로 결과 화면을 구성하고 렌더링합니다.
+         */
+        function showResultScreen(svgIcon, title, descHTML, buttonsConfigs) {
+            document.getElementById('result-icon-container').innerHTML = svgIcon;
+            document.getElementById('result-title').textContent = title;
+            document.getElementById('result-desc').innerHTML = descHTML;
+
+            const buttonsContainer = document.getElementById('result-buttons');
+            buttonsContainer.innerHTML = '';
+
+            buttonsConfigs.forEach(config => {
+                const btn = document.createElement('button');
+                btn.textContent = config.text;
+                
+                // 버튼의 중요도에 따라 색상과 스타일을 다르게 부여합니다.
+                if (config.isPrimary) {
+                    btn.className = 'w-full py-4 bg-primary hover-primary text-white text-lg font-bold rounded-2xl shadow-md transition-colors';
+                } else {
+                    btn.className = 'w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-lg font-bold rounded-2xl transition-colors';
+                }
+                
+                btn.addEventListener('click', config.onClick);
+                buttonsContainer.appendChild(btn);
+            });
+
+            showScreen('result');
+        }
+
+        /**
+         * 요구사항에 명시된 친구 공유하기 버튼의 클립보드 복사 기능을 수행합니다.
+         */
+        function shareGameLink() {
+            // 브라우저 호환성을 고려하여 execCommand 방식을 우선적으로 지원하도록 폴백(Fallback) 처리된 로직입니다.
+            const url = window.location.href;
+            
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(url).then(() => {
+                    alert('주소 복사 완료! 친구에게 해당 링크를 보내주세요!');
+                }).catch(() => {
+                    fallbackCopyTextToClipboard(url);
+                });
+            } else {
+                fallbackCopyTextToClipboard(url);
+            }
+        }
+
+        /**
+         * 클립보드 API가 제한된 환경을 위한 대체 복사 로직입니다.
+         */
+        function fallbackCopyTextToClipboard(text) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    alert('주소 복사 완료! 친구에게 해당 링크를 보내주세요!');
+                } else {
+                    alert('복사에 실패했습니다. 주소창의 링크를 직접 복사해주세요.');
+                }
+            } catch (err) {
+                alert('복사를 지원하지 않는 브라우저입니다.');
+            }
+
+            document.body.removeChild(textArea);
+        }
+
+        // DOM이 모두 로드되면 애플리케이션을 초기화합니다.
+        window.addEventListener('DOMContentLoaded', initApp);
+
+    </script>
+</body>
+</html>

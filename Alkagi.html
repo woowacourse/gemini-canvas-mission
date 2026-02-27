@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>도형 변환 알까기 - 바둑판 에디션</title>
+  <style>
+    :root {
+      --bg-color: #f0f2f5;
+      --panel-color: #ffffff;
+      --black-team: #2d3436;
+      --white-team: #dfe6e9;
+      --accent-color: #0984e3;
+      --danger-color: #d63031;
+      --warning-color: #f1c40f;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background-color: var(--bg-color);
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    #game-container {
+      position: relative;
+      background: var(--panel-color);
+      padding: 20px;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .header {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .status-panel {
+      display: flex;
+      gap: 20px;
+      font-weight: bold;
+    }
+
+    .team-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 12px;
+      transition: all 0.3s;
+    }
+
+    .team-info.active {
+      box-shadow: 0 0 0 3px var(--accent-color);
+      background: rgba(9, 132, 227, 0.1);
+    }
+
+    .stone-count {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: inline-block;
+      border: 1px solid #ccc;
+    }
+
+    .black-stone { background: var(--black-team); }
+    .white-stone { background: var(--white-team); }
+
+    #canvas-wrapper {
+      position: relative;
+      border: 2px solid #ddd;
+      border-radius: 10px;
+      background: #f9f9f9;
+      cursor: crosshair;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #power-gauge-container {
+      position: absolute;
+      right: -40px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 20px;
+      height: 200px;
+      background: #eee;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #ccc;
+    }
+
+    #power-gauge-fill {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      height: 0%;
+      background: linear-gradient(to top, #00b894, #fdcb6e, #d63031);
+      transition: height 0.1s;
+    }
+
+    .timer-container {
+      margin-top: 15px;
+      width: 100%;
+      height: 8px;
+      background: #eee;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    #timer-bar {
+      width: 100%;
+      height: 100%;
+      background: var(--accent-color);
+      transition: width 1s linear;
+    }
+
+    #message-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 20px 40px;
+      border-radius: 50px;
+      font-size: 24px;
+      font-weight: bold;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 10;
+      text-align: center;
+    }
+
+    .controls {
+      margin-top: 20px;
+    }
+
+    button {
+      padding: 12px 30px;
+      font-size: 16px;
+      font-weight: bold;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent-color);
+      color: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    button:hover { background: #0773c5; }
+    button:active { transform: translateY(2px); box-shadow: none; }
+  </style>
+</head>
+<body>
+
+<div id="game-container">
+  <div class="header">
+    <div class="status-panel">
+      <div id="black-info" class="team-info">
+        <span class="stone-count black-stone"></span>
+        흑팀: <span id="black-remains">5</span>
+      </div>
+      <div id="white-info" class="team-info">
+        <span class="stone-count white-stone"></span>
+        백팀: <span id="white-remains">5</span>
+      </div>
+    </div>
+    <div id="turn-display" style="font-weight: bold; color: var(--accent-color);">준비</div>
+  </div>
+
+  <div id="canvas-wrapper">
+    <canvas id="gameCanvas"></canvas>
+    <div id="power-gauge-container">
+      <div id="power-gauge-fill"></div>
+    </div>
+    <div id="message-overlay">흑팀 승리!</div>
+  </div>
+
+  <div class="timer-container">
+    <div id="timer-bar"></div>
+  </div>
+
+  <div class="controls">
+    <button id="reset-btn">게임 재시작</button>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const powerFill = document.getElementById('power-gauge-fill');
+  const timerBar = document.getElementById('timer-bar');
+  const blackRemains = document.getElementById('black-remains');
+  const whiteRemains = document.getElementById('white-remains');
+  const turnDisplay = document.getElementById('turn-display');
+  const messageOverlay = document.getElementById('message-overlay');
+  const resetBtn = document.getElementById('reset-btn');
+
+  // 설정
+  const CANVAS_SIZE = 600;
+  const BOARD_RADIUS = 250;
+  const MIN_STONE_RADIUS = 10;
+  const MAX_STONE_RADIUS = 22;
+  const FRICTION = 0.96;
+  const TURN_TIME = 15;
+  const MIN_STOP_VELOCITY = 0.15;
+
+  canvas.width = CANVAS_SIZE;
+  canvas.height = CANVAS_SIZE;
+
+  let stones = [];
+  let currentTurn = 'black';
+  let isDragging = false;
+  let dragStartPos = null;
+  let currentDragPos = null;
+  let selectedStone = null;
+  let timeLeft = TURN_TIME;
+  let timerInterval = null;
+  let isMoving = false;
+  let isBoardChanging = false;
+  let boardSides = 4;
+  let gameOver = false;
+
+  class Stone {
+    constructor(x, y, team) {
+      this.x = x;
+      this.y = y;
+      this.team = team;
+      this.vx = 0;
+      this.vy = 0;
+      this.radius = MIN_STONE_RADIUS + Math.random() * (MAX_STONE_RADIUS - MIN_STONE_RADIUS);
+      this.mass = Math.pow(this.radius, 2);
+    }
+
+    draw(opacity = 1) {
+      ctx.save();
+      ctx.globalAlpha = opacity;
+      ctx.shadowBlur = opacity === 1 ? 5 : 0;
+      ctx.shadowColor = 'rgba(0,0,0,0.3)';
+      ctx.shadowOffsetY = 3;
+
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = this.team === 'black' ? '#2d3436' : '#dfe6e9';
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      const gradient = ctx.createRadialGradient(
+              this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.1,
+              this.x, this.y, this.radius
+      );
+      gradient.addColorStop(0, 'rgba(255,255,255,0.45)');
+      gradient.addColorStop(1, 'rgba(0,0,0,0.15)');
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vx *= FRICTION;
+      this.vy *= FRICTION;
+
+      if (Math.abs(this.vx) < MIN_STOP_VELOCITY) this.vx = 0;
+      if (Math.abs(this.vy) < MIN_STOP_VELOCITY) this.vy = 0;
+    }
+  }
+
+  function initGame() {
+    stones = [];
+    const centerX = CANVAS_SIZE / 2;
+    const centerY = CANVAS_SIZE / 2;
+
+    const isBlackTop = Math.random() < 0.5;
+    const topTeam = isBlackTop ? 'black' : 'white';
+    const bottomTeam = isBlackTop ? 'white' : 'black';
+
+    const spacing = 65;
+    const startX = centerX - (spacing * 2);
+
+    const topY = centerY - 150;
+    for (let i = 0; i < 5; i++) {
+      stones.push(new Stone(startX + i * spacing, topY, topTeam));
+    }
+
+    const bottomY = centerY + 150;
+    for (let i = 0; i < 5; i++) {
+      stones.push(new Stone(startX + i * spacing, bottomY, bottomTeam));
+    }
+
+    currentTurn = 'black';
+    boardSides = 4;
+    gameOver = false;
+    isMoving = false;
+    isBoardChanging = false;
+    messageOverlay.style.opacity = 0;
+    updateUI();
+    startTimer();
+  }
+
+  function getBoardVertices(sides, radius) {
+    const vertices = [];
+    const angleStep = (Math.PI * 2) / sides;
+    let offset = -Math.PI / 2;
+    if (sides % 2 === 0) offset += Math.PI / sides;
+
+    for (let i = 0; i < sides; i++) {
+      const x = CANVAS_SIZE / 2 + Math.cos(offset + i * angleStep) * radius;
+      const y = CANVAS_SIZE / 2 + Math.sin(offset + i * angleStep) * radius;
+      vertices.push({ x, y });
+    }
+    return vertices;
+  }
+
+  function isPointInPolygon(point, vs) {
+    let x = point.x, y = point.y;
+    let inside = false;
+    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+      let xi = vs[i].x, yi = vs[i].y;
+      let xj = vs[j].x, yj = vs[j].y;
+      let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function drawBoard() {
+    const vertices = getBoardVertices(boardSides, BOARD_RADIUS);
+    ctx.save();
+
+    // 판 외곽선
+    ctx.beginPath();
+    ctx.moveTo(vertices[0].x, vertices[0].y);
+    for (let i = 1; i < vertices.length; i++) ctx.lineTo(vertices[i].x, vertices[i].y);
+    ctx.closePath();
+
+    // 판 배경색 (나무 무늬 색)
+    ctx.fillStyle = isBoardChanging ? '#b08d23' : '#e1b12c';
+    ctx.fill();
+
+    // 클리핑: 격자 무늬가 판 밖으로 나가지 않게 함
+    ctx.clip();
+
+    // 바둑판 격자 무늬 (Grid)
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.lineWidth = 1;
+    const gridSize = 30;
+    for (let x = 0; x <= CANVAS_SIZE; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, CANVAS_SIZE);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= CANVAS_SIZE; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(CANVAS_SIZE, y);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // 테두리선
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(vertices[0].x, vertices[0].y);
+    for (let i = 1; i < vertices.length; i++) ctx.lineTo(vertices[i].x, vertices[i].y);
+    ctx.closePath();
+    ctx.strokeStyle = '#4b4b4b';
+    ctx.lineWidth = 12;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function checkCollisions() {
+    for (let i = 0; i < stones.length; i++) {
+      for (let j = i + 1; j < stones.length; j++) {
+        const s1 = stones[i];
+        const s2 = stones[j];
+        const dx = s2.x - s1.x;
+        const dy = s2.y - s1.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < s1.radius + s2.radius) {
+          const angle = Math.atan2(dy, dx);
+          const sin = Math.sin(angle);
+          const cos = Math.cos(angle);
+
+          let vx1 = s1.vx * cos + s1.vy * sin;
+          let vy1 = s1.vy * cos - s1.vx * sin;
+          let vx2 = s2.vx * cos + s2.vy * sin;
+          let vy2 = s2.vy * cos - s2.vx * sin;
+
+          const m1 = s1.mass;
+          const m2 = s2.mass;
+
+          let v1Final = ((m1 - m2) * vx1 + 2 * m2 * vx2) / (m1 + m2);
+          let v2Final = ((2 * m1 * vx1) + (m2 - m1) * vx2) / (m1 + m2);
+
+          s1.vx = v1Final * cos - vy1 * sin;
+          s1.vy = vy1 * cos + v1Final * sin;
+          s2.vx = v2Final * cos - vy2 * sin;
+          s2.vy = vy2 * cos + v2Final * sin;
+
+          const overlap = (s1.radius + s2.radius - distance) / 2 + 0.1;
+          s1.x -= overlap * cos;
+          s1.y -= overlap * sin;
+          s2.x += overlap * cos;
+          s2.y += overlap * sin;
+        }
+      }
+    }
+  }
+
+  function checkOut() {
+    const vertices = getBoardVertices(boardSides, BOARD_RADIUS);
+    const originalCount = stones.length;
+    stones = stones.filter(stone => isPointInPolygon({x: stone.x, y: stone.y}, vertices));
+    if (stones.length !== originalCount) updateUI();
+    checkGameOver();
+  }
+
+  function checkGameOver() {
+    const blackCount = stones.filter(s => s.team === 'black').length;
+    const whiteCount = stones.filter(s => s.team === 'white').length;
+    if (blackCount === 0 || whiteCount === 0) {
+      gameOver = true;
+      stopTimer();
+      messageOverlay.innerHTML = blackCount === 0 ? "백팀 승리!<br><small>게임이 종료되었습니다</small>" : "흑팀 승리!<br><small>게임이 종료되었습니다</small>";
+      messageOverlay.style.opacity = 1;
+    }
+  }
+
+  function updateUI() {
+    const bCount = stones.filter(s => s.team === 'black').length;
+    const wCount = stones.filter(s => s.team === 'white').length;
+    blackRemains.textContent = bCount;
+    whiteRemains.textContent = wCount;
+    document.getElementById('black-info').classList.toggle('active', currentTurn === 'black');
+    document.getElementById('white-info').classList.toggle('active', currentTurn === 'white');
+    turnDisplay.textContent = isBoardChanging ? "판 모양 변경 중..." : (currentTurn === 'black' ? "흑팀 차례" : "백팀 차례");
+  }
+
+  function startTimer() {
+    stopTimer();
+    if (isBoardChanging || gameOver) return;
+    timeLeft = TURN_TIME;
+    updateTimerBar();
+    timerInterval = setInterval(() => {
+      timeLeft--;
+      updateTimerBar();
+      if (timeLeft <= 0) switchTurnSequence();
+    }, 1000);
+  }
+
+  function stopTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+  }
+
+  function updateTimerBar() {
+    const percentage = (timeLeft / TURN_TIME) * 100;
+    timerBar.style.width = `${percentage}%`;
+    timerBar.style.backgroundColor = timeLeft < 5 ? 'var(--danger-color)' : 'var(--accent-color)';
+  }
+
+  function switchTurnSequence() {
+    if (gameOver || isBoardChanging) return;
+    isBoardChanging = true;
+    stopTimer();
+    updateUI();
+    setTimeout(() => {
+      // 판 모양 범위 확장: 4각형부터 12각형까지
+      const shapes = [4, 5, 6, 7, 8, 10, 12];
+      let nextShape = shapes[Math.floor(Math.random() * shapes.length)];
+      if (nextShape === boardSides) nextShape = shapes[(shapes.indexOf(nextShape) + 1) % shapes.length];
+      boardSides = nextShape;
+
+      messageOverlay.textContent = `${boardSides}각형 판으로 변경!`;
+      messageOverlay.style.opacity = 0.8;
+
+      setTimeout(() => {
+        checkOut();
+        messageOverlay.style.opacity = 0;
+        currentTurn = currentTurn === 'black' ? 'white' : 'black';
+        isBoardChanging = false;
+        updateUI();
+        startTimer();
+      }, 1000);
+    }, 800);
+  }
+
+  function update() {
+    if (gameOver) { draw(); requestAnimationFrame(update); return; }
+    let moving = false;
+    stones.forEach(stone => {
+      stone.update();
+      if (stone.vx !== 0 || stone.vy !== 0) moving = true;
+    });
+    if (moving) {
+      checkCollisions();
+      checkOut();
+      isMoving = true;
+    } else if (isMoving && !isBoardChanging) {
+      isMoving = false;
+      switchTurnSequence();
+    }
+    draw();
+    requestAnimationFrame(update);
+  }
+
+  function drawSimulation(stone, vx, vy) {
+    let ghostX = stone.x;
+    let ghostY = stone.y;
+    let ghostVX = vx;
+    let ghostVY = vy;
+    let collisionInfo = null;
+
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.beginPath();
+    ctx.moveTo(ghostX, ghostY);
+
+    for (let i = 0; i < 60; i++) {
+      ghostX += ghostVX;
+      ghostY += ghostVY;
+      ghostVX *= FRICTION;
+      ghostVY *= FRICTION;
+
+      for (let s of stones) {
+        if (s === stone) continue;
+        const dx = s.x - ghostX;
+        const dy = s.y - ghostY;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < stone.radius + s.radius) {
+          collisionInfo = { hitStone: s, hitX: ghostX, hitY: ghostY, inVX: ghostVX, inVY: ghostVY };
+          break;
+        }
+      }
+      if (collisionInfo) break;
+      ctx.lineTo(ghostX, ghostY);
+      if (Math.abs(ghostVX) < MIN_STOP_VELOCITY && Math.abs(ghostVY) < MIN_STOP_VELOCITY) break;
+    }
+    ctx.stroke();
+
+    if (collisionInfo) {
+      const { hitStone, hitX, hitY, inVX, inVY } = collisionInfo;
+      const dx = hitStone.x - hitX;
+      const dy = hitStone.y - hitY;
+      const angle = Math.atan2(dy, dx);
+      const sin = Math.sin(angle);
+      const cos = Math.cos(angle);
+
+      let vx1 = inVX * cos + inVY * sin;
+      let vy1 = inVY * cos - inVX * sin;
+
+      const m1 = stone.mass;
+      const m2 = hitStone.mass;
+      let v1Final = ((m1 - m2) * vx1) / (m1 + m2);
+      let v2Final = (2 * m1 * vx1) / (m1 + m2);
+
+      let resVX1 = v1Final * cos - vy1 * sin;
+      let resVY1 = vy1 * cos + v1Final * sin;
+      ctx.beginPath();
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = 'rgba(214, 48, 49, 0.25)';
+      ctx.moveTo(hitX, hitY);
+      ctx.lineTo(hitX + resVX1 * 25, hitY + resVY1 * 25);
+      ctx.stroke();
+
+      let resVX2 = v2Final * cos;
+      let resVY2 = v2Final * sin;
+      ctx.beginPath();
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = 'rgba(9, 132, 227, 0.35)';
+      ctx.moveTo(hitStone.x, hitStone.y);
+      ctx.lineTo(hitStone.x + resVX2 * 40, hitStone.y + resVY2 * 40);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(hitX, hitY, stone.radius, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawBoard();
+    stones.forEach(stone => stone.draw());
+
+    if (isDragging && selectedStone) {
+      const dx = dragStartPos.x - currentDragPos.x;
+      const dy = dragStartPos.y - currentDragPos.y;
+      const dist = Math.min(Math.sqrt(dx*dx + dy*dy), 150);
+      const power = dist * 0.14;
+      const angle = Math.atan2(dy, dx);
+
+      if (power > 0.5) drawSimulation(selectedStone, Math.cos(angle) * power, Math.sin(angle) * power);
+
+      const endX = selectedStone.x + Math.cos(angle) * dist * 0.8;
+      const endY = selectedStone.y + Math.sin(angle) * dist * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(selectedStone.x, selectedStone.y);
+      ctx.lineTo(endX, endY);
+      ctx.strokeStyle = 'rgba(214, 48, 49, 0.8)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(endX - Math.cos(angle - Math.PI/6) * 15, endY - Math.sin(angle - Math.PI/6) * 15);
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(endX - Math.cos(angle + Math.PI/6) * 15, endY - Math.sin(angle + Math.PI/6) * 15);
+      ctx.stroke();
+
+      powerFill.style.height = `${(dist / 150) * 100}%`;
+    } else {
+      powerFill.style.height = '0%';
+    }
+  }
+
+  function getMousePos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    if (isMoving || isBoardChanging || gameOver) return;
+    const pos = getMousePos(e);
+    selectedStone = stones.find(s => {
+      const dx = s.x - pos.x;
+      const dy = s.y - pos.y;
+      return Math.sqrt(dx*dx + dy*dy) < s.radius && s.team === currentTurn;
+    });
+    if (selectedStone) { isDragging = true; dragStartPos = pos; currentDragPos = pos; stopTimer(); }
+  });
+
+  window.addEventListener('mousemove', e => { if (isDragging) currentDragPos = getMousePos(e); });
+  window.addEventListener('mouseup', e => {
+    if (!isDragging) return;
+    const pos = getMousePos(e);
+    const dx = dragStartPos.x - pos.x;
+    const dy = dragStartPos.y - pos.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const power = Math.min(dist, 150) * 0.14;
+    const angle = Math.atan2(dy, dx);
+    if (power > 0.8) {
+      selectedStone.vx = Math.cos(angle) * power;
+      selectedStone.vy = Math.sin(angle) * power;
+      isMoving = true;
+    } else { startTimer(); }
+    isDragging = false;
+    selectedStone = null;
+  });
+
+  resetBtn.addEventListener('click', initGame);
+  initGame();
+  update();
+</script>
+</body>
+</html>

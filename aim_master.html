@@ -1,0 +1,987 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>에임 마스터 (Aim Master 30s)</title>
+    <style>
+      :root {
+        --primary-color: #00ffcc;
+        --bg-color: #0f172a;
+        --target-color: #ff4757;
+        --special-color: #a855f7;
+        --teleport-color: #3b82f6;
+        --text-color: #f8fafc;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        user-select: none;
+      }
+
+      body {
+        font-family: 'Pretendard', sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition: background-color 0.1s;
+      }
+
+      body.miss-flash {
+        background-color: #2d161a;
+      }
+
+      header {
+        padding: 20px 40px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(30, 41, 59, 0.9);
+        backdrop-filter: blur(10px);
+        z-index: 10;
+        border-bottom: 2px solid #334155;
+      }
+
+      .stats-container {
+        display: flex;
+        gap: 30px;
+      }
+
+      .stat-item {
+        text-align: center;
+      }
+      .stat-label {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      .stat-value {
+        font-size: 1.8rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+      }
+
+      #timer {
+        color: var(--primary-color);
+      }
+      #score {
+        color: #fbbf24;
+      }
+
+      #game-canvas {
+        flex-grow: 1;
+        position: relative;
+        cursor: none;
+        overflow: hidden;
+        background-color: #020617;
+      }
+
+      /* 커스텀 조준점 */
+      #custom-crosshair {
+        position: absolute;
+        width: 24px;
+        height: 24px;
+        border: 2px solid var(--primary-color);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 100;
+        display: none;
+      }
+      #custom-crosshair::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 4px;
+        height: 4px;
+        background: var(--primary-color);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      .target {
+        position: absolute;
+        border-radius: 50%;
+        box-shadow: 0 0 15px rgba(255, 71, 87, 0.4);
+        will-change: transform, left, top;
+        transition:
+          opacity 0.3s,
+          transform 0.3s;
+      }
+
+      .target-normal {
+        background: radial-gradient(
+          circle,
+          #fff 20%,
+          var(--target-color) 20%,
+          var(--target-color) 40%,
+          #fff 40%,
+          #fff 60%,
+          var(--target-color) 60%
+        );
+      }
+      .target-pulsate {
+        background: radial-gradient(
+          circle,
+          #fff 20%,
+          var(--special-color) 20%,
+          var(--special-color) 40%,
+          #fff 40%,
+          #fff 60%,
+          var(--special-color) 60%
+        );
+        animation: pulsate 0.8s infinite alternate ease-in-out;
+      }
+      .target-teleport {
+        background: radial-gradient(
+          circle,
+          #fff 20%,
+          var(--teleport-color) 20%,
+          var(--teleport-color) 40%,
+          #fff 40%,
+          #fff 60%,
+          var(--teleport-color) 60%
+        );
+      }
+
+      @keyframes pulsate {
+        from {
+          transform: scale(0.7);
+        }
+        to {
+          transform: scale(1.3);
+        }
+      }
+
+      .hit-particle {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        pointer-events: none;
+        border-radius: 50%;
+        animation: particle-fly 0.5s ease-out forwards;
+      }
+
+      @keyframes particle-fly {
+        0% {
+          transform: translate(0, 0) scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: translate(var(--tx), var(--ty)) scale(0);
+          opacity: 0;
+        }
+      }
+
+      .disappearing {
+        transform: scale(0) !important;
+        opacity: 0 !important;
+      }
+
+      .overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(15, 23, 42, 0.95);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 20;
+        text-align: center;
+        cursor: default;
+      }
+
+      .overlay h1 {
+        font-size: 4rem;
+        margin-bottom: 20px;
+        background: linear-gradient(to right, #00ffcc, #3b82f6);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .btn-group {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+      .btn-start {
+        padding: 16px 64px;
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--bg-color);
+        background-color: var(--primary-color);
+        border: none;
+        border-radius: 50px;
+        cursor: pointer;
+        transition: all 0.2s;
+        box-shadow: 0 0 30px rgba(0, 255, 204, 0.3);
+      }
+      .btn-start:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 50px rgba(0, 255, 204, 0.5);
+      }
+      .btn-secondary {
+        padding: 12px 32px;
+        font-size: 1rem;
+        font-weight: bold;
+        color: var(--text-color);
+        background-color: transparent;
+        border: 2px solid #334155;
+        border-radius: 50px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .btn-secondary:hover {
+        background-color: #334155;
+        color: var(--primary-color);
+      }
+
+      .settings-content {
+        background: #1e293b;
+        padding: 30px;
+        border-radius: 20px;
+        border: 1px solid #334155;
+        width: 360px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .setting-item {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        text-align: left;
+      }
+      .setting-item label {
+        font-size: 0.9rem;
+        color: #94a3b8;
+      }
+      input[type='range'] {
+        width: 100%;
+        accent-color: var(--primary-color);
+        cursor: pointer;
+      }
+      .setting-value {
+        color: var(--primary-color);
+        font-weight: bold;
+        float: right;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+      .score-pop {
+        position: absolute;
+        font-weight: bold;
+        pointer-events: none;
+        animation: float-up 0.5s ease-out forwards;
+        z-index: 50;
+      }
+      .score-plus {
+        color: #fbbf24;
+      }
+      .score-minus {
+        color: #ff4757;
+      }
+
+      @keyframes float-up {
+        0% {
+          transform: translateY(0);
+          opacity: 1;
+        }
+        100% {
+          transform: translateY(-40px);
+          opacity: 0;
+        }
+      }
+
+      /* 카운트다운 텍스트 스타일 */
+      #countdown-text {
+        font-size: 8rem;
+        color: var(--primary-color);
+        text-shadow: 0 0 30px rgba(0, 255, 204, 0.5);
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body id="body">
+    <header>
+      <div class="logo">
+        <h2>AIM <span style="color: var(--primary-color)">MASTER</span></h2>
+      </div>
+      <div class="stats-container">
+        <div class="stat-item">
+          <p class="stat-label">Time</p>
+          <p id="timer" class="stat-value">30.00</p>
+        </div>
+        <div class="stat-item">
+          <p class="stat-label">Score</p>
+          <p id="score" class="stat-value">0</p>
+        </div>
+        <div class="stat-item">
+          <p class="stat-label">Best</p>
+          <p id="high-score" class="stat-value">0</p>
+        </div>
+      </div>
+    </header>
+
+    <main id="game-canvas">
+      <div id="custom-crosshair"></div>
+
+      <!-- 시작 화면 -->
+      <div id="start-overlay" class="overlay">
+        <h1>Ready?</h1>
+        <p style="margin-bottom: 20px; color: #94a3b8">
+          게임 중 ESC 키를 누르면 일시정지됩니다.
+        </p>
+        <div class="btn-group">
+          <button class="btn-start" onclick="startGameAction(this)">
+            START
+          </button>
+          <button class="btn-secondary" onclick="toggleSettings(true)">
+            SETTINGS
+          </button>
+        </div>
+      </div>
+
+      <!-- 설정 화면 -->
+      <div id="settings-overlay" class="overlay hidden">
+        <h1>Settings</h1>
+        <div class="settings-content">
+          <div class="setting-item">
+            <label
+              >Target Movement Speed
+              <span id="speed-value" class="setting-value">1.0</span></label
+            >
+            <input
+              type="range"
+              id="speed-slider"
+              min="0.5"
+              max="2.0"
+              step="0.1"
+              value="1.0"
+              oninput="updateSpeedUI(this.value)"
+            />
+          </div>
+          <div class="setting-item">
+            <label
+              >Mouse Sensitivity (Pointer Speed)
+              <span id="mouse-sens-value" class="setting-value"
+                >1.0</span
+              ></label
+            >
+            <input
+              type="range"
+              id="mouse-sens-slider"
+              min="0.1"
+              max="5.0"
+              step="0.1"
+              value="1.0"
+              oninput="updateMouseSensUI(this.value)"
+            />
+          </div>
+          <button class="btn-secondary" onclick="toggleSettings(false)">
+            CLOSE & SAVE
+          </button>
+        </div>
+      </div>
+
+      <!-- 일시정지 화면 -->
+      <div id="pause-overlay" class="overlay hidden">
+        <h1>PAUSED</h1>
+        <div class="btn-group">
+          <button class="btn-start" onclick="resumeGameAction(this)">
+            RESUME
+          </button>
+          <button
+            class="btn-start"
+            style="
+              background-color: #3b82f6;
+              box-shadow: 0 0 30px rgba(59, 130, 246, 0.3);
+            "
+            onclick="retryGameAction(this)"
+          >
+            RETRY
+          </button>
+          <button class="btn-secondary" onclick="exitGameAction()">EXIT</button>
+        </div>
+      </div>
+
+      <!-- 카운트다운 화면 -->
+      <div
+        id="countdown-overlay"
+        class="overlay hidden"
+        style="background: rgba(15, 23, 42, 0.8)"
+      >
+        <h1 id="countdown-text">3</h1>
+      </div>
+
+      <!-- 종료 화면 -->
+      <div id="end-overlay" class="overlay hidden">
+        <h1>Result</h1>
+        <div style="margin-bottom: 30px">
+          <p>
+            최종 점수:
+            <span
+              id="final-score"
+              style="color: #fbbf24; font-weight: 800; font-size: 2rem"
+              >0</span
+            >
+          </p>
+          <p
+            id="new-record-msg"
+            style="color: var(--primary-color); margin-top: 10px"
+            class="hidden"
+          >
+            ★ NEW RECORD ★
+          </p>
+        </div>
+        <div class="btn-group">
+          <button class="btn-start" onclick="retryGameAction(this)">
+            RETRY
+          </button>
+          <button class="btn-secondary" onclick="exitGameAction()">EXIT</button>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const gameCanvas = document.getElementById('game-canvas');
+      const crosshair = document.getElementById('custom-crosshair');
+      const timerEl = document.getElementById('timer');
+      const scoreEl = document.getElementById('score');
+      const highScoreEl = document.getElementById('high-score');
+      const finalScoreEl = document.getElementById('final-score');
+      const startOverlay = document.getElementById('start-overlay');
+      const endOverlay = document.getElementById('end-overlay');
+      const pauseOverlay = document.getElementById('pause-overlay');
+      const settingsOverlay = document.getElementById('settings-overlay');
+      const countdownOverlay = document.getElementById('countdown-overlay');
+      const countdownText = document.getElementById('countdown-text');
+      const newRecordMsg = document.getElementById('new-record-msg');
+      const body = document.getElementById('body');
+
+      // 상태 변수
+      let score = 0;
+      let isPlaying = false;
+      let isPaused = false;
+      let isCountingDown = false;
+      let countdownInterval = null;
+      let pendingAction = null; // 게임 시작/재개 예약 로직
+
+      // 시간 및 루프 변수
+      let animationFrame;
+      let remainingTime = 30000;
+      let lastTime = 0;
+
+      // 스폰 관리 변수
+      let nextSpawns = [];
+      let respawnTimers = [];
+
+      let highScore = localStorage.getItem('aimHighScoreMasterV2') || 0;
+      let activeTargets = [];
+
+      // 조준점 위치
+      let crosshairX = window.innerWidth / 2;
+      let crosshairY = window.innerHeight / 2;
+
+      // 설정값
+      let targetSpeedMult =
+        parseFloat(localStorage.getItem('aimTargetSpeed')) || 1.0;
+      let mouseSensMult =
+        parseFloat(localStorage.getItem('aimMouseSens')) || 1.0;
+
+      // 초기 UI 반영
+      highScoreEl.textContent = highScore;
+      document.getElementById('speed-slider').value = targetSpeedMult;
+      document.getElementById('speed-value').textContent =
+        targetSpeedMult.toFixed(1);
+      document.getElementById('mouse-sens-slider').value = mouseSensMult;
+      document.getElementById('mouse-sens-value').textContent =
+        mouseSensMult.toFixed(1);
+
+      function toggleSettings(show) {
+        if (show) settingsOverlay.classList.remove('hidden');
+        else {
+          settingsOverlay.classList.add('hidden');
+          localStorage.setItem('aimTargetSpeed', targetSpeedMult);
+          localStorage.setItem('aimMouseSens', mouseSensMult);
+        }
+      }
+
+      function updateSpeedUI(val) {
+        targetSpeedMult = parseFloat(val);
+        document.getElementById('speed-value').textContent =
+          targetSpeedMult.toFixed(1);
+      }
+
+      function updateMouseSensUI(val) {
+        mouseSensMult = parseFloat(val);
+        document.getElementById('mouse-sens-value').textContent =
+          mouseSensMult.toFixed(1);
+      }
+
+      // ================= 버튼 액션 및 Pointer Lock =================
+      function tryPointerLock(btn) {
+        gameCanvas.requestPointerLock =
+          gameCanvas.requestPointerLock || gameCanvas.mozRequestPointerLock;
+        const promise = gameCanvas.requestPointerLock();
+
+        // Promise를 반환하는 최신 브라우저의 경우 예외 처리
+        if (promise !== undefined) {
+          promise.catch((error) => {
+            console.warn(
+              'Pointer lock prevented by browser policy (cooldown).',
+            );
+            if (btn) {
+              const originalText = btn.textContent;
+              btn.textContent = '잠시 후 다시 클릭'; // 브라우저 쿨다운 안내
+              btn.style.fontSize = '1rem';
+              setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.fontSize = '';
+              }, 1200);
+            }
+          });
+        }
+      }
+
+      function startGameAction(btn) {
+        pendingAction = 'init';
+        tryPointerLock(btn);
+      }
+
+      function resumeGameAction(btn) {
+        pendingAction = 'resume';
+        tryPointerLock(btn);
+      }
+
+      function retryGameAction(btn) {
+        pendingAction = 'init';
+        tryPointerLock(btn);
+      }
+
+      function exitGameAction() {
+        pendingAction = null;
+        isPlaying = false;
+        isPaused = false;
+        cancelAnimationFrame(animationFrame);
+        if (isCountingDown) {
+          clearInterval(countdownInterval);
+          countdownOverlay.classList.add('hidden');
+          isCountingDown = false;
+        }
+
+        pauseOverlay.classList.add('hidden');
+        endOverlay.classList.add('hidden');
+        startOverlay.classList.remove('hidden');
+        crosshair.style.display = 'none';
+
+        // 화면 초기화
+        gameCanvas.querySelectorAll('.target').forEach((t) => t.remove());
+        activeTargets = [];
+        scoreEl.textContent = '0';
+        timerEl.textContent = '30.00';
+
+        if (document.pointerLockElement === gameCanvas) {
+          document.exitPointerLock();
+        }
+      }
+
+      // 캔버스를 직접 클릭했을 때 잠금이 풀려있다면 다시 요청
+      gameCanvas.addEventListener('mousedown', (e) => {
+        if (
+          isPlaying &&
+          !isPaused &&
+          document.pointerLockElement !== gameCanvas
+        ) {
+          tryPointerLock(null);
+        }
+      });
+
+      // ================= Pointer Lock 이벤트 제어 =================
+      document.addEventListener('pointerlockchange', lockChangeAlert, false);
+      document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
+
+      function lockChangeAlert() {
+        if (
+          document.pointerLockElement === gameCanvas ||
+          document.mozPointerLockElement === gameCanvas
+        ) {
+          // 커서 잠금 활성화 성공 시에만 게임 진행
+          document.addEventListener('mousemove', updatePosition, false);
+          document.addEventListener('mousedown', handleCanvasClick, false);
+
+          if (pendingAction === 'init') {
+            initGame();
+          } else if (pendingAction === 'resume') {
+            resumeGame();
+          }
+          pendingAction = null;
+        } else {
+          // 커서 잠금 해제 됨 (ESC 누름)
+          document.removeEventListener('mousemove', updatePosition, false);
+          document.removeEventListener('mousedown', handleCanvasClick, false);
+
+          if (isPlaying && !isPaused) {
+            pauseGame();
+          }
+        }
+      }
+
+      function updatePosition(e) {
+        crosshairX += e.movementX * mouseSensMult;
+        crosshairY += e.movementY * mouseSensMult;
+
+        crosshairX = Math.max(0, Math.min(gameCanvas.clientWidth, crosshairX));
+        crosshairY = Math.max(0, Math.min(gameCanvas.clientHeight, crosshairY));
+
+        crosshair.style.left = crosshairX + 'px';
+        crosshair.style.top = crosshairY + 'px';
+      }
+
+      // ================= 게임 상태 제어 =================
+      function startCountdown(callback) {
+        isCountingDown = true;
+        countdownOverlay.classList.remove('hidden');
+        let count = 3;
+        countdownText.textContent = count;
+
+        countdownInterval = setInterval(() => {
+          count--;
+          if (count > 0) {
+            countdownText.textContent = count;
+          } else if (count === 0) {
+            countdownText.textContent = 'START!';
+          } else {
+            clearInterval(countdownInterval);
+            countdownOverlay.classList.add('hidden');
+            isCountingDown = false;
+            callback();
+          }
+        }, 1000);
+      }
+
+      function initGame() {
+        cancelAnimationFrame(animationFrame); // 이전 루프 확실히 제거
+        if (isCountingDown) clearInterval(countdownInterval);
+        score = 0;
+        isPlaying = true;
+        isPaused = false;
+        remainingTime = 30000;
+        lastTime = 0;
+        activeTargets = [];
+        nextSpawns = [400, 800]; // 시작 직후 추가 소환 예약 타이머
+        respawnTimers = [];
+
+        // 중앙 초기화
+        crosshairX = gameCanvas.clientWidth / 2;
+        crosshairY = gameCanvas.clientHeight / 2;
+        crosshair.style.left = crosshairX + 'px';
+        crosshair.style.top = crosshairY + 'px';
+
+        scoreEl.textContent = '0';
+        timerEl.textContent = '30.00';
+
+        startOverlay.classList.add('hidden');
+        endOverlay.classList.add('hidden');
+        settingsOverlay.classList.add('hidden');
+        pauseOverlay.classList.add('hidden');
+        newRecordMsg.classList.add('hidden');
+        crosshair.style.display = 'block';
+
+        gameCanvas.querySelectorAll('.target').forEach((t) => t.remove());
+
+        startCountdown(() => {
+          spawnTarget();
+          animationFrame = requestAnimationFrame(unifiedGameLoop);
+        });
+      }
+
+      function pauseGame() {
+        isPaused = true;
+        cancelAnimationFrame(animationFrame);
+        if (isCountingDown) {
+          clearInterval(countdownInterval);
+          countdownOverlay.classList.add('hidden');
+          isCountingDown = false;
+        }
+        crosshair.style.display = 'none';
+        pauseOverlay.classList.remove('hidden');
+
+        if (document.pointerLockElement === gameCanvas) {
+          document.exitPointerLock();
+        }
+      }
+
+      function resumeGame() {
+        if (!isPlaying) return;
+        isPaused = false;
+        pauseOverlay.classList.add('hidden');
+        crosshair.style.display = 'block';
+
+        startCountdown(() => {
+          lastTime = 0; // 재개 시 dt 튀는 현상 방지
+          animationFrame = requestAnimationFrame(unifiedGameLoop);
+        });
+      }
+
+      function endGame() {
+        if (!isPlaying) return;
+        isPlaying = false;
+        isPaused = false;
+        cancelAnimationFrame(animationFrame);
+
+        if (document.pointerLockElement === gameCanvas) {
+          document.exitPointerLock();
+        }
+
+        finalScoreEl.textContent = score;
+        endOverlay.classList.remove('hidden');
+        crosshair.style.display = 'none';
+
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem('aimHighScoreMasterV2', highScore);
+          highScoreEl.textContent = highScore;
+          newRecordMsg.classList.remove('hidden');
+        }
+      }
+
+      // ================= 통합 게임 루프 (핵심 물리/시간 제어) =================
+      function unifiedGameLoop(currentTime) {
+        if (!isPlaying || isPaused) return;
+
+        if (!lastTime) lastTime = currentTime;
+        const dt = currentTime - lastTime;
+        lastTime = currentTime;
+
+        // 남은 시간 계산
+        remainingTime -= dt;
+        if (remainingTime <= 0) {
+          remainingTime = 0;
+          timerEl.textContent = '0.00';
+          endGame();
+          return;
+        }
+        timerEl.textContent = (remainingTime / 1000).toFixed(2);
+
+        // 예약된 과녁 소환 처리
+        if (nextSpawns.length > 0) {
+          const elapsedTotal = 30000 - remainingTime;
+          if (elapsedTotal >= nextSpawns[0]) {
+            spawnTarget();
+            nextSpawns.shift();
+          }
+        }
+
+        // 파괴 후 리스폰 처리
+        for (let i = respawnTimers.length - 1; i >= 0; i--) {
+          respawnTimers[i] -= dt;
+          if (respawnTimers[i] <= 0) {
+            spawnTarget();
+            respawnTimers.splice(i, 1);
+          }
+        }
+
+        updatePhysicsAndLifespan(dt);
+
+        animationFrame = requestAnimationFrame(unifiedGameLoop);
+      }
+
+      function updatePhysicsAndLifespan(dt) {
+        const canvasW = gameCanvas.clientWidth;
+        const canvasH = gameCanvas.clientHeight;
+        const timeScale = dt / 16.66; // 60프레임 기준으로 속도 정규화
+
+        activeTargets.forEach((target) => {
+          target.x += target.vx * timeScale;
+          target.y += target.vy * timeScale;
+
+          if (target.type === 'teleport') {
+            target.teleportTimer += dt;
+            if (target.teleportTimer > 1000) {
+              target.x = Math.random() * (canvasW - target.size);
+              target.y = Math.random() * (canvasH - target.size);
+              target.teleportTimer = 0;
+            }
+          }
+
+          if (target.x <= 0 || target.x + target.size >= canvasW) {
+            target.vx *= -1;
+            target.x = target.x <= 0 ? 0 : canvasW - target.size;
+          }
+          if (target.y <= 0 || target.y + target.size >= canvasH) {
+            target.vy *= -1;
+            target.y = target.y <= 0 ? 0 : canvasH - target.size;
+          }
+
+          target.element.style.left = `${target.x}px`;
+          target.element.style.top = `${target.y}px`;
+
+          // 수명 체크 로직
+          target.lifeTimer += dt;
+          if (target.lifeTimer >= 2500 && !target.isDying) {
+            target.isDying = true;
+            createPopText(
+              target.x + target.size / 2,
+              target.y,
+              '-1',
+              'score-minus',
+            );
+            updateScore(-1);
+            removeTargetWithEffect(target);
+          }
+        });
+      }
+
+      // ================= 과녁 생성 및 이벤트 =================
+      function spawnTarget() {
+        if (!isPlaying) return;
+
+        const typeRoll = Math.random();
+        let type = 'normal';
+        if (typeRoll > 0.85) type = 'teleport';
+        else if (typeRoll > 0.7) type = 'pulsate';
+
+        const size =
+          type === 'pulsate' ? 55 : Math.floor(Math.random() * 20) + 40;
+        const x = Math.random() * (gameCanvas.clientWidth - size);
+        const y = Math.random() * (gameCanvas.clientHeight - size);
+
+        const speedBase = (3 + score / 150) * targetSpeedMult;
+        const vx = (Math.random() - 0.5) * speedBase;
+        const vy = (Math.random() - 0.5) * speedBase;
+
+        const element = document.createElement('div');
+        element.className = `target target-${type}`;
+        element.style.width = `${size}px`;
+        element.style.height = `${size}px`;
+
+        const targetObj = {
+          element,
+          type,
+          size,
+          x,
+          y,
+          vx: Math.abs(vx) < 1 ? (vx < 0 ? -2 : 2) : vx,
+          vy: Math.abs(vy) < 1 ? (vy < 0 ? -2 : 2) : vy,
+          teleportTimer: 0,
+          lifeTimer: 0,
+          isDying: false,
+        };
+
+        gameCanvas.appendChild(element);
+        activeTargets.push(targetObj);
+      }
+
+      function handleCanvasClick(e) {
+        if (!isPlaying || isPaused || isCountingDown) return;
+
+        let hit = false;
+        for (let i = activeTargets.length - 1; i >= 0; i--) {
+          const target = activeTargets[i];
+          if (target.isDying) continue;
+
+          const dx = crosshairX - (target.x + target.size / 2);
+          const dy = crosshairY - (target.y + target.size / 2);
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < target.size / 2) {
+            hitTarget(target);
+            hit = true;
+            break;
+          }
+        }
+
+        if (!hit) {
+          updateScore(-1);
+          createPopText(crosshairX, crosshairY - 30, '-1', 'score-minus');
+          body.classList.add('miss-flash');
+          setTimeout(() => body.classList.remove('miss-flash'), 100);
+        }
+      }
+
+      function hitTarget(targetObj) {
+        updateScore(5);
+        createHitEffect(
+          targetObj.x + targetObj.size / 2,
+          targetObj.y + targetObj.size / 2,
+          targetObj.type,
+        );
+        createPopText(
+          targetObj.x + targetObj.size / 2,
+          targetObj.y,
+          '+5',
+          'score-plus',
+        );
+
+        if (targetObj.element.parentElement) targetObj.element.remove();
+        activeTargets = activeTargets.filter((t) => t !== targetObj);
+        spawnTarget();
+      }
+
+      function removeTargetWithEffect(targetObj) {
+        targetObj.isDying = true;
+        const el = targetObj.element;
+
+        activeTargets = activeTargets.filter((t) => t !== targetObj);
+
+        el.classList.add('disappearing');
+        setTimeout(() => {
+          if (el.parentElement) el.remove();
+        }, 300);
+
+        respawnTimers.push(300);
+      }
+
+      function updateScore(val) {
+        score = Math.max(0, score + val);
+        scoreEl.textContent = score;
+      }
+
+      function createHitEffect(x, y, type) {
+        const color =
+          type === 'teleport'
+            ? '#3b82f6'
+            : type === 'pulsate'
+              ? '#a855f7'
+              : '#ff4757';
+        for (let i = 0; i < 8; i++) {
+          const particle = document.createElement('div');
+          particle.className = 'hit-particle';
+          particle.style.left = `${x}px`;
+          particle.style.top = `${y}px`;
+          particle.style.backgroundColor = color;
+          const tx = (Math.random() - 0.5) * 100;
+          const ty = (Math.random() - 0.5) * 100;
+          particle.style.setProperty('--tx', `${tx}px`);
+          particle.style.setProperty('--ty', `${ty}px`);
+          gameCanvas.appendChild(particle);
+          setTimeout(() => particle.remove(), 500);
+        }
+      }
+
+      function createPopText(x, y, text, className) {
+        const pop = document.createElement('div');
+        pop.className = `score-pop ${className}`;
+        pop.textContent = text;
+        pop.style.left = `${x}px`;
+        pop.style.top = `${y}px`;
+        gameCanvas.appendChild(pop);
+        setTimeout(() => pop.remove(), 500);
+      }
+    </script>
+  </body>
+</html>

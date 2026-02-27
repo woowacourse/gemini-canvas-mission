@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Java Stream Factory Visualizer v8</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(0.98); }
+        }
+        .pipeline-track {
+            background: linear-gradient(180deg, #cbd5e1 0%, #94a3b8 100%);
+            width: 14px;
+            position: absolute;
+            left: 50%;
+            top: 100px;
+            bottom: 240px;
+            transform: translateX(-50%);
+            z-index: 0;
+            border-radius: 7px;
+            border: 2px solid #e2e8f0;
+        }
+        .machine-unit {
+            z-index: 10;
+            position: relative;
+            margin-bottom: 6rem;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .machine-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .machine-chamber {
+            background: white;
+            border: 5px solid #f1f5f9;
+            border-radius: 2rem;
+            height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .active-chamber {
+            border-color: #3b82f6;
+            box-shadow: 0 15px 35px rgba(59, 130, 246, 0.2);
+            background: #f8faff;
+        }
+        .code-line {
+            transition: all 0.3s ease;
+            display: block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+        .highlight-filter { background-color: rgba(59, 130, 246, 0.3); color: #60a5fa; font-weight: bold; transform: translateX(10px); }
+        .highlight-map { background-color: rgba(168, 85, 247, 0.3); color: #c084fc; font-weight: bold; transform: translateX(10px); }
+        .highlight-terminal { background-color: rgba(34, 197, 94, 0.3); color: #4ade80; font-weight: bold; transform: translateX(10px); }
+
+        .processing-light { background: #eab308; box-shadow: 0 0 12px #eab308; animation: pulse-slow 1s infinite; }
+        .success-light { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
+        .fail-light { background: #ef4444; box-shadow: 0 0 12px #ef4444; }
+
+        #data-capsule {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 100;
+            display: none;
+            box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.3);
+            transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen p-4 md:p-8 font-sans text-slate-900 overflow-x-hidden">
+<div class="max-w-[1600px] mx-auto">
+    <header class="mb-12 text-center">
+        <h1 class="text-5xl font-black text-slate-800 tracking-tight mb-3 underline decoration-blue-500 decoration-8 underline-offset-[12px]">
+            Java Stream Factory</h1>
+        <p class="text-slate-500 text-lg font-medium">데이터가 파이프를 타고 내려오며 기계 챔버 안에서 처리되는 과정을 확인하세요.</p>
+    </header>
+
+    <div class="flex flex-col lg:flex-row gap-8 items-start relative">
+        <!-- 좌측: 설정 패널 -->
+        <div class="w-full lg:w-96 flex flex-col gap-6 sticky top-8">
+            <div class="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-200">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-black text-slate-800 tracking-tight">Input Data</h2>
+                    <button id="add-data-btn"
+                            class="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-xl transition-all shadow-lg active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                </div>
+
+                <div id="data-inputs-container" class="space-y-3 mb-8">
+                    <!-- 데이터 입력 필드 동적 생성 -->
+                </div>
+
+                <div class="space-y-5 pt-6 border-t border-slate-100">
+                    <div class="bg-blue-50/50 p-4 rounded-3xl border border-blue-100">
+                        <label class="block text-xs font-black text-blue-500 uppercase mb-2 tracking-widest">Filter
+                            Setting</label>
+                        <select id="input-filter-type"
+                                class="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm mb-3 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed">
+                            <option value="len">글자 수 초과 (> X)</option>
+                            <option value="contains">특정 문자 포함</option>
+                            <option value="starts">시작 문자 확인</option>
+                        </select>
+                        <input id="input-filter-val" type="text" value="5"
+                               class="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+                               placeholder="기준값 입력">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-black text-slate-400 uppercase mb-2 tracking-widest">Map
+                            Setting</label>
+                        <select id="input-map-op"
+                                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed">
+                            <option value="upper">toUpperCase()</option>
+                            <option value="lower">toLowerCase()</option>
+                            <option value="length">length()</option>
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col gap-3 mt-4">
+                        <button id="start-btn"
+                                class="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-3xl font-black text-xl shadow-xl shadow-blue-200 active:scale-95 transition-all">
+                            공정 가동 시작
+                        </button>
+                        <div id="active-controls" class="hidden flex gap-3">
+                            <button id="pause-btn"
+                                    class="flex-1 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-lg shadow-lg active:scale-95 transition-all">
+                                일시 정지
+                            </button>
+                            <button id="reset-btn"
+                                    class="flex-1 py-4 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl font-bold text-lg shadow-lg active:scale-95 transition-all">
+                                초기화
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 중앙: 파이프라인 시각화 -->
+        <div id="pipeline-container"
+             class="flex-1 relative bg-white rounded-[3rem] p-12 shadow-2xl min-h-[1300px] border border-slate-100">
+            <div class="pipeline-track"></div>
+
+            <!-- 1. Source Bin -->
+            <div id="station-source" class="relative mb-24 z-10 text-center">
+                <div class="bg-slate-800 text-white px-8 py-3 rounded-t-2xl font-black text-sm uppercase tracking-widest inline-block shadow-lg">
+                    Source Buffer
+                </div>
+                <div id="source-bin"
+                     class="w-full p-8 bg-slate-50 border-4 border-slate-200 rounded-3xl shadow-inner flex flex-wrap justify-center gap-3">
+                </div>
+            </div>
+
+            <!-- 2. Filter Station -->
+            <div class="machine-unit">
+                <div class="machine-header">
+                    <div class="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600 border-4 border-blue-200 shadow-sm">
+                        <svg viewBox="0 0 100 100" class="w-12 h-12">
+                            <path d="M10 20 L90 20 L60 55 L60 85 L40 85 L40 55 Z" fill="none" stroke="currentColor"
+                                  stroke-width="6" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <div class="flex flex-col text-left">
+                        <div class="flex items-center gap-3">
+                            <div id="light-filter" class="w-4 h-4 rounded-full bg-slate-300"></div>
+                            <span class="font-black text-xs text-blue-600 uppercase tracking-[0.2em]">Process 01</span>
+                        </div>
+                        <h3 id="ui-filter-title" class="text-2xl font-black text-slate-800">.filter(...)</h3>
+                        <p class="text-slate-400 text-sm font-bold">지정된 조건에 맞춰 데이터를 선별합니다.</p>
+                    </div>
+                </div>
+                <div id="m-filter" class="machine-chamber"></div>
+            </div>
+
+            <!-- 3. Map Station -->
+            <div class="machine-unit">
+                <div class="machine-header">
+                    <div class="w-20 h-20 bg-purple-100 rounded-2xl flex items-center justify-center text-purple-600 border-4 border-purple-200 shadow-sm">
+                        <svg viewBox="0 0 100 100" class="w-12 h-12">
+                            <rect x="20" y="30" width="60" height="40" rx="4" fill="none" stroke="currentColor"
+                                  stroke-width="6"/>
+                            <path d="M30 50 Q10 50 10 30 M70 50 Q90 50 90 70" stroke="currentColor" stroke-width="5"
+                                  fill="none"/>
+                        </svg>
+                    </div>
+                    <div class="flex flex-col text-left">
+                        <div class="flex items-center gap-3">
+                            <div id="light-map" class="w-4 h-4 rounded-full bg-slate-300"></div>
+                            <span class="font-black text-xs text-purple-600 uppercase tracking-[0.2em]">Process 02</span>
+                        </div>
+                        <h3 id="ui-map-title" class="text-2xl font-black text-slate-800">.map(...)</h3>
+                        <p class="text-slate-400 text-sm font-bold">데이터를 다른 형태나 값으로 가공합니다.</p>
+                    </div>
+                </div>
+                <div id="m-map" class="machine-chamber"></div>
+            </div>
+
+            <!-- 4. Terminal -->
+            <div id="station-terminal" class="relative z-10 flex flex-col items-center mb-20">
+                <div id="btn-collect-ui"
+                     class="bg-green-600 text-white px-12 py-5 rounded-[2rem] font-black text-2xl shadow-2xl border-4 border-white transition-all">
+                    .collect(toList)
+                </div>
+            </div>
+
+            <!-- 5. Result Bin -->
+            <div class="relative z-10 flex flex-col items-center">
+                <div class="text-xs font-black text-slate-400 uppercase mb-4 tracking-[0.3em]">Final Collected Output
+                </div>
+                <div id="result-bin"
+                     class="w-full max-xl p-10 min-h-[160px] border-4 border-green-100 bg-green-50 rounded-[3rem] flex flex-wrap justify-center items-start gap-3 shadow-inner">
+                </div>
+            </div>
+
+            <div id="data-capsule"
+                 class="px-8 py-4 bg-blue-600 text-white rounded-full font-black text-xl border-4 border-white absolute shadow-2xl">
+                Item
+            </div>
+        </div>
+
+        <!-- 우측: 모니터 패널 -->
+        <div class="w-full lg:w-96 flex flex-col gap-8 sticky top-8">
+            <div class="bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl border border-slate-800">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-4 h-4 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
+                    <span class="text-blue-400 font-mono text-xs font-black uppercase tracking-widest">Code Monitor</span>
+                </div>
+                <div id="code-display"
+                     class="font-mono text-sm text-slate-400 leading-loose bg-slate-950 p-6 rounded-2xl border border-slate-800 overflow-x-auto whitespace-nowrap">
+                </div>
+            </div>
+
+            <div class="bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl flex-1 flex flex-col min-h-[450px] border border-slate-800">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-4 h-4 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                    <span class="text-slate-500 font-mono text-xs font-black uppercase tracking-widest">Factory Log</span>
+                </div>
+                <div id="log-content"
+                     class="flex-1 overflow-y-auto font-mono text-sm space-y-3 text-slate-400 custom-scrollbar">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const dataInputsContainer = document.getElementById('data-inputs-container');
+    const addDataBtn = document.getElementById('add-data-btn');
+    const inputFilterType = document.getElementById('input-filter-type');
+    const inputFilterVal = document.getElementById('input-filter-val');
+    const inputMap = document.getElementById('input-map-op');
+    const codeDisplay = document.getElementById('code-display');
+    const uiFilterTitle = document.getElementById('ui-filter-title');
+    const uiMapTitle = document.getElementById('ui-map-title');
+    const sourceBin = document.getElementById('source-bin');
+    const resultBin = document.getElementById('result-bin');
+    const capsule = document.getElementById('data-capsule');
+    const container = document.getElementById('pipeline-container');
+    const logContent = document.getElementById('log-content');
+    const startBtn = document.getElementById('start-btn');
+    const pauseBtn = document.getElementById('pause-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const activeControls = document.getElementById('active-controls');
+    const collectUI = document.getElementById('btn-collect-ui');
+
+    let sourceDataList = ["Apple"];
+    const MAX_ITEMS = 6;
+    const SPEED = 1000;
+
+    // 제어 상태
+    let isRunning = false;
+    let isPaused = false;
+    let shouldReset = false;
+
+    // 입력 유효성 검사 로직
+    function validateFilterInput() {
+        const type = inputFilterType.value;
+        let val = inputFilterVal.value;
+
+        if (type === 'len') {
+            // 숫자가 아닌 모든 문자 제거
+            val = val.replace(/\D/g, '');
+
+            if (val !== "") {
+                let num = parseInt(val);
+                if (num < 1) val = "1";
+                else if (num > 15) val = "15";
+            }
+            inputFilterVal.value = val;
+        } else {
+            // 특정 문자 포함/시작 확인 시 최대 5글자 제한
+            if (val.length > 5) {
+                inputFilterVal.value = val.substring(0, 5);
+            }
+        }
+        updateSettings();
+    }
+
+    inputFilterVal.addEventListener('input', validateFilterInput);
+    inputFilterType.addEventListener('change', () => {
+        inputFilterVal.value = ""; // 타입 변경 시 값 초기화
+        updateSettings();
+    });
+
+    function renderInputs() {
+        dataInputsContainer.innerHTML = "";
+        sourceDataList.forEach((val, idx) => {
+            const div = document.createElement('div');
+            div.className = "flex items-center gap-3 group animate-in slide-in-from-left";
+            div.innerHTML = `
+                <input type="text" value="${val}" data-index="${idx}" maxlength="15"
+                    class="data-item-input flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-blue-500 transition-all outline-none disabled:bg-gray-100 disabled:text-gray-400"
+                    placeholder="1~15자" ${isRunning ? 'disabled' : ''}>
+                <button class="remove-data-btn text-slate-300 hover:text-red-500 transition-all p-1 disabled:hidden" data-index="${idx}" ${isRunning ? 'disabled' : ''}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            `;
+            dataInputsContainer.appendChild(div);
+        });
+
+        document.querySelectorAll('.data-item-input').forEach(input => {
+            input.oninput = (e) => {
+                sourceDataList[e.target.dataset.index] = e.target.value.trim();
+                updateSettings();
+            };
+        });
+
+        document.querySelectorAll('.remove-data-btn').forEach(btn => {
+            btn.onclick = () => {
+                if (sourceDataList.length > 1) {
+                    sourceDataList.splice(btn.dataset.index, 1);
+                    renderInputs();
+                }
+            };
+        });
+
+        addDataBtn.disabled = isRunning || sourceDataList.length >= MAX_ITEMS;
+        updateSettings();
+    }
+
+    addDataBtn.onclick = () => {
+        if (sourceDataList.length < MAX_ITEMS) {
+            sourceDataList.push("Stream" + (sourceDataList.length + 1));
+            renderInputs();
+        }
+    };
+
+    function updateSettings() {
+        const filterType = inputFilterType.value;
+        const filterVal = inputFilterVal.value;
+        const mapOp = inputMap.value;
+
+        let filterStr = "";
+        if (filterType === 'len') filterStr = `.filter(n -> n.length() > ${filterVal || 0})`;
+        else if (filterType === 'contains') filterStr = `.filter(n -> n.contains("${filterVal}"))`;
+        else if (filterType === 'starts') filterStr = `.filter(n -> n.startsWith("${filterVal}"))`;
+
+        let mapStr = "String::toUpperCase";
+        if (mapOp === 'lower') mapStr = "String::toLowerCase";
+        if (mapOp === 'length') mapStr = "String::length";
+
+        uiFilterTitle.innerText = filterStr;
+        uiMapTitle.innerText = `.map(${mapOp === 'length' ? 'n -> n.length()' : mapStr})`;
+
+        codeDisplay.innerHTML = `
+            names.stream()<br>
+            <span id="code-filter" class="code-line ml-4">${filterStr}</span>
+            <span id="code-map" class="code-line ml-4">.map(${mapStr})</span>
+            <span id="code-terminal" class="code-line ml-4">.collect(toList());</span>
+        `;
+
+        sourceBin.innerHTML = "";
+        sourceDataList.forEach(item => {
+            const div = document.createElement('div');
+            div.className = "px-4 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-black text-slate-700 shadow-sm";
+            div.innerText = item;
+            sourceBin.appendChild(div);
+        });
+    }
+
+    // 제어 기능
+    async function checkPause() {
+        while (isPaused) {
+            if (shouldReset) break;
+            await new Promise(r => setTimeout(r, 100));
+        }
+    }
+
+    pauseBtn.onclick = () => {
+        isPaused = !isPaused;
+        pauseBtn.innerText = isPaused ? "공정 재개" : "일시 정지";
+        pauseBtn.className = isPaused ?
+            "flex-1 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold text-lg shadow-lg active:scale-95 transition-all" :
+            "flex-1 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-lg shadow-lg active:scale-95 transition-all";
+        addLog(isPaused ? "공정이 일시 중단되었습니다." : "공정을 재개합니다.", isPaused ? "text-amber-400" : "text-emerald-400");
+    };
+
+    resetBtn.onclick = () => {
+        shouldReset = true;
+        addLog("공정을 초기화합니다.", "text-rose-400 font-bold");
+    };
+
+    function setInputsDisabled(disabled) {
+        isRunning = disabled;
+        inputFilterType.disabled = disabled;
+        inputFilterVal.disabled = disabled;
+        inputMap.disabled = disabled;
+        addDataBtn.disabled = disabled;
+        renderInputs();
+    }
+
+    function addLog(msg, color = 'text-slate-400') {
+        const div = document.createElement('div');
+        div.className = `${color} border-l-4 border-slate-800 pl-4 py-1`;
+        div.innerHTML = `<span class="opacity-30 font-bold">#</span> ${msg}`;
+        logContent.appendChild(div);
+        logContent.scrollTop = logContent.scrollHeight;
+    }
+
+    async function moveCapsule(targetId, text = null) {
+        await checkPause();
+        if (shouldReset) return;
+
+        const target = (typeof targetId === 'string') ? document.getElementById(targetId) : targetId;
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+
+        if (text !== null) capsule.innerText = text;
+        const x = (targetRect.left + targetRect.width / 2) - containerRect.left - (capsule.offsetWidth / 2);
+        const y = (targetRect.top + targetRect.height / 2) - containerRect.top - (capsule.offsetHeight / 2);
+
+        capsule.style.transform = `translate(${x}px, ${y}px)`;
+        await new Promise(r => setTimeout(r, 850));
+    }
+
+    async function runStream() {
+        setInputsDisabled(true);
+        startBtn.classList.add('hidden');
+        activeControls.classList.remove('hidden');
+
+        logContent.innerHTML = "";
+        resultBin.innerHTML = "";
+        shouldReset = false;
+        isPaused = false;
+
+        addLog("스트림 엔진 가동 시작", "text-yellow-500 font-bold");
+
+        for (let item of sourceDataList) {
+            if (shouldReset) break;
+
+            capsule.style.display = 'block';
+            capsule.style.transition = 'none';
+            capsule.style.opacity = '1';
+            capsule.className = "px-8 py-4 bg-blue-600 text-white rounded-full font-black text-xl border-4 border-white absolute shadow-2xl z-[100]";
+
+            await moveCapsule(sourceBin, item);
+            if (shouldReset) break;
+
+            capsule.style.transition = 'all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)';
+            addLog(`[준비] '${item}' 투입`, "text-slate-100");
+            await new Promise(r => setTimeout(r, 200));
+            await checkPause();
+
+            // 2. Filter
+            const codeFilter = document.getElementById('code-filter');
+            codeFilter.classList.add('highlight-filter');
+            document.getElementById('m-filter').classList.add('active-chamber');
+            document.getElementById('light-filter').className = "w-4 h-4 rounded-full processing-light";
+            await moveCapsule('m-filter');
+            if (shouldReset) break;
+            await new Promise(r => setTimeout(r, SPEED));
+            await checkPause();
+
+            const filterType = inputFilterType.value;
+            const filterVal = inputFilterVal.value;
+            let passed = false;
+            if (filterType === 'len') passed = item.length > parseInt(filterVal || 0);
+            else if (filterType === 'contains') passed = item.includes(filterVal);
+            else if (filterType === 'starts') passed = item.startsWith(filterVal);
+
+            if (passed) {
+                addLog(`[Filter] '${item}' 통과`, "text-emerald-400");
+                document.getElementById('light-filter').className = "w-4 h-4 rounded-full success-light";
+
+                // 3. Map
+                codeFilter.classList.remove('highlight-filter');
+                const codeMap = document.getElementById('code-map');
+                codeMap.classList.add('highlight-map');
+                document.getElementById('m-filter').classList.remove('active-chamber');
+                document.getElementById('m-map').classList.add('active-chamber');
+                document.getElementById('light-map').className = "w-4 h-4 rounded-full processing-light";
+
+                await moveCapsule('m-map');
+                if (shouldReset) break;
+                const mapOp = inputMap.value;
+                let transformed;
+                if (mapOp === 'upper') transformed = item.toUpperCase();
+                else if (mapOp === 'lower') transformed = item.toLowerCase();
+                else transformed = item.length.toString();
+
+                capsule.innerText = transformed;
+                capsule.classList.replace('bg-blue-600', 'bg-purple-600');
+                addLog(`[Map] 변형 가공: '${transformed}'`, "text-purple-400");
+                document.getElementById('light-map').className = "w-4 h-4 rounded-full success-light";
+                await new Promise(r => setTimeout(r, SPEED));
+                await checkPause();
+
+                // 4. Terminal
+                codeMap.classList.remove('highlight-map');
+                document.getElementById('code-terminal').classList.add('highlight-terminal');
+                collectUI.classList.add('ring-8', 'ring-green-400', 'scale-105');
+                document.getElementById('m-map').classList.remove('active-chamber');
+
+                await moveCapsule('btn-collect-ui');
+                if (shouldReset) break;
+                addLog(`[Collect] 최종 수집 중`, "text-blue-400");
+
+                await moveCapsule('result-bin');
+                if (shouldReset) break;
+                const resDiv = document.createElement('div');
+                resDiv.className = "inline-flex px-5 py-2.5 bg-white border-4 border-green-500 text-green-700 rounded-3xl text-lg font-black shadow-xl animate-bounce whitespace-nowrap";
+                resDiv.innerText = transformed;
+                resultBin.appendChild(resDiv);
+
+                capsule.style.opacity = '0';
+                await new Promise(r => setTimeout(r, 500));
+            } else {
+                addLog(`[Filter] '${item}' 탈락`, "text-rose-500");
+                document.getElementById('light-filter').className = "w-4 h-4 rounded-full fail-light";
+                capsule.style.transform += ' translate(400px, -100px) rotate(90deg)';
+                capsule.style.opacity = '0';
+                await new Promise(r => setTimeout(r, SPEED));
+            }
+
+            // 루프 정리
+            clearSteps();
+            if (shouldReset) break;
+        }
+
+        finishStream();
+    }
+
+    function clearSteps() {
+        document.querySelectorAll('.machine-chamber').forEach(m => m.classList.remove('active-chamber'));
+        document.querySelectorAll('.code-line').forEach(c => c.classList.remove('highlight-filter', 'highlight-map', 'highlight-terminal'));
+        document.querySelectorAll('[id^="light-"]').forEach(l => l.className = "w-4 h-4 rounded-full bg-slate-300");
+        collectUI.classList.remove('ring-8', 'ring-green-400', 'scale-105');
+    }
+
+    function finishStream() {
+        capsule.style.display = 'none';
+        setInputsDisabled(false);
+        startBtn.classList.remove('hidden');
+        activeControls.classList.add('hidden');
+        clearSteps();
+        isPaused = false;
+        pauseBtn.innerText = "일시 정지";
+        pauseBtn.className = "flex-1 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-lg shadow-lg active:scale-95 transition-all";
+
+        if (shouldReset) {
+            resultBin.innerHTML = "";
+            addLog("공정이 중단되고 초기화되었습니다.", "text-rose-500 font-bold");
+            updateSettings();
+        } else {
+            addLog("모든 공정이 성공적으로 완료되었습니다.", "text-yellow-500 font-bold");
+        }
+    }
+
+    startBtn.onclick = runStream;
+    inputMap.addEventListener('change', updateSettings);
+    renderInputs();
+</script>
+</body>
+</html>

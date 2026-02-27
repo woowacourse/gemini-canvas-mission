@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>똑똑플랜 - AI 통합 플래너</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, onSnapshot, getDoc, setDoc, addDoc, updateDoc, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Configuration & Global Variables ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'smart-plan-v1';
+        const apiKey = ""; // Gemini API Key
+
+        // --- State ---
+        let state = {
+            user: null,
+            currentDate: new Date(),
+            selectedDate: new Date().toISOString().split('T')[0],
+            todos: [],
+            schedules: [],
+            diaries: [],
+            dynamicHolidays: {},
+            isHolidayLoading: false,
+            isAiProcessing: false,
+            isChatOpen: false,
+            chatStatus: '',
+            modalType: null,
+            editingItem: null,
+            isAllDay: false
+        };
+
+        // --- DOM Elements ---
+        const $ = (selector) => document.querySelector(selector);
+
+        // --- Utilities ---
+        const formatDate = (date) => date.toISOString().split('T')[0];
+
+        const renderMarkdown = (text) => {
+            if (!text) return "";
+            return text.split('\n').map(line => {
+                let content = line;
+                if (content.startsWith('# ')) return `<h1 class="text-xl font-black text-slate-800 mb-2 mt-4">${content.replace('# ', '')}</h1>`;
+                if (content.startsWith('- ')) return `<li class="ml-4 text-sm text-slate-600 list-disc">${content.replace('- ', '')}</li>`;
+
+                content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                content = content.replace(/_(.*?)_/g, '<em>$1</em>');
+                return `<p class="text-sm text-slate-600 min-h-[1.25rem] leading-relaxed break-all">${content || '&nbsp;'}</p>`;
+            }).join('');
+        };
+
+        // --- Core Functions ---
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error("Auth failed:", err);
+            }
+        }
+
+        function setupListeners() {
+            onAuthStateChanged(auth, (user) => {
+                state.user = user;
+                if (user) {
+                    const loader = $('#init-loader');
+                    if (loader) loader.classList.add('hidden');
+                    syncData();
+                    fetchYearlyHolidays(state.currentDate.getFullYear());
+                    renderApp();
+                }
+            });
+        }
+
+        function syncData() {
+            if (!state.user) return;
+            const path = (col) => collection(db, 'artifacts', appId, 'users', state.user.uid, col);
+
+            onSnapshot(path('todos'), (snap) => {
+                state.todos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                renderAllLists();
+                renderCalendar();
+            }, (err) => console.error(err));
+
+            onSnapshot(path('schedules'), (snap) => {
+                state.schedules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                renderAllLists();
+                renderCalendar();
+            }, (err) => console.error(err));
+
+            onSnapshot(path('diaries'), (snap) => {
+                state.diaries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                renderAllLists();
+                renderCalendar();
+            }, (err) => console.error(err));
+        }
+
+        async function fetchYearlyHolidays(year) {
+            if (!state.user) return;
+            const yearStr = String(year);
+            if (Object.keys(state.dynamicHolidays).some(d => d.startsWith(yearStr))) return;
+
+            state.isHolidayLoading = true;
+            renderHolidayOverlay();
+
+            const holidayDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'yearly_holidays', yearStr);
+
+            try {
+                const cacheSnap = await getDoc(holidayDocRef);
+                if (cacheSnap.exists()) {
+                    state.dynamicHolidays = { ...state.dynamicHolidays, ...cacheSnap.data().data };
+                } else {
+                    const prompt = `대한민국 ${year}년의 모든 법정 공휴일, 명절(설날, 추석 연휴 포함), 대체 공휴일을 JSON 형식 {'YYYY-MM-DD': '이름'}으로 알려줘. 다른 설명 없이 순수 JSON만 반환해.`;
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
+                    const result = await response.json();
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (text) {
+                        const parsed = JSON.parse(text);
+                        await setDoc(holidayDocRef, { data: parsed, year, updatedAt: Date.now() });
+                        state.dynamicHolidays = { ...state.dynamicHolidays, ...parsed };
+                    }
+                }
+            } catch (err) { console.error(err); }
+            finally {
+                state.isHolidayLoading = false;
+                renderHolidayOverlay();
+                renderCalendar();
+            }
+        }
+
+        // --- Render Functions ---
+        function renderApp() {
+            if (!state.user) return;
+            renderHeader();
+            renderAllLists();
+            renderCalendar();
+        }
+
+        function renderHeader() {
+            const dateLabel = $('#selected-date-label');
+            const calendarTitle = $('#calendar-title');
+            if (dateLabel) dateLabel.textContent = state.selectedDate;
+            if (calendarTitle) calendarTitle.textContent = `${state.currentDate.getFullYear()}년 ${state.currentDate.getMonth() + 1}월`;
+        }
+
+        function renderHolidayOverlay() {
+            const overlay = $('#holiday-overlay');
+            if (!overlay) return;
+            if (state.isHolidayLoading) overlay.classList.remove('hidden');
+            else overlay.classList.add('hidden');
+        }
+
+        function renderAllLists() {
+            if (!state.user) return;
+            const selected = {
+                todos: state.todos.filter(t => t.date === state.selectedDate),
+                schedules: state.schedules.filter(s => s.date === state.selectedDate).sort((a, b) => {
+                    if (a.isAllDay && !b.isAllDay) return -1;
+                    if (!a.isAllDay && b.isAllDay) return 1;
+                    return (a.startTime || "00:00").localeCompare(b.startTime || "00:00");
+                }),
+                diaries: state.diaries.filter(d => d.date === state.selectedDate)
+            };
+
+            const scheduleList = $('#schedule-list');
+            if (scheduleList) {
+                scheduleList.innerHTML = selected.schedules.length === 0 ? '<p class="text-[10px] text-slate-300 italic">일정이 없습니다.</p>' :
+                    selected.schedules.map(s => `
+                        <div class="group p-2.5 bg-blue-50/40 border border-blue-100 rounded-lg flex flex-col gap-1">
+                            <div class="flex justify-between items-start">
+                                <div class="text-[9px] font-bold text-blue-600 bg-white px-1.5 py-0.5 rounded shadow-sm shrink-0">
+                                    ${s.isAllDay ? '종일' : `${s.startTime} - ${s.endTime}`}
+                                </div>
+                                <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onclick="window.openForm('schedule', '${s.id}')" class="p-0.5 text-slate-400 hover:text-blue-600"><i data-lucide="edit-3" class="w-3 h-3"></i></button>
+                                    <button onclick="window.deleteItem('schedules', '${s.id}')" class="p-0.5 text-slate-400 hover:text-red-500"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                </div>
+                            </div>
+                            <span class="text-xs font-bold text-slate-700 leading-tight break-all">${s.title}</span>
+                        </div>
+                    `).join('');
+            }
+
+            const todoList = $('#todo-list');
+            if (todoList) {
+                todoList.innerHTML = selected.todos.length === 0 ? '<p class="text-[10px] text-slate-300 italic">할 일이 없습니다.</p>' :
+                    selected.todos.map(t => `
+                        <div class="group p-2.5 bg-emerald-50/40 border border-emerald-100 rounded-lg flex items-center gap-2">
+                            <button onclick="window.toggleTodo('${t.id}', ${t.completed})">
+                                <i data-lucide="${t.completed ? 'check-circle-2' : 'circle'}" class="w-4 h-4 ${t.completed ? 'text-emerald-500' : 'text-slate-300'}"></i>
+                            </button>
+                            <span class="flex-1 text-xs font-bold truncate ${t.completed ? 'line-through text-slate-300' : 'text-slate-700'}">${t.text}</span>
+                            <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                <button onclick="window.openForm('todo', '${t.id}')" class="p-0.5 text-slate-400 hover:text-emerald-600"><i data-lucide="edit-3" class="w-3 h-3"></i></button>
+                                <button onclick="window.deleteItem('todos', '${t.id}')" class="p-0.5 text-slate-400 hover:text-red-500"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                            </div>
+                        </div>
+                    `).join('');
+            }
+
+            const diaryList = $('#diary-list');
+            if (diaryList) {
+                diaryList.innerHTML = selected.diaries.length === 0 ? '<p class="text-[10px] text-slate-300 italic">기록 없음</p>' :
+                    selected.diaries.map(d => `
+                        <div class="group p-3 bg-purple-50/40 border border-purple-100 rounded-xl relative overflow-hidden h-fit">
+                            <div class="flex justify-end items-start mb-2 absolute top-2 right-2 z-10">
+                                <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-all shrink-0 bg-white/80 p-1 rounded-lg backdrop-blur-sm shadow-sm border border-purple-100">
+                                    <button onclick="window.openForm('diary', '${d.id}')" class="p-0.5 text-slate-400 hover:text-purple-600"><i data-lucide="edit-3" class="w-3 h-3"></i></button>
+                                    <button onclick="window.deleteItem('diaries', '${d.id}')" class="p-0.5 text-slate-400 hover:text-red-500"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                </div>
+                            </div>
+                            <div class="prose prose-sm prose-slate max-w-none font-medium text-slate-700">
+                                ${renderMarkdown(d.content)}
+                            </div>
+                        </div>
+                    `).join('');
+            }
+
+            const schedCount = $('#schedule-count');
+            const todoCount = $('#todo-count');
+            if (schedCount) schedCount.textContent = `(${selected.schedules.length}/10)`;
+            if (todoCount) todoCount.textContent = `(${selected.todos.length}/10)`;
+
+            const addSchedBtn = $('#add-schedule-btn');
+            const addTodoBtn = $('#add-todo-btn');
+            if (addSchedBtn) addSchedBtn.style.display = selected.schedules.length >= 10 ? 'none' : 'block';
+            if (addTodoBtn) addTodoBtn.style.display = selected.todos.length >= 10 ? 'none' : 'block';
+
+            const todayStr = new Date().toISOString().split('T')[0];
+            const addDiaryBtn = $('#add-diary-btn');
+            if (addDiaryBtn) addDiaryBtn.style.display = (selected.diaries.length === 0 && state.selectedDate <= todayStr) ? 'block' : 'none';
+
+            lucide.createIcons();
+        }
+
+        function renderCalendar() {
+            const calendarGrid = $('#calendar-grid');
+            if (!calendarGrid) return;
+
+            const year = state.currentDate.getFullYear();
+            const month = state.currentDate.getMonth();
+            const firstDay = new Date(year, month, 1).getDay();
+            const totalDays = new Date(year, month + 1, 0).getDate();
+
+            const days = [];
+            for (let i = 0; i < firstDay; i++) days.push({ day: null, fullDate: null });
+            for (let d = 1; d <= totalDays; d++) {
+                days.push({ day: d, fullDate: `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
+            }
+
+            const weeks = [];
+            for (let i = 0; i < days.length; i += 7) {
+                const week = days.slice(i, i + 7);
+                while (week.length < 7) week.push({ day: null, fullDate: null });
+                weeks.push(week);
+            }
+
+            calendarGrid.style.gridTemplateRows = `auto repeat(${weeks.length}, 1fr)`;
+
+            const weekdayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                .map((d, i) => `<div class="bg-slate-50 py-3 text-center text-[10px] font-black uppercase tracking-widest border-b border-slate-200 shrink-0 ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'}">${d}</div>`)
+                .join('');
+
+            const calendarHtml = weeks.flat().map(item => {
+                const isSelected = item.fullDate === state.selectedDate;
+                const isToday = item.fullDate === new Date().toISOString().split('T')[0];
+                const dayOfWeek = item.fullDate ? new Date(item.fullDate).getDay() : null;
+                const daySchedules = state.schedules.filter(s => s.date === item.fullDate);
+                const holidayName = state.dynamicHolidays[item.fullDate];
+
+                const itemsToDisplay = [];
+                if (holidayName) itemsToDisplay.push({ type: 'holiday', text: holidayName });
+                daySchedules.forEach(s => itemsToDisplay.push({ type: 'schedule', text: s.title, isAllDay: s.isAllDay }));
+
+                const visibleItems = itemsToDisplay.slice(0, 3);
+                const hasMore = itemsToDisplay.length > 3;
+                const hasTodo = state.todos.some(t => t.date === item.fullDate);
+                const hasDiary = state.diaries.some(d => d.date === item.fullDate);
+
+                if (!item.day) return `<div class="min-h-[140px] bg-slate-50/50 border-r border-b border-slate-100"></div>`;
+
+                return `
+                    <div onclick="window.selectDate('${item.fullDate}')"
+                        class="min-h-[140px] bg-white p-2 transition-all cursor-pointer relative flex flex-col border-r border-b border-slate-100 ${isSelected ? 'bg-indigo-50/50 ring-2 ring-inset ring-indigo-500 z-10' : 'hover:bg-slate-50'}">
+                        <div class="flex justify-between items-start mb-0.5">
+                            <span class="text-[11px] font-black w-6 h-6 flex items-center justify-center rounded-md ${isToday ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : (dayOfWeek === 0 || holidayName) ? 'text-red-500' : dayOfWeek === 6 ? 'text-blue-500' : 'text-slate-700'}">
+                                ${item.day}
+                            </span>
+                        </div>
+                        <div class="space-y-0.5 flex-1 overflow-hidden">
+                            ${visibleItems.map(vi => `
+                                <div class="text-[7px] md:text-[8px] font-bold px-1.5 py-0.5 rounded-sm truncate ${vi.type === 'holiday' ? 'bg-red-500 text-white' : 'bg-blue-100 text-blue-700'}">
+                                    ${vi.text}
+                                </div>
+                            `).join('')}
+                            ${hasMore ? `<div class="text-[7px] text-slate-400 text-center font-black mt-0.5">+ ${itemsToDisplay.length - 3} more</div>` : ''}
+                            <div class="flex gap-0.5 pt-1 mt-auto shrink-0">
+                                ${hasTodo ? '<div class="h-1.5 flex-1 bg-emerald-500 rounded-full shadow-sm"></div>' : ''}
+                                ${hasDiary ? '<div class="h-1.5 flex-1 bg-purple-500 rounded-full shadow-sm"></div>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            calendarGrid.innerHTML = weekdayHeaders + calendarHtml;
+        }
+
+        // --- Actions ---
+        window.selectDate = (dateStr) => {
+            if (!dateStr) return;
+            state.selectedDate = dateStr;
+            renderApp();
+        };
+
+        window.changeMonth = (offset) => {
+            const d = state.currentDate;
+            state.currentDate = new Date(d.getFullYear(), d.getMonth() + offset, 1);
+            fetchYearlyHolidays(state.currentDate.getFullYear());
+            renderApp();
+        };
+
+        window.goToToday = () => {
+            const today = new Date();
+            state.currentDate = today;
+            state.selectedDate = formatDate(today);
+            fetchYearlyHolidays(today.getFullYear());
+            renderApp();
+        };
+
+        window.toggleChat = () => {
+            state.isChatOpen = !state.isChatOpen;
+            const chatBox = $('#ai-chat-box');
+            if (state.isChatOpen) {
+                chatBox.classList.remove('hidden');
+                $('#chat-input').focus();
+                updateChatUI();
+            } else {
+                chatBox.classList.add('hidden');
+                state.chatStatus = '';
+            }
+        };
+
+        window.handleChatSubmit = async (e) => {
+            e.preventDefault();
+            const input = $('#chat-input').value;
+            if (!input.trim() || state.isAiProcessing) return;
+
+            state.isAiProcessing = true;
+            state.chatStatus = '요청을 분석하고 있습니다...';
+            updateChatUI();
+
+            const currentDataSummary = {
+                schedules: state.schedules.map(s => ({ id: s.id, date: s.date, title: s.title, startTime: s.startTime, endTime: s.endTime, isAllDay: s.isAllDay })),
+                todos: state.todos.map(t => ({ id: t.id, date: t.date, text: t.text, completed: t.completed }))
+            };
+
+            const systemPrompt = `당신은 플래너 비서입니다. 사용자의 요청을 분석하여 일정(schedules)과 할 일(todos)을 관리하세요.
+오늘 날짜는 ${new Date().toISOString().split('T')[0]}입니다.
+현재 등록된 데이터: ${JSON.stringify(currentDataSummary)}
+
+규칙 (중요):
+1. 액션 분류 규칙:
+   - 명시적인 "수정", "삭제" 요청이 아니면 무조건 'action': 'add'를 사용하세요.
+2. 타입 분류 규칙 (정교화):
+   - **할 일(todo)**:
+     - **"~하기", "~해야 해", "~할 거야", "~하고 싶어", "~할래"** 처럼 사용자의 주관적인 의지나 계획이 포함된 모든 경우.
+     - 시각 정보가 함께 있더라도 위의 '의지 표현'이 있다면 반드시 'todo'로 분류하세요.
+     - 시간 정보가 있다면 내용(text) 뒤에 괄호로 추가하세요. (예: "공부하기 (오후 6시)")
+   - **일정(schedule)**:
+     - 특정 시각 정보(예: '6시에')가 포함되어 있고, 그 내용이 **"마감", "제출", "회의", "약속", "수업", "마지막", "기한"** 등 객관적인 사건이나 데드라인인 경우.
+     - 시각 정보만 순수하게 있는 경우.
+3. 데이터 규칙:
+   - 모든 제목(title)과 내용(text)은 반드시 50자 이하.
+   - 할 일 타입은 필드명 'text', 일정 타입은 필드명 'title'을 사용하세요.
+   - 시각 정보가 하나만 있다면 startTime과 endTime을 동일하게 설정하세요.
+   - 시각 정보가 없으면 일정의 경우 'isAllDay': true로 설정하세요.
+4. 응답은 오직 JSON {"actions": [{"type": "schedule"|"todo", "action": "add"|"update"|"delete", "targetId": "ID", "data": {...}}]} 형식으로만 하세요.`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: input }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: { responseMimeType: "application/json" }
+                    })
+                });
+                const result = await response.json();
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                    const parsed = JSON.parse(text);
+                    const actions = parsed.actions || [];
+                    if (actions.length === 0) {
+                        state.chatStatus = '관련된 요청을 찾지 못했습니다.';
+                    } else {
+                        for (const action of actions) {
+                            const colName = action.type === 'schedule' ? 'schedules' : 'todos';
+                            const path = collection(db, 'artifacts', appId, 'users', state.user.uid, colName);
+                            let data = { ...action.data };
+
+                            if (action.type === 'todo') {
+                                if (data.title && !data.text) data.text = data.title;
+                                if (data.text) data.text = data.text.substring(0, 50);
+                            }
+
+                            if (action.type === 'schedule' && data.title) {
+                                data.title = data.title.substring(0, 50);
+                            }
+
+                            if (action.type === 'schedule' && !data.isAllDay) {
+                                if (data.startTime && !data.endTime) data.endTime = data.startTime;
+                                if (!data.startTime && data.endTime) data.startTime = data.endTime;
+                                if (data.startTime && data.endTime && data.startTime > data.endTime) data.endTime = data.startTime;
+                            }
+
+                            if (action.action === 'add') {
+                                await addDoc(path, { date: data.date || state.selectedDate, createdAt: Date.now(), ...data });
+                            } else if (action.action === 'update' && action.targetId) {
+                                await updateDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, colName, action.targetId), data);
+                            } else if (action.action === 'delete' && action.targetId) {
+                                await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, colName, action.targetId));
+                            }
+                        }
+                        state.chatStatus = `${actions.length}건의 요청이 처리되었습니다!`;
+                        $('#chat-input').value = '';
+                        setTimeout(window.toggleChat, 2000);
+                    }
+                }
+            } catch (err) {
+                state.chatStatus = '오류가 발생했습니다.';
+            } finally {
+                state.isAiProcessing = false;
+                updateChatUI();
+            }
+        };
+
+        function updateChatUI() {
+            const statusDiv = $('#chat-status-area');
+            if (!statusDiv) return;
+            statusDiv.innerHTML = state.chatStatus ? `
+                <div class="flex flex-col items-center justify-center text-center gap-2 py-4">
+                    ${state.isAiProcessing ? '<i data-lucide="loader-2" class="w-6 h-6 text-indigo-600 animate-spin"></i>' : ''}
+                    <p class="text-sm font-bold text-slate-700 leading-relaxed">${state.chatStatus}</p>
+                </div>
+            ` : `
+                <div class="space-y-3">
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">예시</p>
+                    <ul class="text-xs space-y-2 font-medium">
+                        <li class="bg-white p-2 rounded-xl border border-slate-100 italic">"6시 과제 제출 마감" (일정)</li>
+                        <li class="bg-white p-2 rounded-xl border border-slate-100 italic">"오후 8시 영화 예매하기" (할 일)</li>
+                        <li class="bg-white p-2 rounded-xl border border-slate-100 italic">"공부하기" (할 일)</li>
+                    </ul>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        window.openForm = (type, id = null) => {
+            state.modalType = type;
+            state.editingItem = id ? [...state.todos, ...state.schedules, ...state.diaries].find(i => i.id === id) : null;
+
+            $('#modal-title-text').textContent = `${type === 'todo' ? '할 일' : type === 'schedule' ? '일정' : '일기'} ${id ? '수정' : '추가'}`;
+            $('#form-error').textContent = '';
+
+            $('#modal-field-title').style.display = type === 'diary' ? 'none' : 'block';
+            $('#modal-field-schedule').style.display = type === 'schedule' ? 'grid' : 'none';
+            $('#modal-field-all-day').style.display = type === 'schedule' ? 'flex' : 'none';
+            $('#modal-field-diary').style.display = type === 'diary' ? 'block' : 'none';
+
+            if (state.editingItem) {
+                $('#input-title').value = state.editingItem.title || state.editingItem.text || '';
+                $('#input-start').value = state.editingItem.startTime || '09:00';
+                $('#input-end').value = state.editingItem.endTime || '10:00';
+                $('#input-content').value = state.editingItem.content || '';
+                state.isAllDay = state.editingItem.isAllDay || false;
+            } else {
+                $('#input-title').value = '';
+                $('#input-start').value = '09:00';
+                $('#input-end').value = '10:00';
+                $('#input-content').value = '';
+                state.isAllDay = false;
+            }
+
+            updateAllDayUI();
+            $('#modal-container').classList.remove('hidden');
+        };
+
+        window.toggleAllDay = () => {
+            state.isAllDay = !state.isAllDay;
+            updateAllDayUI();
+        };
+
+        function updateAllDayUI() {
+            const startInput = $('#input-start');
+            const endInput = $('#input-end');
+            const switchBg = $('#all-day-switch-bg');
+            const switchDot = $('#all-day-switch-dot');
+
+            if (state.isAllDay) {
+                startInput.disabled = true;
+                endInput.disabled = true;
+                startInput.classList.add('opacity-40', 'bg-slate-100');
+                endInput.classList.add('opacity-40', 'bg-slate-100');
+                switchBg.classList.remove('bg-slate-200');
+                switchBg.classList.add('bg-blue-500');
+                switchDot.classList.replace('translate-x-0', 'translate-x-5');
+            } else {
+                startInput.disabled = false;
+                endInput.disabled = false;
+                startInput.classList.remove('opacity-40', 'bg-slate-100');
+                endInput.classList.remove('opacity-40', 'bg-slate-100');
+                switchBg.classList.add('bg-slate-200');
+                switchBg.classList.remove('bg-blue-500');
+                switchDot.classList.replace('translate-x-5', 'translate-x-0');
+            }
+        }
+
+        window.closeModal = () => {
+            $('#modal-container').classList.add('hidden');
+            state.modalType = null;
+            state.editingItem = null;
+        };
+
+        window.saveItem = async () => {
+            if (!state.user) return;
+            const title = $('#input-title').value;
+            const startTime = $('#input-start').value;
+            const endTime = $('#input-end').value;
+            const content = $('#input-content').value;
+
+            if (state.modalType !== 'diary' && !title.trim()) {
+                $('#form-error').textContent = '제목을 입력해주세요.';
+                return;
+            }
+            if (state.modalType === 'schedule' && !state.isAllDay && startTime > endTime) {
+                $('#form-error').textContent = '종료 시간은 시작 시간보다 빠를 수 없습니다.';
+                return;
+            }
+
+            const colName = state.modalType === 'todo' ? 'todos' : state.modalType === 'schedule' ? 'schedules' : 'diaries';
+            const payload = {
+                date: state.selectedDate,
+                createdAt: Date.now(),
+                ...(state.modalType === 'todo' ? { text: title.substring(0, 50), completed: false } :
+                   state.modalType === 'schedule' ? { title: title.substring(0, 50), startTime, endTime, isAllDay: state.isAllDay } :
+                   { title: content.split('\n')[0].substring(0, 50) || '일기', content })
+            };
+
+            try {
+                if (state.editingItem) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, colName, state.editingItem.id), payload);
+                } else {
+                    await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, colName), payload);
+                }
+                window.closeModal();
+            } catch (err) { console.error(err); }
+        };
+
+        window.deleteItem = async (col, id) => {
+            if (!state.user) return;
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, col, id));
+            } catch (err) { console.error(err); }
+        };
+
+        window.toggleTodo = async (id, currentStatus) => {
+            if (!state.user) return;
+            try {
+                await updateDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'todos', id), { completed: !currentStatus });
+            } catch (err) { console.error(err); }
+        };
+
+        window.applyMarkdown = (type) => {
+            const area = $('#input-content');
+            const start = area.selectionStart;
+            const end = area.selectionEnd;
+            const text = area.value;
+            const selection = text.substring(start, end);
+            let newText = "";
+            let offset = 0;
+
+            switch(type) {
+                case 'bold': newText = text.substring(0, start) + `**${selection || '텍스트'}**` + text.substring(end); offset = 2; break;
+                case 'italic': newText = text.substring(0, start) + `_${selection || '텍스트'}_` + text.substring(end); offset = 1; break;
+                case 'heading': newText = text.substring(0, start) + `\n# ${selection || '제목'}\n` + text.substring(end); offset = 3; break;
+                case 'list': newText = text.substring(0, start) + `\n- ${selection || '항목'}\n` + text.substring(end); offset = 3; break;
+            }
+            area.value = newText;
+            area.focus();
+            area.setSelectionRange(start + offset, start + offset + (selection.length || (selection ? 0 : 3)));
+        };
+
+        // --- Init ---
+        window.addEventListener('DOMContentLoaded', () => {
+            setupListeners();
+            initAuth();
+            lucide.createIcons();
+        });
+    </script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #CBD5E1; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    </style>
+</head>
+<body class="flex flex-col h-screen bg-slate-50 text-slate-900 overflow-hidden relative">
+
+<!-- Initial Global Loader -->
+<div id="init-loader" class="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center">
+    <i data-lucide="loader-2" class="w-10 h-10 text-indigo-600 animate-spin mb-4"></i>
+    <p class="font-bold text-slate-400">똑똑플랜 초기화 중...</p>
+</div>
+
+<!-- Holiday Loader Overlay -->
+<div id="holiday-overlay"
+     class="absolute inset-0 z-[100] bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center hidden">
+    <div class="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4 border border-slate-100 text-center">
+        <i data-lucide="loader-2" class="w-12 h-12 text-indigo-600 animate-spin"></i>
+        <p class="text-lg font-black text-slate-700">해당 연도의 공휴일을 가져오고 있습니다</p>
+    </div>
+</div>
+
+<!-- Header -->
+<header class="bg-white border-b border-slate-200 flex items-center z-30 shadow-sm shrink-0">
+    <div class="w-[40%] min-w-[320px] p-4 flex items-center justify-between border-r border-slate-100">
+        <div class="flex items-center gap-4">
+            <h2 id="selected-date-label" class="text-2xl font-black text-indigo-600 tracking-tight">0000-00-00</h2>
+            <div class="relative">
+                <button onclick="window.toggleChat()"
+                        class="p-2.5 rounded-2xl transition-all shadow-sm bg-slate-100 text-slate-600 hover:bg-indigo-50">
+                    <i data-lucide="bot" class="w-[22px] h-[22px]"></i>
+                </button>
+                <!-- AI Chat Popover -->
+                <div id="ai-chat-box"
+                     class="absolute top-full left-0 mt-3 w-80 bg-white rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden z-50 hidden">
+                    <div class="p-5 bg-indigo-600 text-white flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="bot" class="w-[18px] h-[18px]"></i>
+                            <span class="font-black text-sm uppercase tracking-wider">AI Assistant</span>
+                        </div>
+                        <button onclick="window.toggleChat()"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    </div>
+                    <div id="chat-status-area"
+                         class="p-6 bg-slate-50 min-h-[120px] max-h-[300px] overflow-y-auto text-slate-700"></div>
+                    <form onsubmit="window.handleChatSubmit(event)"
+                          class="p-5 bg-white border-t border-slate-100 flex gap-2">
+                        <input id="chat-input" type="text" placeholder="명령을 입력하세요..."
+                               class="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <button type="submit" class="p-3 bg-indigo-600 text-white rounded-xl"><i data-lucide="send"
+                                                                                                 class="w-5 h-5"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex-1 px-4 lg:px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-6">
+            <h1 id="calendar-title" class="text-2xl font-black text-slate-800 tracking-tight shrink-0">0000년 0월</h1>
+            <div class="flex bg-slate-100 rounded-full p-1 shadow-inner shrink-0">
+                <button onclick="window.changeMonth(-1)"
+                        class="p-1.5 hover:bg-white rounded-full transition-all text-slate-600 hover:text-indigo-600"><i
+                        data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                <button onclick="window.goToToday()"
+                        class="px-4 py-1 text-[10px] font-black uppercase hover:bg-white rounded-full transition-all text-slate-500">
+                    Today
+                </button>
+                <button onclick="window.changeMonth(1)"
+                        class="p-1.5 hover:bg-white rounded-full transition-all text-slate-600 hover:text-indigo-600"><i
+                        data-lucide="chevron-right" class="w-4 h-4"></i></button>
+            </div>
+        </div>
+        <div class="hidden sm:flex gap-4 items-center text-[10px] font-bold text-slate-400 bg-slate-50 px-4 py-2 rounded-full border border-slate-100">
+            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span><span>일정</span>
+            </div>
+            <div class="flex items-center gap-1.5"><span
+                    class="w-2 h-2 rounded-full bg-emerald-500"></span><span>할 일</span></div>
+            <div class="flex items-center gap-1.5"><span
+                    class="w-2 h-2 rounded-full bg-purple-500"></span><span>일기</span></div>
+            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span><span>공휴일</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="flex-1 flex overflow-hidden">
+    <!-- Left Panel -->
+    <aside class="w-[40%] min-w-[320px] bg-white border-r border-slate-200 flex flex-row overflow-hidden shadow-xl z-20">
+        <section class="flex-1 min-w-0 border-r border-slate-50 flex flex-col p-4 bg-white overflow-hidden">
+            <div class="flex justify-between items-center mb-4 shrink-0 h-8">
+                <h3 class="text-xs font-black text-slate-700 uppercase tracking-tighter truncate flex items-center">
+                    <i data-lucide="calendar" class="w-3.5 h-3.5 mr-1.5 text-blue-500"></i> 일정 <span id="schedule-count"
+                                                                                                     class="ml-1 text-slate-400"></span>
+                </h3>
+                <button id="add-schedule-btn" onclick="window.openForm('schedule')"
+                        class="p-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100"><i data-lucide="plus"
+                                                                                             class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+            <div id="schedule-list" class="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar"></div>
+        </section>
+        <section class="flex-1 min-w-0 border-r border-slate-50 flex flex-col p-4 bg-slate-50/30 overflow-hidden">
+            <div class="flex justify-between items-center mb-4 shrink-0 h-8">
+                <h3 class="text-xs font-black text-slate-700 uppercase tracking-tighter truncate flex items-center">
+                    <i data-lucide="list-todo" class="w-3.5 h-3.5 mr-1.5 text-emerald-500"></i> 할 일 <span
+                        id="todo-count" class="ml-1 text-slate-400"></span>
+                </h3>
+                <button id="add-todo-btn" onclick="window.openForm('todo')"
+                        class="p-1 bg-emerald-50 text-emerald-600 rounded-md hover:bg-emerald-100"><i data-lucide="plus"
+                                                                                                      class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+            <div id="todo-list" class="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar"></div>
+        </section>
+        <section class="flex-1 min-w-0 flex flex-col p-4 bg-white overflow-hidden">
+            <div class="flex justify-between items-center mb-4 shrink-0 h-8">
+                <h3 class="flex items-center text-xs font-black text-slate-700 uppercase tracking-tighter truncate"><i
+                        data-lucide="book-text" class="w-3.5 h-3.5 mr-1.5 text-purple-500"></i> 일기</h3>
+                <button id="add-diary-btn" onclick="window.openForm('diary')"
+                        class="p-1 bg-purple-50 text-purple-600 rounded-md hover:bg-purple-100"><i data-lucide="plus"
+                                                                                                   class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+            <div id="diary-list" class="flex-1 overflow-y-auto pr-1 custom-scrollbar"></div>
+        </section>
+    </aside>
+
+    <!-- Right Panel -->
+    <main class="flex-1 bg-slate-50 flex flex-col h-full overflow-hidden">
+        <div class="flex-1 p-4 lg:p-6 flex flex-col h-full overflow-y-auto">
+            <div id="calendar-grid"
+                 class="flex-1 grid grid-cols-7 bg-slate-200 rounded-2xl overflow-hidden border border-slate-200 shadow-lg min-h-fit"></div>
+        </div>
+    </main>
+</div>
+
+<!-- Modals -->
+<div id="modal-container"
+     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm hidden">
+    <div class="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8">
+        <h3 id="modal-title-text" class="text-xl font-black mb-6 text-slate-800 uppercase tracking-tight">항목</h3>
+        <div class="space-y-5">
+            <div id="modal-field-title">
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">제목 (최대
+                    50자)</label>
+                <input id="input-title" type="text" maxlength="50" placeholder="제목을 입력하세요"
+                       class="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold text-sm">
+            </div>
+
+            <div id="modal-field-schedule" class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">시작
+                        시간</label>
+                    <input id="input-start" type="time"
+                           class="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm transition-all duration-200">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">종료
+                        시간</label>
+                    <input id="input-end" type="time"
+                           class="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm transition-all duration-200">
+                </div>
+            </div>
+
+            <div id="modal-field-all-day" class="flex items-center justify-center gap-3 px-2 pt-1">
+                <span class="text-sm font-black text-slate-700">종일</span>
+                <button onclick="window.toggleAllDay()"
+                        class="relative inline-flex items-center h-6 rounded-full w-11 transition-all duration-200 outline-none bg-slate-200"
+                        id="all-day-switch-bg">
+                    <span id="all-day-switch-dot"
+                          class="inline-block w-4 h-4 transform bg-white rounded-full transition-transform translate-x-0 shadow-sm"></span>
+                </button>
+            </div>
+
+            <div id="modal-field-diary">
+                <div class="flex gap-1 border-b pb-2 mb-2">
+                    <button onclick="window.applyMarkdown('bold')"
+                            class="p-2 hover:bg-slate-100 rounded-lg text-slate-600"><i data-lucide="bold"
+                                                                                        class="w-[18px] h-[18px]"></i>
+                    </button>
+                    <button onclick="window.applyMarkdown('italic')"
+                            class="p-2 hover:bg-slate-100 rounded-lg text-slate-600"><i data-lucide="italic"
+                                                                                        class="w-[18px] h-[18px]"></i>
+                    </button>
+                    <button onclick="window.applyMarkdown('heading')"
+                            class="p-2 hover:bg-slate-100 rounded-lg text-slate-600"><i data-lucide="heading"
+                                                                                        class="w-[18px] h-[18px]"></i>
+                    </button>
+                    <button onclick="window.applyMarkdown('list')"
+                            class="p-2 hover:bg-slate-100 rounded-lg text-slate-600"><i data-lucide="list"
+                                                                                        class="w-[18px] h-[18px]"></i>
+                    </button>
+                </div>
+                <textarea id="input-content" rows="12" placeholder="마크다운으로 기록하세요..."
+                          class="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none resize-none font-medium text-slate-700 text-sm leading-relaxed"></textarea>
+            </div>
+            <div id="form-error" class="text-red-500 text-[11px] font-bold"></div>
+        </div>
+        <div class="flex gap-4 mt-10">
+            <button onclick="window.closeModal()"
+                    class="flex-1 py-4 font-black text-slate-400 bg-slate-100 rounded-2xl hover:bg-slate-200 text-sm">취소
+            </button>
+            <button onclick="window.saveItem()"
+                    class="flex-1 py-4 font-black text-white bg-indigo-600 rounded-2xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 text-sm">
+                저장
+            </button>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

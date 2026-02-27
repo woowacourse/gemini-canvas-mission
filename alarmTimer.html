@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>스마트 리마인더 타이머</title>
+    <style>
+      :root {
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --text: #1e293b;
+        --text-light: #64748b;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background-color: var(--bg);
+        color: var(--text);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+      }
+
+      .container {
+        background-color: var(--card);
+        padding: 2rem;
+        border-radius: 1.5rem;
+        box-shadow:
+          0 10px 25px -5px rgba(0, 0, 0, 0.1),
+          0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 400px;
+        text-align: center;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+        margin-bottom: 0.5rem;
+        color: var(--primary);
+      }
+
+      p {
+        color: var(--text-light);
+        font-size: 0.9rem;
+        margin-bottom: 2rem;
+      }
+
+      .input-group {
+        margin-bottom: 1.5rem;
+        text-align: left;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        font-size: 0.85rem;
+      }
+
+      input[type="time"] {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.75rem;
+        font-size: 1.1rem;
+        outline: none;
+        transition: border-color 0.2s;
+        box-sizing: border-box;
+      }
+
+      input[type="time"]:focus {
+        border-color: var(--primary);
+        ring: 2px solid var(--primary);
+      }
+
+      button {
+        width: 100%;
+        padding: 0.75rem;
+        border: none;
+        border-radius: 0.75rem;
+        background-color: var(--primary);
+        color: white;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          background-color 0.2s,
+          transform 0.1s;
+      }
+
+      button:hover {
+        background-color: var(--primary-hover);
+      }
+
+      button:active {
+        transform: scale(0.98);
+      }
+
+      button.cancel {
+        background-color: #ef4444;
+        margin-top: 0.5rem;
+      }
+
+      .status-card {
+        margin-top: 1.5rem;
+        padding: 1rem;
+        background-color: #f1f5f9;
+        border-radius: 0.75rem;
+        display: none;
+      }
+
+      .status-time {
+        font-size: 1.25rem;
+        font-weight: bold;
+        color: var(--primary);
+      }
+
+      .notification-msg {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #333;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 30px;
+        font-size: 0.8rem;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+        z-index: 1000;
+      }
+
+      .info-box {
+        margin-top: 1rem;
+        font-size: 0.75rem;
+        color: #ef4444;
+        background: #fee2e2;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>백그라운드 음성 타이머</h1>
+      <p>화면이 꺼져도 브라우저 탭이 유지되면<br />음성 알림이 작동합니다.</p>
+
+      <div id="setup-ui">
+        <div class="input-group">
+          <label for="target-time">목표 시간 설정</label>
+          <input type="time" id="target-time" required />
+        </div>
+        <button id="start-btn">타이머 시작</button>
+        <div class="info-box">※ 브라우저 탭을 닫지 마세요.</div>
+      </div>
+
+      <div id="active-ui" class="status-card">
+        <div>설정된 목표 시간</div>
+        <div id="display-target" class="status-time">--:--</div>
+        <div
+          id="display-remaining"
+          style="
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-light);
+          "
+        >
+          남은 시간 계산 중...
+        </div>
+        <button id="cancel-btn" class="cancel">취소</button>
+      </div>
+    </div>
+
+    <div id="toast" class="notification-msg"></div>
+
+    <script>
+      let worker = null;
+      let targetDateTime = null;
+      let lastNotifiedMinute = -1;
+
+      const setupUI = document.getElementById("setup-ui");
+      const activeUI = document.getElementById("active-ui");
+      const targetInput = document.getElementById("target-time");
+      const displayTarget = document.getElementById("display-target");
+      const displayRemaining = document.getElementById("display-remaining");
+      const toast = document.getElementById("toast");
+
+      // 알림 권한 요청
+      if (
+        Notification.permission !== "granted" &&
+        Notification.permission !== "denied"
+      ) {
+        Notification.requestPermission();
+      }
+
+      // Web Worker 소스 코드 (별도 파일 없이 Blob으로 생성)
+      // 브라우저의 메인 스레드가 쉬더라도 Worker는 백그라운드에서 정확한 타이머를 유지합니다.
+      const workerCode = `
+        let timer = null;
+        self.onmessage = function(e) {
+            if (e.data === 'start') {
+                timer = setInterval(() => {
+                    self.postMessage('tick');
+                }, 1000);
+            } else if (e.data === 'stop') {
+                clearInterval(timer);
+            }
+        };
+    `;
+
+      function initWorker() {
+        const blob = new Blob([workerCode], { type: "application/javascript" });
+        worker = new Worker(URL.createObjectURL(blob));
+        worker.onmessage = function () {
+          checkTimer();
+        };
+      }
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.style.opacity = "1";
+        setTimeout(() => {
+          toast.style.opacity = "0";
+        }, 3000);
+      }
+
+      function speakMessage(text) {
+        if ("speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = "ko-KR";
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+
+      function sendNotification(body) {
+        if (Notification.permission === "granted") {
+          new Notification("타이머 알림", { body });
+        }
+        speakMessage(body);
+        showToast(body);
+      }
+
+      function checkTimer() {
+        const now = new Date();
+        if (now >= targetDateTime) {
+          sendNotification("설정한 목표 시간에 도달했습니다.");
+          stopTimer();
+          return;
+        }
+
+        const diffMs = targetDateTime - now;
+        const diffMin = Math.floor(diffMs / (1000 * 60));
+        const diffSec = Math.floor((diffMs / 1000) % 60);
+
+        displayRemaining.textContent = `남은 시간: 약 ${diffMin}분 ${diffSec}초`;
+
+        if (diffMin <= 60 && diffMin > 0 && diffMin % 10 === 0) {
+          if (lastNotifiedMinute !== diffMin) {
+            sendNotification(`${diffMin}분 남았습니다.`);
+            lastNotifiedMinute = diffMin;
+          }
+        }
+      }
+
+      function startTimer() {
+        const timeVal = targetInput.value;
+        if (!timeVal) {
+          showToast("시간을 설정해주세요.");
+          return;
+        }
+
+        const [hours, minutes] = timeVal.split(":");
+        const now = new Date();
+        targetDateTime = new Date();
+        targetDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+        if (targetDateTime <= now) {
+          targetDateTime.setDate(targetDateTime.getDate() + 1);
+        }
+
+        displayTarget.textContent = timeVal;
+        setupUI.style.display = "none";
+        activeUI.style.display = "block";
+
+        showToast("백그라운드 타이머가 시작되었습니다.");
+        speakMessage(""); // TTS 엔진 활성화
+
+        initWorker();
+        worker.postMessage("start");
+      }
+
+      function stopTimer() {
+        if (worker) {
+          worker.postMessage("stop");
+          worker.terminate();
+          worker = null;
+        }
+        lastNotifiedMinute = -1;
+        setupUI.style.display = "block";
+        activeUI.style.display = "none";
+        displayRemaining.textContent = "남은 시간 계산 중...";
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      }
+
+      document
+        .getElementById("start-btn")
+        .addEventListener("click", startTimer);
+      document
+        .getElementById("cancel-btn")
+        .addEventListener("click", stopTimer);
+    </script>
+  </body>
+</html>

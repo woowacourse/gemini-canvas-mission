@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Java Stream Master</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* 커스텀 스크롤바 디자인 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    
+    /* 힌트 애니메이션 */
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .hint-anim { animation: slideDown 0.3s ease-out forwards; }
+  </style>
+</head>
+<body class="bg-[#F7F9FA] text-gray-800 font-sans h-screen overflow-hidden">
+
+  <!-- 메인 앱 컨테이너 -->
+  <div id="app" class="h-full"></div>
+
+  <script>
+    // ==========================================
+    // 1. 공통 유틸리티 및 문제 데이터 정의
+    // ==========================================
+    const m_toUpper = { id: 'm_up', label: '.map(String::toUpperCase)', type: 'map', apply: (a) => a.map(s => s.toUpperCase()) };
+    const m_toLower = { id: 'm_low', label: '.map(String::toLowerCase)', type: 'map', apply: (a) => a.map(s => s.toLowerCase()) };
+    const s_strAsc = { id: 's_asc', label: '.sorted()', type: 'sort', apply: (a) => [...a].sort() };
+    const s_strDesc = { id: 's_desc', label: '.sorted(Comparator.reverseOrder())', type: 'sort', apply: (a) => [...a].sort().reverse() };
+    const s_numAsc = { id: 's_nAsc', label: '.sorted()', type: 'sort', apply: (a) => [...a].sort((x, y) => x - y) };
+    const s_numDesc = { id: 's_nDesc', label: '.sorted(Comparator.reverseOrder())', type: 'sort', apply: (a) => [...a].sort((x, y) => y - x) };
+    const d_dist = { id: 'd_dist', label: '.distinct()', type: 'distinct', apply: (a) => [...new Set(a)] };
+    const fm_flat = { id: 'fm_flat', label: '.flatMap(List::stream)', type: 'flatMap', apply: (a) => a.flat() };
+    const fm_arrFlat = { id: 'fm_arrFlat', label: '.flatMap(Arrays::stream)', type: 'flatMap', apply: (a) => a.flat() };
+
+    const LEVELS_DATA = {
+      beginner: {
+        id: 'beginner', title: "Level 1: 초급 (Beginner)", icon: 'zap', color: "text-green-500", bgColor: "bg-green-100",
+        levels: [
+          { id: 'b1', initialData: ["apple", "banana", "cherry"], targetData: ["APPLE", "BANANA", "CHERRY"], availableMethods: [m_toUpper, { id: 'f1', label: '.filter(s -> s.length() > 5)', type: 'filter', apply: (a) => a.filter(s => s.length > 5) }, s_strAsc, m_toLower] },
+          { id: 'b2', initialData: [1, 2, 3, 4, 5, 6], targetData: [2, 4, 6], availableMethods: [{ id: 'f_odd', label: '.filter(n -> n % 2 != 0)', type: 'filter', apply: (a) => a.filter(n => n % 2 !== 0) }, { id: 'f_even', label: '.filter(n -> n % 2 == 0)', type: 'filter', apply: (a) => a.filter(n => n % 2 === 0) }, { id: 'm_mul2', label: '.map(n -> n * 2)', type: 'map', apply: (a) => a.map(n => n * 2) }, d_dist] },
+          { id: 'b3', initialData: ["cat", "tiger", "dog", "elephant"], targetData: ["TIGER", "ELEPHANT"], availableMethods: [{ id: 'f_len_lt4', label: '.filter(s -> s.length() < 4)', type: 'filter', apply: (a) => a.filter(s => s.length < 4) }, m_toUpper, s_strAsc, { id: 'f_len_gt4', label: '.filter(s -> s.length() > 4)', type: 'filter', apply: (a) => a.filter(s => s.length > 4) }] },
+          { id: 'b4', initialData: [3, 1, 4, 1, 5, 9, 2, 6, 5], targetData: [1, 2, 3, 4, 5, 6, 9], availableMethods: [s_numAsc, { id: 'm_add1', label: '.map(n -> n + 1)', type: 'map', apply: (a) => a.map(n => n + 1) }, d_dist, { id: 'f_gt5', label: '.filter(n -> n > 5)', type: 'filter', apply: (a) => a.filter(n => n > 5) }] },
+          { id: 'b5', initialData: [10, 11, 12, 13, 14], targetData: [11, 13], availableMethods: [{ id: 'f_odd', label: '.filter(n -> n % 2 != 0)', type: 'filter', apply: (a) => a.filter(n => n % 2 !== 0) }, { id: 'f_even', label: '.filter(n -> n % 2 == 0)', type: 'filter', apply: (a) => a.filter(n => n % 2 === 0) }, s_numDesc, d_dist] },
+        ]
+      },
+      intermediate: {
+        id: 'intermediate', title: "Level 2: 중급 (Intermediate)", icon: 'layers', color: "text-blue-500", bgColor: "bg-blue-100",
+        levels: [
+          { id: 'i1', initialData: [10, 20, 30, 40, 50, 60], targetData: [30, 40, 50], availableMethods: [{ id: 's_2', label: '.skip(2)', type: 'skip', apply: (a) => a.slice(2) }, { id: 'l_3', label: '.limit(3)', type: 'limit', apply: (a) => a.slice(0, 3) }, { id: 's_3', label: '.skip(3)', type: 'skip', apply: (a) => a.slice(3) }, { id: 'l_2', label: '.limit(2)', type: 'limit', apply: (a) => a.slice(0, 2) }] },
+          { id: 'i2', initialData: [[1, 2], [2, 3], [3, 4]], targetData: [1, 2, 3, 4], availableMethods: [d_dist, fm_flat, s_numAsc, { id: 'm_size', label: '.map(List::size)', type: 'map', apply: (a) => a.map(l => l.length) }] },
+          { id: 'i3', initialData: ["apple", "kiwi", "banana", "grape", "melon"], targetData: ["MELON", "GRAPE", "BANANA", "APPLE"], availableMethods: [{ id: 'f_len_ge5', label: '.filter(s -> s.length() >= 5)', type: 'filter', apply: (a) => a.filter(s => s.length >= 5) }, s_strDesc, m_toUpper, { id: 'f_len_lt5', label: '.filter(s -> s.length() < 5)', type: 'filter', apply: (a) => a.filter(s => s.length < 5) }] },
+          { id: 'i4', initialData: [9, 8, 7, 6, 5], targetData: [9, 8], availableMethods: [{ id: 'l_2', label: '.limit(2)', type: 'limit', apply: (a) => a.slice(0, 2) }, { id: 's_2', label: '.skip(2)', type: 'skip', apply: (a) => a.slice(2) }, s_numAsc, d_dist] },
+          { id: 'i5', initialData: [1, 2, 3, 4, 5], targetData: [4, 5], availableMethods: [{ id: 's_3', label: '.skip(3)', type: 'skip', apply: (a) => a.slice(3) }, { id: 'l_3', label: '.limit(3)', type: 'limit', apply: (a) => a.slice(0, 3) }, s_numAsc, d_dist] },
+        ]
+      },
+      advanced: {
+        id: 'advanced', title: "Level 3: 고급 (Advanced)", icon: 'award', color: "text-purple-500", bgColor: "bg-purple-100",
+        levels: [
+          { id: 'a1', initialData: [-5, 2, -1, 5, -2, 3], targetData: [5, 3, 2, 1], availableMethods: [d_dist, { id: 'm_abs', label: '.map(Math::abs)', type: 'map', apply: (a) => a.map(Math.abs) }, s_numDesc, { id: 'f_gt0', label: '.filter(n -> n > 0)', type: 'filter', apply: (a) => a.filter(n => n > 0) }] },
+          { id: 'a2', initialData: ["Alice", "Bob", "Amanda", "Charlie", "Alex"], targetData: [5, 6, 4], availableMethods: [{ id: 'f_startA', label: '.filter(s -> s.startsWith("A"))', type: 'filter', apply: (a) => a.filter(s => s.startsWith('A')) }, { id: 'm_len', label: '.map(String::length)', type: 'map', apply: (a) => a.map(s => s.length) }, m_toUpper, d_dist] },
+          { id: 'a3', initialData: ["running", "jump", "swimming", "walk"], targetData: ["RUNNING", "SWIMMING"], availableMethods: [{ id: 'f_endIng', label: '.filter(s -> s.endsWith("ing"))', type: 'filter', apply: (a) => a.filter(s => s.endsWith('ing')) }, m_toUpper, m_toLower, s_strAsc] },
+          { id: 'a4', initialData: [" a ", " b ", "  c  ", "dd"], targetData: ["a", "b", "c"], availableMethods: [{ id: 'm_trim', label: '.map(String::trim)', type: 'map', apply: (a) => a.map(s => s.trim()) }, { id: 'f_len1', label: '.filter(s -> s.length() == 1)', type: 'filter', apply: (a) => a.filter(s => s.length === 1) }, d_dist, m_toUpper] },
+          { id: 'a5', initialData: [1, 2, 3, 4, 5], targetData: [4, 16], availableMethods: [{ id: 'f_even', label: '.filter(n -> n % 2 == 0)', type: 'filter', apply: (a) => a.filter(n => n % 2 === 0) }, { id: 'm_sq', label: '.map(n -> n * n)', type: 'map', apply: (a) => a.map(n => n * n) }, d_dist, s_numDesc] },
+        ]
+      },
+      master: {
+        id: 'master', title: "Level 4: 마스터 (Master)", icon: 'shield', color: "text-red-500", bgColor: "bg-red-100",
+        levels: [
+          { id: 'm1', initialData: ["Hello World", "hello Java", "Java Stream"], targetData: ["hello", "java", "stream", "world"], availableMethods: [m_toLower, { id: 'm_split', label: '.map(s -> s.split(" "))', type: 'map', apply: (a) => a.map(s => s.split(" ")) }, fm_arrFlat, d_dist, s_strAsc, { id: 'f_len_gt5', label: '.filter(s -> s.length() > 5)', type: 'filter', apply: (a) => a.filter(s => s.length > 5) }] },
+          { id: 'm2', initialData: [4, 1, 5, 2, 3], targetData: [3, 9, 15], availableMethods: [{ id: 'f_odd', label: '.filter(n -> n % 2 != 0)', type: 'filter', apply: (a) => a.filter(n => n % 2 !== 0) }, { id: 'm_mul3', label: '.map(n -> n * 3)', type: 'map', apply: (a) => a.map(n => n * 3) }, s_numAsc, { id: 'f_even', label: '.filter(n -> n % 2 == 0)', type: 'filter', apply: (a) => a.filter(n => n % 2 === 0) }, s_numDesc] },
+          { id: 'm3', initialData: ["AB", "C"], targetData: ["A", "B", "C"], availableMethods: [{ id: 'm_split_empty', label: '.map(s -> s.split(""))', type: 'map', apply: (a) => a.map(s => s.split("")) }, fm_arrFlat, m_toLower, d_dist, s_strDesc] },
+          { id: 'm4', initialData: ["1,2", "3,4"], targetData: [1, 2, 3, 4], availableMethods: [{ id: 'm_split_comma', label: '.map(s -> s.split(","))', type: 'map', apply: (a) => a.map(s => s.split(",")) }, fm_arrFlat, { id: 'm_toInt', label: '.map(Integer::parseInt)', type: 'map', apply: (a) => a.map(Number) }, d_dist, s_numDesc] },
+          { id: 'm5', initialData: ["apple"], targetData: [4], availableMethods: [{ id: 'm_split_empty', label: '.map(s -> s.split(""))', type: 'map', apply: (a) => a.map(s => s.split("")) }, fm_arrFlat, d_dist, { id: 'm_size_mock', label: '.map(s -> 4) /* 모의 */', type: 'map', apply: (a) => [new Set(a).size] }, s_strAsc] },
+        ]
+      },
+      grandmaster: {
+        id: 'grandmaster', title: "Level 5: 그랜드마스터 (Grandmaster)", icon: 'flame', color: "text-orange-500", bgColor: "bg-orange-100",
+        levels: [
+          { id: 'g1', initialData: ["100달러", "50달러", "이백달러", "30달러", "150달러"], targetData: [30, 50, 100, 150], availableMethods: [{ id: 'f_regex_num', label: '.filter(s -> s.matches(".*\\\\d+.*"))', type: 'filter', apply: (a) => a.filter(s => /\d/.test(s)) }, { id: 'm_rep_dollar', label: '.map(s -> s.replace("달러", ""))', type: 'map', apply: (a) => a.map(s => s.replace("달러", "")) }, { id: 'm_toInt', label: '.map(Integer::parseInt)', type: 'map', apply: (a) => a.map(Number) }, s_numAsc, d_dist, { id: 'f_len_gt3', label: '.filter(s -> s.length() > 3)', type: 'filter', apply: (a) => a.filter(s => s.length > 3) }] },
+          { id: 'g2', initialData: [[3, 1], [4, 8], [2, 7]], targetData: [2, 3, 4, 7], availableMethods: [fm_flat, { id: 'f_lt8', label: '.filter(n -> n < 8)', type: 'filter', apply: (a) => a.filter(n => n < 8) }, { id: 'f_gt1', label: '.filter(n -> n > 1)', type: 'filter', apply: (a) => a.filter(n => n > 1) }, s_numAsc, d_dist, { id: 'm_mul2', label: '.map(n -> n * 2)', type: 'map', apply: (a) => a.map(n => n * 2) }] },
+          { id: 'g3', initialData: ["ID:1 Age:20", "ID:2 Age:30"], targetData: [20, 30], availableMethods: [{ id: 'm_split', label: '.map(s -> s.split(" "))', type: 'map', apply: (a) => a.map(s => s.split(" ")) }, fm_arrFlat, { id: 'f_startAge', label: '.filter(s -> s.startsWith("Age:"))', type: 'filter', apply: (a) => a.filter(s => s.startsWith("Age:")) }, { id: 'm_rep_age', label: '.map(s -> s.replace("Age:", ""))', type: 'map', apply: (a) => a.map(s => s.replace("Age:", "")) }, { id: 'm_toInt', label: '.map(Integer::parseInt)', type: 'map', apply: (a) => a.map(Number) }, s_numAsc] },
+          { id: 'g4', initialData: ["#java is #cool", "#stream api"], targetData: ["cool", "java", "stream"], availableMethods: [{ id: 'm_split', label: '.map(s -> s.split(" "))', type: 'map', apply: (a) => a.map(s => s.split(" ")) }, fm_arrFlat, { id: 'f_startHash', label: '.filter(s -> s.startsWith("#"))', type: 'filter', apply: (a) => a.filter(s => s.startsWith("#")) }, { id: 'm_rep_hash', label: '.map(s -> s.replace("#", ""))', type: 'map', apply: (a) => a.map(s => s.replace("#", "")) }, s_strAsc, d_dist] },
+          { id: 'g5', initialData: ["John Doe", "Jane Doe", "Alan Turing"], targetData: ["Doe", "Turing"], availableMethods: [{ id: 'm_split', label: '.map(s -> s.split(" "))', type: 'map', apply: (a) => a.map(s => s.split(" ")) }, { id: 'm_get1', label: '.map(arr -> arr[1])', type: 'map', apply: (a) => a.map(arr => arr[1]) }, d_dist, s_strAsc, fm_arrFlat] },
+        ]
+      }
+    };
+
+    // ==========================================
+    // 2. 상태 관리 (State)
+    // ==========================================
+    let state = {
+      difficulty: null,
+      sessionLevels: [],
+      currentLevelIndex: 0,
+      selectedChain: [],
+      currentResult: [],
+      status: 'playing', // playing, success, wrong, completed
+      aiHint: null,
+      isHintLoading: false
+    };
+
+    // ==========================================
+    // 3. 렌더링 함수들 (UI Components)
+    // ==========================================
+    const appEl = document.getElementById('app');
+
+    function renderArrayHTML(arr) {
+      if (!arr || arr.length === 0) return `<span class="text-gray-400 italic text-sm">Empty</span>`;
+      
+      const itemsHtml = arr.map((item, idx) => {
+        const isArray = Array.isArray(item);
+        let displayValue;
+        if (isArray) {
+          displayValue = `[${item.map(x => typeof x === 'string' ? `"${x}"` : x).join(', ')}]`;
+        } else {
+          displayValue = typeof item === 'string' ? `"${item}"` : item;
+        }
+        const itemStyle = isArray ? 'bg-purple-100 text-purple-800' : (typeof item === 'string' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800');
+        
+        return `<span class="px-2.5 py-1 rounded-md shadow-sm ${itemStyle}">${displayValue}</span>${idx < arr.length - 1 ? '<span class="text-gray-400">,</span>' : ''}`;
+      }).join('');
+      
+      return `<div class="flex flex-wrap gap-2 items-center text-base lg:text-lg font-mono text-gray-700">
+                <span class="text-gray-400">[</span>
+                ${itemsHtml}
+                <span class="text-gray-400">]</span>
+              </div>`;
+    }
+
+    function renderDifficultyScreen() {
+      const difficultyCards = Object.values(LEVELS_DATA).map(diff => `
+        <button data-action="selectDifficulty" data-diff="${diff.id}" class="bg-white p-6 rounded-3xl shadow-sm hover:shadow-md border-2 border-gray-100 hover:border-blue-400 text-left transition-all group flex flex-col gap-4 active:scale-95">
+          <div class="w-14 h-14 rounded-2xl ${diff.bgColor} flex items-center justify-center">
+            <i data-lucide="${diff.icon}" class="w-7 h-7 ${diff.color}"></i>
+          </div>
+          <div>
+            <h2 class="text-xl font-bold text-gray-800 group-hover:text-blue-600 transition-colors">${diff.title}</h2>
+          </div>
+        </button>
+      `).join('');
+
+      return `
+        <div class="h-full bg-[#F7F9FA] flex flex-col items-center justify-center p-4 font-sans overflow-y-auto">
+          <div class="max-w-4xl w-full space-y-8 my-auto py-8">
+            <div class="text-center space-y-4">
+              <div class="bg-white p-4 inline-block rounded-3xl shadow-sm mb-4">
+                <i data-lucide="play" class="w-16 h-16 text-green-500 ml-2"></i>
+              </div>
+              <h1 class="text-4xl font-bold text-gray-800">Java Stream Master</h1>
+              <p class="text-xl text-gray-600">도전할 난이도 선택</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
+              ${difficultyCards}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderCompletedScreen() {
+      const diffTitle = LEVELS_DATA[state.difficulty].title;
+      return `
+        <div class="h-full bg-slate-50 flex items-center justify-center p-4 font-sans overflow-y-auto">
+          <div class="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center space-y-6 my-auto">
+            <i data-lucide="trophy" class="w-24 h-24 mx-auto text-yellow-400 drop-shadow-lg"></i>
+            <h1 class="text-3xl font-bold text-gray-800">세션 완료!</h1>
+            <p class="text-gray-600">${diffTitle}의 ${state.sessionLevels.length}문제를 성공적으로 풀었습니다.<br/>계속해서 실력을 키워보세요!</p>
+            <button data-action="goHome" class="w-full bg-blue-500 hover:bg-blue-400 text-white font-bold py-4 rounded-2xl border-b-4 border-blue-700 hover:border-blue-500 transition-all active:translate-y-1 active:border-b-0">
+              다른 난이도 선택하기
+            </button>
+            <button data-action="restartDiff" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-2xl transition-all">
+              현재 난이도 다시하기
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderGameScreen() {
+      const currentDifficultyData = LEVELS_DATA[state.difficulty];
+      const level = state.sessionLevels[state.currentLevelIndex];
+      const progress = ((state.currentLevelIndex) / state.sessionLevels.length) * 100;
+
+      // 체인 버튼 렌더링
+      const chainHtml = state.selectedChain.map((method, idx) => `
+        <div data-action="removeMethod" data-idx="${idx}" class="bg-blue-500 text-white px-4 py-2 rounded-xl font-mono text-base shadow-sm cursor-pointer hover:bg-blue-600 transform hover:scale-105 transition-all border-b-[3px] border-blue-700 active:border-b-0 active:translate-y-[3px]">
+          ${method.label}
+        </div>
+      `).join('');
+      
+      const toListHtml = state.selectedChain.length > 0 ? `<div class="font-mono text-base font-bold text-gray-400">.toList();</div>` : '';
+      const emptyChainHtml = state.selectedChain.length === 0 ? `<div class="text-gray-400 italic text-base">아래에서 메소드를 선택하세요...</div>` : '';
+
+      // 가용 메소드 버튼 렌더링
+      const availableHtml = level.availableMethods.map((method, idx) => `
+        <button data-action="addMethod" data-id="${method.id}" class="bg-white text-gray-700 border-2 border-gray-200 px-4 py-2.5 rounded-xl font-mono text-base font-semibold shadow-sm hover:border-blue-400 hover:bg-blue-50 transition-all border-b-[3px] active:border-b-[1px] active:translate-y-[2px]">
+          ${method.label}
+        </button>
+      `).join('');
+
+      // 하단 액션바 렌더링
+      let actionBarHtml = '';
+      let actionBg = 'bg-white border-gray-100 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]';
+      
+      if (state.status === 'success') {
+        actionBg = 'bg-green-100 border-green-200';
+        actionBarHtml = `
+          <div class="flex-1">
+            <div class="flex items-center gap-3 text-green-700 font-bold text-lg md:text-xl">
+              <div class="bg-white p-1.5 rounded-full shadow-sm"><i data-lucide="check" class="text-green-500 w-6 h-6"></i></div>
+              정답입니다! 완벽해요!
+            </div>
+          </div>
+          <button data-action="nextLevel" class="bg-green-500 text-white px-8 py-3 rounded-xl font-bold text-base md:text-lg border-b-[4px] border-green-700 hover:bg-green-400 active:border-b-0 active:translate-y-[4px] transition-all flex items-center gap-2 shadow-sm">
+            다음 문제 <i data-lucide="arrow-right" class="w-5 h-5"></i>
+          </button>
+        `;
+      } else if (state.status === 'wrong') {
+        actionBg = 'bg-red-100 border-red-200';
+        actionBarHtml = `
+          <div class="flex-1">
+            <div class="text-red-600 font-bold text-base md:text-lg">결과가 다릅니다. 다시 확인해보세요.</div>
+          </div>
+          <button data-action="checkAnswer" ${state.selectedChain.length === 0 ? 'disabled' : ''} class="px-8 py-3 rounded-xl font-bold text-base md:text-lg border-b-[4px] transition-all flex items-center gap-2 shadow-sm ${state.selectedChain.length > 0 ? 'bg-blue-500 text-white border-blue-700 hover:bg-blue-400 active:border-b-0 active:translate-y-[4px] cursor-pointer' : 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed'}">
+            정답 확인
+          </button>
+        `;
+      } else {
+        actionBarHtml = `
+          <div class="flex-1"></div>
+          <button data-action="checkAnswer" ${state.selectedChain.length === 0 ? 'disabled' : ''} class="px-8 py-3 rounded-xl font-bold text-base md:text-lg border-b-[4px] transition-all flex items-center gap-2 shadow-sm ${state.selectedChain.length > 0 ? 'bg-blue-500 text-white border-blue-700 hover:bg-blue-400 active:border-b-0 active:translate-y-[4px] cursor-pointer' : 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed'}">
+            정답 확인
+          </button>
+        `;
+      }
+
+      // AI 힌트 UI
+      let hintHtml = '';
+      if (state.isHintLoading) {
+        hintHtml = `<div class="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-2xl flex items-center gap-3 text-purple-700 font-semibold hint-anim"><i data-lucide="loader-2" class="animate-spin w-5 h-5"></i> AI 선생님이 힌트를 생각하고 있어요...</div>`;
+      } else if (state.aiHint) {
+        hintHtml = `<div class="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-2xl flex items-start gap-3 text-purple-800 font-medium hint-anim"><i data-lucide="sparkles" class="w-6 h-6 shrink-0 mt-0.5 text-purple-500"></i><p class="leading-relaxed whitespace-pre-line">${state.aiHint}</p></div>`;
+      }
+
+      return `
+        <div class="h-full flex flex-col overflow-hidden">
+          <header class="bg-white p-4 shadow-sm shrink-0 z-10">
+            <div class="max-w-5xl mx-auto flex items-center gap-4">
+              <button data-action="goHome" class="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors" title="홈으로 가기">
+                <i data-lucide="home" class="w-6 h-6"></i>
+              </button>
+              <span class="font-bold text-gray-500 whitespace-nowrap bg-gray-100 px-3 py-1.5 rounded-lg hidden sm:inline-block text-sm">
+                ${currentDifficultyData.title}
+              </span>
+              <span class="font-bold text-gray-400 whitespace-nowrap text-sm">
+                Quest ${state.currentLevelIndex + 1} / ${state.sessionLevels.length}
+              </span>
+              <div class="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden">
+                <div class="h-full bg-green-500 transition-all duration-500 ease-out rounded-full" style="width: ${progress}%"></div>
+              </div>
+            </div>
+          </header>
+
+          <main class="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 flex flex-col gap-6 overflow-y-auto pb-8">
+            <section class="bg-white p-5 md:p-6 rounded-3xl shadow-sm border-2 border-gray-100 shrink-0">
+              <div class="flex flex-col md:flex-row gap-4">
+                <div class="flex-1 flex items-center gap-3 p-3 md:p-4 bg-gray-50 rounded-2xl">
+                  <span class="font-bold whitespace-nowrap text-base text-gray-500 shrink-0">시작:</span>
+                  <div class="flex-1 overflow-x-auto pb-1">${renderArrayHTML(level.initialData)}</div>
+                </div>
+                <div class="flex-1 flex items-center gap-3 p-3 md:p-4 bg-green-50/50 rounded-2xl border border-green-100">
+                  <span class="font-bold whitespace-nowrap text-base text-green-600 flex items-center shrink-0"><i data-lucide="trophy" class="w-4 h-4 mr-1.5"></i> 목표:</span>
+                  <div class="flex-1 overflow-x-auto pb-1">${renderArrayHTML(level.targetData)}</div>
+                </div>
+              </div>
+            </section>
+
+            <section class="bg-slate-800 p-5 md:p-6 rounded-3xl shadow-lg text-white shrink-0 flex flex-col">
+              <div class="flex justify-between items-center mb-3">
+                <h3 class="text-base md:text-lg font-bold text-slate-300 flex items-center gap-2">
+                  <i data-lucide="play" class="w-[18px] h-[18px] text-green-400"></i> 실시간 결과
+                </h3>
+                <button data-action="resetChain" class="text-slate-400 hover:text-white transition-colors flex items-center gap-1.5 text-sm font-semibold bg-slate-700/50 px-3 py-1.5 rounded-lg">
+                  <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 초기화
+                </button>
+              </div>
+              <div class="bg-slate-900 p-4 rounded-2xl overflow-x-auto min-h-[70px] flex items-center shadow-inner">
+                 ${renderArrayHTML(state.currentResult)}
+              </div>
+            </section>
+
+            <section class="shrink-0 flex flex-col gap-2">
+              <h3 class="font-bold text-gray-500 px-2 text-sm md:text-base">메소드 체이닝 (클릭해서 제거)</h3>
+              <div class="bg-white p-5 rounded-3xl min-h-[100px] shadow-sm border-2 border-dashed border-gray-300 flex flex-wrap gap-2.5 items-center">
+                <div class="font-mono text-base font-bold text-gray-400">data.stream()</div>
+                ${chainHtml}
+                ${toListHtml}
+                ${emptyChainHtml}
+              </div>
+            </section>
+
+            <section class="shrink-0 flex flex-col gap-2 pb-2">
+              <div class="flex justify-between items-center px-2">
+                <h3 class="font-bold text-gray-500 text-sm md:text-base">사용 가능한 메소드</h3>
+                <button data-action="getAIHint" class="flex items-center gap-1.5 text-sm font-bold text-purple-600 bg-purple-100 hover:bg-purple-200 px-3 py-1.5 rounded-xl transition-colors">
+                  <i data-lucide="sparkles" class="w-4 h-4"></i> AI 힌트
+                </button>
+              </div>
+              <div class="flex flex-wrap gap-2.5">
+                ${availableHtml}
+              </div>
+              ${hintHtml}
+            </section>
+          </main>
+
+          <div class="shrink-0 p-4 md:p-5 border-t-2 transition-colors duration-300 z-10 ${actionBg}">
+            <div class="max-w-5xl mx-auto flex items-center justify-between">
+              ${actionBarHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function render() {
+      if (!state.difficulty) {
+        appEl.innerHTML = renderDifficultyScreen();
+      } else if (state.status === 'completed') {
+        appEl.innerHTML = renderCompletedScreen();
+      } else {
+        appEl.innerHTML = renderGameScreen();
+      }
+      lucide.createIcons(); // 아이콘 재렌더링
+    }
+
+    // ==========================================
+    // 4. 비즈니스 로직 (Logic)
+    // ==========================================
+    function calculateResult() {
+      const level = state.sessionLevels[state.currentLevelIndex];
+      let result = [...level.initialData];
+      try {
+        state.selectedChain.forEach(method => {
+          result = method.apply(result);
+        });
+        state.currentResult = result;
+      } catch (e) {
+        console.error("Evaluation error", e);
+      }
+    }
+
+    function selectDifficulty(diffKey) {
+      state.difficulty = diffKey;
+      const allLevels = LEVELS_DATA[diffKey].levels;
+      // 5개 랜덤 추출
+      const shuffled = [...allLevels].sort(() => 0.5 - Math.random());
+      state.sessionLevels = shuffled.slice(0, 5);
+      state.currentLevelIndex = 0;
+      state.selectedChain = [];
+      state.aiHint = null;
+      state.isHintLoading = false;
+      calculateResult();
+      state.status = 'playing';
+      render();
+    }
+
+    function addMethod(methodId) {
+      const level = state.sessionLevels[state.currentLevelIndex];
+      const method = level.availableMethods.find(m => m.id === methodId);
+      if (method) {
+        state.selectedChain.push(method);
+        calculateResult();
+        state.status = 'playing';
+        render();
+      }
+    }
+
+    function removeMethod(index) {
+      state.selectedChain.splice(index, 1);
+      calculateResult();
+      state.status = 'playing';
+      render();
+    }
+
+    function resetChain() {
+      state.selectedChain = [];
+      state.aiHint = null;
+      calculateResult();
+      state.status = 'playing';
+      render();
+    }
+
+    function checkAnswer() {
+      const level = state.sessionLevels[state.currentLevelIndex];
+      const isCorrect = JSON.stringify(state.currentResult) === JSON.stringify(level.targetData);
+      state.status = isCorrect ? 'success' : 'wrong';
+      render();
+    }
+
+    function nextLevel() {
+      if (state.currentLevelIndex < state.sessionLevels.length - 1) {
+        state.currentLevelIndex++;
+        state.selectedChain = [];
+        state.aiHint = null;
+        calculateResult();
+        state.status = 'playing';
+      } else {
+        state.status = 'completed';
+      }
+      render();
+    }
+
+    function goHome() {
+      state.difficulty = null;
+      render();
+    }
+
+    // ==========================================
+    // 5. Gemini API (AI 힌트 기능)
+    // ==========================================
+    async function fetchAIHint() {
+      if (state.isHintLoading || state.status !== 'playing') return;
+      
+      state.isHintLoading = true;
+      state.aiHint = null;
+      render();
+
+      const apiKey = ""; // Gemini API Key (실행 환경에서 제공됨)
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      const level = state.sessionLevels[state.currentLevelIndex];
+      
+      const promptText = `Java Stream 문제를 풀고 있습니다.
+시작 데이터: ${JSON.stringify(level.initialData)}
+목표 데이터: ${JSON.stringify(level.targetData)}
+현재 선택한 체인: ${state.selectedChain.map(m => m.label).join(' -> ') || '없음'}
+사용 가능한 메소드: ${level.availableMethods.map(m => m.label).join(', ')}
+
+이 문제를 해결하기 위해 사용자가 다음에 어떤 메소드를 추가해야 할지 방향을 알려주세요. 정답 코드를 한 번에 제공하지 말고, 친절한 선생님처럼 1~2문장으로 가볍게 힌트만 주어야 합니다. 대답은 한국어로 해주세요.`;
+
+      const payload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        systemInstruction: { parts: [{ text: "당신은 Java 프로그래밍을 가르치는 친절하고 유쾌한 튜터입니다." }] }
+      };
+
+      let delay = 1000;
+      let hintResult = "AI 힌트를 불러오는 데 실패했습니다. 잠시 후 다시 시도해주세요.";
+
+      // Exponential backoff retry logic (up to 5 retries)
+      for (let i = 0; i < 6; i++) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+          const data = await response.json();
+          hintResult = data.candidates?.[0]?.content?.parts?.[0]?.text || hintResult;
+          break; // Success
+        } catch (error) {
+          if (i === 5) {
+            console.error('Gemini API fetch failed after 5 retries', error);
+          } else {
+            await new Promise(r => setTimeout(r, delay));
+            delay *= 2;
+          }
+        }
+      }
+
+      state.isHintLoading = false;
+      state.aiHint = hintResult;
+      render();
+    }
+
+    // ==========================================
+    // 6. 이벤트 위임 (Event Delegation)
+    // ==========================================
+    appEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      
+      const action = btn.dataset.action;
+      
+      if (action === 'selectDifficulty') selectDifficulty(btn.dataset.diff);
+      if (action === 'addMethod') addMethod(btn.dataset.id);
+      if (action === 'removeMethod') removeMethod(parseInt(btn.dataset.idx, 10));
+      if (action === 'resetChain') resetChain();
+      if (action === 'checkAnswer') checkAnswer();
+      if (action === 'nextLevel') nextLevel();
+      if (action === 'goHome') goHome();
+      if (action === 'restartDiff') selectDifficulty(state.difficulty);
+      if (action === 'getAIHint') fetchAIHint();
+    });
+
+    // 초기 렌더링
+    render();
+
+  </script>
+</body>
+</html>

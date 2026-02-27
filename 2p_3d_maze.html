@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>바닐라 JS 3D 행성 미로찾기</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        .hud {
+            position: absolute;
+            top: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 25px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(4px);
+            pointer-events: none;
+        }
+        #ui-p1 {
+            left: 20px;
+            color: #00ffff;
+        }
+        #ui-p2 {
+            right: 20px;
+            text-align: right;
+            color: #ffaa00;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+        }
+        p {
+            margin: 5px 0;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+        }
+        .color-box {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 3px;
+        }
+        .green { background-color: #00ff00; }
+        .red { background-color: #ff0000; }
+        
+        #win-modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20, 30, 40, 0.9);
+            border: 2px solid #4da8da;
+            color: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            display: none;
+            box-shadow: 0 0 30px rgba(77, 168, 218, 0.5);
+            backdrop-filter: blur(8px);
+            z-index: 100;
+        }
+        #win-modal h2 {
+            margin-top: 0;
+            font-size: 32px;
+            color: #ffd700;
+        }
+        button {
+            margin-top: 20px;
+            padding: 12px 24px;
+            font-size: 18px;
+            cursor: pointer;
+            background-color: #4da8da;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        button:hover { background-color: #3b88b5; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-p1" class="hud">
+        <h1>P1 (Cyan)</h1>
+        <p>[W, A, S, D] 이동</p>
+        <p><span class="color-box green"></span>입구 <span class="color-box red"></span>출구</p>
+    </div>
+
+    <div id="ui-p2" class="hud">
+        <h1>P2 (Orange)</h1>
+        <p>[방향키] 이동</p>
+        <p><span class="color-box green"></span>입구 <span class="color-box red"></span>출구</p>
+    </div>
+
+    <div id="win-modal">
+        <h2 id="win-msg">임무 완수!</h2>
+        <p>무사히 미로를 탈출했습니다.</p>
+        <button id="restart-btn">다시 플레이</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- 3D 렌더링 시스템 파라미터 ---
+        const R = 300;           // 행성 반지름
+        const H = 30;            // 벽 높이 (25에서 30으로 살짝 증가)
+        const CAMERA_Z = -900;   // 카메라 Z 위치
+        const FOV = 1100;        // 시야각 스케일 계수
+        const HORIZON_Z = -60;   // 지평선 너머 뒷면 Culling 기준값 (투명화 현상 방지)
+
+        // --- 미로 데이터 변수 ---
+        const ROWS = 16;
+        const COLS = 32;
+        const MAX_LAT = Math.PI / 2.5; 
+        const MIN_LAT = -Math.PI / 2.5;
+        const DLAT = (MAX_LAT - MIN_LAT) / ROWS;
+        const DLON = (Math.PI * 2) / COLS;
+
+        let mazeCells = [];
+        let walls = [];
+        let gridLines = [];
+        let markers = [];
+        let stars = [];
+
+        // --- 플레이어 및 카메라 상태 ---
+        const MOVE_SPEED = 0.15;
+        const p1 = { r: 0, c: 0, tr: 0, tc: 0, lat: 0, lon: 0, progress: 1, moving: false, color: '#00ffff', name: 'Player 1 (Cyan)' };
+        const p2 = { r: 0, c: 0, tr: 0, tc: 0, lat: 0, lon: 0, progress: 1, moving: false, color: '#ffaa00', name: 'Player 2 (Orange)' };
+
+        const cam1 = { rotX: 0, rotY: 0 };
+        const cam2 = { rotX: 0, rotY: 0 };
+
+        let gameWon = false;
+        const keys = {};
+
+        // --- 초기화 및 시작 ---
+        function init() {
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+
+            // e.key 대신 e.code를 사용하여 한/영 전환 상태와 무관하게 물리적 키를 감지합니다.
+            document.addEventListener('keydown', e => keys[e.code] = true);
+            document.addEventListener('keyup', e => keys[e.code] = false);
+            
+            document.getElementById('restart-btn').addEventListener('click', () => {
+                document.getElementById('win-modal').style.display = 'none';
+                startNewGame();
+            });
+
+            generateStars();
+            startNewGame();
+            requestAnimationFrame(animate);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // --- 수학 및 투영 함수 ---
+        function getXYZ(lat, lon, radius) {
+            const phi = Math.PI / 2 - lat;
+            return {
+                x: radius * Math.sin(phi) * Math.cos(lon),
+                y: radius * Math.cos(phi),
+                z: radius * Math.sin(phi) * Math.sin(lon)
+            };
+        }
+
+        function rotatePt(p, rx, ry) {
+            // Y축 회전 (경도)
+            const cosY = Math.cos(ry);
+            const sinY = Math.sin(ry);
+            const x1 = p.x * cosY - p.z * sinY;
+            const z1 = p.x * sinY + p.z * cosY;
+            const y1 = p.y;
+
+            // X축 회전 (위도 + 카메라 틸트)
+            const cosX = Math.cos(rx);
+            const sinX = Math.sin(rx);
+            const y2 = y1 * cosX - z1 * sinX;
+            const z2 = y1 * sinX + z1 * cosX;
+
+            return { x: x1, y: y2, z: z2 };
+        }
+
+        function projectPt(p) {
+            const z = p.z - CAMERA_Z;
+            const s = FOV / z;
+            return { x: p.x * s, y: p.y * s, s: s };
+        }
+
+        function lerpAngle(a, b, t) {
+            let diff = b - a;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            return a + diff * t;
+        }
+
+        // --- 미로 생성 ---
+        function generateMaze() {
+            mazeCells = [];
+            for (let r = 0; r < ROWS; r++) {
+                let row = [];
+                for (let c = 0; c < COLS; c++) {
+                    row.push({ r, c, visited: false, walls: { n: 1, s: 1, e: 1, w: 1 } });
+                }
+                mazeCells.push(row);
+            }
+
+            let stack = [];
+            let curr = mazeCells[0][0];
+            curr.visited = true;
+            stack.push(curr);
+
+            while (stack.length > 0) {
+                curr = stack.pop();
+                let neighbors = [];
+                let { r, c } = curr;
+
+                if (r > 0 && !mazeCells[r - 1][c].visited) neighbors.push({ cell: mazeCells[r - 1][c], dir: 'n' });
+                if (r < ROWS - 1 && !mazeCells[r + 1][c].visited) neighbors.push({ cell: mazeCells[r + 1][c], dir: 's' });
+                
+                let eC = (c + 1) % COLS;
+                if (!mazeCells[r][eC].visited) neighbors.push({ cell: mazeCells[r][eC], dir: 'e' });
+                
+                let wC = (c - 1 + COLS) % COLS;
+                if (!mazeCells[r][wC].visited) neighbors.push({ cell: mazeCells[r][wC], dir: 'w' });
+
+                if (neighbors.length > 0) {
+                    stack.push(curr);
+                    let next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    let dir = next.dir;
+                    let b = next.cell;
+
+                    if (dir === 'n') { curr.walls.n = 0; b.walls.s = 0; }
+                    if (dir === 's') { curr.walls.s = 0; b.walls.n = 0; }
+                    if (dir === 'e') { curr.walls.e = 0; b.walls.w = 0; }
+                    if (dir === 'w') { curr.walls.w = 0; b.walls.e = 0; }
+
+                    b.visited = true;
+                    stack.push(b);
+                }
+            }
+        }
+
+        function buildWorldGeometry() {
+            walls = [];
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const cell = mazeCells[r][c];
+                    const latN = MAX_LAT - r * DLAT;
+                    const latS = MAX_LAT - (r + 1) * DLAT;
+                    const lonW = -Math.PI + c * DLON;
+                    const lonE = -Math.PI + (c + 1) * DLON;
+
+                    // 가로 벽 (동서 방향)
+                    if (r === 0 && cell.walls.n) {
+                        walls.push({ lat1: latN, lon1: lonW, lat2: latN, lon2: lonE, color: '#aaaaaa' });
+                    }
+                    if (cell.walls.s) {
+                        walls.push({ lat1: latS, lon1: lonW, lat2: latS, lon2: lonE, color: '#cccccc' });
+                    }
+                    // 세로 벽 (남북 방향)
+                    if (cell.walls.e) {
+                        walls.push({ lat1: latN, lon1: lonE, lat2: latS, lon2: lonE, color: '#eeeeee' });
+                    }
+                }
+            }
+
+            gridLines = [];
+            for (let r = 0; r <= ROWS; r++) {
+                const lat = MAX_LAT - r * DLAT;
+                for (let c = 0; c < COLS; c++) {
+                    gridLines.push({ lat1: lat, lon1: -Math.PI + c * DLON, lat2: lat, lon2: -Math.PI + (c+1) * DLON });
+                }
+            }
+            for (let c = 0; c < COLS; c++) {
+                const lon = -Math.PI + c * DLON;
+                for (let r = 0; r < ROWS; r++) {
+                    gridLines.push({ lat1: MAX_LAT - r * DLAT, lon1: lon, lat2: MAX_LAT - (r+1) * DLAT, lon2: lon });
+                }
+            }
+
+            markers = [
+                { lat: MAX_LAT - 0.5 * DLAT, lon: -Math.PI + 0.5 * DLON, color: '#00ff00' },
+                { lat: MAX_LAT - (ROWS - 0.5) * DLAT, lon: -Math.PI + (COLS - 0.5) * DLON, color: '#ff0000' }
+            ];
+        }
+
+        function generateStars() {
+            stars = [];
+            for (let i = 0; i < 300; i++) {
+                const u = Math.random(), v = Math.random();
+                const theta = 2 * Math.PI * u;
+                const phi = Math.acos(2 * v - 1);
+                stars.push({
+                    x: 2000 * Math.sin(phi) * Math.cos(theta),
+                    y: 2000 * Math.cos(phi),
+                    z: 2000 * Math.sin(phi) * Math.sin(theta),
+                    size: Math.random() * 1.5 + 0.5,
+                    alpha: Math.random() * 0.6 + 0.4
+                });
+            }
+        }
+
+        function startNewGame() {
+            gameWon = false;
+            generateMaze();
+            buildWorldGeometry();
+
+            // P1 초기화
+            p1.r = p1.tr = 0; p1.c = p1.tc = 0; p1.progress = 1; p1.moving = false;
+            // P2 초기화
+            p2.r = p2.tr = 0; p2.c = p2.tc = 0; p2.progress = 1; p2.moving = false;
+
+            updatePlayerLogic(p1);
+            updatePlayerLogic(p2);
+
+            // 카메라 초기화 (즉시 고정) - 0.4 오프셋 제거하여 중앙 배치
+            cam1.rotY = -p1.lon - Math.PI / 2; cam1.rotX = -p1.lat;
+            cam2.rotY = -p2.lon - Math.PI / 2; cam2.rotX = -p2.lat;
+        }
+
+        // --- 논리 업데이트 ---
+        function handleInput() {
+            if (gameWon) return;
+
+            if (!p1.moving) {
+                // e.code 값에 맞게 KeyW, KeyS, KeyA, KeyD로 변경
+                if (keys['KeyW']) tryMove(p1, 'up');
+                else if (keys['KeyS']) tryMove(p1, 'down');
+                else if (keys['KeyA']) tryMove(p1, 'left');
+                else if (keys['KeyD']) tryMove(p1, 'right');
+            }
+
+            if (!p2.moving) {
+                // e.code 값에 맞게 대소문자 정확히 매칭
+                if (keys['ArrowUp']) tryMove(p2, 'up');
+                else if (keys['ArrowDown']) tryMove(p2, 'down');
+                else if (keys['ArrowLeft']) tryMove(p2, 'left');
+                else if (keys['ArrowRight']) tryMove(p2, 'right');
+            }
+        }
+
+        function tryMove(p, dir) {
+            const actC = ((p.c % COLS) + COLS) % COLS;
+            const cell = mazeCells[p.r][actC];
+            let moved = false;
+
+            // 방향키를 화면의 직관적인 시야 방향에 맞게 교정
+            // 화면 위쪽(전진) = 남쪽으로 이동 (r + 1)
+            if (dir === 'up' && p.r < ROWS - 1 && !cell.walls.s) { p.tr = p.r + 1; p.tc = p.c; moved = true; }
+            // 화면 아래쪽(후진) = 북쪽으로 이동 (r - 1)
+            if (dir === 'down' && p.r > 0 && !cell.walls.n) { p.tr = p.r - 1; p.tc = p.c; moved = true; }
+            // 화면 왼쪽 = 서쪽으로 이동 (c - 1)
+            if (dir === 'left' && !cell.walls.w) { p.tr = p.r; p.tc = p.c - 1; moved = true; }
+            // 화면 오른쪽 = 동쪽으로 이동 (c + 1)
+            if (dir === 'right' && !cell.walls.e) { p.tr = p.r; p.tc = p.c + 1; moved = true; }
+
+            if (moved) {
+                p.moving = true;
+                p.progress = 0;
+            }
+        }
+
+        function updatePlayerLogic(p) {
+            if (p.moving) {
+                p.progress += MOVE_SPEED;
+                if (p.progress >= 1) {
+                    p.progress = 1;
+                    p.moving = false;
+                    p.r = p.tr;
+                    p.c = p.tc;
+                    checkWin(p);
+                }
+            }
+
+            // Lerp 보간으로 부드러운 좌표 갱신
+            const currR = p.r + (p.tr - p.r) * p.progress;
+            const currC = p.c + (p.tc - p.c) * p.progress;
+            p.lat = MAX_LAT - (currR + 0.5) * DLAT;
+            p.lon = -Math.PI + (currC + 0.5) * DLON;
+        }
+
+        function checkWin(p) {
+            if (gameWon) return;
+            const actC = ((p.c % COLS) + COLS) % COLS;
+            if (p.r === ROWS - 1 && actC === COLS - 1) {
+                gameWon = true;
+                document.getElementById('win-msg').innerText = `${p.name} 승리!`;
+                document.getElementById('win-modal').style.display = 'block';
+            }
+        }
+
+        // --- 렌더링 파이프라인 ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            handleInput();
+            updatePlayerLogic(p1);
+            updatePlayerLogic(p2);
+
+            // 부드러운 카메라 추적 (Lerp) - 0.4 오프셋 제거하여 중앙 배치
+            cam1.rotY = lerpAngle(cam1.rotY, -p1.lon - Math.PI / 2, 0.05);
+            cam1.rotX = cam1.rotX + (-p1.lat - cam1.rotX) * 0.05;
+
+            cam2.rotY = lerpAngle(cam2.rotY, -p2.lon - Math.PI / 2, 0.05);
+            cam2.rotX = cam2.rotX + (-p2.lat - cam2.rotX) * 0.05;
+
+            // 배경 지우기
+            ctx.fillStyle = '#050a10';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const halfW = canvas.width / 2;
+            const h = canvas.height;
+
+            // P1 화면 그리기 (왼쪽)
+            ctx.save();
+            ctx.beginPath(); ctx.rect(0, 0, halfW, h); ctx.clip();
+            renderView(ctx, halfW, h, cam1, p1, p2);
+            ctx.restore();
+
+            // 분할 선
+            ctx.fillStyle = '#4da8da';
+            ctx.fillRect(halfW - 2, 0, 4, h);
+
+            // P2 화면 그리기 (오른쪽)
+            ctx.save();
+            ctx.translate(halfW, 0);
+            ctx.beginPath(); ctx.rect(0, 0, halfW, h); ctx.clip();
+            renderView(ctx, halfW, h, cam2, p2, p1);
+            ctx.restore();
+        }
+
+        function renderView(ctx, width, height, cam, me, other) {
+            ctx.save();
+            ctx.translate(width / 2, height / 2);
+
+            // 1. 별 (배경)
+            ctx.fillStyle = '#ffffff';
+            for (let s of stars) {
+                let p = rotatePt(s, cam.rotX, cam.rotY);
+                let proj = projectPt(p);
+                if (proj.s > 0) {
+                    ctx.globalAlpha = s.alpha;
+                    ctx.beginPath();
+                    ctx.arc(proj.x, proj.y, s.size * proj.s, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            // 2. 행성 몸체 실루엣 (가려지는 요소 처리용)
+            const D = Math.abs(CAMERA_Z);
+            const screenRadius = R * FOV / Math.sqrt(D * D - R * R);
+            
+            ctx.fillStyle = '#112233';
+            ctx.beginPath();
+            ctx.arc(0, 0, screenRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 3. 렌더링 객체 수집 및 화가 알고리즘 정렬 (Z-sorting)
+            const drawables = [];
+
+            // 그리드 (바닥)
+            for (let g of gridLines) {
+                let p1 = getXYZ(g.lat1, g.lon1, R);
+                let p2 = getXYZ(g.lat2, g.lon2, R);
+                p1 = rotatePt(p1, cam.rotX, cam.rotY);
+                p2 = rotatePt(p2, cam.rotX, cam.rotY);
+                const zAvg = (p1.z + p2.z) / 2;
+                if (zAvg < HORIZON_Z) { // 행성 지평선 너머 뒷면 가리기
+                    drawables.push({ type: 'line', z: zAvg, pts: [p1, p2], color: '#223344' });
+                }
+            }
+
+            // 벽 (3D 폴리곤 변환)
+            for (let w of walls) {
+                let p1 = getXYZ(w.lat1, w.lon1, R);
+                let p2 = getXYZ(w.lat2, w.lon2, R);
+                let p1t = getXYZ(w.lat1, w.lon1, R + H); // 윗면
+                let p2t = getXYZ(w.lat2, w.lon2, R + H); // 윗면
+
+                p1 = rotatePt(p1, cam.rotX, cam.rotY);
+                p2 = rotatePt(p2, cam.rotX, cam.rotY);
+                p1t = rotatePt(p1t, cam.rotX, cam.rotY);
+                p2t = rotatePt(p2t, cam.rotX, cam.rotY);
+
+                const zAvg = (p1.z + p2.z) / 2;
+                if (zAvg < HORIZON_Z) { // 행성 지평선 너머 뒷면 가리기
+                    drawables.push({ type: 'wall', z: zAvg, pts: [p1, p2, p2t, p1t], color: w.color });
+                }
+            }
+
+            // 마커
+            for (let m of markers) {
+                let p = getXYZ(m.lat, m.lon, R + 2);
+                p = rotatePt(p, cam.rotX, cam.rotY);
+                if (p.z < HORIZON_Z) drawables.push({ type: 'marker', z: p.z, pt: p, color: m.color });
+            }
+
+            // 플레이어
+            for (let p of [me, other]) {
+                let pt = getXYZ(p.lat, p.lon, R + 8);
+                pt = rotatePt(pt, cam.rotX, cam.rotY);
+                if (pt.z < HORIZON_Z) drawables.push({ type: 'player', z: pt.z, pt: pt, color: p.color });
+            }
+
+            // 화가 알고리즘: Z값이 큰(먼) 것부터 그리기
+            drawables.sort((a, b) => b.z - a.z);
+
+            // 4. 투영 및 그리기
+            for (let d of drawables) {
+                if (d.type === 'line') {
+                    let proj0 = projectPt(d.pts[0]);
+                    let proj1 = projectPt(d.pts[1]);
+                    ctx.strokeStyle = d.color;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.moveTo(proj0.x, proj0.y); ctx.lineTo(proj1.x, proj1.y); ctx.stroke();
+                } 
+                else if (d.type === 'wall') {
+                    let proj = d.pts.map(projectPt);
+                    // 외적 연산으로 다각형이 앞면을 향하는지 판별하여 그림자 효과 부여
+                    let v1x = proj[1].x - proj[0].x, v1y = proj[1].y - proj[0].y;
+                    let v2x = proj[2].x - proj[1].x, v2y = proj[2].y - proj[1].y;
+                    let cross = v1x * v2y - v1y * v2x;
+                    
+                    // 벽 두께 및 입체감 표현 강화
+                    ctx.fillStyle = cross > 0 ? d.color : '#556677'; // 꺾이는 부분 그림자
+                    ctx.strokeStyle = '#1a2a3a'; // 굵은 윤곽선으로 두께감 형성
+                    ctx.lineWidth = 4; // 선 두께 증가로 볼륨감 추가
+                    ctx.lineJoin = 'round';
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(proj[0].x, proj[0].y);
+                    ctx.lineTo(proj[1].x, proj[1].y);
+                    ctx.lineTo(proj[2].x, proj[2].y);
+                    ctx.lineTo(proj[3].x, proj[3].y);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // 벽의 윗면(Top Edge) 모서리 하이라이트로 블록 형태 강조
+                    ctx.beginPath();
+                    ctx.moveTo(proj[2].x, proj[2].y);
+                    ctx.lineTo(proj[3].x, proj[3].y);
+                    ctx.strokeStyle = cross > 0 ? '#ffffff' : '#aaaaaa';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } 
+                else if (d.type === 'marker') {
+                    let proj = projectPt(d.pt);
+                    ctx.fillStyle = d.color;
+                    ctx.globalAlpha = 0.7;
+                    ctx.beginPath(); ctx.arc(proj.x, proj.y, 25 * proj.s, 0, Math.PI * 2); ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                } 
+                else if (d.type === 'player') {
+                    let proj = projectPt(d.pt);
+                    // 우주선 테두리 및 그림자 효과
+                    ctx.fillStyle = d.color;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = d.color;
+                    ctx.beginPath(); ctx.arc(proj.x, proj.y, 14 * proj.s, 0, Math.PI * 2); ctx.fill();
+                    ctx.shadowBlur = 0; // 리셋
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2 * proj.s;
+                    ctx.stroke();
+                }
+            }
+
+            // 대기권 (Vignette 효과) 덮어씌우기
+            const grad = ctx.createRadialGradient(0, 0, screenRadius * 0.8, 0, 0, screenRadius);
+            grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            grad.addColorStop(1, 'rgba(5, 10, 16, 1)');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(0, 0, screenRadius + 5, 0, Math.PI * 2); ctx.fill();
+
+            ctx.restore();
+        }
+
+        // --- 실행 ---
+        init();
+    </script>
+</body>
+</html>

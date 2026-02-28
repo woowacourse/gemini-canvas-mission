@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="ko">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>혼자서도 잘해요</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://unpkg.com/lucide@latest"></script>
+        <style>
+            .no-scrollbar::-webkit-scrollbar {
+                display: none;
+            }
+            .no-scrollbar {
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+            }
+            .dragging {
+                opacity: 0.5;
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            }
+        </style>
+    </head>
+    <body class="bg-gray-50 text-gray-800 font-sans pb-20 min-h-screen relative">
+        <!-- Header -->
+        <header class="bg-white shadow-sm sticky top-0 z-10">
+            <div class="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="sparkles" class="text-purple-600 w-6 h-6"></i>
+                    <h1 class="text-xl font-bold text-gray-900">혼자서도 잘해요</h1>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="max-w-3xl mx-auto px-4 flex" id="tab-buttons">
+                <button
+                    data-tab="bulk"
+                    class="tab-btn flex-1 py-3 text-sm font-medium border-b-2 transition-colors border-transparent text-gray-500 hover:text-gray-700"
+                >
+                    <div class="flex items-center justify-center gap-2">
+                        <i data-lucide="file-text" class="w-4 h-4"></i> 대본 붙여넣기
+                    </div>
+                </button>
+                <button
+                    data-tab="script"
+                    class="tab-btn flex-1 py-3 text-sm font-medium border-b-2 transition-colors border-purple-600 text-purple-600"
+                >
+                    <div class="flex items-center justify-center gap-2">
+                        <i data-lucide="edit-3" class="w-4 h-4"></i> 대본 검토/수정
+                    </div>
+                </button>
+                <button
+                    data-tab="practice"
+                    class="tab-btn flex-1 py-3 text-sm font-medium border-b-2 transition-colors border-transparent text-gray-500 hover:text-gray-700"
+                >
+                    <div class="flex items-center justify-center gap-2">
+                        <i data-lucide="play" class="w-4 h-4"></i> 연습 모드
+                    </div>
+                </button>
+            </div>
+        </header>
+
+        <main class="max-w-3xl mx-auto px-4 py-6">
+            <!-- Tab 1: Bulk (LLM) -->
+            <div id="view-bulk" class="view-section hidden space-y-4">
+                <div class="bg-purple-50 border border-purple-100 rounded-lg p-4 text-sm text-purple-800 flex gap-3">
+                    <i data-lucide="sparkles" class="flex-shrink-0 mt-0.5 w-[18px] h-[18px]"></i>
+                    <p>
+                        카카오톡이나 노션에 있는 대본을 통째로 복사해서 붙여넣으세요. AI가 문맥을 파악하여 역할과 대사를
+                        자동으로 분류해줍니다.
+                    </p>
+                </div>
+                <textarea
+                    id="bulk-input"
+                    placeholder="여기에 대본을 붙여넣으세요.&#13;&#10;예시:&#13;&#10;철수: 안녕, 오늘 날씨가 참 좋네. (웃으며)&#13;&#10;영희: 그러게, 산책이라도 갈까?"
+                    class="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none resize-none shadow-sm"
+                ></textarea>
+                <button
+                    id="btn-parse"
+                    class="w-full py-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md"
+                >
+                    <i data-lucide="sparkles" class="w-[18px] h-[18px]"></i>
+                    <span id="btn-parse-text">AI 자동 분리 실행</span>
+                </button>
+            </div>
+
+            <!-- Tab 2: Script Editor -->
+            <div id="view-script" class="view-section space-y-4">
+                <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800 flex gap-3">
+                    <i data-lucide="alert-circle" class="flex-shrink-0 mt-0.5 w-[18px] h-[18px]"></i>
+                    <p>
+                        AI가 분리한 대본을 확인하고 잘못된 부분을 수정해주세요. 각 역할명(캐릭터명)이 일치해야 연습
+                        모드에서 정확히 인식됩니다. 각 대사는 왼쪽 손잡이를 드래그하여 순서를 변경할 수 있습니다.
+                    </p>
+                </div>
+                <div id="script-list" class="space-y-3"></div>
+                <button
+                    id="btn-add-line"
+                    class="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 font-medium hover:border-purple-400 hover:text-purple-600 transition-colors flex items-center justify-center gap-2"
+                >
+                    <i data-lucide="plus" class="w-[18px] h-[18px]"></i> 대사 한 줄 직접 추가하기
+                </button>
+            </div>
+
+            <!-- Tab 3: Practice Mode -->
+            <div id="view-practice" class="view-section hidden space-y-6">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                    <h2 class="text-lg font-bold mb-4 flex items-center gap-2 text-purple-800">
+                        <i data-lucide="settings" class="w-5 h-5"></i> 연습 및 캐릭터 음성 설정
+                    </h2>
+
+                    <div class="mb-6 pb-6 border-b border-gray-100">
+                        <label class="block text-sm font-bold text-gray-900 mb-2">🎭 나의 역할 (연기할 역할)</label>
+                        <select
+                            id="select-my-role"
+                            class="w-full border-2 border-purple-200 bg-purple-50 rounded-lg px-4 py-3 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none font-medium text-purple-900"
+                        >
+                            <option value="">-- 내 역할을 선택하세요 --</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-2">
+                            선택한 역할의 대사는 음성으로 재생되지 않으며, 본인이 직접 연기해야 합니다.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-900 mb-3"
+                            >🗣️ 상대방 음성 개별 설정 (Gemini AI Voice)</label
+                        >
+                        <div id="voice-settings" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+                    </div>
+                </div>
+
+                <!-- Player Box (Height increased, controls removed from bottom) -->
+                <div class="bg-gray-900 rounded-xl shadow-lg overflow-hidden flex flex-col h-[600px] mb-24">
+                    <div class="h-1 bg-gray-800">
+                        <div
+                            id="progress-bar"
+                            class="h-full bg-purple-500 transition-all duration-300 ease-out"
+                            style="width: 0%"
+                        ></div>
+                    </div>
+
+                    <div class="flex-1 overflow-hidden relative flex flex-col h-full">
+                        <div id="lyrics-empty" class="hidden flex-1 flex items-center justify-center text-gray-500">
+                            대본이 없습니다.
+                        </div>
+                        <div id="lyrics-no-role" class="hidden flex-1 flex items-center justify-center text-gray-400">
+                            위에서 본인의 역할을 먼저 선택해주세요.
+                        </div>
+
+                        <div id="lyrics-scroll-area" class="flex-1 overflow-y-auto scroll-smooth no-scrollbar hidden">
+                            <div id="lyrics-container" class="space-y-8 py-[250px] px-6"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Floating Practice Controls (우측 하단 고정) -->
+        <div
+            id="floating-controls"
+            class="fixed bottom-6 right-6 lg:right-10 z-50 flex items-center gap-3 bg-gray-900/90 backdrop-blur-md p-2 pr-2 pl-6 rounded-full shadow-[0_10px_40px_rgba(0,0,0,0.3)] border border-gray-700 hidden transform transition-transform duration-300 translate-y-0"
+        >
+            <div id="scene-counter" class="text-gray-300 text-sm font-bold mr-2 tracking-wide">Scene 0 / 0</div>
+
+            <button
+                id="btn-stop"
+                class="p-3.5 rounded-full bg-gray-800 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
+                title="처음부터 다시"
+            >
+                <i data-lucide="square" class="w-5 h-5 fill-current"></i>
+            </button>
+
+            <div id="btn-play-container"></div>
+        </div>
+
+        <!-- Toast Container -->
+        <div
+            id="toast-container"
+            class="fixed bottom-24 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none"
+        ></div>
+
+        <script>
+            const apiKey = ''; // API Key is injected by the environment
+            const GEMINI_VOICES = [
+                'Kore',
+                'Zephyr',
+                'Puck',
+                'Charon',
+                'Fenrir',
+                'Leda',
+                'Orus',
+                'Aoede',
+                'Callirrhoe',
+                'Autonoe',
+                'Enceladus',
+                'Iapetus',
+                'Umbriel',
+                'Algieba',
+                'Despina',
+                'Erinome',
+                'Algenib',
+                'Rasalgethi',
+                'Laomedeia',
+                'Achernar',
+            ];
+
+            // --- State Management ---
+            const state = {
+                activeTab: 'script',
+                script: [
+                    { id: 1, character: '포비', text: '자, 25조 여러분! 연극 대본은 다 완성되었나요?' },
+                    {
+                        id: 2,
+                        character: '크루A',
+                        text: '네! 그런데 다들 페어 프로그래밍 하느라 모여서 연습할 시간이 부족해요.',
+                    },
+                    {
+                        id: 3,
+                        character: '크루B',
+                        text: '맞아요. 제 대사는 다 외웠는데, 상대방 대사를 쳐줄 사람이 없어서 타이밍 맞추기가 어렵네요.',
+                    },
+                ],
+                rawText: '',
+                isParsing: false,
+                myRole: '',
+                roleVoices: {},
+                isPlaying: false,
+                currentIndex: 0,
+                isGeneratingAudio: false,
+            };
+
+            let audioObj = null;
+            let activeAudioId = null;
+            let wasPlayingRef = false;
+            let lineRefs = [];
+
+            // --- Utility Functions ---
+            function showToast(message, type = 'error') {
+                const container = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                const bgColor = type === 'error' ? 'bg-red-600' : 'bg-green-600';
+                toast.className = `${bgColor} text-white px-5 py-3 rounded-lg shadow-xl flex items-center gap-3 transition-all duration-300 opacity-0 transform translate-y-2`;
+                toast.innerHTML = `<i data-lucide="${
+                    type === 'error' ? 'alert-circle' : 'check-circle'
+                }" class="w-5 h-5 flex-shrink-0"></i><span class="text-sm font-medium leading-snug">${message}</span>`;
+
+                container.appendChild(toast);
+                lucide.createIcons();
+
+                requestAnimationFrame(() => {
+                    toast.classList.remove('opacity-0', 'translate-y-2');
+                });
+
+                setTimeout(() => {
+                    toast.classList.add('opacity-0', 'translate-y-2');
+                    setTimeout(() => toast.remove(), 300);
+                }, 3500);
+            }
+
+            function pcmToWav(base64Pcm, sampleRate = 24000) {
+                const binaryString = atob(base64Pcm);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                const buffer = new ArrayBuffer(44 + bytes.length);
+                const view = new DataView(buffer);
+                const writeString = (view, offset, string) => {
+                    for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+                };
+
+                writeString(view, 0, 'RIFF');
+                view.setUint32(4, 36 + bytes.length, true);
+                writeString(view, 8, 'WAVE');
+                writeString(view, 12, 'fmt ');
+                view.setUint32(16, 16, true);
+                view.setUint16(20, 1, true);
+                view.setUint16(22, 1, true);
+                view.setUint32(24, sampleRate, true);
+                view.setUint32(28, sampleRate * 2, true);
+                view.setUint16(32, 2, true);
+                view.setUint16(34, 16, true);
+                writeString(view, 36, 'data');
+                view.setUint32(40, bytes.length, true);
+
+                const pcmData = new Uint8Array(buffer, 44);
+                pcmData.set(bytes);
+                return new Blob([buffer], { type: 'audio/wav' });
+            }
+
+            async function fetchWithBackoff(url, options, retries = 5) {
+                let delay = 1000;
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const response = await fetch(url, options);
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        return await response.json();
+                    } catch (e) {
+                        if (i === retries - 1) throw e;
+                        await new Promise((resolve) => setTimeout(resolve, delay));
+                        delay *= 2;
+                    }
+                }
+            }
+
+            function getCharacters() {
+                return [...new Set(state.script.map((line) => line.character))].filter(Boolean);
+            }
+
+            function syncRoleVoices() {
+                const characters = getCharacters();
+                let changed = false;
+                characters.forEach((char, index) => {
+                    if (!state.roleVoices[char]) {
+                        state.roleVoices[char] = GEMINI_VOICES[index % GEMINI_VOICES.length];
+                        changed = true;
+                    }
+                });
+                if (changed) renderPracticeSettings();
+            }
+
+            // --- Core Audio Logic ---
+            async function speakLineGemini(text, character, lineIndex, onEndCallback) {
+                if (audioObj) {
+                    audioObj.pause();
+                    audioObj.onended = null;
+                    audioObj.onerror = null;
+                    audioObj.src = '';
+                }
+                if (!text) return onEndCallback();
+
+                activeAudioId = lineIndex;
+                const voiceName = state.roleVoices[character] || 'Kore';
+                state.isGeneratingAudio = true;
+                renderLyrics();
+
+                try {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+                    const payload = {
+                        contents: [{ parts: [{ text: text }] }],
+                        generationConfig: {
+                            responseModalities: ['AUDIO'],
+                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } },
+                        },
+                    };
+
+                    const result = await fetchWithBackoff(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+
+                    if (activeAudioId !== lineIndex) {
+                        state.isGeneratingAudio = false;
+                        renderLyrics();
+                        return;
+                    }
+
+                    const inlineData = result.candidates[0].content.parts[0].inlineData;
+                    let sampleRate = 24000;
+                    if (inlineData.mimeType) {
+                        const rateMatch = inlineData.mimeType.match(/rate=(\d+)/);
+                        if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
+                    }
+
+                    const blob = pcmToWav(inlineData.data, sampleRate);
+                    audioObj = new Audio(URL.createObjectURL(blob));
+
+                    audioObj.onended = () => {
+                        state.isGeneratingAudio = false;
+                        renderLyrics();
+                        onEndCallback();
+                    };
+
+                    audioObj.onerror = () => {
+                        state.isGeneratingAudio = false;
+                        renderLyrics();
+                        onEndCallback();
+                    };
+
+                    state.isGeneratingAudio = false;
+                    renderLyrics();
+                    audioObj.play();
+                } catch (error) {
+                    console.error('TTS Generation Error:', error);
+                    state.isGeneratingAudio = false;
+                    renderLyrics();
+                    onEndCallback();
+                }
+            }
+
+            function handlePlaybackLoop() {
+                if (!state.isPlaying) {
+                    if (audioObj) audioObj.pause();
+                    return;
+                }
+
+                if (state.currentIndex >= state.script.length) {
+                    state.isPlaying = false;
+                    state.currentIndex = 0;
+                    renderPracticeTab();
+                    return;
+                }
+
+                const currentLine = state.script[state.currentIndex];
+                if (!currentLine) return;
+
+                renderLyrics();
+
+                if (currentLine.character !== state.myRole) {
+                    speakLineGemini(currentLine.text, currentLine.character, state.currentIndex, () => {
+                        if (state.isPlaying) {
+                            state.currentIndex++;
+                            handlePlaybackLoop();
+                        }
+                    });
+                } else {
+                    if (audioObj) audioObj.pause();
+                    state.isGeneratingAudio = false;
+                    renderLyrics();
+                }
+            }
+
+            function jumpToLine(index) {
+                if (state.currentIndex === index) return;
+                if (audioObj) {
+                    audioObj.pause();
+                    audioObj.onended = null;
+                    audioObj.onerror = null;
+                    audioObj.src = '';
+                }
+                state.isGeneratingAudio = false;
+                activeAudioId = null;
+                state.currentIndex = index;
+                handlePlaybackLoop();
+            }
+
+            // --- Rendering Logic ---
+            function renderTabs() {
+                document.querySelectorAll('.tab-btn').forEach((btn) => {
+                    const isActive = btn.dataset.tab === state.activeTab;
+                    btn.className = `tab-btn flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+                        isActive
+                            ? 'border-purple-600 text-purple-600'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`;
+                });
+
+                document.querySelectorAll('.view-section').forEach((section) => section.classList.add('hidden'));
+                document.getElementById(`view-${state.activeTab}`).classList.remove('hidden');
+
+                const floatingControls = document.getElementById('floating-controls');
+
+                if (state.activeTab === 'script') {
+                    floatingControls.classList.add('hidden');
+                    renderScriptEditor();
+                }
+                if (state.activeTab === 'practice') {
+                    const characters = getCharacters();
+                    if (!state.myRole && characters.length > 0) state.myRole = characters[0];
+                    floatingControls.classList.remove('hidden');
+                    renderPracticeTab();
+                } else {
+                    floatingControls.classList.add('hidden');
+                }
+                lucide.createIcons();
+            }
+
+            function renderScriptEditor() {
+                const container = document.getElementById('script-list');
+                if (state.script.length === 0) {
+                    container.innerHTML = `<div class="text-center py-10 text-gray-500 bg-white border border-dashed border-gray-300 rounded-lg">대본이 비어있습니다. 대본을 직접 추가하거나 자동 분리 기능을 사용해보세요.</div>`;
+                    return;
+                }
+
+                container.innerHTML = state.script
+                    .map(
+                        (line) => `
+                <div class="script-item flex gap-2 items-start bg-white p-3 rounded-lg shadow-sm border border-gray-200 hover:border-purple-300 transition-colors focus-within:ring-2 focus-within:ring-purple-100 focus-within:border-purple-400" data-id="${line.id}" draggable="true">
+                    <div class="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 p-1 mt-1 handle" title="드래그하여 순서 변경">
+                        <i data-lucide="grip-vertical" class="w-5 h-5 pointer-events-none"></i>
+                    </div>
+                    <div class="w-1/4 min-w-[80px]">
+                        <input type="text" placeholder="캐릭터명" value="${line.character}" class="input-character w-full bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:bg-white focus:border-purple-400 font-medium" />
+                    </div>
+                    <div class="flex-1">
+                        <textarea placeholder="대사를 입력하세요..." rows="1" class="input-text w-full bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:bg-white focus:border-purple-400 resize-none overflow-hidden" style="height: auto;">${line.text}</textarea>
+                    </div>
+                    <button class="btn-delete p-2 mt-1 text-gray-400 hover:text-red-500 transition-colors flex-shrink-0" title="대사 삭제">
+                        <i data-lucide="trash-2" class="w-[18px] h-[18px]"></i>
+                    </button>
+                </div>
+            `
+                    )
+                    .join('');
+
+                // 레이아웃 렌더링이 완료된 후 정확한 scrollHeight를 계산하기 위해 비동기 처리 적용
+                setTimeout(() => {
+                    container.querySelectorAll('.input-text').forEach((ta) => {
+                        ta.style.height = 'auto'; // 높이를 초기화한 뒤
+                        ta.style.height = ta.scrollHeight + 'px'; // 실제 콘텐츠 높이에 맞춰 재조정
+                    });
+                }, 0);
+
+                lucide.createIcons();
+            }
+
+            function renderPracticeSettings() {
+                const characters = getCharacters();
+
+                const roleSelect = document.getElementById('select-my-role');
+                roleSelect.disabled = state.isPlaying;
+                roleSelect.innerHTML =
+                    `<option value="">-- 내 역할을 선택하세요 --</option>` +
+                    characters
+                        .map(
+                            (char) =>
+                                `<option value="${char}" ${state.myRole === char ? 'selected' : ''}>${char}</option>`
+                        )
+                        .join('');
+
+                const voiceContainer = document.getElementById('voice-settings');
+                voiceContainer.innerHTML = characters
+                    .map(
+                        (char) => `
+                <div class="flex items-center gap-3 p-3 rounded-lg border ${
+                    state.myRole === char ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-white border-gray-200'
+                }">
+                    <span class="font-semibold text-sm w-20 truncate">${char}</span>
+                    <select data-char="${char}" class="voice-select flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:border-purple-500 outline-none disabled:bg-gray-100" ${
+                            state.isPlaying || state.myRole === char ? 'disabled' : ''
+                        }>
+                        ${GEMINI_VOICES.map(
+                            (v) =>
+                                `<option value="${v}" ${state.roleVoices[char] === v ? 'selected' : ''}>${v}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+            `
+                    )
+                    .join('');
+            }
+
+            function renderLyrics() {
+                const scrollArea = document.getElementById('lyrics-scroll-area');
+                const emptyMsg = document.getElementById('lyrics-empty');
+                const noRoleMsg = document.getElementById('lyrics-no-role');
+                const container = document.getElementById('lyrics-container');
+
+                if (state.script.length === 0) {
+                    emptyMsg.classList.remove('hidden');
+                    noRoleMsg.classList.add('hidden');
+                    scrollArea.classList.add('hidden');
+                } else if (!state.myRole) {
+                    emptyMsg.classList.add('hidden');
+                    noRoleMsg.classList.remove('hidden');
+                    scrollArea.classList.add('hidden');
+                } else {
+                    emptyMsg.classList.add('hidden');
+                    noRoleMsg.classList.add('hidden');
+                    scrollArea.classList.remove('hidden');
+
+                    container.innerHTML = state.script
+                        .map((line, index) => {
+                            const isActive = index === state.currentIndex;
+                            const isMyRole = line.character === state.myRole;
+
+                            let statusHtml = '';
+                            if (isActive) {
+                                if (isMyRole) {
+                                    statusHtml = `<span class="text-purple-400 animate-pulse">나의 차례! (직접 연기)</span>`;
+                                } else if (state.isPlaying) {
+                                    if (state.isGeneratingAudio) {
+                                        statusHtml = `<span class="text-yellow-400 flex items-center gap-1"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> 준비 중...</span>`;
+                                    } else {
+                                        statusHtml = `<span class="text-green-400 animate-pulse">상대방 말하는 중...</span>`;
+                                    }
+                                }
+                            }
+
+                            return `
+                        <div data-index="${index}" class="lyric-line cursor-pointer transition-all duration-500 transform ${
+                                isActive ? 'scale-105 opacity-100' : 'scale-100 opacity-40 hover:opacity-60'
+                            }">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-0.5 rounded text-xs font-bold flex items-center gap-1 ${
+                                    isActive
+                                        ? isMyRole
+                                            ? 'bg-purple-500 text-white shadow-[0_0_10px_rgba(168,85,247,0.4)]'
+                                            : 'bg-gray-600 text-white'
+                                        : 'bg-transparent border border-gray-600 text-gray-400'
+                                }">
+                                    <i data-lucide="${isMyRole ? 'user' : 'mic'}" class="w-3 h-3"></i> ${line.character}
+                                </span>
+                                <div class="text-xs font-bold">${statusHtml}</div>
+                            </div>
+                            <p class="leading-relaxed whitespace-pre-wrap font-medium transition-all duration-500 ${
+                                isActive ? 'text-2xl text-white' : 'text-xl text-gray-300'
+                            }">${line.text}</p>
+                        </div>
+                    `;
+                        })
+                        .join('');
+
+                    lineRefs = Array.from(container.children);
+                    if (lineRefs[state.currentIndex]) {
+                        lineRefs[state.currentIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+                lucide.createIcons();
+                renderControls();
+            }
+
+            function renderControls() {
+                document.getElementById('progress-bar').style.width = `${
+                    state.script.length > 0 ? (state.currentIndex / state.script.length) * 100 : 0
+                }%`;
+                document.getElementById('scene-counter').innerText = `Scene ${
+                    state.script.length > 0 ? state.currentIndex + 1 : 0
+                } / ${state.script.length}`;
+
+                const btnStop = document.getElementById('btn-stop');
+                btnStop.disabled = !state.isPlaying && state.currentIndex === 0;
+
+                const btnContainer = document.getElementById('btn-play-container');
+                const currentLine = state.script[state.currentIndex];
+                const isMyRoleTurn = currentLine && currentLine.character === state.myRole;
+
+                if (isMyRoleTurn && state.isPlaying) {
+                    btnContainer.innerHTML = `
+                    <button id="btn-next" class="px-6 py-3.5 rounded-full bg-purple-500 text-white font-bold hover:bg-purple-600 transition-colors flex items-center gap-2 animate-bounce shadow-lg">
+                        내 대사 끝! (Space) <i data-lucide="chevron-right" class="w-5 h-5"></i>
+                    </button>
+                `;
+                } else {
+                    const disabled = !state.myRole || state.script.length === 0 || state.isGeneratingAudio;
+                    const isResume = state.currentIndex > 0;
+
+                    // 재생/정지에 따른 동적 문구 적용 (일시 정지, 다시 시작, 연습 시작)
+                    const playText = state.isPlaying ? '일시 정지' : isResume ? '다시 시작' : '연습 시작';
+
+                    const classStr = `px-8 py-3.5 rounded-full font-bold transition-colors flex items-center gap-2 shadow-lg ${
+                        state.isPlaying
+                            ? 'bg-yellow-500 text-gray-900 hover:bg-yellow-400'
+                            : 'bg-white text-gray-900 hover:bg-gray-200'
+                    } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`;
+                    btnContainer.innerHTML = `
+                    <button id="btn-toggle-play" class="${classStr}" ${disabled ? 'disabled' : ''}>
+                        <i data-lucide="${state.isPlaying ? 'pause' : 'play'}" class="w-5 h-5 fill-current"></i>
+                        ${playText}
+                    </button>
+                `;
+                }
+                lucide.createIcons();
+            }
+
+            function renderPracticeTab() {
+                renderPracticeSettings();
+                renderLyrics();
+            }
+
+            // --- Event Listeners Setup ---
+            function setupEventListeners() {
+                // Tabs
+                document.getElementById('tab-buttons').addEventListener('click', (e) => {
+                    const btn = e.target.closest('.tab-btn');
+                    if (btn) {
+                        state.activeTab = btn.dataset.tab;
+                        renderTabs();
+                    }
+                });
+
+                // LLM Parsing
+                const bulkInput = document.getElementById('bulk-input');
+                const btnParse = document.getElementById('btn-parse');
+                const btnParseText = document.getElementById('btn-parse-text');
+
+                bulkInput.addEventListener('input', (e) => (state.rawText = e.target.value));
+
+                btnParse.addEventListener('click', async () => {
+                    if (!state.rawText.trim() || state.isParsing) return;
+                    state.isParsing = true;
+                    btnParse.disabled = true;
+                    bulkInput.disabled = true;
+                    btnParseText.innerHTML =
+                        '<i data-lucide="loader-2" class="w-[18px] h-[18px] animate-spin inline"></i> AI가 대본을 분석하고 있습니다...';
+                    lucide.createIcons();
+
+                    try {
+                        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                        const payload = {
+                            contents: [{ parts: [{ text: state.rawText }] }],
+                            systemInstruction: {
+                                parts: [
+                                    {
+                                        text: '사용자가 입력한 연극 대본을 분석하여 화자(character)와 대사(text)로 분리해라. 괄호 안의 지문은 제외하고 실제 읽을 대사만 텍스트에 포함시켜라. 포맷이 일정하지 않더라도 내용을 추론해라.',
+                                    },
+                                ],
+                            },
+                            generationConfig: {
+                                responseMimeType: 'application/json',
+                                responseSchema: {
+                                    type: 'ARRAY',
+                                    items: {
+                                        type: 'OBJECT',
+                                        properties: { character: { type: 'STRING' }, text: { type: 'STRING' } },
+                                        required: ['character', 'text'],
+                                    },
+                                },
+                            },
+                        };
+                        const result = await fetchWithBackoff(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload),
+                        });
+                        const parsedData = JSON.parse(result.candidates[0].content.parts[0].text);
+
+                        if (
+                            !Array.isArray(parsedData) ||
+                            parsedData.length === 0 ||
+                            !parsedData.some((item) => item.character && item.text)
+                        ) {
+                            showToast(
+                                '대본을 인식하지 못했습니다. 인물과 대사가 명확히 구분되게 입력해주세요.',
+                                'error'
+                            );
+                            return;
+                        }
+
+                        state.script = parsedData.map((item, index) => ({
+                            id: Date.now() + index,
+                            character: item.character || '알수없음',
+                            text: item.text || '',
+                        }));
+                        state.rawText = '';
+                        bulkInput.value = '';
+                        syncRoleVoices();
+                        state.activeTab = 'script';
+                        renderTabs();
+                        showToast('대본 자동 분리가 완료되었습니다.', 'success');
+                    } catch (error) {
+                        console.error(error);
+                        showToast('대본 분석 중 오류가 발생했습니다. 직접 편집 탭을 이용해주세요.', 'error');
+                    } finally {
+                        state.isParsing = false;
+                        btnParse.disabled = false;
+                        bulkInput.disabled = false;
+                        btnParseText.innerText = 'AI 자동 분리 실행';
+                    }
+                });
+
+                // Script Editing
+                const scriptList = document.getElementById('script-list');
+                let draggedItem = null;
+
+                scriptList.addEventListener('input', (e) => {
+                    const item = e.target.closest('.script-item');
+                    if (!item) return;
+                    const id = parseInt(item.dataset.id);
+                    const line = state.script.find((l) => l.id === id);
+
+                    if (e.target.classList.contains('input-character')) {
+                        line.character = e.target.value;
+                        syncRoleVoices();
+                    } else if (e.target.classList.contains('input-text')) {
+                        line.text = e.target.value;
+                        e.target.style.height = 'auto';
+                        e.target.style.height = e.target.scrollHeight + 'px';
+                    }
+
+                    if (state.script.length > 0 && state.currentIndex >= state.script.length) {
+                        state.currentIndex = 0;
+                        state.isPlaying = false;
+                    }
+                });
+
+                scriptList.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.btn-delete');
+                    if (btn) {
+                        const item = btn.closest('.script-item');
+                        const id = parseInt(item.dataset.id);
+                        state.script = state.script.filter((l) => l.id !== id);
+                        renderScriptEditor();
+                        syncRoleVoices();
+                    }
+                });
+
+                // Drag and Drop
+                scriptList.addEventListener('dragstart', (e) => {
+                    const item = e.target.closest('.script-item');
+                    if (!item) return;
+                    draggedItem = item;
+                    e.dataTransfer.effectAllowed = 'move';
+                    setTimeout(() => item.classList.add('dragging'), 0);
+                });
+
+                scriptList.addEventListener('dragend', (e) => {
+                    if (draggedItem) {
+                        draggedItem.classList.remove('dragging');
+                        const newOrderIds = Array.from(scriptList.querySelectorAll('.script-item')).map((el) =>
+                            parseInt(el.dataset.id)
+                        );
+                        state.script = newOrderIds
+                            .map((id) => state.script.find((item) => item.id === id))
+                            .filter(Boolean);
+
+                        if (state.script.length > 0 && state.currentIndex >= state.script.length) {
+                            state.currentIndex = 0;
+                            state.isPlaying = false;
+                        }
+                        draggedItem = null;
+                    }
+                });
+
+                scriptList.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    const afterElement = getDragAfterElement(scriptList, e.clientY);
+                    if (draggedItem) {
+                        if (afterElement == null) {
+                            scriptList.appendChild(draggedItem);
+                        } else {
+                            scriptList.insertBefore(draggedItem, afterElement);
+                        }
+                    }
+                });
+
+                function getDragAfterElement(container, y) {
+                    const draggableElements = [...container.querySelectorAll('.script-item:not(.dragging)')];
+                    return draggableElements.reduce(
+                        (closest, child) => {
+                            const box = child.getBoundingClientRect();
+                            const offset = y - box.top - box.height / 2;
+                            if (offset < 0 && offset > closest.offset) {
+                                return { offset: offset, element: child };
+                            } else {
+                                return closest;
+                            }
+                        },
+                        { offset: Number.NEGATIVE_INFINITY }
+                    ).element;
+                }
+
+                document.getElementById('btn-add-line').addEventListener('click', () => {
+                    state.script.push({ id: Date.now(), character: '', text: '' });
+                    renderScriptEditor();
+                });
+
+                // Practice Settings
+                document.getElementById('select-my-role').addEventListener('change', (e) => {
+                    state.myRole = e.target.value;
+                    renderPracticeTab();
+                });
+
+                document.getElementById('voice-settings').addEventListener('change', (e) => {
+                    if (e.target.classList.contains('voice-select')) {
+                        const char = e.target.dataset.char;
+                        state.roleVoices[char] = e.target.value;
+                    }
+                });
+
+                // Lyrics Clicking
+                document.getElementById('lyrics-container').addEventListener('click', (e) => {
+                    const line = e.target.closest('.lyric-line');
+                    if (line) {
+                        jumpToLine(parseInt(line.dataset.index));
+                    }
+                });
+
+                // Floating Playback Controls
+                document.getElementById('btn-stop').addEventListener('click', () => {
+                    state.isPlaying = false;
+                    state.currentIndex = 0;
+                    state.isGeneratingAudio = false;
+                    if (audioObj) {
+                        audioObj.pause();
+                        audioObj.src = '';
+                    }
+                    renderPracticeTab();
+                });
+
+                document.getElementById('btn-play-container').addEventListener('click', (e) => {
+                    if (e.target.closest('#btn-toggle-play')) {
+                        if (state.currentIndex >= state.script.length) state.currentIndex = 0;
+
+                        // 핵심 수정: 클릭 즉시 상태 변경 후 UI 렌더링 호출
+                        state.isPlaying = !state.isPlaying;
+                        renderControls();
+
+                        handlePlaybackLoop();
+                    } else if (e.target.closest('#btn-next')) {
+                        if (audioObj) audioObj.pause();
+                        state.currentIndex++;
+                        handlePlaybackLoop();
+                    }
+                });
+
+                // Keyboard Spacebar
+                document.addEventListener('keydown', (e) => {
+                    const currentLine = state.script[state.currentIndex];
+                    if (
+                        e.code === 'Space' &&
+                        state.isPlaying &&
+                        currentLine &&
+                        currentLine.character === state.myRole
+                    ) {
+                        e.preventDefault();
+                        if (audioObj) audioObj.pause();
+                        state.currentIndex++;
+                        handlePlaybackLoop();
+                    }
+                });
+
+                // Visibility Change
+                document.addEventListener('visibilitychange', () => {
+                    if (document.hidden) {
+                        if (state.isPlaying) {
+                            wasPlayingRef = true;
+                            state.isPlaying = false;
+                            if (audioObj) audioObj.pause();
+                            renderControls();
+                        }
+                    } else {
+                        if (wasPlayingRef) {
+                            wasPlayingRef = false;
+                            state.isPlaying = true;
+                            if (audioObj && audioObj.paused && audioObj.src) {
+                                audioObj.play().catch(console.error);
+                            }
+                            handlePlaybackLoop();
+                        }
+                    }
+                });
+            }
+
+            // --- Initialization ---
+            syncRoleVoices();
+            renderTabs();
+            setupEventListeners();
+        </script>
+    </body>
+</html>

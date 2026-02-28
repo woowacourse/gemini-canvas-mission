@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Synthwave Runner</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+        font-family: 'Courier New', Courier, monospace;
+        touch-action: none;
+      }
+      #game-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+      #ui-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      #score-board {
+        color: #0ff;
+        font-size: 24px;
+        font-weight: bold;
+        text-shadow: 0 0 10px #0ff;
+        padding: 20px;
+        text-align: left;
+        z-index: 10;
+      }
+      #menu-screen {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        z-index: 20;
+        backdrop-filter: blur(5px);
+      }
+      h1 {
+        color: #f0f;
+        font-size: 48px;
+        text-shadow: 0 0 20px #f0f, 0 0 40px #f0f;
+        margin-bottom: 10px;
+        text-align: center;
+      }
+      p {
+        color: #fff;
+        font-size: 16px;
+        margin-bottom: 40px;
+        text-align: center;
+        line-height: 1.5;
+      }
+      .btn {
+        background: transparent;
+        color: #0ff;
+        border: 2px solid #0ff;
+        padding: 15px 40px;
+        font-size: 20px;
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: bold;
+        cursor: pointer;
+        text-transform: uppercase;
+        box-shadow: 0 0 10px #0ff inset, 0 0 10px #0ff;
+        transition: all 0.2s;
+      }
+      .btn:hover {
+        background: #0ff;
+        color: #000;
+      }
+      .btn-group {
+        display: flex;
+        gap: 20px;
+      }
+      #step1-panel,
+      #step2-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+      }
+      #nickname-input {
+        background: transparent;
+        color: #0ff;
+        border: 2px solid #0ff;
+        padding: 10px;
+        font-size: 16px;
+        font-family: 'Courier New', Courier, monospace;
+        margin-bottom: 20px;
+        text-align: center;
+        outline: none;
+        width: 250px;
+      }
+      #nickname-input::placeholder {
+        color: rgba(0, 255, 255, 0.5);
+      }
+      #leaderboard {
+        color: #fff;
+        margin-bottom: 20px;
+        text-align: left;
+        font-size: 16px;
+        background: rgba(0, 255, 255, 0.1);
+        padding: 15px;
+        border: 1px solid #0ff;
+        border-radius: 5px;
+        width: 250px;
+      }
+      #leaderboard h2 {
+        color: #f0f;
+        font-size: 20px;
+        margin-top: 0;
+        margin-bottom: 15px;
+        text-align: center;
+        text-shadow: 0 0 5px #f0f;
+      }
+      .leaderboard-entry {
+        display: flex;
+        justify-content: space-between;
+        margin: 5px 0;
+      }
+      #final-score {
+        color: #ff0;
+        font-size: 24px;
+        margin-bottom: 20px;
+        display: none;
+      }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  </head>
+  <body>
+    <div id="game-container"></div>
+
+    <div id="ui-layer">
+      <div id="score-board">
+        점수: <span id="score">0</span>
+        <span
+          style="
+            font-size: 16px;
+            margin-left: 20px;
+            color: #fff;
+            text-shadow: none;
+          "
+          >레벨: <span id="level">1</span></span
+        >
+      </div>
+    </div>
+
+    <div id="menu-screen">
+      <h1 id="game-title">SYNTH RUN</h1>
+
+      <div id="step1-panel">
+        <input type="text" id="nickname-input" maxlength="12" />
+        <button class="btn" id="next-btn" style="margin-top: 20px">다음</button>
+      </div>
+
+      <div id="step2-panel" style="display: none">
+        <div id="leaderboard" style="display: none">
+          <h2>명예의 전당 (Top 5)</h2>
+          <div id="leaderboard-list"></div>
+        </div>
+
+        <p id="game-instruction">
+          [ PC ]<br />
+          좌/우 방향키: 차선 변경<br />
+          위 방향키: 점프 (파란색)<br />
+          아래 방향키 (누르고 있기): 슬라이드 (형광 초록)<br /><br />
+          [ 모바일 ]<br />
+          상하좌우 스와이프
+        </p>
+        <div id="final-score">최종 점수: <span id="end-score">0</span></div>
+        <div class="btn-group">
+          <button class="btn" id="home-btn" style="display: none">
+            처음으로
+          </button>
+          <button class="btn" id="start-btn">게임 시작</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module">
+      import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+      import {
+        getAuth,
+        signInAnonymously,
+        signInWithCustomToken,
+        onAuthStateChanged,
+      } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+      import {
+        getFirestore,
+        collection,
+        addDoc,
+        onSnapshot,
+      } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+      const firebaseConfig =
+        typeof __firebase_config !== 'undefined'
+          ? JSON.parse(__firebase_config)
+          : {};
+      const appId =
+        typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+      let app, auth, db;
+      let currentUser = null;
+      const hasFirebaseConfig = Object.keys(firebaseConfig).length > 0;
+
+      if (hasFirebaseConfig) {
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+
+        const initAuth = async () => {
+          try {
+            if (
+              typeof __initial_auth_token !== 'undefined' &&
+              __initial_auth_token
+            ) {
+              await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (e) {
+            console.error('Auth initialization failed:', e);
+          }
+        };
+        initAuth();
+
+        onAuthStateChanged(auth, (user) => {
+          currentUser = user;
+          if (user) setupLeaderboardListener();
+        });
+      } else {
+        console.warn(
+          'Firebase 설정이 존재하지 않습니다. 리더보드 기능이 비활성화된 로컬 모드로 실행됩니다.'
+        );
+      }
+
+      function setupLeaderboardListener() {
+        if (!hasFirebaseConfig || !currentUser) return;
+        const lbCollection = collection(
+          db,
+          'artifacts',
+          appId,
+          'public',
+          'data',
+          'leaderboard'
+        );
+        onSnapshot(
+          lbCollection,
+          (snapshot) => {
+            let allScores = [];
+            snapshot.forEach((doc) => {
+              allScores.push(doc.data());
+            });
+            allScores.sort((a, b) => b.score - a.score);
+            leaderboard = allScores.slice(0, 5);
+            updateLeaderboardUI();
+          },
+          (error) => {
+            console.error('Leaderboard fetch error:', error);
+          }
+        );
+      }
+
+      async function saveScore(name, finalScore) {
+        if (!hasFirebaseConfig || !currentUser) return;
+        const lbCollection = collection(
+          db,
+          'artifacts',
+          appId,
+          'public',
+          'data',
+          'leaderboard'
+        );
+        try {
+          await addDoc(lbCollection, {
+            name: name,
+            score: Math.floor(finalScore),
+            timestamp: Date.now(),
+          });
+        } catch (e) {
+          console.error('Error saving score:', e);
+        }
+      }
+
+      // --- 사운드 시스템 ---
+      let audioCtx;
+      function initAudio() {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+      }
+
+      function playCoinSound() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.type = 'square'; // 레트로풍 사운드
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+        osc.frequency.setValueAtTime(987.77, now); // B5
+        osc.frequency.setValueAtTime(1318.51, now + 0.1); // E6
+
+        gainNode.gain.setValueAtTime(0.05, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+        osc.start(now);
+        osc.stop(now + 0.3);
+      }
+
+      // --- 닉네임 생성 ---
+      const adjectives = [
+        '울고 있는',
+        '춤추는',
+        '화가 잔뜩 난',
+        '야근하는',
+        '배고픈',
+        '신난',
+        '뒹굴거리는',
+        '비틀거리는',
+        '우주를 나는',
+        '당황한',
+        '도망치는',
+      ];
+      const nouns = [
+        '뱁새',
+        '알파카',
+        '고인물',
+        '뉴비',
+        '개발자',
+        '외계인',
+        '호버보드',
+        '길고양이',
+        '강아지',
+        '용사님',
+        '먼지',
+      ];
+
+      function generateRandomNickname() {
+        const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+        const noun = nouns[Math.floor(Math.random() * nouns.length)];
+        return `${adj} ${noun}`;
+      }
+
+      // --- 게임 상태 및 전역 변수 ---
+      let scene, camera, renderer, dirLight;
+      let playerContainer, playerMesh;
+      let obstacles = [];
+      let trackTiles = [];
+      let coins = [];
+      let shootingStars = [];
+      let coinGeo, coinMat;
+      let stars;
+
+      let gameActive = false;
+      let score = 0;
+      const baseSpeed = 0.5;
+      let gameSpeed = baseSpeed;
+      let speedMultiplier = 0.00001;
+      const speedIncreaseRate = 0.00000002;
+
+      let currentLevel = 0;
+      let targetPalette;
+      const palettes = [
+        { bg: 0x050011, light: 0xff00ff, border: 0x00ffff, line: 0xff00ff }, // Level 1 (Default)
+        { bg: 0x110005, light: 0xff0000, border: 0xffaa00, line: 0xff0000 }, // Level 2 (Red/Orange)
+        { bg: 0x001105, light: 0x00ff00, border: 0x00ffff, line: 0x00ff00 }, // Level 3 (Green/Cyan)
+        { bg: 0x111100, light: 0xffff00, border: 0xff00ff, line: 0xffff00 }, // Level 4 (Yellow/Pink)
+      ];
+
+      const laneWidth = 3;
+      let currentLane = 0;
+      let targetX = 0;
+
+      let isJumping = false;
+      let velocityY = 0;
+      const jumpForce = 0.22;
+      const gravity = 0.008;
+      const groundLevel = 0;
+
+      // 슬라이드 관련 변수
+      let isSliding = false;
+      let slideEndTime = 0;
+      const slideDuration = 600; // 슬라이드 지속 시간 (ms)
+
+      // 트랙 빌드 상태
+      let buildPos = new THREE.Vector3(0, 0, 0);
+      let buildRot = 0;
+      let upcomingTurns = [];
+      let tilesGeneratedCount = 0;
+
+      // 캐릭터 파츠 변수
+      let charBody,
+        charHead,
+        charLeftArm,
+        charRightArm,
+        charLeftLeg,
+        charRightLeg;
+
+      let leaderboard = [];
+      let currentNickname = 'Player';
+
+      const scoreBoardElement = document.getElementById('score-board');
+      const scoreElement = document.getElementById('score');
+      const levelElement = document.getElementById('level');
+      const menuScreen = document.getElementById('menu-screen');
+      const startBtn = document.getElementById('start-btn');
+      const homeBtn = document.getElementById('home-btn');
+      const finalScoreElement = document.getElementById('final-score');
+      const endScoreElement = document.getElementById('end-score');
+      const titleElement = document.getElementById('game-title');
+      const instructionElement = document.getElementById('game-instruction');
+      const nicknameInput = document.getElementById('nickname-input');
+      const leaderboardDiv = document.getElementById('leaderboard');
+      const leaderboardList = document.getElementById('leaderboard-list');
+      const step1Panel = document.getElementById('step1-panel');
+      const step2Panel = document.getElementById('step2-panel');
+      const nextBtn = document.getElementById('next-btn');
+
+      let defaultRandomNickname = generateRandomNickname();
+      nicknameInput.placeholder = defaultRandomNickname;
+
+      let cameraLookAtTarget = new THREE.Vector3(0, 0, -10);
+
+      // --- 유성(별똥별) 메테리얼 시스템 ---
+      let starMaterials = [];
+
+      function createShootingStarTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 16;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createLinearGradient(0, 0, 0, 256);
+        // 원통의 V 좌표계에 매핑됨: 0(상단)은 투명한 꼬리, 256(하단)은 가장 밝은 머리
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.1)');
+        grad.addColorStop(0.95, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 16, 256);
+        return new THREE.CanvasTexture(canvas);
+      }
+
+      function initStarMaterials() {
+        const tex = createShootingStarTexture();
+        // 레퍼런스 이미지 색상 기반 (흰색, 밝은 푸른색, 보라색)
+        const colors = [0xffffff, 0xaaeeff, 0xdd88ff];
+        colors.forEach((c) => {
+          starMaterials.push(
+            new THREE.MeshBasicMaterial({
+              color: c,
+              map: tex,
+              transparent: true,
+              opacity: 0.9,
+              blending: THREE.AdditiveBlending, // 빛나는 효과 (가산 혼합)
+              depthWrite: false, // 렌더링 순서에 의한 투명도 오류 방지
+              side: THREE.DoubleSide,
+            })
+          );
+        });
+      }
+
+      function init() {
+        const container = document.getElementById('game-container');
+
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050011);
+        scene.fog = new THREE.FogExp2(0x050011, 0.012);
+
+        camera = new THREE.PerspectiveCamera(
+          60,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          200
+        );
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+
+        dirLight = new THREE.DirectionalLight(0xff00ff, 1.2);
+        dirLight.position.set(5, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.camera.top = 20;
+        dirLight.shadow.camera.bottom = -20;
+        dirLight.shadow.camera.left = -20;
+        dirLight.shadow.camera.right = 20;
+        camera.add(dirLight);
+        scene.add(camera);
+
+        const starGeo = new THREE.BufferGeometry();
+        const starCount = 1500;
+        const starPos = new Float32Array(starCount * 3);
+        for (let i = 0; i < starCount * 3; i++) {
+          starPos[i] = (Math.random() - 0.5) * 400;
+        }
+        starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+        const starMat = new THREE.PointsMaterial({
+          color: 0xffffff,
+          size: 0.4,
+          transparent: true,
+          opacity: 0.8,
+        });
+        stars = new THREE.Points(starGeo, starMat);
+        scene.add(stars);
+
+        coinGeo = new THREE.TorusGeometry(0.3, 0.1, 8, 16);
+        coinMat = new THREE.MeshPhongMaterial({
+          color: 0xffd700,
+          emissive: 0xaa8800,
+          shininess: 100,
+        });
+
+        createCharacter();
+
+        window.addEventListener('resize', onWindowResize, false);
+        document.addEventListener('keydown', onKeyDown, false);
+        document.addEventListener('keyup', onKeyUp, false);
+        setupTouchControls();
+
+        nextBtn.addEventListener('click', () => {
+          initAudio();
+          goToStep2();
+        });
+        startBtn.addEventListener('click', () => {
+          initAudio();
+          startGame();
+        });
+        homeBtn.addEventListener('click', goHome);
+
+        renderer.render(scene, camera);
+      }
+
+      function createCharacter() {
+        playerContainer = new THREE.Group();
+        scene.add(playerContainer);
+
+        playerMesh = new THREE.Group();
+
+        const matSuit = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.4,
+          metalness: 0.1,
+        });
+        const matDark = new THREE.MeshStandardMaterial({
+          color: 0x555566,
+          roughness: 0.6,
+          metalness: 0.3,
+        });
+        const matVisor = new THREE.MeshStandardMaterial({
+          color: 0x223344,
+          roughness: 0.1,
+          metalness: 0.9,
+          emissive: 0x112244,
+        });
+
+        charHead = new THREE.Group();
+        const helmet = new THREE.Mesh(
+          new THREE.SphereGeometry(0.6, 32, 32),
+          matSuit
+        );
+        helmet.castShadow = true;
+
+        const visor = new THREE.Mesh(
+          new THREE.SphereGeometry(0.52, 32, 32),
+          matVisor
+        );
+        visor.scale.set(1, 0.85, 0.6);
+        visor.position.set(0, 0.02, 0.25);
+
+        const earGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.08, 16);
+        const leftEar = new THREE.Mesh(earGeo, matSuit);
+        leftEar.rotation.z = Math.PI / 2;
+        leftEar.position.set(-0.58, 0, 0);
+        const rightEar = new THREE.Mesh(earGeo, matSuit);
+        rightEar.rotation.z = Math.PI / 2;
+        rightEar.position.set(0.58, 0, 0);
+
+        charHead.add(helmet, visor, leftEar, rightEar);
+        charHead.position.y = 1.35;
+        playerMesh.add(charHead);
+
+        charBody = new THREE.Group();
+        const bodyGeo = new THREE.SphereGeometry(0.3, 16, 16);
+        const bodyMesh = new THREE.Mesh(bodyGeo, matSuit);
+        bodyMesh.scale.y = 1.5;
+        bodyMesh.castShadow = true;
+        charBody.add(bodyMesh);
+
+        const chestPlate = new THREE.Mesh(
+          new THREE.BoxGeometry(0.25, 0.18, 0.1),
+          matDark
+        );
+        chestPlate.position.set(0, 0.05, 0.28);
+        charBody.add(chestPlate);
+
+        const chestButton = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, 0.08, 0.11),
+          matSuit
+        );
+        chestButton.position.set(-0.04, 0.05, 0.29);
+        charBody.add(chestButton);
+
+        const backpack = new THREE.Mesh(
+          new THREE.BoxGeometry(0.4, 0.5, 0.2),
+          matSuit
+        );
+        backpack.position.set(0, 0, -0.35);
+        backpack.castShadow = true;
+        charBody.add(backpack);
+
+        charBody.position.y = 0.65;
+        playerMesh.add(charBody);
+
+        function createLimb(isArm, isLeft) {
+          const limbGroup = new THREE.Group();
+          const radius = isArm ? 0.12 : 0.15;
+          const length = isArm ? 0.25 : 0.25;
+
+          const limbGeo = new THREE.SphereGeometry(radius, 16, 16);
+          const limb = new THREE.Mesh(limbGeo, matSuit);
+          limb.scale.y = (length + radius * 2) / (radius * 2);
+
+          limb.position.y = -(length / 2 + radius);
+          limb.castShadow = true;
+          limbGroup.add(limb);
+
+          const cuffRadius = radius + 0.02;
+          const cuffGeo = new THREE.CylinderGeometry(
+            cuffRadius,
+            cuffRadius,
+            0.08,
+            16
+          );
+          const cuff = new THREE.Mesh(cuffGeo, matDark);
+          cuff.position.y = limb.position.y - length / 2 + 0.05;
+          limbGroup.add(cuff);
+
+          if (isArm) {
+            limbGroup.position.set(isLeft ? -0.45 : 0.45, 0.95, 0);
+            limbGroup.rotation.z = isLeft ? 0.1 : -0.1;
+          } else {
+            limbGroup.position.set(isLeft ? -0.18 : 0.18, 0.45, 0);
+          }
+          return limbGroup;
+        }
+
+        charLeftArm = createLimb(true, true);
+        charRightArm = createLimb(true, false);
+        charLeftLeg = createLimb(false, true);
+        charRightLeg = createLimb(false, false);
+
+        playerMesh.add(charLeftArm, charRightArm, charLeftLeg, charRightLeg);
+        playerMesh.position.set(0, groundLevel, 0);
+        playerContainer.add(playerMesh);
+      }
+
+      function animateCharacter(time) {
+        if (!gameActive) return;
+
+        const walkSpeed = gameSpeed * 12.0;
+        const swingAngle = Math.sin(time * walkSpeed);
+
+        if (isSliding) {
+          playerMesh.rotation.x = -Math.PI / 2;
+          playerMesh.position.y = groundLevel + 0.3;
+
+          charLeftArm.rotation.x = 0;
+          charRightArm.rotation.x = 0;
+          charLeftLeg.rotation.x = 0;
+          charRightLeg.rotation.x = 0;
+          charBody.rotation.x = 0;
+          charHead.rotation.x = 0;
+
+          if (performance.now() > slideEndTime) {
+            isSliding = false;
+          }
+        } else if (isJumping) {
+          playerMesh.rotation.x = 0;
+          charLeftArm.rotation.x = -Math.PI / 1.5;
+          charRightArm.rotation.x = -Math.PI / 1.5;
+          charLeftLeg.rotation.x = -0.3;
+          charRightLeg.rotation.x = 0.5;
+          charBody.rotation.x = 0;
+          charHead.rotation.x = 0;
+        } else {
+          playerMesh.rotation.x = 0;
+          charLeftLeg.rotation.x = swingAngle * 0.6;
+          charRightLeg.rotation.x = -swingAngle * 0.6;
+          charLeftArm.rotation.x = -swingAngle * 0.8;
+          charRightArm.rotation.x = swingAngle * 0.8;
+          charBody.rotation.x = 0.15;
+          charHead.rotation.x = 0.1;
+
+          const bounce = Math.abs(Math.sin(time * walkSpeed)) * 0.15;
+          playerMesh.position.y = groundLevel + bounce;
+        }
+      }
+
+      function generateTrackChunk() {
+        const spawnCorner = tilesGeneratedCount > 25 && Math.random() > 0.7;
+        const buildDir = new THREE.Vector3(
+          -Math.sin(buildRot),
+          0,
+          -Math.cos(buildRot)
+        );
+
+        if (spawnCorner) {
+          const turnDir = Math.random() > 0.5 ? 'left' : 'right';
+          buildPos.addScaledVector(buildDir, 4.5);
+
+          const geo = new THREE.PlaneGeometry(9, 9);
+          const mat = new THREE.MeshPhongMaterial({
+            color: 0x443300,
+            emissive: 0xaa8800,
+            shininess: 80,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.rotation.z = buildRot;
+          mesh.position.copy(buildPos);
+          scene.add(mesh);
+          trackTiles.push(mesh);
+
+          upcomingTurns.push({
+            pos: buildPos.clone(),
+            dir: turnDir,
+            entered: false,
+          });
+
+          buildRot += turnDir === 'left' ? Math.PI / 2 : -Math.PI / 2;
+          const newDir = new THREE.Vector3(
+            -Math.sin(buildRot),
+            0,
+            -Math.cos(buildRot)
+          );
+
+          buildPos.addScaledVector(newDir, 4.5);
+          tilesGeneratedCount = 0;
+        } else {
+          const tileLength = 30;
+          buildPos.addScaledVector(buildDir, tileLength / 2);
+
+          const geo = new THREE.PlaneGeometry(9, tileLength);
+          const mat = new THREE.MeshPhongMaterial({
+            color: 0x333344,
+            emissive: 0x111122,
+            shininess: 50,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+
+          for (let l = -1; l <= 1; l += 2) {
+            const dividerGeo = new THREE.PlaneGeometry(0.1, tileLength);
+            const dividerMat = new THREE.MeshBasicMaterial({
+              color: 0x00ffff,
+              transparent: true,
+              opacity: 0.3,
+            });
+            const divider = new THREE.Mesh(dividerGeo, dividerMat);
+            divider.position.set(l * 1.5, 0, 0.01);
+            mesh.add(divider);
+          }
+
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.rotation.z = buildRot;
+          mesh.position.copy(buildPos);
+          scene.add(mesh);
+          trackTiles.push(mesh);
+
+          if (tilesGeneratedCount > 1) {
+            spawnObstacleOnTile(buildPos, buildRot, buildDir, tileLength);
+          }
+
+          buildPos.addScaledVector(buildDir, tileLength / 2);
+          tilesGeneratedCount++;
+        }
+      }
+
+      function spawnCoinsOnTile(tilePos, tileRot, offsetZ, lane) {
+        for (let i = 0; i < 3; i++) {
+          const coin = new THREE.Mesh(coinGeo, coinMat);
+          const localZ = offsetZ - i * 2.5;
+          const localOffset = new THREE.Vector3(lane * laneWidth, 0.6, localZ);
+          localOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), tileRot);
+
+          coin.position.copy(tilePos).add(localOffset);
+          coin.rotation.y = tileRot;
+          coin.userData = { hit: false };
+
+          scene.add(coin);
+          coins.push(coin);
+        }
+      }
+
+      // --- 개선된 유성(별똥별) 생성 로직 ---
+      function spawnShootingStar() {
+        if (starMaterials.length === 0) initStarMaterials();
+
+        // 송곳(두께 변화)이 아닌 빛의 선(얇고 긴 균일 원통)으로 표현
+        const length = 50 + Math.random() * 40;
+        const geo = new THREE.CylinderGeometry(0.12, 0.12, length, 4);
+
+        const mat =
+          starMaterials[Math.floor(Math.random() * starMaterials.length)];
+        const mesh = new THREE.Mesh(geo, mat);
+
+        const startX = (Math.random() - 0.5) * 120;
+        const startY = 30 + Math.random() * 20;
+        const startZ = playerContainer.position.z - 40 - Math.random() * 60;
+
+        mesh.position.set(startX, startY, startZ);
+
+        const velX = (Math.random() - 0.5) * 2;
+        const velY = -1.5 - Math.random() * 1.5;
+        const velZ = -1.5 - Math.random() * 1.5;
+        const velocity = new THREE.Vector3(velX, velY, velZ);
+
+        mesh.userData = { velocity: velocity, life: 150 };
+
+        // 텍스처 V=0 지점(밝은 머리부분)이 로컬 좌표 -Y를 향하도록 하고,
+        // 이동 방향 벡터(velocity)에 원통의 -Y축이 정렬되도록 회전시킵니다.
+        mesh.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, -1, 0),
+          velocity.clone().normalize()
+        );
+
+        scene.add(mesh);
+        shootingStars.push(mesh);
+      }
+
+      function spawnObstacleOnTile(tilePos, tileRot, tileDir, tileLength) {
+        if (Math.random() < 0.7) {
+          if (Math.random() < 0.4) {
+            const coinLane = Math.floor(Math.random() * 3) - 1;
+            spawnCoinsOnTile(tilePos, tileRot, -10, coinLane);
+          }
+          return;
+        }
+
+        const patternType = Math.floor(Math.random() * 4);
+        const offsetZ = -10 + Math.random() * 5;
+        let occupiedLanes = [];
+
+        if (patternType === 0) {
+          const lane = Math.floor(Math.random() * 3) - 1;
+          const type = Math.floor(Math.random() * 3);
+          spawnSingleObstacle(lane, tilePos, tileRot, offsetZ, type);
+          occupiedLanes.push(lane);
+        } else if (patternType === 1) {
+          const openLane = Math.floor(Math.random() * 3) - 1;
+          [-1, 0, 1].forEach((lane) => {
+            if (lane !== openLane) {
+              spawnSingleObstacle(lane, tilePos, tileRot, offsetZ, 1);
+              occupiedLanes.push(lane);
+            }
+          });
+          spawnCoinsOnTile(tilePos, tileRot, offsetZ, openLane);
+        } else if (patternType === 2) {
+          const firstLane = Math.floor(Math.random() * 3) - 1;
+          const type1 = Math.random() > 0.5 ? 2 : 0;
+          const type2 = type1 === 2 ? 0 : 1;
+          spawnSingleObstacle(firstLane, tilePos, tileRot, offsetZ, type1);
+          spawnSingleObstacle(firstLane, tilePos, tileRot, offsetZ - 18, type2);
+          occupiedLanes.push(firstLane);
+        } else if (patternType === 3) {
+          const type = Math.random() > 0.5 ? 1 : 2;
+          const obs = spawnSingleObstacle(0, tilePos, tileRot, offsetZ, type);
+          obs.userData.isMoving = true;
+          obs.userData.moveDir = Math.random() > 0.5 ? 1 : -1;
+          obs.userData.speedX = 0.03 + Math.random() * 0.04;
+          occupiedLanes = [-1, 0, 1];
+        }
+
+        if (patternType !== 1 && occupiedLanes.length < 3) {
+          if (Math.random() < 0.5) {
+            let freeLanes = [-1, 0, 1].filter(
+              (l) => !occupiedLanes.includes(l)
+            );
+            if (freeLanes.length > 0) {
+              const coinLane =
+                freeLanes[Math.floor(Math.random() * freeLanes.length)];
+              spawnCoinsOnTile(tilePos, tileRot, offsetZ, coinLane);
+            }
+          }
+        }
+      }
+
+      function spawnSingleObstacle(
+        lane,
+        tilePos,
+        tileRot,
+        localZOffset,
+        obsType
+      ) {
+        let height, yPos, color, emissive;
+
+        if (obsType === 0) {
+          height = 0.6;
+          yPos = height / 2;
+          color = 0x00ffff;
+          emissive = 0x004444;
+        } else if (obsType === 1) {
+          height = 3.0;
+          yPos = height / 2;
+          color = 0xff0033;
+          emissive = 0x660011;
+        } else if (obsType === 2) {
+          height = 0.6;
+          yPos = 2.1;
+          color = 0x33ff00;
+          emissive = 0x116600;
+        }
+
+        const geometry = new THREE.BoxGeometry(laneWidth - 0.2, height, 1.5);
+        const material = new THREE.MeshPhongMaterial({
+          color: color,
+          emissive: emissive,
+        });
+
+        const obstacle = new THREE.Mesh(geometry, material);
+
+        const localOffset = new THREE.Vector3(
+          lane * laneWidth,
+          yPos,
+          localZOffset
+        );
+        localOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), tileRot);
+
+        obstacle.position.copy(tilePos).add(localOffset);
+        obstacle.rotation.y = tileRot;
+        obstacle.castShadow = true;
+        obstacle.receiveShadow = true;
+
+        obstacle.userData = {
+          hit: false,
+          height: height,
+          yPos: yPos,
+          initLaneOffset: lane * laneWidth,
+        };
+
+        scene.add(obstacle);
+        obstacles.push(obstacle);
+        return obstacle;
+      }
+
+      function handleAction(actionDir) {
+        if (!gameActive) return;
+        if (actionDir === 'left') {
+          currentLane = Math.max(-1, currentLane - 1);
+        } else if (actionDir === 'right') {
+          currentLane = Math.min(1, currentLane + 1);
+        }
+        targetX = currentLane * laneWidth;
+      }
+
+      function jump() {
+        if (!gameActive || isJumping || isSliding) return;
+        isJumping = true;
+        velocityY = jumpForce;
+      }
+
+      function slide(isMobile = false) {
+        if (!gameActive || isJumping || isSliding) return;
+        isSliding = true;
+        if (isMobile) {
+          slideEndTime = performance.now() + slideDuration;
+        } else {
+          slideEndTime = Infinity;
+        }
+      }
+
+      function stopSlide() {
+        if (isSliding) {
+          isSliding = false;
+        }
+      }
+
+      function onKeyDown(event) {
+        switch (event.keyCode) {
+          case 37:
+          case 65:
+            handleAction('left');
+            break;
+          case 39:
+          case 68:
+            handleAction('right');
+            break;
+          case 38:
+          case 87:
+          case 32:
+            jump();
+            break;
+          case 40:
+          case 83:
+            slide(false);
+            break;
+        }
+      }
+
+      function onKeyUp(event) {
+        switch (event.keyCode) {
+          case 40:
+          case 83:
+            stopSlide();
+            break;
+        }
+      }
+
+      function setupTouchControls() {
+        let touchStartX = 0,
+          touchStartY = 0;
+        document.addEventListener(
+          'touchstart',
+          (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+          },
+          { passive: false }
+        );
+        document.addEventListener(
+          'touchend',
+          (e) => {
+            if (!gameActive) return;
+            const diffX = e.changedTouches[0].screenX - touchStartX;
+            const diffY = e.changedTouches[0].screenY - touchStartY;
+            const threshold = 30;
+
+            if (Math.abs(diffX) > Math.abs(diffY)) {
+              if (Math.abs(diffX) > threshold)
+                handleAction(diffX > 0 ? 'right' : 'left');
+            } else {
+              if (Math.abs(diffY) > threshold) {
+                if (diffY < 0) jump();
+                else slide(true);
+              }
+            }
+          },
+          { passive: false }
+        );
+      }
+
+      function goToStep2() {
+        let inputName = nicknameInput.value.trim();
+        if (inputName === '') {
+          inputName = defaultRandomNickname;
+          nicknameInput.value = inputName;
+        }
+        currentNickname = inputName;
+
+        step1Panel.style.display = 'none';
+        step2Panel.style.display = 'flex';
+        updateLeaderboardUI();
+      }
+
+      function updateLeaderboardUI() {
+        leaderboardList.innerHTML = '';
+        const top5 = leaderboard;
+        top5.forEach((entry, index) => {
+          leaderboardList.innerHTML += `<div class="leaderboard-entry"><span>${
+            index + 1
+          }. ${entry.name}</span><span>${entry.score}</span></div>`;
+        });
+        if (leaderboard.length > 0) leaderboardDiv.style.display = 'block';
+      }
+
+      function clearWorld() {
+        trackTiles.forEach((tile) => scene.remove(tile));
+        trackTiles = [];
+        obstacles.forEach((obs) => scene.remove(obs));
+        obstacles = [];
+        coins.forEach((coin) => scene.remove(coin));
+        coins = [];
+        shootingStars.forEach((star) => scene.remove(star));
+        shootingStars = [];
+        upcomingTurns = [];
+        buildPos.set(0, 0, 0);
+        buildRot = 0;
+        tilesGeneratedCount = 0;
+      }
+
+      function startGame() {
+        score = 0;
+        currentLevel = 0;
+        targetPalette = palettes[0];
+
+        scene.background.setHex(targetPalette.bg);
+        scene.fog.color.setHex(targetPalette.bg);
+        if (dirLight) dirLight.color.setHex(targetPalette.light);
+
+        scoreBoardElement.style.color =
+          '#' + targetPalette.border.toString(16).padStart(6, '0');
+        scoreBoardElement.style.textShadow = `0 0 10px #${targetPalette.border
+          .toString(16)
+          .padStart(6, '0')}`;
+        levelElement.innerText = '1';
+
+        gameSpeed = baseSpeed;
+        speedMultiplier = 0.00001;
+        currentLane = 0;
+        targetX = 0;
+        isJumping = false;
+        isSliding = false;
+
+        clearWorld();
+        playerContainer.position.set(0, 0, 0);
+        playerContainer.rotation.y = 0;
+        playerMesh.position.set(0, groundLevel, 0);
+        playerMesh.rotation.x = 0;
+
+        for (let i = 0; i < 15; i++) generateTrackChunk();
+
+        cameraLookAtTarget.set(0, 0, -10);
+        scoreElement.innerText = '0';
+        menuScreen.style.display = 'none';
+
+        gameActive = true;
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+      }
+
+      function gameOver() {
+        gameActive = false;
+        saveScore(currentNickname, score);
+
+        menuScreen.style.display = 'flex';
+        step1Panel.style.display = 'none';
+        step2Panel.style.display = 'flex';
+
+        titleElement.innerText = 'CRASHED';
+        titleElement.style.color = '#f00';
+        titleElement.style.textShadow = '0 0 20px #f00';
+        instructionElement.style.display = 'none';
+
+        finalScoreElement.style.display = 'block';
+        endScoreElement.innerText = Math.floor(score);
+        startBtn.innerText = '다시 시작';
+        homeBtn.style.display = 'block';
+      }
+
+      function goHome() {
+        titleElement.innerText = 'SYNTH RUN';
+        titleElement.style.color = '#f0f';
+        titleElement.style.textShadow = '0 0 20px #f0f, 0 0 40px #f0f';
+
+        step1Panel.style.display = 'flex';
+        step2Panel.style.display = 'none';
+
+        instructionElement.style.display = 'block';
+        finalScoreElement.style.display = 'none';
+        startBtn.innerText = '게임 시작';
+        homeBtn.style.display = 'none';
+        nicknameInput.value = currentNickname;
+
+        updateLeaderboardUI();
+        clearWorld();
+        playerContainer.position.set(0, 0, 0);
+        playerContainer.rotation.y = 0;
+        renderer.render(scene, camera);
+      }
+
+      let lastTime = 0;
+
+      function gameLoop(time) {
+        if (!gameActive) return;
+        requestAnimationFrame(gameLoop);
+        const deltaTime = (time - lastTime) / 1000;
+        lastTime = time;
+
+        speedMultiplier += speedIncreaseRate * gameSpeed;
+        gameSpeed += speedMultiplier;
+        score += gameSpeed * 0.2;
+        scoreElement.innerText = Math.floor(score);
+
+        let newLevel = Math.floor(score / 1000);
+        if (newLevel !== currentLevel) {
+          currentLevel = newLevel;
+          targetPalette = palettes[currentLevel % palettes.length];
+          levelElement.innerText = currentLevel + 1;
+
+          const colorHex =
+            '#' + targetPalette.border.toString(16).padStart(6, '0');
+          scoreBoardElement.style.color = colorHex;
+          scoreBoardElement.style.textShadow = `0 0 10px ${colorHex}`;
+        }
+
+        scene.background.lerp(new THREE.Color(targetPalette.bg), 0.015);
+        scene.fog.color.lerp(new THREE.Color(targetPalette.bg), 0.015);
+        if (dirLight)
+          dirLight.color.lerp(new THREE.Color(targetPalette.light), 0.015);
+
+        playerContainer.translateZ(-gameSpeed);
+
+        playerMesh.position.x += (targetX - playerMesh.position.x) * 0.15;
+
+        if (isJumping) {
+          playerMesh.position.y += velocityY;
+          velocityY -= gravity;
+          if (playerMesh.position.y <= groundLevel) {
+            playerMesh.position.y = groundLevel;
+            isJumping = false;
+            velocityY = 0;
+          }
+        }
+
+        animateCharacter(time * 0.001);
+
+        const idealCameraOffset = new THREE.Vector3(0, 6, 9);
+        const worldCameraPos = idealCameraOffset.applyMatrix4(
+          playerContainer.matrixWorld
+        );
+        camera.position.lerp(worldCameraPos, 0.1);
+
+        const idealLookAt = new THREE.Vector3(0, 1, -10);
+        const worldLookAtPos = idealLookAt.applyMatrix4(
+          playerContainer.matrixWorld
+        );
+        cameraLookAtTarget.lerp(worldLookAtPos, 0.1);
+        camera.lookAt(cameraLookAtTarget);
+
+        stars.position.copy(camera.position);
+
+        if (Math.random() < 0.02) {
+          spawnShootingStar();
+        }
+
+        for (let i = shootingStars.length - 1; i >= 0; i--) {
+          const star = shootingStars[i];
+          star.position.add(star.userData.velocity);
+          star.userData.life--;
+          if (star.userData.life <= 0 || star.position.y < -10) {
+            scene.remove(star);
+            shootingStars.splice(i, 1);
+          }
+        }
+
+        if (playerContainer.position.distanceTo(buildPos) < 200) {
+          generateTrackChunk();
+        }
+
+        if (upcomingTurns.length > 0) {
+          const turn = upcomingTurns[0];
+          const dist = playerContainer.position.distanceTo(turn.pos);
+
+          if (dist <= gameSpeed * 1.5) {
+            playerContainer.position.copy(turn.pos);
+            playerContainer.rotation.y +=
+              turn.dir === 'left' ? Math.PI / 2 : -Math.PI / 2;
+            upcomingTurns.shift();
+          }
+        }
+
+        const playerDir = new THREE.Vector3(0, 0, -1).applyQuaternion(
+          playerContainer.quaternion
+        );
+
+        for (let i = coins.length - 1; i >= 0; i--) {
+          const coin = coins[i];
+          coin.rotation.y += 0.05;
+
+          const localCoinPos = playerContainer.worldToLocal(
+            coin.position.clone()
+          );
+
+          if (!coin.userData.hit && Math.abs(localCoinPos.z) < 1.0) {
+            if (Math.abs(localCoinPos.x - playerMesh.position.x) < 1.2) {
+              const playerBottom = playerMesh.position.y;
+              if (playerBottom < 2.0) {
+                coin.userData.hit = true;
+                score += 50;
+                playCoinSound();
+                scene.remove(coin);
+                coins.splice(i, 1);
+                continue;
+              }
+            }
+          }
+
+          const toCoin = coin.position.clone().sub(playerContainer.position);
+          if (playerDir.dot(toCoin) < 0 && toCoin.length() > 30) {
+            scene.remove(coin);
+            coins.splice(i, 1);
+          }
+        }
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          const obs = obstacles[i];
+
+          if (obs.userData.isMoving) {
+            obs.translateX(obs.userData.speedX * obs.userData.moveDir);
+            obs.userData.initLaneOffset +=
+              obs.userData.speedX * obs.userData.moveDir;
+            if (obs.userData.initLaneOffset > laneWidth)
+              obs.userData.moveDir = -1;
+            if (obs.userData.initLaneOffset < -laneWidth)
+              obs.userData.moveDir = 1;
+          }
+
+          const localObsPos = playerContainer.worldToLocal(
+            obs.position.clone()
+          );
+
+          if (!obs.userData.hit && Math.abs(localObsPos.z) < 1.0) {
+            if (Math.abs(localObsPos.x - playerMesh.position.x) < 1.2) {
+              const playerYMin = playerMesh.position.y;
+              const playerYMax =
+                playerMesh.position.y + (isSliding ? 0.9 : 2.0);
+
+              const obsYMin = obs.userData.yPos - obs.userData.height / 2;
+              const obsYMax = obs.userData.yPos + obs.userData.height / 2;
+
+              if (playerYMin < obsYMax && playerYMax > obsYMin) {
+                obs.userData.hit = true;
+                gameOver();
+              }
+            }
+          }
+
+          const toObs = obs.position.clone().sub(playerContainer.position);
+          if (playerDir.dot(toObs) < 0 && toObs.length() > 30) {
+            scene.remove(obs);
+            obstacles.splice(i, 1);
+          }
+        }
+
+        for (let i = trackTiles.length - 1; i >= 0; i--) {
+          const tile = trackTiles[i];
+          const toTile = tile.position.clone().sub(playerContainer.position);
+          if (playerDir.dot(toTile) < 0 && toTile.length() > 50) {
+            scene.remove(tile);
+            trackTiles.splice(i, 1);
+          }
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      window.onload = init;
+    </script>
+  </body>
+</html>

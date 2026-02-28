@@ -1,0 +1,1669 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>웹 프론트엔드 통합 학습기 (Next.js & Event Loop)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      /* --- 공통 탭 내비게이션 스타일 --- */
+      .global-nav {
+        background-color: #ffffff;
+        border-bottom: 1px solid #e5e7eb;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      }
+      .main-tab {
+        padding: 1rem 1.5rem;
+        font-weight: 700;
+        color: #6b7280;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+      }
+      .main-tab:hover {
+        color: #374151;
+      }
+      .main-tab.active {
+        color: #2563eb;
+        border-bottom: 2px solid #2563eb;
+      }
+
+      /* --- Next.js 테마 및 스타일 --- */
+      .next-theme {
+        background-color: #0d1117;
+        color: #c9d1d9;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+      .diagram-container {
+        position: relative;
+        background-image: linear-gradient(
+            rgba(255, 255, 255, 0.03) 1px,
+            transparent 1px
+          ),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 30px 30px;
+      }
+      .node-box {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
+      }
+      .node-box.active {
+        border-color: #58a6ff;
+        box-shadow: 0 0 15px rgba(88, 166, 255, 0.3);
+      }
+      .packet {
+        position: absolute;
+        padding: 4px 12px;
+        border-radius: 16px;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+        z-index: 50;
+        pointer-events: none;
+        transform: translate(-50%, -50%) scale(0);
+        box-shadow: 0 0 10px currentColor;
+        white-space: nowrap;
+      }
+      @keyframes pulse-border {
+        0% {
+          border-color: #30363d;
+          box-shadow: none;
+        }
+        50% {
+          border-color: #f78166;
+          box-shadow: 0 0 15px rgba(247, 129, 102, 0.5);
+        }
+        100% {
+          border-color: #30363d;
+          box-shadow: none;
+        }
+      }
+      .anim-pulse {
+        animation: pulse-border 1.5s infinite;
+      }
+      .anim-fade-in {
+        animation: fadeIn 0.5s forwards;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .next-tab-btn {
+        border-bottom: 2px solid transparent;
+      }
+      .next-tab-btn.active {
+        border-bottom: 2px solid #58a6ff;
+        color: #58a6ff;
+        background: rgba(88, 166, 255, 0.1);
+      }
+
+      /* --- Event Loop 테마 및 스타일 --- */
+      .ev-theme {
+        font-family: 'Noto Sans KR', sans-serif;
+        background-color: #f8fafc;
+        color: #1e293b;
+      }
+      .font-mono {
+        font-family: 'Fira Code', monospace;
+      }
+      .highlight-line {
+        background-color: rgba(250, 204, 21, 0.3);
+        border-left: 4px solid #eab308;
+      }
+      .item-enter {
+        animation: slideIn 0.3s ease-out forwards;
+      }
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .ev-theme ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      .ev-theme ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+      }
+      .ev-theme ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      .ev-theme ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+    </style>
+  </head>
+  <body class="w-full flex flex-col min-h-screen">
+    <!-- 글로벌 네비게이션 탭 -->
+    <nav class="global-nav w-full flex justify-center">
+      <div class="flex w-full max-w-7xl px-4 gap-4">
+        <button
+          id="btn-tab-nextjs"
+          class="main-tab active"
+          onclick="switchMainTab('nextjs')"
+        >
+          Next.js 렌더링 시각화
+        </button>
+        <button
+          id="btn-tab-eventloop"
+          class="main-tab"
+          onclick="switchMainTab('eventloop')"
+        >
+          JS 이벤트 루프 시각화
+        </button>
+      </div>
+    </nav>
+
+    <!-- ==========================================
+         [탭 1] Next.js 렌더링 시각화 영역
+         ========================================== -->
+    <section
+      id="sec-nextjs"
+      class="next-theme flex flex-col items-center flex-1 p-6 w-full"
+    >
+      <header class="w-full max-w-5xl text-center mb-8 mt-4">
+        <h1 class="text-3xl font-bold text-white mb-2">
+          Next.js 렌더링 플로우 애니메이션
+        </h1>
+        <p class="text-gray-400">
+          SSR, SSG, ISR의 데이터 패칭 및 HTML 렌더링 과정을 시각적으로
+          이해해보세요.
+        </p>
+      </header>
+
+      <main
+        class="w-full max-w-5xl bg-[#010409] border border-gray-800 rounded-xl overflow-hidden shadow-2xl flex flex-col"
+      >
+        <!-- 네비게이션 탭 -->
+        <nav class="flex border-b border-gray-800 bg-[#161b22]">
+          <button
+            class="next-tab-btn active flex-1 py-4 text-lg font-semibold hover:bg-gray-800 transition"
+            onclick="next_switchMode('SSR')"
+          >
+            SSR
+            <span class="text-sm font-normal block text-gray-400"
+              >Server-Side Rendering</span
+            >
+          </button>
+          <button
+            class="next-tab-btn flex-1 py-4 text-lg font-semibold hover:bg-gray-800 transition"
+            onclick="next_switchMode('SSG')"
+          >
+            SSG
+            <span class="text-sm font-normal block text-gray-400"
+              >Static Site Generation</span
+            >
+          </button>
+          <button
+            class="next-tab-btn flex-1 py-4 text-lg font-semibold hover:bg-gray-800 transition"
+            onclick="next_switchMode('ISR')"
+          >
+            ISR
+            <span class="text-sm font-normal block text-gray-400"
+              >Incremental Static Regeneration</span
+            >
+          </button>
+        </nav>
+
+        <!-- 타임라인 스크러버 영역 -->
+        <div class="px-8 py-6 bg-[#161b22] border-b border-gray-800">
+          <div
+            class="relative flex items-center justify-between w-full max-w-3xl mx-auto h-8"
+            id="next-timeline-container"
+          >
+            <div
+              class="absolute left-0 right-0 h-1 bg-gray-700 top-2 z-0 rounded"
+            ></div>
+            <div
+              id="next-timeline-progress"
+              class="absolute left-0 h-1 bg-blue-500 top-2 z-0 transition-all duration-500 rounded"
+              style="width: 0%"
+            ></div>
+            <div
+              id="next-timeline-nodes"
+              class="w-full flex justify-between items-start relative z-10"
+            >
+              <!-- JS에서 렌더링됨 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 설명 및 컨트롤 영역 -->
+        <div
+          class="p-6 bg-[#0d1117] border-b border-gray-800 flex justify-between items-center h-28"
+        >
+          <div
+            id="next-description-box"
+            class="text-lg text-gray-300 leading-relaxed max-w-3xl anim-fade-in"
+          >
+            원하는 렌더링 방식을 선택하고 재생 버튼을 눌러보세요.
+          </div>
+          <button
+            id="next-play-btn"
+            onclick="next_togglePlay()"
+            class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 transition transform active:scale-95 w-40 justify-center"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+              />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            재생 (Play)
+          </button>
+        </div>
+
+        <!-- 다이어그램 영역 -->
+        <div
+          class="diagram-container p-12 h-[500px] flex items-center justify-between relative overflow-hidden"
+          id="next-canvas-area"
+        >
+          <!-- 브라우저 -->
+          <div
+            id="next-node-browser"
+            class="node-box w-40 h-32 flex flex-col items-center justify-center relative z-10"
+          >
+            <div class="text-gray-400 mb-2">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-10 w-10"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.5"
+                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
+              </svg>
+            </div>
+            <div class="font-bold">사용자 (브라우저)</div>
+            <div
+              id="next-browser-screen"
+              class="mt-2 text-xs px-2 py-1 bg-gray-800 rounded text-gray-400"
+            >
+              대기 중...
+            </div>
+          </div>
+
+          <!-- Next.js 서버 -->
+          <div
+            id="next-node-nextjs"
+            class="node-box w-80 p-4 relative z-10 flex flex-col gap-4"
+          >
+            <div
+              class="text-center font-bold text-gray-200 border-b border-gray-700 pb-2 mb-2 flex items-center justify-center gap-2"
+            >
+              <svg viewBox="0 0 128 128" class="h-6 w-6 fill-white">
+                <path
+                  d="M64 0C28.7 0 0 28.7 0 64s28.7 64 64 64c11.2 0 21.7-2.9 30.8-7.9L48.4 55.3v-16h7.3v10.5l45.4 60.6c13.7-11.8 22.4-29.2 22.4-48.5 0-35.3-28.7-64-64-64zm25.3 40.6l-6.8 6.4 20.4 27.5-12.7 17.1 5.9 4.3 14.8-19.8-21.6-29.5zM38.8 39.3v49.4h7.3V50l38.2 51.3c-5.9 3.6-12.7 5.8-19.9 6.4L29 55.4v33.3h-7.3V39.3h17.1z"
+                />
+              </svg>
+              Next.js 서버
+            </div>
+
+            <div class="flex gap-4">
+              <!-- 렌더링 엔진 -->
+              <div
+                id="next-node-render"
+                class="flex-1 border border-gray-700 rounded bg-[#0d1117] p-3 text-center text-sm"
+              >
+                <div class="text-orange-400 mb-1">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-6 w-6 mx-auto"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                    />
+                  </svg>
+                </div>
+                HTML 렌더링
+              </div>
+
+              <!-- 데이터 캐시 -->
+              <div
+                id="next-node-cache"
+                class="flex-1 border border-gray-700 rounded bg-[#0d1117] p-3 text-center text-sm relative"
+              >
+                <div class="text-purple-400 mb-1">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-6 w-6 mx-auto"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"
+                    />
+                  </svg>
+                </div>
+                데이터/HTML 캐시
+                <div
+                  id="next-cache-status"
+                  class="absolute -top-2 -right-2 bg-gray-700 text-[10px] px-1.5 rounded hidden"
+                >
+                  Empty
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 백엔드 서버 -->
+          <div
+            id="next-node-backend"
+            class="node-box w-40 h-32 flex flex-col items-center justify-center relative z-10"
+          >
+            <div class="text-green-400 mb-2">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-10 w-10"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.5"
+                  d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
+                />
+              </svg>
+            </div>
+            <div class="font-bold">백엔드 / DB</div>
+            <div class="text-xs text-gray-500 mt-1">API 서버</div>
+          </div>
+        </div>
+      </main>
+
+      <!-- 하단 설명 -->
+      <div
+        class="w-full max-w-5xl mt-6 p-4 bg-gray-900 border border-gray-800 rounded-lg text-sm text-gray-400"
+      >
+        <strong class="text-white">💡 주요 개념 요약</strong>
+        <ul class="mt-2 list-disc pl-5 space-y-1">
+          <li>
+            <span class="text-blue-400 font-bold"
+              >SSR (서버 사이드 렌더링):</span
+            >
+            사용자가 요청할 때마다 서버에서 데이터를 새로 가져와 HTML을
+            만듭니다. 항상 최신 데이터를 보장하지만, 서버 부하가 있고 응답
+            시간이 다소 길 수 있습니다.
+          </li>
+          <li>
+            <span class="text-purple-400 font-bold"
+              >SSG (정적 사이트 생성):</span
+            >
+            빌드(Build) 시점에 한 번만 HTML을 만들어 둡니다. 요청이 오면
+            만들어둔 HTML을 즉시 반환하여 매우 빠릅니다.
+          </li>
+          <li>
+            <span class="text-orange-400 font-bold"
+              >ISR (증분 정적 재생성):</span
+            >
+            기본적으로 SSG처럼 동작하여 빠르지만, 설정된 시간(revalidate)이
+            지나면 백그라운드에서 데이터를 새로고침하여 캐시를 업데이트합니다.
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ==========================================
+         [탭 2] JS 이벤트 루프 시각화 영역
+         ========================================== -->
+    <section
+      id="sec-eventloop"
+      class="ev-theme hidden flex-1 w-full p-4 md:p-8 text-slate-800"
+    >
+      <div class="max-w-7xl mx-auto space-y-6">
+        <!-- 헤더 -->
+        <header
+          class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mt-4"
+        >
+          <h1 class="text-2xl md:text-3xl font-bold text-slate-900 mb-2">
+            🔄 JS 이벤트 루프 (Event Loop) 시각화 학습기
+          </h1>
+          <p class="text-slate-600">
+            자바스크립트의 비동기 처리 핵심인
+            <strong
+              >Call Stack, Web APIs, Microtask Queue, Task
+              Queue(Macrotask)</strong
+            >의 상호작용을 단계별로 학습합니다.<br />
+            <span class="text-sm text-slate-500"
+              >* 참조: HTML5 Specification (Event Loops) 및 V8 Engine
+              Architecture</span
+            >
+          </p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- 좌측: 코드 및 설명 패널 -->
+          <div class="lg:col-span-1 space-y-6">
+            <!-- 코드 에디터 뷰 -->
+            <div
+              class="bg-slate-900 rounded-2xl shadow-sm overflow-hidden flex flex-col"
+            >
+              <div class="bg-slate-800 px-4 py-2 flex items-center gap-2">
+                <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                <span class="text-slate-400 text-xs ml-2 font-mono"
+                  >example.js</span
+                >
+              </div>
+              <div
+                class="p-4 font-mono text-sm text-slate-300 leading-loose overflow-x-auto"
+                id="ev-code-container"
+              >
+                <!-- 코드가 JS로 주입됨 -->
+              </div>
+            </div>
+
+            <!-- 컨트롤 패널 -->
+            <div
+              class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200"
+            >
+              <h2 class="text-lg font-bold mb-4">제어 및 설명</h2>
+              <div class="flex gap-2 mb-6">
+                <button
+                  id="ev-btn-prev"
+                  class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+                  disabled
+                >
+                  이전 단계
+                </button>
+                <button
+                  id="ev-btn-next"
+                  class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium transition-colors shadow-sm shadow-blue-200"
+                >
+                  다음 단계
+                </button>
+                <button
+                  id="ev-btn-reset"
+                  class="px-4 bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded-lg font-medium transition-colors border border-red-200"
+                >
+                  초기화
+                </button>
+              </div>
+
+              <div
+                class="p-4 bg-blue-50 rounded-xl border border-blue-100 min-h-[120px]"
+              >
+                <span
+                  class="inline-block px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded mb-2"
+                  id="ev-step-counter"
+                  >Step 0 / 18</span
+                >
+                <p
+                  id="ev-explanation-text"
+                  class="text-slate-700 text-sm leading-relaxed"
+                >
+                  '다음 단계' 버튼을 눌러 자바스크립트 엔진의 동작을 확인하세요.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 우측: 아키텍처 시각화 패널 -->
+          <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Call Stack -->
+            <div
+              class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[320px]"
+            >
+              <h3
+                class="font-bold text-slate-800 mb-2 flex justify-between items-center"
+              >
+                Call Stack (콜 스택)
+                <span class="text-xs font-normal text-slate-500"
+                  >LIFO 구조</span
+                >
+              </h3>
+              <div
+                class="flex-1 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-2 flex flex-col-reverse justify-start overflow-y-auto gap-2"
+                id="ev-call-stack"
+              >
+                <!-- 아이템 주입 -->
+              </div>
+            </div>
+
+            <!-- Web APIs -->
+            <div
+              class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[320px]"
+            >
+              <h3
+                class="font-bold text-slate-800 mb-2 flex justify-between items-center"
+              >
+                Web APIs
+                <span class="text-xs font-normal text-slate-500"
+                  >브라우저 제공 환경</span
+                >
+              </h3>
+              <div
+                class="flex-1 bg-emerald-50 border-2 border-dashed border-emerald-200 rounded-xl p-2 flex flex-col justify-start overflow-y-auto gap-2"
+                id="ev-web-api"
+              >
+                <!-- 아이템 주입 -->
+              </div>
+            </div>
+
+            <!-- Event Loop Queue 영역 -->
+            <div
+              class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:col-span-2"
+            >
+              <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                Event Loop & Queues
+                <svg
+                  class="w-5 h-5 text-indigo-500 animate-spin"
+                  style="animation-duration: 3s"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  ></path>
+                </svg>
+              </h3>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Microtask Queue -->
+                <div>
+                  <h4 class="text-sm font-semibold text-amber-700 mb-2">
+                    Microtask Queue
+                    <span class="text-xs font-normal text-slate-500"
+                      >(우선순위 높음, Promise 등)</span
+                    >
+                  </h4>
+                  <div
+                    class="h-24 bg-amber-50 border-2 border-amber-200 rounded-xl p-2 flex items-center gap-2 overflow-x-auto"
+                    id="ev-micro-queue"
+                  >
+                    <!-- 아이템 주입 -->
+                  </div>
+                </div>
+                <!-- Task (Macro) Queue -->
+                <div>
+                  <h4 class="text-sm font-semibold text-orange-700 mb-2">
+                    Task Queue
+                    <span class="text-xs font-normal text-slate-500"
+                      >(우선순위 낮음, setTimeout 등)</span
+                    >
+                  </h4>
+                  <div
+                    class="h-24 bg-orange-50 border-2 border-orange-200 rounded-xl p-2 flex items-center gap-2 overflow-x-auto"
+                    id="ev-macro-queue"
+                  >
+                    <!-- 아이템 주입 -->
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Console Output -->
+            <div
+              class="bg-slate-900 rounded-2xl shadow-sm border border-slate-800 flex flex-col md:col-span-2 h-[150px]"
+            >
+              <h3
+                class="font-mono text-sm text-slate-400 p-3 border-b border-slate-800 bg-slate-950 rounded-t-2xl"
+              >
+                Console
+              </h3>
+              <div
+                class="p-4 font-mono text-sm text-green-400 overflow-y-auto flex-1 flex flex-col gap-1"
+                id="ev-console-output"
+              >
+                <!-- 콘솔 출력 -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <script>
+      /* =========================================================
+           공통: 탭 전환 스크립트
+           ========================================================= */
+      function switchMainTab(tabId) {
+        const secNextjs = document.getElementById('sec-nextjs');
+        const secEventloop = document.getElementById('sec-eventloop');
+        const btnNextjs = document.getElementById('btn-tab-nextjs');
+        const btnEventloop = document.getElementById('btn-tab-eventloop');
+
+        if (tabId === 'nextjs') {
+          secNextjs.classList.remove('hidden');
+          secEventloop.classList.add('hidden');
+          btnNextjs.classList.add('active');
+          btnEventloop.classList.remove('active');
+        } else {
+          secNextjs.classList.add('hidden');
+          secEventloop.classList.remove('hidden');
+          btnNextjs.classList.remove('active');
+          btnEventloop.classList.add('active');
+
+          // 탭 전환 시 Next.js 애니메이션이 실행 중이라면 정지
+          if (window.next_stopAnimation) window.next_stopAnimation();
+        }
+      }
+
+      /* =========================================================
+           [1] Next.js 렌더링 시각화 스크립트
+           ========================================================= */
+      const next_elements = {
+        descBox: document.getElementById('next-description-box'),
+        browser: document.getElementById('next-node-browser'),
+        nextjs: document.getElementById('next-node-nextjs'),
+        render: document.getElementById('next-node-render'),
+        cache: document.getElementById('next-node-cache'),
+        backend: document.getElementById('next-node-backend'),
+        canvas: document.getElementById('next-canvas-area'),
+        browserScreen: document.getElementById('next-browser-screen'),
+        cacheStatus: document.getElementById('next-cache-status'),
+        playBtn: document.getElementById('next-play-btn'),
+      };
+
+      function next_setCache(text, bgClass, borderClass) {
+        next_elements.cacheStatus.classList.remove('hidden');
+        next_elements.cacheStatus.textContent = text;
+        next_elements.cacheStatus.className = `absolute -top-2 -right-2 text-[10px] px-1.5 rounded font-bold ${bgClass}`;
+        next_elements.cache.className = `flex-1 border rounded bg-[#0d1117] p-3 text-center text-sm relative ${
+          borderClass || 'border-gray-700'
+        }`;
+      }
+
+      function next_hideCache() {
+        next_elements.cacheStatus.classList.add('hidden');
+        next_elements.cache.className = `flex-1 border rounded bg-[#0d1117] p-3 text-center text-sm relative border-gray-700`;
+      }
+
+      function next_setBrowserScreen(text, bgClass) {
+        next_elements.browserScreen.textContent = text;
+        next_elements.browserScreen.className = `mt-2 text-xs px-2 py-1 rounded ${bgClass}`;
+      }
+
+      const next_sequences = {
+        SSR: [
+          {
+            title: '접속 요청',
+            desc: "<span class='text-blue-400 font-bold'>[단계 1]</span> 사용자가 페이지 접속을 요청합니다.",
+            setup: () => {
+              next_hideCache();
+              next_setBrowserScreen('대기 중...', 'bg-gray-800 text-gray-400');
+            },
+            action: async (sig) =>
+              await next_animatePacket(
+                next_elements.browser,
+                next_elements.nextjs,
+                '접속 요청 (GET /)',
+                'bg-blue-600',
+                1200,
+                sig
+              ),
+          },
+          {
+            title: '데이터 요청',
+            desc: "<span class='text-blue-400 font-bold'>[단계 2]</span> Next.js 서버가 렌더링을 위해 백엔드에 최신 데이터를 요청합니다.<br>(데이터 캐시 SKIP)",
+            setup: () => {},
+            action: async (sig) =>
+              await next_animatePacket(
+                next_elements.nextjs,
+                next_elements.backend,
+                "fetch('/api/data')",
+                'bg-yellow-600',
+                1200,
+                sig
+              ),
+          },
+          {
+            title: '데이터 응답',
+            desc: "<span class='text-blue-400 font-bold'>[단계 3]</span> 백엔드 서버가 DB에서 최신 데이터를 가져와 응답합니다.",
+            setup: () => {},
+            action: async (sig) =>
+              await next_animatePacket(
+                next_elements.backend,
+                next_elements.nextjs,
+                'JSON 응답',
+                'bg-green-600',
+                1200,
+                sig
+              ),
+          },
+          {
+            title: 'HTML 렌더링',
+            desc: "<span class='text-blue-400 font-bold'>[단계 4]</span> 받은 데이터를 바탕으로 즉시 HTML을 렌더링합니다.",
+            setup: () => {},
+            action: async (sig) => {
+              next_elements.render.classList.add(
+                'anim-pulse',
+                'bg-orange-900',
+                'bg-opacity-20'
+              );
+              await next_delay(1500, sig);
+              next_elements.render.classList.remove(
+                'anim-pulse',
+                'bg-orange-900',
+                'bg-opacity-20'
+              );
+            },
+          },
+          {
+            title: 'HTML 전송',
+            desc: "<span class='text-blue-400 font-bold'>[단계 5]</span> 완성된 HTML을 사용자에게 전송하여 화면을 보여줍니다.",
+            setup: () => {},
+            action: async (sig) => {
+              await next_animatePacket(
+                next_elements.nextjs,
+                next_elements.browser,
+                'HTML 전송',
+                'bg-orange-600',
+                1200,
+                sig
+              );
+              next_setBrowserScreen(
+                '최신 화면 렌더링 완료!',
+                'bg-green-900 text-green-300'
+              );
+            },
+          },
+        ],
+        SSG: [
+          {
+            title: '빌드 요청',
+            desc: "<span class='text-purple-400 font-bold'>[빌드 시점]</span> 서버를 시작(Build)할 때 미리 데이터를 가져와 HTML을 생성합니다.",
+            setup: () => {
+              next_hideCache();
+              next_setBrowserScreen('대기 중...', 'bg-gray-800 text-gray-400');
+              next_elements.canvas.classList.add('opacity-80');
+            },
+            action: async (sig) =>
+              await next_animatePacket(
+                next_elements.nextjs,
+                next_elements.backend,
+                '빌드 타임 fetch',
+                'bg-gray-600',
+                800,
+                sig
+              ),
+          },
+          {
+            title: '빌드 렌더링',
+            desc: "<span class='text-purple-400 font-bold'>[빌드 시점]</span> 백엔드 응답을 받아 HTML을 렌더링하고 캐시에 저장합니다.",
+            setup: () => {
+              next_elements.canvas.classList.add('opacity-80');
+            },
+            action: async (sig) => {
+              await next_animatePacket(
+                next_elements.backend,
+                next_elements.nextjs,
+                '데이터 응답',
+                'bg-gray-500',
+                800,
+                sig
+              );
+              next_elements.render.classList.add('anim-pulse');
+              await next_delay(800, sig);
+              next_elements.render.classList.remove('anim-pulse');
+              next_setCache(
+                'HTML Cached',
+                'bg-purple-600 text-white',
+                'border-purple-500'
+              );
+              next_elements.canvas.classList.remove('opacity-80');
+              await next_delay(500, sig);
+            },
+          },
+          {
+            title: '런타임 접속',
+            desc: "<span class='text-purple-400 font-bold'>[런타임]</span> 사용자가 페이지 접속을 요청합니다.",
+            setup: () => {
+              next_elements.canvas.classList.remove('opacity-80');
+              next_setCache(
+                'HTML Cached',
+                'bg-purple-600 text-white',
+                'border-purple-500'
+              );
+            },
+            action: async (sig) =>
+              await next_animatePacket(
+                next_elements.browser,
+                next_elements.nextjs,
+                '접속 요청 (GET /)',
+                'bg-blue-600',
+                1000,
+                sig
+              ),
+          },
+          {
+            title: '캐시 반환',
+            desc: "<span class='text-purple-400 font-bold'>[응답]</span> 백엔드 요청이나 렌더링 없이, <strong>미리 캐시된 HTML을 즉시 반환</strong>합니다! (매우 빠름)",
+            setup: () => {
+              next_elements.canvas.classList.remove('opacity-80');
+              next_setCache(
+                'HTML Cached',
+                'bg-purple-600 text-white',
+                'border-purple-500'
+              );
+            },
+            action: async (sig) => {
+              next_elements.cache.classList.add('anim-pulse');
+              await next_animatePacket(
+                next_elements.cache,
+                next_elements.browser,
+                '캐시된 HTML 즉시 반환',
+                'bg-purple-600',
+                800,
+                sig
+              );
+              next_elements.cache.classList.remove('anim-pulse');
+              next_setBrowserScreen(
+                '초고속 렌더링 완료!',
+                'bg-purple-900 text-purple-300'
+              );
+            },
+          },
+        ],
+        ISR: [
+          {
+            title: '초기 접속',
+            desc: "<span class='text-orange-400 font-bold'>[요청 1]</span> 사용자가 페이지를 요청합니다. 재검증 시간(revalidate)이 지났다고 가정합니다.",
+            setup: () => {
+              next_setBrowserScreen('대기 중...', 'bg-gray-800 text-gray-400');
+              next_setCache(
+                'Cached (Stale)',
+                'bg-yellow-600 text-white',
+                'border-yellow-500'
+              );
+            },
+            action: async (sig) =>
+              await next_animatePacket(
+                next_elements.browser,
+                next_elements.nextjs,
+                '접속 요청',
+                'bg-blue-600',
+                1000,
+                sig
+              ),
+          },
+          {
+            title: 'Stale 응답 & 재검증',
+            desc: "<span class='text-orange-400 font-bold'>[응답 & 재검증 시작]</span> 사용자에게는 <strong>기존 캐시(Stale)를 빠르게 반환</strong>하고, 백그라운드에서 데이터를 요청합니다.",
+            setup: () => {
+              next_setCache(
+                'Cached (Stale)',
+                'bg-yellow-600 text-white',
+                'border-yellow-500'
+              );
+            },
+            action: async (sig) => {
+              const p1 = next_animatePacket(
+                next_elements.cache,
+                next_elements.browser,
+                '기존 HTML 반환',
+                'bg-purple-600',
+                1000,
+                sig
+              );
+              const p2 = next_animatePacket(
+                next_elements.nextjs,
+                next_elements.backend,
+                'Revalidate fetch',
+                'bg-orange-500',
+                1200,
+                sig
+              );
+              await Promise.all([p1, p2]);
+              next_setBrowserScreen(
+                '기존 화면 렌더링 (빠름)',
+                'bg-gray-700 text-gray-300'
+              );
+            },
+          },
+          {
+            title: '백그라운드 갱신',
+            desc: "<span class='text-orange-400 font-bold'>[백그라운드 갱신]</span> 새 데이터를 받아 조용히 새 HTML을 렌더링하고 캐시를 업데이트합니다.",
+            setup: () => {
+              next_setCache(
+                'Cached (Stale)',
+                'bg-yellow-600 text-white',
+                'border-yellow-500'
+              );
+              next_setBrowserScreen(
+                '기존 화면 렌더링 (빠름)',
+                'bg-gray-700 text-gray-300'
+              );
+            },
+            action: async (sig) => {
+              await next_animatePacket(
+                next_elements.backend,
+                next_elements.nextjs,
+                '새 데이터',
+                'bg-green-500',
+                1000,
+                sig
+              );
+              next_elements.render.classList.add('anim-pulse');
+              await next_delay(1000, sig);
+              next_elements.render.classList.remove('anim-pulse');
+              next_setCache(
+                'Cached (Fresh)',
+                'bg-green-600 text-white',
+                'border-green-500'
+              );
+              await next_delay(800, sig);
+            },
+          },
+          {
+            title: '다음 유저 접속',
+            desc: "<span class='text-orange-400 font-bold'>[요청 2]</span> 다음 사용자가 접속하면 이제 새롭게 업데이트된(Fresh) HTML을 반환받습니다.",
+            setup: () => {
+              next_setCache(
+                'Cached (Fresh)',
+                'bg-green-600 text-white',
+                'border-green-500'
+              );
+              next_setBrowserScreen('대기 중...', 'bg-gray-800 text-gray-400');
+            },
+            action: async (sig) => {
+              await next_animatePacket(
+                next_elements.browser,
+                next_elements.nextjs,
+                '다음 사용자 접속',
+                'bg-blue-500',
+                1000,
+                sig
+              );
+              await next_animatePacket(
+                next_elements.cache,
+                next_elements.browser,
+                '새로운 캐시 반환',
+                'bg-green-600',
+                800,
+                sig
+              );
+              next_setBrowserScreen(
+                '업데이트된 화면 렌더링!',
+                'bg-green-900 text-green-300'
+              );
+            },
+          },
+        ],
+      };
+
+      let next_currentMode = 'SSR';
+      let next_isPlaying = false;
+      let next_animationController = null;
+      let next_currentStepIndex = 0;
+
+      function next_switchMode(mode) {
+        if (next_isPlaying) next_stopAnimation();
+
+        next_currentMode = mode;
+        next_currentStepIndex = 0;
+
+        document
+          .querySelectorAll('.next-tab-btn')
+          .forEach((btn) => btn.classList.remove('active'));
+        event.currentTarget.classList.add('active');
+
+        next_fullResetCanvas();
+        next_renderTimeline();
+
+        if (next_sequences[next_currentMode][0].setup)
+          next_sequences[next_currentMode][0].setup();
+
+        const initialDesc = {
+          SSR: 'SSR은 매 요청마다 서버에서 API를 호출하고 HTML을 새롭게 생성하여 응답합니다.<br>항상 최신 데이터를 볼 수 있습니다.',
+          SSG: 'SSG는 빌드 시점에 API를 호출하여 HTML을 미리 만들어 캐시에 저장해둡니다.<br>요청 시 즉시 반환되므로 속도가 매우 빠릅니다.',
+          ISR: 'ISR은 설정된 주기마다 백그라운드에서 캐시를 갱신합니다.<br>사용자는 빠른 응답을 받고, 데이터도 주기적으로 최신화됩니다.',
+        };
+        next_setText(initialDesc[mode]);
+      }
+
+      function next_fullResetCanvas() {
+        document
+          .querySelectorAll('#next-canvas-area .packet')
+          .forEach((el) => el.remove());
+        next_setBrowserScreen('대기 중...', 'bg-gray-800 text-gray-400');
+        next_elements.canvas.classList.remove('opacity-80');
+        next_hideCache();
+
+        Object.values(next_elements).forEach((el) => {
+          if (
+            el.classList &&
+            el !== next_elements.descBox &&
+            el !== next_elements.playBtn
+          ) {
+            el.classList.remove('active', 'anim-pulse');
+          }
+        });
+      }
+
+      function next_setText(html) {
+        next_elements.descBox.classList.remove('anim-fade-in');
+        void next_elements.descBox.offsetWidth;
+        next_elements.descBox.innerHTML = html;
+        next_elements.descBox.classList.add('anim-fade-in');
+      }
+
+      const next_delay = (ms, signal) =>
+        new Promise((resolve, reject) => {
+          const timeoutId = setTimeout(resolve, ms);
+          if (signal) {
+            signal.addEventListener('abort', () => {
+              clearTimeout(timeoutId);
+              reject(new DOMException('Aborted', 'AbortError'));
+            });
+          }
+        });
+
+      async function next_animatePacket(
+        fromEl,
+        toEl,
+        labelText,
+        colorClass,
+        duration = 1500,
+        signal
+      ) {
+        const packet = document.createElement('div');
+        packet.className = `packet ${colorClass}`;
+        packet.textContent = labelText;
+
+        next_elements.canvas.appendChild(packet);
+
+        const canvasRect = next_elements.canvas.getBoundingClientRect();
+        const fromRect = fromEl.getBoundingClientRect();
+        const toRect = toEl.getBoundingClientRect();
+
+        const startX = fromRect.left - canvasRect.left + fromRect.width / 2;
+        const startY = fromRect.top - canvasRect.top + fromRect.height / 2;
+        const endX = toRect.left - canvasRect.left + toRect.width / 2;
+        const endY = toRect.top - canvasRect.top + toRect.height / 2;
+
+        let adjustY = 0;
+        if (fromEl === next_elements.browser || toEl === next_elements.browser)
+          adjustY = -20;
+        if (fromEl === next_elements.backend || toEl === next_elements.backend)
+          adjustY = 20;
+
+        packet.style.left = `${startX}px`;
+        packet.style.top = `${startY + adjustY}px`;
+        packet.style.transform = `translate(-50%, -50%) scale(0)`;
+
+        void packet.offsetWidth;
+
+        fromEl.classList.add('active');
+
+        try {
+          packet.style.transition = `transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)`;
+          packet.style.transform = `translate(-50%, -50%) scale(1.15)`;
+
+          await next_delay(800, signal);
+
+          const moveTime = duration < 1200 ? 1200 : duration;
+          packet.style.transition = `left ${moveTime}ms ease-in-out, top ${moveTime}ms ease-in-out, transform ${moveTime}ms ease-in-out`;
+          packet.style.left = `${endX}px`;
+          packet.style.top = `${endY + adjustY}px`;
+          packet.style.transform = `translate(-50%, -50%) scale(1)`;
+
+          await next_delay(moveTime, signal);
+
+          fromEl.classList.remove('active');
+          toEl.classList.add('active');
+
+          packet.style.transition = `transform 0.3s ease-in`;
+          packet.style.transform = `translate(-50%, -50%) scale(0)`;
+
+          await next_delay(300, signal);
+          packet.remove();
+
+          await next_delay(300, signal);
+          toEl.classList.remove('active');
+        } catch (e) {
+          packet.remove();
+          throw e;
+        }
+      }
+
+      function next_renderTimeline() {
+        const steps = next_sequences[next_currentMode];
+        const container = document.getElementById('next-timeline-nodes');
+        const progressLine = document.getElementById('next-timeline-progress');
+        container.innerHTML = '';
+
+        const progressPercentage =
+          steps.length > 1
+            ? (Math.min(next_currentStepIndex, steps.length - 1) /
+                (steps.length - 1)) *
+              100
+            : 0;
+        progressLine.style.width = `${progressPercentage}%`;
+
+        steps.forEach((step, index) => {
+          const isPast = index <= next_currentStepIndex;
+          const isCurrent = index === next_currentStepIndex && next_isPlaying;
+
+          const dotColor = isPast
+            ? 'bg-blue-500'
+            : 'bg-gray-800 border-2 border-gray-600';
+          const ringClass = isCurrent
+            ? 'ring-4 ring-blue-500/40 scale-125'
+            : '';
+          const textColor = isPast
+            ? 'text-blue-400 font-bold'
+            : 'text-gray-500';
+
+          const stepWrapper = document.createElement('div');
+          stepWrapper.className = `relative z-10 flex flex-col items-center cursor-pointer group`;
+          stepWrapper.onclick = () => next_jumpToStep(index);
+
+          stepWrapper.innerHTML = `
+                    <div class="w-4 h-4 rounded-full ${dotColor} ${ringClass} transition-all duration-300 group-hover:ring-4 group-hover:ring-gray-500/50"></div>
+                    <div class="absolute top-6 w-24 text-center text-[11px] leading-tight ${textColor} transition-colors">${step.title}</div>
+                `;
+          container.appendChild(stepWrapper);
+        });
+      }
+
+      async function next_jumpToStep(index) {
+        if (next_isPlaying) {
+          next_stopAnimation();
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        next_currentStepIndex = index;
+        next_renderTimeline();
+        await next_togglePlay();
+      }
+
+      async function next_togglePlay() {
+        if (next_isPlaying) {
+          next_stopAnimation();
+          return;
+        }
+
+        next_isPlaying = true;
+        next_updatePlayButtonUI(true);
+
+        next_animationController = new AbortController();
+        const signal = next_animationController.signal;
+        const steps = next_sequences[next_currentMode];
+
+        try {
+          if (next_currentStepIndex >= steps.length) {
+            next_currentStepIndex = 0;
+          }
+
+          next_fullResetCanvas();
+          for (let i = 0; i <= next_currentStepIndex; i++) {
+            if (steps[i].setup) steps[i].setup();
+          }
+
+          while (next_currentStepIndex < steps.length) {
+            next_renderTimeline();
+            const step = steps[next_currentStepIndex];
+
+            next_setText(step.desc);
+            if (step.setup) step.setup();
+            await step.action(signal);
+
+            next_currentStepIndex++;
+          }
+
+          next_renderTimeline();
+          next_setText(
+            `<strong>${next_currentMode} 과정 완료!</strong><br>다시 보려면 재생 버튼을 클릭하세요.`
+          );
+        } catch (err) {
+          if (err.name === 'AbortError') {
+            console.log('Next.js Animation stopped');
+          } else {
+            console.error(err);
+          }
+        } finally {
+          next_isPlaying = false;
+          next_updatePlayButtonUI(false);
+          next_renderTimeline();
+        }
+      }
+
+      function next_stopAnimation() {
+        if (next_animationController) {
+          next_animationController.abort();
+        }
+        next_isPlaying = false;
+        next_updatePlayButtonUI(false);
+      }
+
+      window.next_stopAnimation = next_stopAnimation; // 탭 이동 시 중지를 위한 전역 스코프 할당
+
+      function next_updatePlayButtonUI(isPlaying) {
+        if (isPlaying) {
+          next_elements.playBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                    </svg>
+                    정지 (Stop)
+                `;
+          next_elements.playBtn.className =
+            'px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 transition transform active:scale-95 w-40 justify-center';
+        } else {
+          const isFinished =
+            next_currentStepIndex >= next_sequences[next_currentMode].length;
+          const text = isFinished
+            ? '다시 재생'
+            : next_currentStepIndex > 0
+            ? '이어서 재생'
+            : '재생 (Play)';
+          next_elements.playBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    ${text}
+                `;
+          next_elements.playBtn.className =
+            'px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 transition transform active:scale-95 w-40 justify-center';
+        }
+      }
+
+      // 초기 화면 렌더링
+      next_renderTimeline();
+
+      /* =========================================================
+           [2] JS 이벤트 루프 시각화 스크립트
+           ========================================================= */
+      const ev_codeLines = [
+        "console.log('start');",
+        "setTimeout(() => console.log('timeout'), 0);",
+        "Promise.resolve().then(() => console.log('promise'));",
+        "console.log('end');",
+      ];
+
+      const ev_simulationSteps = [
+        {
+          line: -1,
+          stack: [],
+          api: [],
+          micro: [],
+          macro: [],
+          console: [],
+          desc: '실행을 대기 중입니다. 코드는 위에서 아래로 동기적으로 평가됩니다.',
+        },
+        {
+          line: 0,
+          stack: ['(anonymous/global)'],
+          api: [],
+          micro: [],
+          macro: [],
+          console: [],
+          desc: '전역 실행 컨텍스트(Global Execution Context)가 콜 스택에 생성되어 푸시됩니다.',
+        },
+        {
+          line: 0,
+          stack: ['(anonymous/global)', "console.log('start')"],
+          api: [],
+          micro: [],
+          macro: [],
+          console: [],
+          desc: 'Line 1: console.log 함수가 호출되어 콜 스택에 푸시됩니다.',
+        },
+        {
+          line: 0,
+          stack: ['(anonymous/global)'],
+          api: [],
+          micro: [],
+          macro: [],
+          console: ['start'],
+          desc: "동기적으로 실행되어 콘솔에 'start'를 출력하고 콜 스택에서 팝(제거)됩니다.",
+        },
+        {
+          line: 1,
+          stack: ['(anonymous/global)', 'setTimeout(cb, 0)'],
+          api: [],
+          micro: [],
+          macro: [],
+          console: ['start'],
+          desc: 'Line 2: setTimeout 함수가 호출되어 콜 스택에 푸시됩니다.',
+        },
+        {
+          line: 1,
+          stack: ['(anonymous/global)'],
+          api: ['Timer(0ms): cb'],
+          micro: [],
+          macro: [],
+          console: ['start'],
+          desc: 'setTimeout은 브라우저(Web API) 기능입니다. 타이머 처리를 Web API에 위임하고 콜 스택에서 즉시 팝됩니다.',
+        },
+        {
+          line: 2,
+          stack: ['(anonymous/global)', 'Promise.then(cb)'],
+          api: ['Timer(0ms): cb'],
+          micro: [],
+          macro: [],
+          console: ['start'],
+          desc: 'Line 3: Promise 객체가 생성되고, resolve()가 호출된 후 then() 메서드가 콜 스택에 푸시됩니다.',
+        },
+        {
+          line: 2,
+          stack: ['(anonymous/global)'],
+          api: ['Timer(0ms): cb'],
+          micro: ['Promise cb'],
+          macro: [],
+          console: ['start'],
+          desc: "Promise가 즉시 이행(fulfilled)되었으므로, then의 콜백 함수는 우선순위가 높은 '마이크로태스크 큐(Microtask Queue)'에 삽입됩니다.",
+        },
+        {
+          line: 3,
+          stack: ['(anonymous/global)', "console.log('end')"],
+          api: ['Timer(0ms): cb'],
+          micro: ['Promise cb'],
+          macro: [],
+          console: ['start'],
+          desc: 'Line 4: console.log 함수가 콜 스택에 푸시됩니다.',
+        },
+        {
+          line: 3,
+          stack: ['(anonymous/global)'],
+          api: ['Timer(0ms): cb'],
+          micro: ['Promise cb'],
+          macro: [],
+          console: ['start', 'end'],
+          desc: "콘솔에 'end'를 출력하고 콜 스택에서 팝됩니다.",
+        },
+        {
+          line: 3,
+          stack: [],
+          api: ['Timer(0ms): cb'],
+          micro: ['Promise cb'],
+          macro: [],
+          console: ['start', 'end'],
+          desc: '모든 전역 코드 실행이 완료되어, 전역 실행 컨텍스트가 콜 스택에서 팝됩니다.',
+        },
+        {
+          line: -1,
+          stack: [],
+          api: [],
+          micro: ['Promise cb'],
+          macro: ['setTimeout cb'],
+          console: ['start', 'end'],
+          desc: "Web API의 0ms 타이머가 만료되어, setTimeout의 콜백 함수가 일반 '태스크 큐(Macrotask Queue)'로 이동합니다.",
+        },
+        {
+          line: -1,
+          stack: [],
+          api: [],
+          micro: ['Promise cb'],
+          macro: ['setTimeout cb'],
+          console: ['start', 'end'],
+          desc: "이벤트 루프(Event Loop)가 개입합니다. 콜 스택이 비어있음을 확인하고, 먼저 '마이크로태스크 큐'를 확인합니다.",
+        },
+        {
+          line: -1,
+          stack: ['Promise cb'],
+          api: [],
+          micro: [],
+          macro: ['setTimeout cb'],
+          console: ['start', 'end'],
+          desc: '마이크로태스크 큐에 대기 중이던 Promise 콜백을 콜 스택으로 이동(Push)시킵니다.',
+        },
+        {
+          line: -1,
+          stack: ['Promise cb', "console.log('promise')"],
+          api: [],
+          micro: [],
+          macro: ['setTimeout cb'],
+          console: ['start', 'end'],
+          desc: 'Promise 콜백 내부의 console.log가 실행을 위해 콜 스택에 푸시됩니다.',
+        },
+        {
+          line: -1,
+          stack: ['Promise cb'],
+          api: [],
+          micro: [],
+          macro: ['setTimeout cb'],
+          console: ['start', 'end', 'promise'],
+          desc: "콘솔에 'promise'가 출력되고 팝됩니다.",
+        },
+        {
+          line: -1,
+          stack: [],
+          api: [],
+          micro: [],
+          macro: ['setTimeout cb'],
+          console: ['start', 'end', 'promise'],
+          desc: 'Promise 콜백 함수의 실행이 완료되어 콜 스택에서 팝됩니다.',
+        },
+        {
+          line: -1,
+          stack: [],
+          api: [],
+          micro: [],
+          macro: ['setTimeout cb'],
+          console: ['start', 'end', 'promise'],
+          desc: "이벤트 루프가 마이크로태스크 큐를 다시 확인합니다. 비어있으므로, 이제 '태스크 큐'를 확인합니다.",
+        },
+        {
+          line: -1,
+          stack: ['setTimeout cb'],
+          api: [],
+          micro: [],
+          macro: [],
+          console: ['start', 'end', 'promise'],
+          desc: '태스크 큐에 대기 중이던 setTimeout 콜백을 콜 스택으로 이동시킵니다.',
+        },
+        {
+          line: -1,
+          stack: ['setTimeout cb', "console.log('timeout')"],
+          api: [],
+          micro: [],
+          macro: [],
+          console: ['start', 'end', 'promise'],
+          desc: 'setTimeout 콜백 내부의 console.log가 콜 스택에 푸시됩니다.',
+        },
+        {
+          line: -1,
+          stack: ['setTimeout cb'],
+          api: [],
+          micro: [],
+          macro: [],
+          console: ['start', 'end', 'promise', 'timeout'],
+          desc: "콘솔에 'timeout'이 출력되고 팝됩니다.",
+        },
+        {
+          line: -1,
+          stack: [],
+          api: [],
+          micro: [],
+          macro: [],
+          console: ['start', 'end', 'promise', 'timeout'],
+          desc: 'setTimeout 콜백 실행이 완료되어 콜 스택에서 팝됩니다. 자바스크립트 엔진의 모든 큐가 비워졌습니다. (완료)',
+        },
+      ];
+
+      let ev_currentStepIndex = 0;
+
+      const ev_els = {
+        codeContainer: document.getElementById('ev-code-container'),
+        callStack: document.getElementById('ev-call-stack'),
+        webApi: document.getElementById('ev-web-api'),
+        microQueue: document.getElementById('ev-micro-queue'),
+        macroQueue: document.getElementById('ev-macro-queue'),
+        consoleOutput: document.getElementById('ev-console-output'),
+        explanation: document.getElementById('ev-explanation-text'),
+        stepCounter: document.getElementById('ev-step-counter'),
+        btnPrev: document.getElementById('ev-btn-prev'),
+        btnNext: document.getElementById('ev-btn-next'),
+        btnReset: document.getElementById('ev-btn-reset'),
+      };
+
+      function ev_renderCode() {
+        ev_els.codeContainer.innerHTML = ev_codeLines
+          .map(
+            (line, idx) => `
+                <div class="px-2 py-0.5 whitespace-pre transition-colors duration-200" id="ev-code-line-${idx}">
+                    <span class="text-slate-500 mr-4 select-none">${
+                      idx + 1
+                    }</span><span class="text-slate-200">${line}</span>
+                </div>
+            `
+          )
+          .join('');
+      }
+
+      function ev_renderState(index) {
+        const state = ev_simulationSteps[index];
+
+        document
+          .querySelectorAll('[id^="ev-code-line-"]')
+          .forEach((el) => el.classList.remove('highlight-line'));
+        if (state.line >= 0 && state.line < ev_codeLines.length) {
+          document
+            .getElementById(`ev-code-line-${state.line}`)
+            .classList.add('highlight-line');
+        }
+
+        ev_els.explanation.textContent = state.desc;
+        ev_els.stepCounter.textContent = `Step ${index} / ${
+          ev_simulationSteps.length - 1
+        }`;
+
+        const createBox = (text, bgClass, borderClass, textClass) =>
+          `<div class="${bgClass} ${borderClass} border shadow-sm ${textClass} px-3 py-2 rounded-lg text-sm font-semibold item-enter text-center break-all">${text}</div>`;
+
+        ev_els.callStack.innerHTML = state.stack
+          .map((item) =>
+            createBox(item, 'bg-blue-100', 'border-blue-300', 'text-blue-800')
+          )
+          .reverse()
+          .join('');
+
+        ev_els.webApi.innerHTML = state.api
+          .map((item) =>
+            createBox(
+              item,
+              'bg-emerald-100',
+              'border-emerald-300',
+              'text-emerald-800'
+            )
+          )
+          .join('');
+
+        ev_els.microQueue.innerHTML = state.micro
+          .map((item) =>
+            createBox(
+              item,
+              'bg-amber-100 min-w-[100px]',
+              'border-amber-300',
+              'text-amber-800'
+            )
+          )
+          .join('');
+
+        ev_els.macroQueue.innerHTML = state.macro
+          .map((item) =>
+            createBox(
+              item,
+              'bg-orange-100 min-w-[100px]',
+              'border-orange-300',
+              'text-orange-800'
+            )
+          )
+          .join('');
+
+        ev_els.consoleOutput.innerHTML = state.console
+          .map(
+            (item) =>
+              `<div><span class="text-slate-500 mr-2">></span>${item}</div>`
+          )
+          .join('');
+
+        ev_els.btnPrev.disabled = index === 0;
+        if (index === ev_simulationSteps.length - 1) {
+          ev_els.btnNext.disabled = true;
+          ev_els.btnNext.classList.add('opacity-50');
+        } else {
+          ev_els.btnNext.disabled = false;
+          ev_els.btnNext.classList.remove('opacity-50');
+        }
+      }
+
+      ev_els.btnNext.addEventListener('click', () => {
+        if (ev_currentStepIndex < ev_simulationSteps.length - 1) {
+          ev_currentStepIndex++;
+          ev_renderState(ev_currentStepIndex);
+        }
+      });
+
+      ev_els.btnPrev.addEventListener('click', () => {
+        if (ev_currentStepIndex > 0) {
+          ev_currentStepIndex--;
+          ev_renderState(ev_currentStepIndex);
+        }
+      });
+
+      ev_els.btnReset.addEventListener('click', () => {
+        ev_currentStepIndex = 0;
+        ev_renderState(ev_currentStepIndex);
+      });
+
+      // 초기 실행
+      ev_renderCode();
+      ev_renderState(0);
+    </script>
+  </body>
+</html>

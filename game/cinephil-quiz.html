@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>픽셀 시네마 퀴즈</title>
+    <!-- 둥근모꼴 픽셀 폰트 로드 -->
+    <link href="https://cdn.jsdelivr.net/gh/neodgm/neodgm-webfont@1.530/neodgm/style.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #1a1a24;
+            --text-color: #f0f0f0;
+            --primary: #ffcc00;
+            --secondary: #e63946;
+            --correct: #4ade80;
+            --wrong: #f87171;
+            --pixel-border: 4px solid #fff;
+            --panel-bg: #2d2d44;
+        }
+
+        * {
+            box-sizing: border-box;
+            font-family: 'NeoDunggeunmo', 'Press Start 2P', monospace;
+            user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            width: 100%;
+            max-width: 600px;
+            height: 100vh;
+            max-height: 800px;
+            background-color: var(--bg-color);
+            position: relative;
+            border: var(--pixel-border);
+            box-shadow: 8px 8px 0px #000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 공통 픽셀 버튼 스타일 */
+        .pixel-btn {
+            background-color: var(--panel-bg);
+            color: var(--text-color);
+            border: var(--pixel-border);
+            padding: 15px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            text-align: center;
+            box-shadow: 4px 4px 0px #000;
+            transition: transform 0.1s, box-shadow 0.1s, background-color 0.2s;
+            margin-bottom: 15px;
+            width: 100%;
+        }
+
+        .pixel-btn:hover {
+            background-color: #3f3f5a;
+        }
+
+        .pixel-btn:active {
+            transform: translate(4px, 4px);
+            box-shadow: 0px 0px 0px #000;
+        }
+
+        .pixel-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: 4px 4px 0px #000;
+        }
+
+        /* 스크린 관리 */
+        .screen {
+            display: none;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            padding: 20px;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        /* --- 시작 화면 --- */
+        #start-screen {
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .title {
+            font-size: 2.5rem;
+            color: var(--primary);
+            text-shadow: 4px 4px 0px #000;
+            margin-bottom: 10px;
+            line-height: 1.2;
+        }
+
+        .high-score-display {
+            font-size: 1.2rem;
+            color: #a78bfa;
+            margin-bottom: 40px;
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        .category-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            width: 100%;
+        }
+
+        /* --- 게임 화면 --- */
+        #game-screen {
+            justify-content: space-between;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--panel-bg);
+            border: var(--pixel-border);
+            padding: 10px;
+            font-size: 1.2rem;
+            box-shadow: 4px 4px 0px #000;
+            margin-bottom: 15px;
+        }
+
+        .lives { color: var(--secondary); letter-spacing: 2px; }
+        .score-info { text-align: right; }
+        .combo-text { color: var(--primary); font-size: 0.9rem; margin-top: 5px; }
+
+        .question-box {
+            flex-grow: 1;
+            background-color: var(--panel-bg);
+            border: var(--pixel-border);
+            padding: 20px;
+            font-size: 1.4rem;
+            line-height: 1.5;
+            box-shadow: 4px 4px 0px #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        /* 로딩 애니메이션 */
+        .loading {
+            animation: blink 1s infinite;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        .choices-box {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .choices-box .pixel-btn {
+            font-size: 1.1rem;
+            text-align: left;
+            padding-left: 20px;
+        }
+
+        /* 타이머 바 */
+        .timer-container {
+            width: 100%;
+            height: 15px;
+            background-color: var(--panel-bg);
+            border: 2px solid #fff;
+            margin-bottom: 15px;
+        }
+
+        .timer-bar {
+            height: 100%;
+            background-color: var(--primary);
+            width: 100%;
+        }
+
+        @keyframes shrinkTimer {
+            from { width: 100%; background-color: var(--correct); }
+            50% { background-color: var(--primary); }
+            to { width: 0%; background-color: var(--wrong); }
+        }
+
+        .timer-bar.active {
+            animation: shrinkTimer 15s linear forwards;
+        }
+
+        /* 해설 오버레이 */
+        #explanation-overlay {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background-color: rgba(0, 0, 0, 0.9);
+            border-top: var(--pixel-border);
+            padding: 20px;
+            text-align: center;
+            font-size: 1.2rem;
+            transform: translateY(100%);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 10;
+        }
+        
+        #explanation-overlay.show {
+            transform: translateY(0);
+        }
+
+        .correct-text { color: var(--correct); font-size: 1.5rem; margin-bottom: 10px; }
+        .wrong-text { color: var(--wrong); font-size: 1.5rem; margin-bottom: 10px; }
+
+        /* --- 게임 오버 화면 --- */
+        #game-over-screen {
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .game-over-title {
+            font-size: 3rem;
+            color: var(--secondary);
+            text-shadow: 4px 4px 0px #000;
+            margin-bottom: 20px;
+        }
+
+        .final-score {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .new-record {
+            color: var(--primary);
+            font-size: 1.5rem;
+            animation: blink 0.5s infinite;
+            margin-bottom: 30px;
+            display: none;
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- 1. 시작 화면 -->
+    <div id="start-screen" class="screen active">
+        <h1 class="title">픽셀<br>시네마 퀴즈</h1>
+        <div class="high-score-display">최고 기록: <span id="start-high-score">0</span>점</div>
+        
+        <p style="margin-bottom: 15px; font-size: 1.2rem;">카테고리 선택</p>
+        <div class="category-grid">
+            <button class="pixel-btn category-btn" data-category="한국영화">한국영화</button>
+            <button class="pixel-btn category-btn" data-category="할리우드">할리우드</button>
+            <button class="pixel-btn category-btn" data-category="애니메이션">애니메이션</button>
+            <button class="pixel-btn category-btn" data-category="감독 및 배우">감독&배우</button>
+        </div>
+    </div>
+
+    <!-- 2. 게임 화면 -->
+    <div id="game-screen" class="screen">
+        <div class="status-bar">
+            <div class="lives" id="lives-display">🍿🍿🍿</div>
+            <div class="score-info">
+                <div>점수: <span id="current-score">0</span></div>
+                <div class="combo-text" id="combo-display">콤보 x1.0</div>
+            </div>
+        </div>
+
+        <div class="timer-container">
+            <div id="timer-bar" class="timer-bar"></div>
+        </div>
+
+        <div class="question-box" id="question-text">
+            문제를 생성하는 중...
+        </div>
+
+        <div class="choices-box" id="choices-container">
+            <!-- 버튼들이 동적으로 생성됨 -->
+        </div>
+
+        <div id="explanation-overlay">
+            <div id="result-text"></div>
+            <div id="explanation-text" style="color: #ccc; margin-top:10px; line-height: 1.4;"></div>
+        </div>
+    </div>
+
+    <!-- 3. 게임오버 화면 -->
+    <div id="game-over-screen" class="screen">
+        <h1 class="game-over-title">GAME OVER</h1>
+        <div class="final-score">최종 점수<br><span id="final-score-val" style="color: var(--primary);">0</span></div>
+        <div style="font-size: 1.2rem; margin-bottom: 20px; color: #a78bfa; text-shadow: 2px 2px 0px #000;">최고 기록: <span id="game-over-high-score">0</span>점</div>
+        <div id="new-record-msg" class="new-record">NEW HIGH SCORE!</div>
+        <button class="pixel-btn" id="retry-btn" style="margin-top: 20px;">다시 하기</button>
+    </div>
+</div>
+
+<script>
+/**
+ * 픽셀 시네마 퀴즈 - 단일 파일 구현
+ * 구조: App (메인 제어) -> UI (화면 조작), QuizGame (상태 관리), GeminiService (API 통신)
+ */
+
+const apiKey = ""; // 실행 환경에서 주입되는 Gemini API Key
+
+// --- 1. Gemini API 서비스 클래스 ---
+class GeminiService {
+    constructor() {
+        this.endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    }
+
+    async generateQuestion(category, recentQuestions) {
+        const prompt = `당신은 영화 퀴즈 출제자입니다. 카테고리: ${category}
+아래 JSON 형식으로만 응답하세요:
+{ "question": "...", "choices": ["","","",""], "correctIndex": 0, "explanation": "한줄해설" }
+이미 출제한 문제 목록: ${recentQuestions.join(', ')} - 이 문제들은 내용이 겹치지 않게 새로운 문제를 내세요.`;
+
+        const payload = {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                        question: { type: "STRING" },
+                        choices: { type: "ARRAY", items: { type: "STRING" } },
+                        correctIndex: { type: "INTEGER" },
+                        explanation: { type: "STRING" }
+                    },
+                    required: ["question", "choices", "correctIndex", "explanation"]
+                }
+            }
+        };
+
+        // 지수 백오프 기반 재시도 로직 (최대 5회)
+        let delay = 1000;
+        for (let i = 0; i < 5; i++) {
+            try {
+                // Canvas 환경에서는 API 키가 빈 문자열("")이더라도 프록시를 통해 주입되므로 유효성 검사 로직을 제거했습니다.
+                
+                const response = await fetch(this.endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const data = await response.json();
+                const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (!jsonText) throw new Error("응답에서 텍스트를 찾을 수 없습니다.");
+                
+                const parsedData = JSON.parse(jsonText);
+                return parsedData;
+
+            } catch (error) {
+                console.error(`Gemini API 호출 실패 (시도 ${i + 1}/5):`, error);
+                if (i === 4) {
+                    throw new Error("문제 생성에 실패했습니다. 네트워크 상태를 확인해주세요.");
+                }
+                await new Promise(res => setTimeout(res, delay));
+                delay *= 2;
+            }
+        }
+    }
+}
+
+// --- 2. 게임 상태 관리 클래스 ---
+class QuizGame {
+    constructor() {
+        this.score = 0;
+        this.lives = 3;
+        this.combo = 0;
+        this.category = "";
+        this.recentQuestions = []; // 중복 방지용 최근 문제 텍스트 저장
+        this.currentQuestionData = null;
+        this.baseScore = 100;
+    }
+
+    reset(category) {
+        this.score = 0;
+        this.lives = 3;
+        this.combo = 0;
+        this.category = category;
+        this.recentQuestions = [];
+        this.currentQuestionData = null;
+    }
+
+    getComboMultiplier() {
+        if (this.combo >= 3) return 2.0;
+        if (this.combo === 2) return 1.5;
+        return 1.0;
+    }
+
+    calculateScore() {
+        return Math.floor(this.baseScore * this.getComboMultiplier());
+    }
+
+    handleAnswer(isCorrect) {
+        if (isCorrect) {
+            this.combo++;
+            this.score += this.calculateScore();
+        } else {
+            this.combo = 0;
+            this.lives--;
+        }
+        return { isCorrect, newScore: this.score, newLives: this.lives, combo: this.combo };
+    }
+
+    addRecentQuestion(questionText) {
+        this.recentQuestions.push(questionText);
+        if (this.recentQuestions.length > 10) {
+            this.recentQuestions.shift(); // 메모리 관리를 위해 최근 10개만 유지
+        }
+    }
+
+    getHighScore() {
+        // sessionStorage를 먼저 확인하고, localStorage와 비교하여 더 큰 값을 반환합니다.
+        const sessionScore = parseInt(sessionStorage.getItem('pixelMovieQuizHighScore')) || 0;
+        const localScore = parseInt(localStorage.getItem('pixelMovieQuizHighScore')) || 0;
+        return Math.max(sessionScore, localScore);
+    }
+
+    saveHighScore() {
+        const highScore = this.getHighScore();
+        if (this.score > highScore) {
+            // 이중 저장 방식: 샌드박스 환경 에러 방지를 위해 try-catch 적용
+            try { localStorage.setItem('pixelMovieQuizHighScore', this.score); } catch(e) { console.warn('localStorage 저장 실패'); }
+            try { sessionStorage.setItem('pixelMovieQuizHighScore', this.score); } catch(e) { console.warn('sessionStorage 저장 실패'); }
+            return { isNewRecord: true, currentHighScore: this.score }; // 갱신된 최고 기록과 함께 반환
+        }
+        return { isNewRecord: false, currentHighScore: highScore };
+    }
+}
+
+// --- 3. UI 제어 클래스 ---
+class UI {
+    constructor() {
+        this.screens = {
+            start: document.getElementById('start-screen'),
+            game: document.getElementById('game-screen'),
+            gameOver: document.getElementById('game-over-screen')
+        };
+        
+        // 요소 캐싱
+        this.els = {
+            startHighScore: document.getElementById('start-high-score'),
+            livesDisplay: document.getElementById('lives-display'),
+            currentScore: document.getElementById('current-score'),
+            comboDisplay: document.getElementById('combo-display'),
+            questionText: document.getElementById('question-text'),
+            choicesContainer: document.getElementById('choices-container'),
+            timerBar: document.getElementById('timer-bar'),
+            explanationOverlay: document.getElementById('explanation-overlay'),
+            resultText: document.getElementById('result-text'),
+            explanationText: document.getElementById('explanation-text'),
+            finalScoreVal: document.getElementById('final-score-val'),
+            gameOverHighScore: document.getElementById('game-over-high-score'),
+            newRecordMsg: document.getElementById('new-record-msg')
+        };
+
+        this.onChoiceSelect = null; // 콜백 함수
+        this.onTimeout = null;
+        this.timerTimeoutId = null;
+    }
+
+    showScreen(screenName) {
+        Object.values(this.screens).forEach(screen => screen.classList.remove('active'));
+        this.screens[screenName].classList.add('active');
+    }
+
+    updateStartScreenHighScore(score) {
+        this.els.startHighScore.textContent = score;
+    }
+
+    updateGameStatus(score, lives, comboMultiplier) {
+        this.els.currentScore.textContent = score;
+        this.els.livesDisplay.textContent = '🍿'.repeat(Math.max(0, lives));
+        this.els.comboDisplay.textContent = `콤보 x${comboMultiplier.toFixed(1)}`;
+        
+        if (comboMultiplier >= 2.0) this.els.comboDisplay.style.color = '#e63946';
+        else if (comboMultiplier >= 1.5) this.els.comboDisplay.style.color = '#4ade80';
+        else this.els.comboDisplay.style.color = '#ffcc00';
+    }
+
+    showLoading() {
+        this.els.questionText.innerHTML = '<span class="loading">문제 출제 중...<br>팝콘을 튀기는 중🍿</span>';
+        this.els.choicesContainer.innerHTML = '';
+        this.hideExplanation();
+        this.stopTimer();
+    }
+
+    showError(msg) {
+        this.els.questionText.innerHTML = `<span style="color:var(--wrong)">${msg}</span>`;
+    }
+
+    renderQuestion(questionData) {
+        this.els.questionText.textContent = questionData.question;
+        this.els.choicesContainer.innerHTML = '';
+
+        questionData.choices.forEach((choice, index) => {
+            const btn = document.createElement('button');
+            btn.className = 'pixel-btn';
+            btn.textContent = `${index + 1}. ${choice}`;
+            btn.onclick = () => {
+                this.disableChoices();
+                if (this.onChoiceSelect) this.onChoiceSelect(index);
+            };
+            this.els.choicesContainer.appendChild(btn);
+        });
+
+        this.startTimer();
+    }
+
+    disableChoices() {
+        const btns = this.els.choicesContainer.querySelectorAll('button');
+        btns.forEach(btn => btn.disabled = true);
+    }
+
+    startTimer() {
+        this.stopTimer(); // 기존 타이머 초기화
+        
+        // CSS 애니메이션 재시작을 위한 reflow 강제 발생
+        this.els.timerBar.classList.remove('active');
+        void this.els.timerBar.offsetWidth; 
+        this.els.timerBar.classList.add('active');
+
+        // JS 로직용 15초 타이머
+        this.timerTimeoutId = setTimeout(() => {
+            if (this.onTimeout) this.onTimeout();
+        }, 15000);
+    }
+
+    stopTimer() {
+        this.els.timerBar.classList.remove('active');
+        if (this.timerTimeoutId) {
+            clearTimeout(this.timerTimeoutId);
+            this.timerTimeoutId = null;
+        }
+    }
+
+    showExplanation(isCorrect, isTimeout, explanation) {
+        this.stopTimer();
+        
+        if (isTimeout) {
+            this.els.resultText.innerHTML = `<div class="wrong-text">시간 초과! ⏰</div>`;
+        } else if (isCorrect) {
+            this.els.resultText.innerHTML = `<div class="correct-text">정답입니다! 🎯</div>`;
+        } else {
+            this.els.resultText.innerHTML = `<div class="wrong-text">틀렸습니다! 💦</div>`;
+        }
+        
+        this.els.explanationText.textContent = explanation;
+        this.els.explanationOverlay.classList.add('show');
+    }
+
+    hideExplanation() {
+        this.els.explanationOverlay.classList.remove('show');
+    }
+
+    showGameOver(finalScore, isNewRecord, currentHighScore) {
+        this.els.finalScoreVal.textContent = finalScore;
+        this.els.gameOverHighScore.textContent = currentHighScore;
+        this.els.newRecordMsg.style.display = isNewRecord ? 'block' : 'none';
+        this.showScreen('gameOver');
+    }
+}
+
+// --- 4. 메인 앱 컨트롤러 ---
+class App {
+    constructor() {
+        this.gemini = new GeminiService();
+        this.game = new QuizGame();
+        this.ui = new UI();
+
+        this.initEvents();
+        this.ui.updateStartScreenHighScore(this.game.getHighScore());
+    }
+
+    initEvents() {
+        // 카테고리 선택 버튼 이벤트
+        document.querySelectorAll('.category-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const category = e.target.dataset.category;
+                this.startGame(category);
+            });
+        });
+
+        // 재도전 버튼
+        document.getElementById('retry-btn').addEventListener('click', () => {
+            this.ui.updateStartScreenHighScore(this.game.getHighScore());
+            this.ui.showScreen('start');
+        });
+
+        // UI 콜백 연결
+        this.ui.onChoiceSelect = (index) => this.handleUserAnswer(index);
+        this.ui.onTimeout = () => this.handleTimeout();
+    }
+
+    async startGame(category) {
+        this.game.reset(category);
+        this.ui.updateGameStatus(this.game.score, this.game.lives, this.game.getComboMultiplier());
+        this.ui.showScreen('game');
+        await this.loadNextQuestion();
+    }
+
+    async loadNextQuestion() {
+        this.ui.showLoading();
+        try {
+            const data = await this.gemini.generateQuestion(this.game.category, this.game.recentQuestions);
+            this.game.currentQuestionData = data;
+            this.game.addRecentQuestion(data.question);
+            
+            // UI 업데이트 및 타이머 시작
+            this.ui.updateGameStatus(this.game.score, this.game.lives, this.game.getComboMultiplier());
+            this.ui.renderQuestion(data);
+            
+        } catch (error) {
+            this.ui.showError(error.message);
+            // 에러 발생 시 3초 후 재시도
+            setTimeout(() => {
+                if(this.game.lives > 0) this.loadNextQuestion();
+            }, 3000);
+        }
+    }
+
+    handleUserAnswer(selectedIndex) {
+        this.ui.stopTimer();
+        const data = this.game.currentQuestionData;
+        if (!data) return;
+
+        const isCorrect = selectedIndex === data.correctIndex;
+        this.processTurnResult(isCorrect, false);
+    }
+
+    handleTimeout() {
+        this.ui.disableChoices();
+        this.processTurnResult(false, true);
+    }
+
+    processTurnResult(isCorrect, isTimeout) {
+        const data = this.game.currentQuestionData;
+        const result = this.game.handleAnswer(isCorrect);
+        
+        this.ui.updateGameStatus(this.game.score, this.game.lives, this.game.getComboMultiplier());
+        this.ui.showExplanation(isCorrect, isTimeout, data.explanation);
+
+        // 2초 후 다음 로직 진행
+        setTimeout(() => {
+            this.ui.hideExplanation();
+            
+            if (this.game.lives <= 0) {
+                this.endGame();
+            } else {
+                this.loadNextQuestion();
+            }
+        }, 2000);
+    }
+
+    endGame() {
+        const { isNewRecord, currentHighScore } = this.game.saveHighScore();
+        this.ui.showGameOver(this.game.score, isNewRecord, currentHighScore);
+    }
+}
+
+// 창이 로드되면 앱 초기화
+window.onload = () => {
+    new App();
+};
+</script>
+</body>
+</html>

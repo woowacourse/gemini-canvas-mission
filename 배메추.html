@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>배메추 - 점심 메뉴 추천 앱</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* 휠 애니메이션을 위한 커스텀 이징 함수 */
+        .wheel-transition {
+            transition: transform 3000ms cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        /* 기본 폰트 설정 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        /* 숨김 처리 유틸리티 */
+        .hidden-tab {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
+
+<!-- Header -->
+<header class="bg-orange-500 text-white p-4 sticky top-0 z-50 shadow-md flex justify-between items-center">
+    <h1 class="text-2xl font-black tracking-tight flex items-center gap-2">
+        <i data-lucide="utensils" class="w-6 h-6"></i> 배메추
+    </h1>
+    <div class="flex gap-2">
+        <button
+                id="toggleExcludeBtn"
+                class="text-xs px-3 py-1 rounded-full border transition-colors bg-white text-orange-500 font-bold"
+        >
+            최근메뉴 제외 중
+        </button>
+    </div>
+</header>
+
+<main class="max-w-md mx-auto p-4">
+
+    <!-- ROULETTE TAB -->
+    <div id="tab-roulette">
+        <div class="flex flex-col items-center py-8">
+
+            <!-- Excluded Items Indicator -->
+            <div id="excludedIndicator" class="mb-6 w-full bg-slate-200/50 rounded-2xl p-4 border border-slate-200 text-center hidden">
+          <span class="text-xs font-bold text-slate-500 mb-2 flex items-center justify-center gap-1">
+            🚫 최근 3일 내 먹어서 제외된 메뉴
+          </span>
+                <div id="excludedItemsList" class="flex flex-wrap gap-1 justify-center">
+                    <!-- 동적 생성 -->
+                </div>
+                <p id="allExcludedWarning" class="text-xs text-red-500 mt-2 font-bold hidden">
+                    ⚠️ 모든 메뉴가 제외되어 전체 메뉴로 진행합니다. 새 메뉴를 추가해주세요!
+                </p>
+            </div>
+
+            <!-- Wheel Section -->
+            <div class="relative w-72 h-72 mb-12">
+                <!-- Pointer -->
+                <div class="absolute top-[-20px] left-1/2 -translate-x-1/2 z-20 text-orange-600">
+                    <div class="w-0 h-0 border-l-[15px] border-l-transparent border-r-[15px] border-r-transparent border-t-[25px] border-t-current shadow-lg"></div>
+                </div>
+
+                <!-- Wheel Visual -->
+                <div
+                        id="wheel"
+                        class="w-full h-full rounded-full border-8 border-white shadow-2xl overflow-hidden relative wheel-transition"
+                        style="transform: rotate(0deg);"
+                >
+                    <!-- 휠 내부 (동적 생성) -->
+                </div>
+            </div>
+
+            <button
+                    id="spinBtn"
+                    class="group flex items-center gap-2 px-10 py-4 rounded-full text-xl font-bold shadow-xl transition-all active:scale-95 bg-orange-500 hover:bg-orange-600 text-white"
+            >
+                <i data-lucide="rotate-cw" id="spinIcon" class="w-6 h-6"></i>
+                <span id="spinText">오늘 뭐 먹지?</span>
+            </button>
+
+            <!-- Result Modal-like overlay -->
+            <div id="resultModal" class="mt-8 w-full bg-white rounded-3xl p-6 shadow-xl border border-orange-100 hidden">
+                <div class="text-center mb-6">
+                    <p class="text-sm text-slate-500 mb-1">오늘의 추천 메뉴는?</p>
+                    <h2 id="resultText" class="text-4xl font-black text-orange-600"></h2>
+                </div>
+
+                <!-- Matching Restaurants -->
+                <div id="matchingRestaurantsSection" class="mb-6 bg-orange-50 rounded-2xl p-4 hidden">
+                    <p class="text-xs font-bold text-orange-800 mb-2 flex items-center gap-1">
+                        <i data-lucide="map-pin" class="w-3 h-3"></i> 내 맛집 리스트에 있음!
+                    </p>
+                    <div id="matchingRestaurantsList" class="space-y-2">
+                        <!-- 동적 생성 -->
+                    </div>
+                </div>
+
+                <div class="flex justify-center">
+                    <button
+                            id="confirmBtn"
+                            class="w-full py-3 px-4 rounded-xl bg-orange-500 text-white font-bold hover:bg-orange-600 shadow-lg shadow-orange-200 transition-colors flex items-center justify-center gap-2"
+                    >
+                        <i data-lucide="check-circle-2" class="w-5 h-5"></i> 확정하기
+                    </button>
+                </div>
+            </div>
+
+            <!-- Menu List Editor -->
+            <div class="mt-12 w-full">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <i data-lucide="settings-2" class="w-5 h-5"></i> 돌림판 메뉴 관리
+                </h3>
+                <div class="flex gap-2 mb-4">
+                    <input
+                            type="text"
+                            id="newMenuInput"
+                            placeholder="새 메뉴 추가..."
+                            class="flex-1 px-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    <button
+                            id="addMenuBtn"
+                            class="p-2 rounded-xl text-white bg-slate-800 hover:bg-slate-700"
+                    >
+                        <i data-lucide="plus" class="w-6 h-6"></i>
+                    </button>
+                </div>
+                <div id="menuEditorList" class="flex flex-wrap gap-2">
+                    <!-- 동적 생성 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTORY TAB -->
+    <div id="tab-history" class="hidden-tab py-4">
+        <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+            <i data-lucide="history" class="w-6 h-6 text-orange-500"></i> 식사 기록
+        </h2>
+        <div id="emptyHistory" class="text-center py-20 text-slate-400">
+            <i data-lucide="calendar" class="w-12 h-12 mx-auto mb-2 opacity-20"></i>
+            <p>아직 기록된 식사가 없어요.</p>
+        </div>
+        <div id="historyList" class="space-y-4 hidden">
+            <!-- 동적 생성 -->
+        </div>
+    </div>
+
+    <!-- RESTAURANTS TAB -->
+    <div id="tab-restaurants" class="hidden-tab py-4">
+        <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+            <i data-lucide="map-pin" class="w-6 h-6 text-orange-500"></i> 맛집 리스트
+        </h2>
+
+        <!-- Add Restaurant Form -->
+        <div class="bg-white p-6 rounded-2xl shadow-md border border-slate-100 mb-8">
+            <h3 class="font-bold mb-4">새 맛집 정보 추가</h3>
+            <div class="space-y-3">
+                <input
+                        type="text"
+                        id="resName"
+                        placeholder="가게 이름"
+                        class="w-full px-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <div class="flex gap-2 items-center px-1" id="resRatingContainer">
+                    <span class="text-sm text-slate-500 mr-2">별점</span>
+                    <!-- 별점 버튼들 (JS에서 관리) -->
+                </div>
+                <input
+                        type="text"
+                        id="resTag"
+                        placeholder="태그 (쉼표로 구분, 예: 제육볶음, 돈까스)"
+                        class="w-full px-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <input
+                        type="text"
+                        id="resComment"
+                        placeholder="한줄 코멘트"
+                        class="w-full px-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <button
+                        id="addResBtn"
+                        class="w-full py-3 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-700 transition-colors"
+                >
+                    맛집 저장하기
+                </button>
+            </div>
+        </div>
+
+        <!-- Restaurant List -->
+        <div id="emptyRestaurants" class="text-center py-10 text-slate-400">
+            저장된 맛집이 없습니다.
+        </div>
+        <div id="restaurantsList" class="space-y-4 hidden">
+            <!-- 동적 생성 -->
+        </div>
+    </div>
+
+</main>
+
+<!-- Navigation Bar -->
+<nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-3 z-50">
+    <div class="max-w-md mx-auto flex justify-between items-center">
+        <button
+                onclick="switchTab('roulette')"
+                id="nav-roulette"
+                class="flex flex-col items-center gap-1 transition-colors text-orange-500 nav-btn"
+        >
+            <i data-lucide="rotate-cw" class="w-6 h-6"></i>
+            <span class="text-[10px] font-bold">돌림판</span>
+        </button>
+        <button
+                onclick="switchTab('restaurants')"
+                id="nav-restaurants"
+                class="flex flex-col items-center gap-1 transition-colors text-slate-400 hover:text-slate-600 nav-btn"
+        >
+            <i data-lucide="utensils" class="w-6 h-6"></i>
+            <span class="text-[10px] font-bold">맛집</span>
+        </button>
+        <button
+                onclick="switchTab('history')"
+                id="nav-history"
+                class="flex flex-col items-center gap-1 transition-colors text-slate-400 hover:text-slate-600 nav-btn"
+        >
+            <i data-lucide="history" class="w-6 h-6"></i>
+            <span class="text-[10px] font-bold">기록</span>
+        </button>
+    </div>
+</nav>
+
+<!-- Application Logic -->
+<script>
+    // --- State ---
+    const state = {
+        activeTab: 'roulette',
+        menuItems: [
+            "김치찌개", "돈까스", "제육볶음", "짜장면", "초밥",
+            "냉면", "햄버거", "샌드위치", "마라탕", "쌀국수",
+            "비빔밥", "부대찌개", "파스타", "떡볶이"
+        ],
+        isSpinning: false,
+        rotation: 0,
+        selectedResult: null,
+        history: [],
+        restaurants: [],
+        excludeRecent: true,
+        resFormRating: 5
+    };
+
+    // --- Selectors ---
+    const elements = {
+        toggleExcludeBtn: document.getElementById('toggleExcludeBtn'),
+        wheel: document.getElementById('wheel'),
+        spinBtn: document.getElementById('spinBtn'),
+        spinIcon: document.getElementById('spinIcon'),
+        spinText: document.getElementById('spinText'),
+        resultModal: document.getElementById('resultModal'),
+        resultText: document.getElementById('resultText'),
+        matchingRestaurantsSection: document.getElementById('matchingRestaurantsSection'),
+        matchingRestaurantsList: document.getElementById('matchingRestaurantsList'),
+        confirmBtn: document.getElementById('confirmBtn'),
+
+        newMenuInput: document.getElementById('newMenuInput'),
+        addMenuBtn: document.getElementById('addMenuBtn'),
+        menuEditorList: document.getElementById('menuEditorList'),
+
+        excludedIndicator: document.getElementById('excludedIndicator'),
+        excludedItemsList: document.getElementById('excludedItemsList'),
+        allExcludedWarning: document.getElementById('allExcludedWarning'),
+
+        historyList: document.getElementById('historyList'),
+        emptyHistory: document.getElementById('emptyHistory'),
+
+        restaurantsList: document.getElementById('restaurantsList'),
+        emptyRestaurants: document.getElementById('emptyRestaurants'),
+        resName: document.getElementById('resName'),
+        resRatingContainer: document.getElementById('resRatingContainer'),
+        resTag: document.getElementById('resTag'),
+        resComment: document.getElementById('resComment'),
+        addResBtn: document.getElementById('addResBtn')
+    };
+
+    // --- Derived State Functions ---
+    function getRecentExcludedItems() {
+        const threeDaysAgo = Date.now() - (3 * 24 * 60 * 60 * 1000);
+        const recent = state.history
+            .filter(h => h.id >= threeDaysAgo)
+            .map(h => h.menu);
+        return [...new Set(recent)];
+    }
+
+    function getActiveItems() {
+        let targetItems = [...state.menuItems];
+        const excluded = getRecentExcludedItems();
+
+        if (state.excludeRecent && excluded.length > 0) {
+            targetItems = targetItems.filter(item => !excluded.includes(item));
+            if (targetItems.length === 0) {
+                targetItems = [...state.menuItems];
+            }
+        }
+        return targetItems;
+    }
+
+    // --- Tab Management ---
+    window.switchTab = function(tabName) {
+        if (state.isSpinning) return;
+        state.activeTab = tabName;
+
+        // Update DOM for tabs
+        ['roulette', 'restaurants', 'history'].forEach(tab => {
+            const tabEl = document.getElementById(`tab-${tab}`);
+            const navEl = document.getElementById(`nav-${tab}`);
+
+            if (tab === tabName) {
+                tabEl.classList.remove('hidden-tab');
+                navEl.classList.remove('text-slate-400', 'hover:text-slate-600');
+                navEl.classList.add('text-orange-500');
+            } else {
+                tabEl.classList.add('hidden-tab');
+                navEl.classList.remove('text-orange-500');
+                navEl.classList.add('text-slate-400', 'hover:text-slate-600');
+            }
+        });
+    };
+
+    // --- Render Functions ---
+
+    function renderWheel() {
+        const activeItems = getActiveItems();
+        const wheel = elements.wheel;
+
+        // Generate Gradient
+        const gradientParts = activeItems.map((_, i) => {
+            const startAngle = i * (360 / activeItems.length);
+            const endAngle = (i + 1) * (360 / activeItems.length);
+            let color = i % 2 === 0 ? '#ffffff' : '#f8fafc';
+            if (activeItems.length % 2 !== 0 && i === activeItems.length - 1) {
+                color = '#f1f5f9';
+            }
+            return `${color} ${startAngle}deg ${endAngle}deg`;
+        });
+        wheel.style.background = `conic-gradient(${gradientParts.join(', ')})`;
+
+        wheel.innerHTML = '';
+
+        // Generate Lines & Text
+        const angle = 360 / activeItems.length;
+        activeItems.forEach((item, i) => {
+            // Line
+            const line = document.createElement('div');
+            line.className = 'absolute top-1/2 left-1/2 w-[50%] h-[1px] bg-slate-200 origin-left';
+            line.style.transform = `rotate(${i * angle - 90}deg)`;
+            wheel.appendChild(line);
+
+            // Text
+            const textContainer = document.createElement('div');
+            textContainer.className = 'absolute top-1/2 left-1/2 w-[50%] h-[20px] -mt-[10px] origin-left flex justify-end items-center';
+            const rotateAngle = i * angle + angle / 2;
+            textContainer.style.transform = `rotate(${rotateAngle - 90}deg)`;
+
+            const textSpan = document.createElement('span');
+            textSpan.className = 'block text-[13px] font-bold text-slate-700 truncate pr-5 max-w-full';
+            textSpan.textContent = item;
+
+            textContainer.appendChild(textSpan);
+            wheel.appendChild(textContainer);
+        });
+    }
+
+    function renderExcludedIndicator() {
+        const excluded = getRecentExcludedItems();
+        const activeItems = getActiveItems();
+
+        if (state.excludeRecent && excluded.length > 0) {
+            elements.excludedIndicator.classList.remove('hidden');
+            elements.excludedItemsList.innerHTML = excluded.map(item =>
+                `<span class="text-xs px-2 py-1 bg-white text-slate-400 rounded-md border border-slate-200 line-through shadow-sm">${item}</span>`
+            ).join('');
+
+            if (activeItems.length === state.menuItems.length && state.menuItems.length > 0) {
+                elements.allExcludedWarning.classList.remove('hidden');
+            } else {
+                elements.allExcludedWarning.classList.add('hidden');
+            }
+        } else {
+            elements.excludedIndicator.classList.add('hidden');
+        }
+    }
+
+    function renderResultModal() {
+        if (state.selectedResult && !state.isSpinning) {
+            elements.resultModal.classList.remove('hidden');
+            elements.resultText.textContent = state.selectedResult;
+
+            // Match restaurants
+            const matching = state.restaurants.filter(r =>
+                r.tag.split(',').map(t => t.trim()).includes(state.selectedResult)
+            );
+
+            if (matching.length > 0) {
+                elements.matchingRestaurantsSection.classList.remove('hidden');
+                elements.matchingRestaurantsList.innerHTML = matching.map(res => {
+                    const stars = Array(res.rating).fill('<i data-lucide="star" class="w-3 h-3 fill-current"></i>').join('');
+                    return `
+              <div class="bg-white p-3 rounded-xl shadow-sm flex flex-col border border-orange-100">
+                <div class="flex justify-between items-center w-full mb-1">
+                  <div class="font-bold text-slate-800">${res.name}</div>
+                  <div class="flex text-yellow-400">${stars}</div>
+                </div>
+                ${res.comment ? `<div class="text-sm text-slate-600 mt-1">${res.comment}</div>` : ''}
+              </div>
+            `;
+                }).join('');
+            } else {
+                elements.matchingRestaurantsSection.classList.add('hidden');
+            }
+        } else {
+            elements.resultModal.classList.add('hidden');
+        }
+        lucide.createIcons();
+    }
+
+    function renderMenuEditor() {
+        elements.menuEditorList.innerHTML = state.menuItems.map(item => `
+        <span class="inline-flex items-center gap-1 px-3 py-1 bg-white border border-slate-200 rounded-full text-sm shadow-sm ${state.isSpinning ? 'opacity-50' : ''}">
+          ${item}
+          <button onclick="removeMenuItem('${item}')" class="text-slate-400 ${state.isSpinning ? 'cursor-not-allowed' : 'hover:text-red-500'}" ${state.isSpinning ? 'disabled' : ''}>
+            <i data-lucide="trash-2" class="w-3 h-3"></i>
+          </button>
+        </span>
+      `).join('');
+        lucide.createIcons();
+    }
+
+    function renderHistory() {
+        if (state.history.length === 0) {
+            elements.emptyHistory.classList.remove('hidden');
+            elements.historyList.classList.add('hidden');
+        } else {
+            elements.emptyHistory.classList.add('hidden');
+            elements.historyList.classList.remove('hidden');
+            elements.historyList.innerHTML = state.history.map(item => `
+          <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center">
+            <div>
+              <div class="text-xs text-slate-400 font-medium mb-1">${item.date} ${item.time}</div>
+              <div class="text-lg font-bold text-slate-800">${item.menu}</div>
+            </div>
+            <div class="bg-orange-50 text-orange-600 p-2 rounded-full">
+              <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+            </div>
+          </div>
+        `).join('');
+        }
+        lucide.createIcons();
+    }
+
+    function renderRestaurants() {
+        // Render Star Form Rating
+        let starsHtml = '<span class="text-sm text-slate-500 mr-2">별점</span>';
+        for (let i = 1; i <= 5; i++) {
+            const colorClass = i <= state.resFormRating ? 'text-yellow-400' : 'text-slate-200';
+            starsHtml += `<button onclick="setResRating(${i})" class="${colorClass}"><i data-lucide="star" class="w-6 h-6 ${i <= state.resFormRating ? 'fill-current' : ''}"></i></button>`;
+        }
+        elements.resRatingContainer.innerHTML = starsHtml;
+
+        // Render List
+        if (state.restaurants.length === 0) {
+            elements.emptyRestaurants.classList.remove('hidden');
+            elements.restaurantsList.classList.add('hidden');
+        } else {
+            elements.emptyRestaurants.classList.add('hidden');
+            elements.restaurantsList.classList.remove('hidden');
+            elements.restaurantsList.innerHTML = state.restaurants.map(res => {
+                const stars = Array(res.rating).fill('<i data-lucide="star" class="w-3 h-3 fill-current"></i>').join('');
+                const tagsHtml = res.tag.split(',').map(t => {
+                    const trimT = t.trim();
+                    if (!trimT) return '';
+                    return `<span class="inline-block px-3 py-1 bg-orange-50 text-orange-600 rounded-full text-xs font-bold">#${trimT}</span>`;
+                }).join('');
+
+                return `
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 relative group">
+              <button onclick="removeRestaurant(${res.id})" class="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+              <div class="flex justify-between items-start mb-2">
+                <h4 class="text-lg font-bold text-slate-800">${res.name}</h4>
+                <div class="flex text-yellow-400 items-center">${stars}</div>
+              </div>
+              <div class="text-sm text-slate-600 mb-3">${res.comment}</div>
+              <div class="flex flex-wrap gap-1">${tagsHtml}</div>
+            </div>
+          `;
+            }).join('');
+        }
+        lucide.createIcons();
+    }
+
+    function updateHeader() {
+        if (state.excludeRecent) {
+            elements.toggleExcludeBtn.className = "text-xs px-3 py-1 rounded-full border transition-colors bg-white text-orange-500 font-bold " + (state.isSpinning ? "opacity-50 cursor-not-allowed" : "");
+            elements.toggleExcludeBtn.textContent = "최근메뉴 제외 중";
+        } else {
+            elements.toggleExcludeBtn.className = "text-xs px-3 py-1 rounded-full border transition-colors bg-orange-600 text-orange-100 border-orange-400 " + (state.isSpinning ? "opacity-50 cursor-not-allowed" : "");
+            elements.toggleExcludeBtn.textContent = "중복 허용 중";
+        }
+    }
+
+    function updateSpinButton() {
+        if (state.isSpinning) {
+            elements.spinBtn.className = "group flex items-center gap-2 px-10 py-4 rounded-full text-xl font-bold shadow-xl transition-all active:scale-95 bg-slate-300 text-white cursor-not-allowed";
+            elements.spinText.textContent = "추첨 중...";
+            elements.spinIcon.classList.add('animate-spin');
+        } else {
+            elements.spinBtn.className = "group flex items-center gap-2 px-10 py-4 rounded-full text-xl font-bold shadow-xl transition-all active:scale-95 bg-orange-500 hover:bg-orange-600 text-white";
+            elements.spinText.textContent = "오늘 뭐 먹지?";
+            elements.spinIcon.classList.remove('animate-spin');
+        }
+
+        elements.newMenuInput.disabled = state.isSpinning;
+        elements.addMenuBtn.disabled = state.isSpinning;
+        if (state.isSpinning) {
+            elements.newMenuInput.classList.add('bg-slate-100', 'cursor-not-allowed');
+            elements.addMenuBtn.className = "p-2 rounded-xl text-white bg-slate-400 cursor-not-allowed";
+        } else {
+            elements.newMenuInput.classList.remove('bg-slate-100', 'cursor-not-allowed');
+            elements.addMenuBtn.className = "p-2 rounded-xl text-white bg-slate-800 hover:bg-slate-700";
+        }
+    }
+
+    function updateAll() {
+        updateHeader();
+        updateSpinButton();
+        renderExcludedIndicator();
+        renderWheel();
+        renderResultModal();
+        renderMenuEditor();
+        renderHistory();
+        renderRestaurants();
+    }
+
+    // --- Actions & Event Listeners ---
+
+    elements.toggleExcludeBtn.addEventListener('click', () => {
+        if (state.isSpinning) return;
+        state.excludeRecent = !state.excludeRecent;
+        updateAll();
+    });
+
+    elements.spinBtn.addEventListener('click', () => {
+        if (state.isSpinning) return;
+        const activeItems = getActiveItems();
+        if (activeItems.length === 0) return;
+
+        state.selectedResult = null;
+        state.isSpinning = true;
+        updateAll();
+
+        const newRotation = state.rotation + 1440 + Math.floor(Math.random() * 360);
+        state.rotation = newRotation;
+        elements.wheel.style.transform = `rotate(${newRotation}deg)`;
+
+        setTimeout(() => {
+            state.isSpinning = false;
+            const actualDeg = newRotation % 360;
+            const sectionDeg = 360 / activeItems.length;
+            const index = Math.floor(((360 - actualDeg) % 360) / sectionDeg);
+
+            state.selectedResult = activeItems[index];
+            updateAll();
+        }, 3000);
+    });
+
+    elements.confirmBtn.addEventListener('click', () => {
+        const entry = {
+            id: Date.now(),
+            menu: state.selectedResult,
+            date: new Date().toLocaleDateString(),
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        state.history.unshift(entry);
+        state.selectedResult = null;
+        updateAll();
+    });
+
+    function addMenu() {
+        const val = elements.newMenuInput.value.trim();
+        if (val && !state.menuItems.includes(val)) {
+            state.menuItems.push(val);
+            elements.newMenuInput.value = '';
+            updateAll();
+        }
+    }
+
+    elements.addMenuBtn.addEventListener('click', () => {
+        if(!state.isSpinning) addMenu();
+    });
+
+    elements.newMenuInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !state.isSpinning) addMenu();
+    });
+
+    window.removeMenuItem = function(item) {
+        if (state.isSpinning) return;
+        state.menuItems = state.menuItems.filter(m => m !== item);
+        updateAll();
+    };
+
+    window.setResRating = function(rating) {
+        state.resFormRating = rating;
+        renderRestaurants();
+    };
+
+    elements.addResBtn.addEventListener('click', () => {
+        const name = elements.resName.value.trim();
+        const tag = elements.resTag.value.trim();
+        const comment = elements.resComment.value.trim();
+
+        if (name && tag) {
+            state.restaurants.unshift({
+                id: Date.now(),
+                name,
+                rating: state.resFormRating,
+                tag,
+                comment
+            });
+
+            elements.resName.value = '';
+            elements.resTag.value = '';
+            elements.resComment.value = '';
+            state.resFormRating = 5;
+            updateAll();
+        }
+    });
+
+    window.removeRestaurant = function(id) {
+        state.restaurants = state.restaurants.filter(r => r.id !== id);
+        updateAll();
+    };
+
+    // --- Initialization ---
+    lucide.createIcons();
+    updateAll();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini TRPG: 고블린 동굴의 비밀</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 커스텀 스크롤바 디자인 */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        /* 텍스트 줄바꿈 처리를 위한 스타일 */
+        .whitespace-pre-wrap { white-space: pre-wrap; }
+
+        /* 타자 치는 듯한 애니메이션용 */
+        .typing-dot { animation: typing 1.4s infinite ease-in-out both; }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* 토스트 알림 애니메이션 */
+        @keyframes slideDown {
+            from { transform: translate(-50%, -100%); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        .toast-enter { animation: slideDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        .toast-leave { animation: fadeOut 0.5s ease-in forwards; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 font-sans h-screen flex flex-col overflow-hidden selection:bg-amber-600 selection:text-white transition-colors duration-500">
+
+<!-- 토스트 알림 컨테이너 -->
+<div id="toast-container" class="fixed top-5 left-1/2 z-[60] flex flex-col gap-2 pointer-events-none w-full max-w-sm px-4"></div>
+
+<!-- 직업 선택 모달 (게임 시작 시 표시) -->
+<div id="job-modal" class="fixed inset-0 bg-slate-900/95 flex items-center justify-center z-50 backdrop-blur-sm">
+    <div class="bg-slate-800 border border-amber-700 p-6 md:p-8 rounded-xl shadow-2xl max-w-md w-full mx-4 text-center">
+        <h2 class="text-2xl font-bold text-amber-500 mb-2">운명의 길을 선택하세요</h2>
+        <p class="text-slate-400 mb-6 text-sm">당신의 선택이 모험의 난이도를 결정합니다.</p>
+        <div class="space-y-4 text-left">
+            <button onclick="startGame('용감한 전사', 7, 3, 5, [{name: '강타', mp: 2, desc: '강력한 일격으로 적을 제압합니다.'}], ['초보자용 붕대'])" class="w-full bg-slate-700 hover:bg-slate-600 border border-slate-500 p-4 rounded-lg transition-colors flex justify-between items-center group">
+                <div>
+                    <div class="font-bold text-lg text-slate-100 group-hover:text-amber-400">⚔️ 용감한 전사</div>
+                    <div class="text-sm text-slate-400 mt-1">강력한 근접 스킬을 가집니다.</div>
+                </div>
+                <div class="text-right text-xs bg-slate-800 px-2 py-1 rounded leading-tight">HP: 7 | MP: 3<br>Gold: 5</div>
+            </button>
+            <button onclick="startGame('날렵한 도적', 5, 4, 20, [{name: '은신', mp: 2, desc: '어둠 속에 숨어 위기를 모면합니다.'}, {name: '소매치기', mp: 1, desc: '적의 아이템이나 돈을 훔칩니다.'}], ['연막탄', '해독제'])" class="w-full bg-slate-700 hover:bg-slate-600 border border-slate-500 p-4 rounded-lg transition-colors flex justify-between items-center group">
+                <div>
+                    <div class="font-bold text-lg text-slate-100 group-hover:text-amber-400">🗡️ 날렵한 도적</div>
+                    <div class="text-sm text-slate-400 mt-1">은밀한 스킬과 많은 돈을 가집니다.</div>
+                </div>
+                <div class="text-right text-xs bg-slate-800 px-2 py-1 rounded leading-tight">HP: 5 | MP: 4<br>Gold: 20</div>
+            </button>
+            <button onclick="startGame('신비한 마법사', 4, 8, 10, [{name: '파이어볼', mp: 3, desc: '적에게 강력한 화염구를 발사합니다.'}, {name: '치유', mp: 2, desc: '마법으로 체력을 1~2 회복합니다.'}], ['마나 포션'])" class="w-full bg-slate-700 hover:bg-slate-600 border border-slate-500 p-4 rounded-lg transition-colors flex justify-between items-center group">
+                <div>
+                    <div class="font-bold text-lg text-slate-100 group-hover:text-amber-400">🪄 신비한 마법사</div>
+                    <div class="text-sm text-slate-400 mt-1">다양한 마법을 사용할 수 있습니다.</div>
+                </div>
+                <div class="text-right text-xs bg-slate-800 px-2 py-1 rounded leading-tight">HP: 4 | MP: 8<br>Gold: 10</div>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 스킬 모달 -->
+<div id="skill-modal" class="hidden fixed inset-0 bg-slate-900/80 flex items-center justify-center z-50 backdrop-blur-sm">
+    <div class="bg-slate-800 border border-blue-600 p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-blue-400">✨ 보유 스킬</h2>
+            <button onclick="closeSkillModal()" class="text-slate-400 hover:text-white text-xl">✕</button>
+        </div>
+        <ul id="skill-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <!-- 자바스크립트로 스킬 목록 생성됨 -->
+        </ul>
+    </div>
+</div>
+
+<!-- 인벤토리 모달 -->
+<div id="inventory-modal" class="hidden fixed inset-0 bg-slate-900/80 flex items-center justify-center z-50 backdrop-blur-sm">
+    <div class="bg-slate-800 border border-emerald-600 p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-emerald-400">🎒 인벤토리</h2>
+            <button onclick="closeInventoryModal()" class="text-slate-400 hover:text-white text-xl">✕</button>
+        </div>
+        <ul id="inventory-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <!-- 자바스크립트로 소지품 목록 생성됨 -->
+        </ul>
+    </div>
+</div>
+
+<!-- 업적 확인 모달 -->
+<div id="achieve-modal" class="hidden fixed inset-0 bg-slate-900/80 flex items-center justify-center z-50 backdrop-blur-sm">
+    <div class="bg-slate-800 border border-yellow-600 p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-yellow-400">🏆 획득한 업적</h2>
+            <button onclick="closeAchieveModal()" class="text-slate-400 hover:text-white text-xl">✕</button>
+        </div>
+        <ul id="achieve-list" class="space-y-2 max-h-60 overflow-y-auto">
+            <li class="text-slate-500 text-center py-4 text-sm">아직 획득한 업적이 없습니다.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- 상단 상태바 (UI) -->
+<header id="main-header" class="bg-slate-800 border-b border-amber-900/50 shadow-lg p-4 z-10 transition-colors duration-500">
+    <div class="max-w-3xl mx-auto flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center gap-2">
+            <div id="ui-class-container" class="bg-amber-900/80 text-amber-100 px-3 py-1 rounded-md text-sm font-bold tracking-wider border border-amber-700 transition-colors duration-500">
+                <span id="ui-class">직업 선택 중...</span>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-6 font-bold text-lg">
+            <div class="flex items-center gap-1 group" title="체력">
+                <span class="text-red-500 drop-shadow-md group-hover:scale-110 transition-transform">❤️</span>
+                <span id="ui-hp" class="text-slate-100">-/-</span>
+            </div>
+            <div class="flex items-center gap-1 group" title="마나">
+                <span class="text-blue-500 drop-shadow-md group-hover:scale-110 transition-transform">💧</span>
+                <span id="ui-mp" class="text-slate-100">-/-</span>
+            </div>
+            <div class="flex items-center gap-1 group" title="소지 골드">
+                <span class="text-yellow-400 drop-shadow-md group-hover:scale-110 transition-transform">🪙</span>
+                <span id="ui-gold" class="text-slate-100">- G</span>
+            </div>
+            <div class="flex gap-2 ml-1 border-l border-slate-600 pl-3">
+                <button onclick="openSkillModal()" class="text-xl hover:scale-110 transition-transform" title="스킬 사용">✨</button>
+                <button onclick="openInventoryModal()" class="text-xl hover:scale-110 transition-transform" title="인벤토리">🎒</button>
+                <button onclick="openAchieveModal()" class="text-xl hover:scale-110 transition-transform" title="업적 보기">🏆</button>
+                <button onclick="restartGame()" class="text-xl hover:scale-110 transition-transform ml-1" title="다시 시작">🔄</button>
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- 게임 결과 배너 (숨김 상태) -->
+<div id="ending-banner" class="hidden w-full py-3 px-4 shadow-md z-20 justify-center items-center gap-4 transition-colors duration-500 text-white">
+    <span id="ending-text" class="font-bold text-lg"></span>
+    <button onclick="restartGame()" class="bg-black/20 hover:bg-black/40 text-white text-sm font-bold py-1 px-3 rounded shadow transition-colors border border-white/20">
+        🔄 다시 시작
+    </button>
+</div>
+
+<!-- 채팅 영역 -->
+<main id="chat-container" class="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 max-w-3xl mx-auto w-full scroll-smooth">
+    <!-- 자바스크립트로 메시지 추가됨 -->
+</main>
+
+<!-- 하단 입력 영역 -->
+<footer class="bg-slate-800 border-t border-slate-700 p-4 shrink-0">
+    <div class="max-w-3xl mx-auto flex gap-2">
+        <input type="text" id="user-input"
+               class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600 transition-all duration-300"
+               placeholder="당신의 행동을 입력하세요... (예: 검을 뽑고 공격한다, 설득해본다)"
+               autocomplete="off">
+        <button id="send-btn"
+                class="bg-amber-700 hover:bg-amber-600 text-amber-50 font-bold px-6 py-3 rounded-lg transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[80px]">
+            행동
+        </button>
+    </div>
+</footer>
+
+<script>
+    // 시스템 환경에서 제공되는 API Key
+    const apiKey = "";
+
+    // 테마 관리
+    const themes = {
+        'default': {
+            bodyBg: 'bg-slate-900',
+            badge: 'bg-amber-900/80 text-amber-100 border-amber-700',
+            headerBorder: 'border-amber-900/50',
+            userInput: 'focus:border-amber-600 focus:ring-amber-600',
+            sendBtn: 'bg-amber-700 hover:bg-amber-600 text-amber-50',
+            userBubble: 'bg-amber-700 text-white',
+            optionBtn: 'hover:bg-amber-700 hover:border-amber-500 hover:text-white',
+            dmName: 'text-amber-500',
+            highlight: 'text-amber-400'
+        },
+        '용감한 전사': {
+            bodyBg: 'bg-red-950',
+            badge: 'bg-red-900/80 text-red-100 border-red-700',
+            headerBorder: 'border-red-900/50',
+            userInput: 'focus:border-red-600 focus:ring-red-600',
+            sendBtn: 'bg-red-700 hover:bg-red-600 text-red-50',
+            userBubble: 'bg-red-700 text-white',
+            optionBtn: 'hover:bg-red-700 hover:border-red-500 hover:text-white',
+            dmName: 'text-red-500',
+            highlight: 'text-red-400'
+        },
+        '날렵한 도적': {
+            bodyBg: 'bg-emerald-950',
+            badge: 'bg-emerald-900/80 text-emerald-100 border-emerald-700',
+            headerBorder: 'border-emerald-900/50',
+            userInput: 'focus:border-emerald-600 focus:ring-emerald-600',
+            sendBtn: 'bg-emerald-700 hover:bg-emerald-600 text-emerald-50',
+            userBubble: 'bg-emerald-700 text-white',
+            optionBtn: 'hover:bg-emerald-700 hover:border-emerald-500 hover:text-white',
+            dmName: 'text-emerald-500',
+            highlight: 'text-emerald-400'
+        },
+        '신비한 마법사': {
+            bodyBg: 'bg-blue-950',
+            badge: 'bg-blue-900/80 text-blue-100 border-blue-700',
+            headerBorder: 'border-blue-900/50',
+            userInput: 'focus:border-blue-600 focus:ring-blue-600',
+            sendBtn: 'bg-blue-700 hover:bg-blue-600 text-blue-50',
+            userBubble: 'bg-blue-700 text-white',
+            optionBtn: 'hover:bg-blue-700 hover:border-blue-500 hover:text-white',
+            dmName: 'text-blue-500',
+            highlight: 'text-blue-400'
+        }
+    };
+    let currentTheme = themes['default'];
+
+    // 게임 상태 관리
+    let playerClass = "";
+    let maxHp = 5;
+    let currentHp = 5;
+    let maxMp = 3;
+    let currentMp = 3;
+    let currentGold = 10;
+    let gameState = "playing"; // playing, victory_ending, defeat_ending, secret_ending
+    let chatHistory = [];
+    let achievements = []; // 획득한 업적 목록 (다회차에도 유지됨)
+    let inventory = []; // 소지 아이템 목록
+    let skills = []; // 보유 스킬 목록
+
+    // DOM 요소
+    const chatContainer = document.getElementById('chat-container');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+    const uiHp = document.getElementById('ui-hp');
+    const uiMp = document.getElementById('ui-mp');
+    const uiGold = document.getElementById('ui-gold');
+    const uiClass = document.getElementById('ui-class');
+    const endingBanner = document.getElementById('ending-banner');
+    const endingText = document.getElementById('ending-text');
+    const jobModal = document.getElementById('job-modal');
+    const achieveModal = document.getElementById('achieve-modal');
+    const achieveList = document.getElementById('achieve-list');
+    const skillModal = document.getElementById('skill-modal');
+    const skillList = document.getElementById('skill-list');
+    const inventoryModal = document.getElementById('inventory-modal');
+    const inventoryList = document.getElementById('inventory-list');
+    const toastContainer = document.getElementById('toast-container');
+
+    // 동적 시스템 프롬프트 생성 함수
+    function getSystemPrompt() {
+        return `
+당신은 중세 판타지 세계의 숙련된 TRPG 게임 마스터(DM)입니다.
+플레이어의 직업은 '${playerClass}'이며, 최대 체력은 ${maxHp}, 최대 마나는 ${maxMp}, 소지 골드는 ${currentGold}G입니다.
+현재 소지한 아이템: ${inventory.length > 0 ? inventory.join(', ') : '없음'}
+현재 사용 가능한 스킬: ${skills.map(s => s.name).join(', ')}
+
+[스토리 개요]
+- 시작: 마을 주점에서 촌장이 '도난당한 마을의 보석'을 고블린 동굴에서 찾아달라고 의뢰합니다.
+- 전개: 고블린 동굴에서 함정을 만나거나, 약한 몬스터/NPC와 조우합니다.
+- 절정: 고블린 보스와 마주치며 중요한 선택을 해야 합니다.
+
+[엔딩 조건 - 게임 상태(game_state)를 반드시 변경하세요]
+1. victory_ending (해피 엔딩): 보석을 무사히 되찾아 마을로 돌아옴.
+2. defeat_ending (배드 엔딩): 플레이어의 체력이 0 이하가 됨.
+3. secret_ending (히든 엔딩): 고블린과 결탁하거나 보석을 가지고 도망치는 등 예상 밖의 행동을 함.
+
+[게임 마스터 규칙]
+1. 직업(${playerClass})의 특성과 사용한 스킬을 반영하여 극적이고 유리한 결과를 산출하세요.
+2. 행동의 결과에 따라 체력(current_hp), 마나(current_mp), 골드(current_gold)를 논리적으로 증감시키세요. (스킬을 사용했을 경우 스킬에 맞는 마나를 감소시키세요.)
+3. 플레이어가 아이템을 획득하거나 소비하면 inventory 배열을 반드시 갱신하세요. (아이템을 사용하면 배열에서 삭제)
+4. ★[매우 중요] game_state가 'playing'인 동안에는 플레이어가 다음에 할 수 있는 구체적인 행동 선택지 2~3가지를 무조건 'options' 배열에 작성하세요. (예: ["검을 휘두른다", "조용히 숨는다", "마법을 준비한다"])
+5. DM의 묘사(dm_reply)는 상황 묘사와 대사가 확실히 구분되도록 문단 사이에 반드시 줄바꿈 2번(\\n\\n)을 사용하세요. 가독성을 위해 한 문단의 길이는 2~3문장을 넘지 않게 하세요.
+
+[업적 시스템 규칙]
+플레이어가 기발한 행동을 하거나 특정 조건(예: 전투 승리, 보물 발견, 바보 같은 죽음, NPC 설득 등)을 달성하면, 'new_achievement' 필드에 재미있는 업적 이름(예: "고블린 슬레이어", "말빨의 달인")을 짧게 반환하세요. 이번 턴에 달성한 특별한 업적이 없다면 빈 문자열("")을 반환하세요.
+`;
+    }
+
+    // 테마 적용 함수
+    function applyTheme(jobName) {
+        // 이전 배경색 클래스 제거
+        document.body.classList.remove(currentTheme.bodyBg);
+
+        currentTheme = themes[jobName] || themes['default'];
+
+        // 새로운 배경색 클래스 추가
+        document.body.classList.add(currentTheme.bodyBg);
+
+        const header = document.getElementById('main-header');
+        header.className = `bg-slate-800 border-b shadow-lg p-4 z-10 transition-colors duration-500 ${currentTheme.headerBorder}`;
+
+        const badge = document.getElementById('ui-class-container');
+        badge.className = `px-3 py-1 rounded-md text-sm font-bold tracking-wider border transition-colors duration-500 ${currentTheme.badge}`;
+
+        const input = document.getElementById('user-input');
+        input.className = `flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none transition-all duration-300 ${currentTheme.userInput}`;
+
+        const btn = document.getElementById('send-btn');
+        btn.className = `font-bold px-6 py-3 rounded-lg transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[80px] ${currentTheme.sendBtn}`;
+    }
+
+    // 게임 시작 (직업 선택 시 호출)
+    function startGame(jobName, hp, mp, gold, jobSkills, jobItems) {
+        playerClass = jobName;
+        maxHp = hp;
+        currentHp = hp;
+        maxMp = mp;
+        currentMp = mp;
+        currentGold = gold;
+        skills = jobSkills;
+        inventory = jobItems;
+        gameState = "playing";
+        chatHistory = [];
+
+        // 직업에 따른 테마 적용
+        applyTheme(jobName);
+
+        // 모달 숨기기 및 UI 초기화
+        jobModal.classList.add('hidden');
+
+        // 엔딩 배너 강제 숨김 처리 (CSS 충돌 방지)
+        endingBanner.classList.add('hidden');
+        endingBanner.classList.remove('flex', 'bg-green-600', 'bg-red-800', 'bg-purple-700');
+
+        chatContainer.innerHTML = '';
+        uiClass.textContent = playerClass;
+        updateUI();
+
+        userInput.disabled = false;
+        sendBtn.disabled = false;
+        userInput.placeholder = "당신의 행동을 입력하세요...";
+
+        // 첫 턴 자동 진행
+        const startMessage = `게임을 시작합니다. 내 직업은 '${playerClass}'입니다. 마을 주점에서부터 이야기를 시작해주세요.`;
+        chatHistory.push({ role: "user", parts: [{ text: startMessage }] });
+        processTurn("");
+    }
+
+    // 게임 재시작 기능
+    function restartGame() {
+        jobModal.classList.remove('hidden');
+    }
+
+    // 업적 모달 제어
+    function openAchieveModal() {
+        achieveList.innerHTML = '';
+        if (achievements.length === 0) {
+            achieveList.innerHTML = '<li class="text-slate-500 text-center py-4 text-sm">아직 획득한 업적이 없습니다.</li>';
+        } else {
+            achievements.forEach(ach => {
+                const li = document.createElement('li');
+                li.className = "bg-slate-700/50 border border-slate-600 px-3 py-2 rounded text-yellow-300 font-bold text-sm flex items-center gap-2";
+                li.innerHTML = `<span>🏅</span> ${ach}`;
+                achieveList.appendChild(li);
+            });
+        }
+        achieveModal.classList.remove('hidden');
+    }
+
+    function closeAchieveModal() {
+        achieveModal.classList.add('hidden');
+    }
+
+    // 업적 토스트 알림 표시
+    function showAchievementToast(achievementName) {
+        if (!achievementName || achievements.includes(achievementName)) return; // 이미 얻은 업적 무시
+
+        achievements.push(achievementName); // 업적 목록에 추가
+        showToast(`🏆 업적 획득: ${achievementName}`, "bg-yellow-500/90 text-yellow-900 border-yellow-400");
+    }
+
+    // 공통 토스트 메시지
+    function showToast(message, colorClasses = "bg-slate-700/90 text-white border-slate-600") {
+        const toast = document.createElement('div');
+        toast.className = `${colorClasses} px-6 py-3 rounded-lg shadow-lg font-bold border-2 toast-enter flex items-center justify-center gap-2`;
+        toast.innerHTML = message;
+
+        toastContainer.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.replace('toast-enter', 'toast-leave');
+            setTimeout(() => toast.remove(), 500);
+        }, 3000);
+    }
+
+    // 스킬 모달 제어
+    function openSkillModal() {
+        skillList.innerHTML = '';
+        skills.forEach(skill => {
+            const isOom = currentMp < skill.mp; // Out Of Mana
+            const li = document.createElement('li');
+            li.className = `bg-slate-700/50 border border-slate-600 p-3 rounded flex justify-between items-center ${isOom ? 'opacity-50' : ''}`;
+            li.innerHTML = `
+                    <div>
+                        <div class="font-bold text-blue-300">${skill.name} <span class="text-xs text-blue-400 ml-1">(MP -${skill.mp})</span></div>
+                        <div class="text-xs text-slate-400 mt-1">${skill.desc}</div>
+                    </div>
+                    <button onclick="useSkill('${skill.name}', ${skill.mp})" class="${isOom ? 'bg-slate-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500'} text-white text-xs font-bold px-3 py-2 rounded transition-colors" ${isOom ? 'disabled' : ''}>
+                        사용
+                    </button>
+                `;
+            skillList.appendChild(li);
+        });
+        skillModal.classList.remove('hidden');
+    }
+    function closeSkillModal() { skillModal.classList.add('hidden'); }
+
+    // 인벤토리 모달 제어
+    function openInventoryModal() {
+        inventoryList.innerHTML = '';
+        if (inventory.length === 0) {
+            inventoryList.innerHTML = '<li class="text-slate-500 text-center py-4 text-sm">소지품이 없습니다.</li>';
+        } else {
+            inventory.forEach(item => {
+                const li = document.createElement('li');
+                li.className = "bg-slate-700/50 border border-slate-600 p-3 rounded flex justify-between items-center";
+                li.innerHTML = `
+                        <div class="font-bold text-emerald-100">🎒 ${item}</div>
+                        <button onclick="useItem('${item}')" class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded transition-colors">
+                            사용
+                        </button>
+                    `;
+                inventoryList.appendChild(li);
+            });
+        }
+        inventoryModal.classList.remove('hidden');
+    }
+    function closeInventoryModal() { inventoryModal.classList.add('hidden'); }
+
+    // 스킬/아이템 사용 로직
+    function useSkill(skillName, mpCost) {
+        if (currentMp < mpCost) {
+            showToast("💧 마나가 부족합니다.", "bg-red-900/90 text-red-100 border-red-700");
+            return;
+        }
+        closeSkillModal();
+        processTurn(`[스킬 사용: ${skillName}]`);
+    }
+
+    function useItem(itemName) {
+        closeInventoryModal();
+        processTurn(`[아이템 사용: ${itemName}]`);
+    }
+
+    // UI 업데이트 함수 (DOM 덮어쓰기 방지)
+    function updateUI() {
+        uiHp.textContent = `${Math.max(0, currentHp)}/${maxHp}`;
+        uiMp.textContent = `${Math.max(0, currentMp)}/${maxMp}`;
+        uiGold.textContent = `${currentGold} G`;
+
+        // 게임 오버 처리
+        if (gameState !== 'playing') {
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            userInput.placeholder = "게임이 종료되었습니다.";
+
+            // 기존 클래스를 보존하면서 배너 상태만 안전하게 토글
+            endingBanner.classList.remove('hidden', 'bg-green-600', 'bg-red-800', 'bg-purple-700');
+            endingBanner.classList.add('flex');
+
+            if (gameState === 'victory_ending') {
+                endingBanner.classList.add('bg-green-600');
+                endingText.innerHTML = "🎉 [해피 엔딩] 마을의 영웅이 되었습니다!";
+            } else if (gameState === 'defeat_ending') {
+                endingBanner.classList.add('bg-red-800');
+                endingText.innerHTML = "💀 [배드 엔딩] 모험은 여기서 끝났습니다...";
+            } else if (gameState === 'secret_ending') {
+                endingBanner.classList.add('bg-purple-700');
+                endingText.innerHTML = "🤫 [히든 엔딩] 역사는 당신을 다르게 기억할 것입니다.";
+            }
+        }
+    }
+
+    // 채팅 말풍선 추가 함수
+    function addMessage(role, text, options = null) {
+        const wrapper = document.createElement('div');
+        wrapper.className = `flex w-full ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+
+        const bubble = document.createElement('div');
+
+        if (role === 'user') {
+            bubble.className = `${currentTheme.userBubble} max-w-[85%] md:max-w-[75%] rounded-2xl rounded-tr-sm px-5 py-3 shadow-md whitespace-pre-wrap`;
+            bubble.textContent = text;
+        } else {
+            bubble.className = "bg-slate-800 border border-slate-700 text-slate-200 max-w-[90%] md:max-w-[85%] rounded-2xl rounded-tl-sm px-5 py-4 shadow-lg flex flex-col gap-3";
+
+            const textDiv = document.createElement('div');
+            textDiv.className = "text-base";
+
+            // 마크다운 볼드체 처리 및 가독성을 위한 문단 나누기
+            let formattedText = text.replace(/\*\*(.*?)\*\*/g, `<span class="${currentTheme.highlight} font-bold">$1</span>`);
+
+            // \n\n 기준으로 문단을 나누어 p 태그로 감싸기 (가독성 대폭 향상)
+            formattedText = formattedText
+                .split(/\n\n+/)
+                .map(p => `<p class="mb-4 last:mb-0 leading-relaxed">${p.replace(/\n/g, '<br>')}</p>`)
+                .join('');
+
+            textDiv.innerHTML = `<div class="font-bold ${currentTheme.dmName} mb-3 text-sm flex items-center gap-1">🧙‍♂️ 게임 마스터 (DM)</div>${formattedText}`;
+            bubble.appendChild(textDiv);
+
+            // 선택지 버튼 추가
+            if (options && options.length > 0 && gameState === 'playing') {
+                const optionsDiv = document.createElement('div');
+                optionsDiv.className = "flex flex-wrap gap-2 mt-2 pt-4 border-t border-slate-600/50";
+
+                options.forEach(opt => {
+                    const btn = document.createElement('button');
+                    btn.className = `option-btn bg-slate-700 border border-slate-500 text-slate-200 px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-sm text-left ${currentTheme.optionBtn}`;
+                    btn.textContent = `▶ ${opt}`;
+                    btn.onclick = () => {
+                        processTurn(opt);
+                    };
+                    optionsDiv.appendChild(btn);
+                });
+                bubble.appendChild(optionsDiv);
+            }
+        }
+
+        wrapper.appendChild(bubble);
+        chatContainer.appendChild(wrapper);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // 타이핑 인디케이터 관리
+    let typingIndicator = null;
+    function showTyping() {
+        if (typingIndicator) return;
+        const wrapper = document.createElement('div');
+        wrapper.className = "flex w-full justify-start";
+        wrapper.id = "typing-indicator";
+
+        const bubble = document.createElement('div');
+        bubble.className = "bg-slate-800 border border-slate-700 rounded-2xl rounded-tl-sm px-5 py-4 shadow-lg flex items-center gap-1 h-[52px]";
+        bubble.innerHTML = `
+                <div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div>
+                <div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div>
+                <div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div>
+            `;
+
+        wrapper.appendChild(bubble);
+        chatContainer.appendChild(wrapper);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        typingIndicator = wrapper;
+    }
+
+    function hideTyping() {
+        if (typingIndicator) {
+            typingIndicator.remove();
+            typingIndicator = null;
+        }
+    }
+
+    // 지수 백오프를 적용한 API 호출 함수
+    async function callGeminiAPI(payload) {
+        const retries = 5;
+        const delays = [1000, 2000, 4000, 8000, 16000];
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        for (let i = 0; i < retries; i++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`API Error: ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                if (i === retries - 1) throw error;
+                await new Promise(resolve => setTimeout(resolve, delays[i]));
+            }
+        }
+    }
+
+    // 턴 진행 메인 로직
+    async function processTurn(userText) {
+        if (gameState !== 'playing') return;
+
+        // 기존의 선택지 버튼 비활성화 (중복 클릭 방지 및 회색 처리)
+        document.querySelectorAll('.option-btn').forEach(btn => {
+            btn.disabled = true;
+            // 기존 테마 호버 효과를 제거하고 완전히 비활성화된 디자인으로 교체
+            btn.className = "option-btn bg-slate-700 border border-slate-600 text-slate-400 px-4 py-2 rounded-lg text-sm font-bold shadow-sm text-left opacity-50 cursor-not-allowed";
+        });
+
+        if (userText) {
+            addMessage('user', userText);
+            userInput.value = '';
+            // AI가 상태를 잘 반영하도록 히든 컨텍스트 주입
+            const contextInjectedText = `플레이어 행동: ${userText}\n(시스템 알림: 현재 상태 HP ${currentHp}, MP ${currentMp}, Gold ${currentGold}, 인벤토리: [${inventory.length ? inventory.join(', ') : '비어있음'}])`;
+            chatHistory.push({ role: "user", parts: [{ text: contextInjectedText }] });
+        }
+
+        userInput.disabled = true;
+        sendBtn.disabled = true;
+        showTyping();
+
+        // API Schema 확장: options 필드 설명 강화
+        const payload = {
+            systemInstruction: { parts: [{ text: getSystemPrompt() }] },
+            contents: chatHistory,
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                        dm_reply: { type: "STRING" },
+                        current_hp: { type: "INTEGER" },
+                        current_mp: { type: "INTEGER" },
+                        current_gold: { type: "INTEGER" },
+                        game_state: { type: "STRING" },
+                        new_achievement: { type: "STRING", description: "이번 턴에 달성한 특별한 업적 이름 (없으면 빈 문자열)" },
+                        inventory: { type: "ARRAY", items: { type: "STRING" }, description: "아이템 사용 및 획득이 반영된 현재 소지품 목록" },
+                        options: { type: "ARRAY", items: { type: "STRING" }, description: "반드시 제공해야 하는 2~3개의 행동 선택지 (게임 종료 시에만 빈 배열)" }
+                    },
+                    required: ["dm_reply", "current_hp", "current_mp", "current_gold", "game_state", "new_achievement", "inventory", "options"]
+                }
+            }
+        };
+
+        try {
+            const result = await callGeminiAPI(payload);
+            const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            if (!rawText) throw new Error("응답이 비어있습니다.");
+
+            const gameData = JSON.parse(rawText);
+
+            // 상태 업데이트
+            currentHp = gameData.current_hp;
+            currentMp = gameData.current_mp;
+            currentGold = gameData.current_gold;
+            gameState = gameData.game_state;
+            if(gameData.inventory) inventory = gameData.inventory;
+
+            // 업적 처리
+            if (gameData.new_achievement && gameData.new_achievement.trim() !== "") {
+                showAchievementToast(gameData.new_achievement);
+            }
+
+            updateUI();
+            hideTyping();
+
+            // dm_reply와 함께 options 배열 전달
+            addMessage('model', gameData.dm_reply, gameData.options);
+
+            chatHistory.push({ role: "model", parts: [{ text: rawText }] });
+
+        } catch (error) {
+            console.error("Game API Error:", error);
+            hideTyping();
+            addMessage('model', "*(서버 연결에 불안정이 발생했습니다. 다시 시도해주세요.)*");
+        } finally {
+            if (gameState === 'playing') {
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+    }
+
+    // 이벤트 리스너 세팅
+    sendBtn.addEventListener('click', () => {
+        const text = userInput.value.trim();
+        if (text) processTurn(text);
+    });
+
+    userInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && userInput.value.trim()) {
+            processTurn(userInput.value.trim());
+        }
+    });
+
+    // 윈도우 로드 시 자동 시작 방지. 직업 모달을 통해 시작되도록 함.
+</script>
+</body>
+</html>

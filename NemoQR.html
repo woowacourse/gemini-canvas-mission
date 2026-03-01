@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네모큐알 - NemoQR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        body { 
+            font-family: 'Pretendard', sans-serif; 
+            background: linear-gradient(135deg, #e7ecef 0%, #d3d9d4 100%); 
+            font-size: 13px; 
+        }
+        .glass-card { background: rgba(255, 255, 255, 0.95); position: relative; overflow: hidden; }
+        
+        #qrcode canvas, #qrcode img { 
+            margin: 0 auto; 
+            border-radius: 6px;
+            width: 120px !important; 
+            height: 120px !important;
+        }
+        
+        .qr-border-preview {
+            padding: 10px;
+            background: white;
+            border: 3px solid var(--border-color, #748c7a); 
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .icon-pulse {
+            animation: pulse 3s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.9; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .color-btn.active {
+            ring: 2px;
+            ring-offset: 2px;
+            ring-color: #748c7a;
+            transform: scale(1.1);
+        }
+
+        .size-radio:checked + label {
+            background-color: #748c7a;
+            border-color: #748c7a;
+            color: #ffffff;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        /* 말줄임표 애니메이션 */
+        .dots::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+        @keyframes dots {
+            0% { content: ''; }
+            33% { content: '.'; }
+            66% { content: '..'; }
+            100% { content: '...'; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 text-slate-700">
+
+    <div class="glass-card max-w-sm w-full rounded-3xl shadow-2xl p-6 space-y-5 border border-white/50">
+        <!-- 로딩 오버레이 (무한 로딩) -->
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="flex flex-col items-center">
+                <div class="mb-4 text-[#748c7a]">
+                    <svg class="animate-spin h-10 w-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
+                <p class="text-[14px] font-extrabold text-[#4a5d4e]">생성하는 중<span class="dots"></span></p>
+            </div>
+        </div>
+
+        <!-- Header Section -->
+        <header id="app-header" class="flex flex-col items-center text-center space-y-3">
+            <div id="header-container" class="flex flex-col items-center gap-3">
+                <!-- 아이콘: 하단 X와 ㅁ 위치 변경 적용 -->
+                <div id="icon-box" class="flex-shrink-0 w-14 h-14 bg-[#748c7a] rounded-2xl icon-pulse shadow-lg shadow-slate-200 flex items-center justify-center relative overflow-hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="h-8 w-8 text-white z-10">
+                        <rect x="3" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="3" width="7" height="7"></rect>
+                        <!-- 하단 왼쪽이 ㅁ(사각형)으로, 하단 오른쪽이 X로 위치 변경 -->
+                        <rect x="3" y="14" width="7" height="7"></rect> 
+                        <path d="M14 14l7 7M21 14l-7 7"></path>
+                    </svg>
+                    <div class="absolute -bottom-1 -right-1 w-6 h-6 bg-white/10 rounded-full"></div>
+                    <div class="absolute top-0 left-0 w-4 h-4 bg-black/10"></div>
+                </div>
+                <div id="text-box" class="text-center">
+                    <h1 class="text-xl font-extrabold text-[#4a5d4e] tracking-tight leading-none">네모큐알</h1>
+                    <p id="top-instruction" class="text-[#748c7a] mt-2 text-[11px] font-medium leading-tight">URL을 입력하면 QR 코드가 생성됩니다.</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Input Section -->
+        <div id="input-section" class="space-y-3">
+            <input 
+                type="url" 
+                id="url-input" 
+                placeholder="https://example.com"
+                class="w-full pl-4 pr-4 py-2.5 bg-white border-2 border-slate-300 rounded-xl focus:border-[#748c7a] focus:ring-2 focus:ring-[#748c7a]/10 outline-none transition-all text-xs text-gray-700"
+            >
+            
+            <!-- 검사 결과 박스 -->
+            <div id="error-message" class="hidden p-4 rounded-xl border-2 flex items-start gap-3 bg-red-50 border-red-200 text-red-700">
+                <div id="error-icon" class="flex-shrink-0 mt-0.5"></div>
+                <div class="flex flex-col gap-0.5">
+                    <div id="error-title" class="text-[12px] font-extrabold leading-none"></div>
+                    <div id="error-desc" class="text-[11px] font-medium opacity-90 leading-snug"></div>
+                </div>
+            </div>
+            
+            <button 
+                onclick="handleGenerateRequest()"
+                class="w-full bg-[#748c7a] hover:bg-[#5f7464] text-white text-xs font-bold py-3 rounded-xl transition-all shadow-lg shadow-slate-200 active:scale-95"
+            >
+                QR 코드 생성하기
+            </button>
+        </div>
+
+        <!-- Result Section -->
+        <div id="result-container" class="hidden flex flex-col items-center space-y-4">
+            <div class="w-full bg-slate-100 border border-slate-300 rounded-xl p-3 text-center shadow-sm">
+                <p id="display-url" class="text-[#4a5d4e] font-bold break-all px-1 text-[11px] leading-tight"></p>
+            </div>
+
+            <div class="qr-border-preview" id="qr-wrapper">
+                <div id="qrcode"></div>
+            </div>
+
+            <!-- Settings Card -->
+            <div class="w-full bg-white border border-slate-300 rounded-xl p-4 shadow-sm space-y-3">
+                <div class="flex items-center justify-between">
+                    <label class="text-[11px] font-bold text-[#4a5d4e] uppercase tracking-tight">테두리 색상</label>
+                    <div class="flex gap-2" id="color-options">
+                        <button onclick="setSelectedColor('#ffffff', this)" class="color-btn w-5 h-5 rounded-full border border-slate-300 bg-white" title="흰색"></button>
+                        <button onclick="setSelectedColor('#2d3436', this)" class="color-btn w-5 h-5 rounded-full bg-[#2d3436]" title="다크 그레이"></button>
+                        <button onclick="setSelectedColor('#748c7a', this)" class="color-btn active w-5 h-5 rounded-full bg-[#748c7a]" title="세이지 그린"></button>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between pb-1">
+                    <label class="text-[11px] font-bold text-[#4a5d4e] uppercase tracking-tight">테두리 투명도</label>
+                    <input type="range" id="border-opacity" min="0" max="100" value="100" class="w-20 accent-[#748c7a]" oninput="applyStyles()">
+                </div>
+                
+                <div class="border-t border-slate-300 my-2 pt-3">
+                    <div class="flex items-center justify-between">
+                        <label class="text-[11px] font-bold text-[#4a5d4e] uppercase tracking-tight flex-shrink-0">이미지 크기(px)</label>
+                        <div class="flex gap-1.5 ml-2">
+                            <div class="inline-block">
+                                <input type="radio" name="qr-size" id="size-200" value="200" class="hidden size-radio">
+                                <label for="size-200" class="flex items-center justify-center px-2.5 py-1.5 border border-slate-300 rounded-lg text-[10px] font-bold cursor-pointer transition-all hover:bg-slate-50">200</label>
+                            </div>
+                            <div class="inline-block">
+                                <input type="radio" name="qr-size" id="size-500" value="500" class="hidden size-radio" checked>
+                                <label for="size-500" class="flex items-center justify-center px-2.5 py-1.5 border border-slate-300 rounded-lg text-[10px] font-bold cursor-pointer transition-all hover:bg-slate-50">500</label>
+                            </div>
+                            <div class="inline-block">
+                                <input type="radio" name="qr-size" id="size-1000" value="1000" class="hidden size-radio">
+                                <label for="size-1000" class="flex items-center justify-center px-2.5 py-1.5 border border-slate-300 rounded-lg text-[10px] font-bold cursor-pointer transition-all hover:bg-slate-50">1000</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-2 w-full">
+                <button 
+                    onclick="downloadJPG()"
+                    class="flex items-center justify-center gap-1.5 bg-[#748c7a] hover:bg-[#5f7464] text-white px-3 py-3 rounded-xl transition-all text-[11px] font-bold shadow-md shadow-slate-200"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                    다운로드
+                </button>
+                <button 
+                    onclick="resetApp()"
+                    class="flex items-center justify-center gap-1.5 bg-slate-200 hover:bg-slate-300 text-slate-600 px-3 py-3 rounded-xl transition-all text-[11px] font-bold"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    처음으로
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; 
+        let qrInstance = null;
+        let selectedHex = "#748c7a";
+
+        function hexToRgba(hex, opacity) {
+            let r = parseInt(hex.slice(1, 3), 16);
+            let g = parseInt(hex.slice(3, 5), 16);
+            let b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${opacity / 100})`;
+        }
+
+        function setSelectedColor(hex, btn) {
+            selectedHex = hex;
+            const opacitySlider = document.getElementById('border-opacity');
+            opacitySlider.value = 100;
+            document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active', 'ring-2', 'ring-offset-2', 'ring-[#748c7a]'));
+            btn.classList.add('active', 'ring-2', 'ring-offset-2', 'ring-[#748c7a]');
+            applyStyles();
+        }
+
+        function applyStyles() {
+            const opacity = document.getElementById('border-opacity').value;
+            const qrWrapper = document.getElementById('qr-wrapper');
+            const rgba = hexToRgba(selectedHex, opacity);
+            qrWrapper.style.borderColor = rgba;
+            document.documentElement.style.setProperty('--border-color', rgba);
+        }
+
+        async function checkUrlSecurity(url) {
+            const systemPrompt = `당신은 웹 보안 전문가입니다. URL의 안전성을 검사하세요. 
+            위험 유형을 분류하십시오:
+            - 'MALICIOUS': 피싱, 멀웨어, 불법 사이트
+            - 'TYPO': 오타 의심 또는 신뢰할 수 없는 도메인
+            - 'SAFE': 안전함
+            
+            응답 규칙:
+            1. 조사가 없는 단답형 문구 사용 (예: "위험 감지", "악성 코드 사이트", "오타 확인 필요")
+            2. JSON 형식으로 응답.`;
+            
+            const userQuery = `URL: "${url}". 위험 분석 후 {isSafe: boolean, type: 'MALICIOUS'|'TYPO'|'SAFE', reason: string} 형식 응답.`;
+            
+            const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { 
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            isSafe: { type: "BOOLEAN" },
+                            type: { type: "STRING", enum: ["MALICIOUS", "TYPO", "SAFE"] },
+                            reason: { type: "STRING" }
+                        },
+                        required: ["isSafe", "type", "reason"]
+                    }
+                }
+            };
+
+            let retries = 0;
+            const delays = [1000, 2000, 4000];
+
+            while (retries < 3) {
+                try {
+                    const response = await fetch(apiEndpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    return JSON.parse(result.candidates[0].content.parts[0].text);
+                } catch (error) {
+                    await new Promise(res => setTimeout(res, delays[retries]));
+                    retries++;
+                }
+            }
+            throw new Error("보안 검증 실패");
+        }
+
+        async function handleGenerateRequest() {
+            const urlInput = document.getElementById('url-input');
+            const urlValue = urlInput.value.trim();
+            const errorSection = document.getElementById('error-message');
+            const loading = document.getElementById('loading-overlay');
+
+            if (!urlValue) return;
+
+            errorSection.classList.add('hidden');
+            loading.classList.remove('hidden');
+
+            try {
+                const securityResult = await checkUrlSecurity(urlValue);
+                
+                if (!securityResult.isSafe) {
+                    showErrorUI(securityResult);
+                    loading.classList.add('hidden');
+                    return;
+                }
+
+                setTimeout(() => {
+                    generateQR(urlValue);
+                    loading.classList.add('hidden');
+                }, 800);
+            } catch (err) {
+                showErrorUI({ type: 'ERROR', reason: '네트워크 연결 불안정' });
+                loading.classList.add('hidden');
+            }
+        }
+
+        function showErrorUI(result) {
+            const errorSection = document.getElementById('error-message');
+            const iconBox = document.getElementById('error-icon');
+            const title = document.getElementById('error-title');
+            const desc = document.getElementById('error-desc');
+
+            errorSection.classList.remove('hidden');
+            
+            if (result.type === 'MALICIOUS') {
+                iconBox.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>`;
+                title.innerText = "생성 차단";
+                desc.innerText = result.reason;
+            } else if (result.type === 'TYPO') {
+                iconBox.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" /></svg>`;
+                title.innerText = "오타 의심";
+                desc.innerText = result.reason;
+            } else {
+                iconBox.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>`;
+                title.innerText = "오류 발생";
+                desc.innerText = result.reason;
+            }
+        }
+
+        function generateQR(urlValue) {
+            const inputSection = document.getElementById('input-section');
+            const resultContainer = document.getElementById('result-container');
+            const qrcodeElement = document.getElementById('qrcode');
+            const displayUrl = document.getElementById('display-url');
+            const topInstruction = document.getElementById('top-instruction');
+            const headerContainer = document.getElementById('header-container');
+            const textBox = document.getElementById('text-box');
+
+            displayUrl.innerText = urlValue;
+            topInstruction.innerText = "QR 코드 생성 완료";
+
+            headerContainer.classList.remove('flex-col', 'items-center');
+            headerContainer.classList.add('flex-row', 'items-center', 'justify-center', 'gap-4');
+            textBox.classList.remove('text-center');
+            textBox.classList.add('text-left');
+
+            qrcodeElement.innerHTML = "";
+            qrInstance = new QRCode(qrcodeElement, {
+                text: urlValue,
+                width: 1000,
+                height: 1000,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+
+            inputSection.classList.add('hidden');
+            resultContainer.classList.remove('hidden');
+            applyStyles();
+        }
+
+        function downloadJPG() {
+            const canvas = document.querySelector('#qrcode canvas');
+            if (!canvas) return;
+
+            const selectedRadio = document.querySelector('input[name="qr-size"]:checked');
+            const totalSize = parseInt(selectedRadio ? selectedRadio.value : 500);
+            const padding = Math.round(totalSize * 0.1); 
+            const borderWidth = Math.max(2, Math.round(totalSize * 0.015)); 
+            const opacity = document.getElementById('border-opacity').value;
+            const qrDrawSize = totalSize - (padding * 2);
+
+            const downloadCanvas = document.createElement('canvas');
+            const ctx = downloadCanvas.getContext('2d');
+            downloadCanvas.width = totalSize;
+            downloadCanvas.height = totalSize;
+
+            ctx.fillStyle = hexToRgba(selectedHex, opacity);
+            ctx.fillRect(0, 0, totalSize, totalSize);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(borderWidth, borderWidth, totalSize - (borderWidth * 2), totalSize - (borderWidth * 2));
+            ctx.drawImage(canvas, padding, padding, qrDrawSize, qrDrawSize);
+
+            const dataURL = downloadCanvas.toDataURL("image/jpeg", 0.95);
+            const link = document.createElement('a');
+            link.href = dataURL;
+            link.download = `nemoqr_${totalSize}px_${Date.now()}.jpg`;
+            link.click();
+        }
+
+        function resetApp() {
+            const inputSection = document.getElementById('input-section');
+            const resultContainer = document.getElementById('result-container');
+            const topInstruction = document.getElementById('top-instruction');
+            const headerContainer = document.getElementById('header-container');
+            const textBox = document.getElementById('text-box');
+            const errorSection = document.getElementById('error-message');
+
+            document.getElementById('url-input').value = "";
+            errorSection.classList.add('hidden');
+            topInstruction.innerText = "URL을 입력하면 QR 코드가 생성됩니다.";
+            
+            headerContainer.classList.remove('flex-row', 'justify-center', 'gap-4');
+            headerContainer.classList.add('flex-col', 'items-center');
+            textBox.classList.remove('text-left');
+            textBox.classList.add('text-center');
+
+            inputSection.classList.remove('hidden');
+            resultContainer.classList.add('hidden');
+            document.getElementById('qrcode').innerHTML = "";
+            document.getElementById('size-500').checked = true;
+        }
+
+        document.getElementById('url-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleGenerateRequest();
+        });
+    </script>
+</body>
+</html>

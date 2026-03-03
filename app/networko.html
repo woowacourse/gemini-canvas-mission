@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>네트워코 - 우테코 크루 매칭</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+    body { font-family: 'Pretendard', sans-serif; background-color: #F8FAFC; }
+    .woowa-green { color: #2AC1BC; }
+    .woowa-bg { background-color: #2AC1BC; }
+
+    .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 스크롤바 디자인 */
+    .custom-scroll::-webkit-scrollbar { width: 4px; }
+    .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #2AC1BC; border-radius: 10px; }
+
+    .hidden { display: none !important; }
+
+    .skeleton {
+        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+        background-size: 200% 100%;
+        animation: skeleton-loading 1.5s infinite;
+    }
+    @keyframes skeleton-loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+
+    .option-card { transition: all 0.15s ease; cursor: pointer; }
+    .option-card.selected {
+        background-color: #F0FDFA;
+        border-color: #2AC1BC;
+        color: #2AC1BC;
+        transform: scale(1.02);
+        box-shadow: 0 4px 12px rgba(42, 193, 188, 0.1);
+    }
+
+    .my-team-card {
+        background: #2AC1BC;
+        color: white;
+        box-shadow: 0 15px 30px -5px rgba(42, 193, 188, 0.4);
+    }
+
+    .bottom-nav {
+        box-shadow: 0 -10px 20px rgba(0, 0, 0, 0.04);
+    }
+
+    .logo-pulse {
+        animation: logo-pulse 2s infinite ease-in-out;
+    }
+    @keyframes logo-pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.9; }
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-900 p-4 md:p-8 flex flex-col items-center">
+<div class="w-full max-w-md h-full flex flex-col">
+  <!-- Header & Logo -->
+  <header class="mb-6 text-center flex-shrink-0">
+    <div class="inline-block relative mb-2">
+      <div class="absolute inset-0 woowa-bg blur-2xl opacity-20 rounded-full logo-pulse"></div>
+      <div class="relative inline-flex items-center justify-center p-4 woowa-bg text-white rounded-[2rem] shadow-2xl shadow-teal-100 transition-transform active:scale-95">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="18" cy="5" r="3"></circle>
+          <circle cx="6" cy="12" r="3"></circle>
+          <circle cx="18" cy="19" r="3"></circle>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+        </svg>
+      </div>
+    </div>
+    <h1 class="text-4xl font-black text-slate-800 tracking-tighter">네트워코</h1>
+    <p class="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-3">Connecting Crews</p>
+    <p id="display-week" class="px-4 py-1.5 bg-slate-200 text-slate-700 rounded-full font-bold text-[10px] uppercase tracking-tight inline-block">
+      날짜 계산 중...
+    </p>
+  </header>
+
+  <!-- Error Message Bar -->
+  <div id="error-bar" class="hidden mb-4 p-4 bg-red-50 border border-red-100 text-red-600 rounded-2xl flex items-center justify-between gap-3 text-sm animate-fade-in shadow-sm flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <i data-lucide="alert-circle" size="18"></i>
+      <p id="error-text" class="font-bold"></p>
+    </div>
+    <button onclick="location.reload()" class="p-2 hover:bg-red-100 rounded-full transition-colors">
+      <i data-lucide="refresh-ccw" size="14"></i>
+    </button>
+  </div>
+
+  <!-- Main Card Container (Fixed Height for scrolling internal content) -->
+  <main id="main-card" class="bg-white rounded-[2.5rem] shadow-2xl shadow-teal-100/50 border border-slate-100 overflow-hidden h-[600px] relative flex flex-col">
+
+    <!-- VIEW: Loading -->
+    <div id="view-loading" class="flex flex-1 items-center justify-center">
+      <i data-lucide="loader-2" class="animate-spin text-[#2AC1BC]" size="48"></i>
+    </div>
+
+    <!-- VIEW: Profile Steps -->
+    <div id="view-profile" class="hidden flex-1 p-8 overflow-y-auto custom-scroll animate-fade-in">
+      <div id="profile-progress" class="flex justify-between items-center px-1 h-1.5 mb-8"></div>
+      <div id="profile-step-container"></div>
+    </div>
+
+    <!-- VIEW: Dashboard -->
+    <div id="view-dashboard" class="hidden flex-1 flex flex-col animate-fade-in text-left overflow-hidden">
+      <!-- User Profile Header (Sticky Top in Card) -->
+      <div class="p-6 bg-teal-50 border-b border-teal-100 flex justify-between items-center shadow-sm flex-shrink-0">
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 bg-white rounded-[1rem] flex items-center justify-center text-2xl shadow-md border border-teal-50">👤</div>
+          <div>
+            <h2 id="user-nickname" class="text-xl font-black text-slate-800 tracking-tight">사용자님</h2>
+            <p id="user-mbti" class="text-[10px] font-black text-[#2AC1BC] uppercase tracking-widest font-mono"></p>
+          </div>
+        </div>
+        <button id="btn-logout" class="p-2.5 bg-white rounded-xl text-slate-400 hover:text-red-500 shadow-sm transition-all border border-slate-100">
+          <i data-lucide="log-out" size="18"></i>
+        </button>
+      </div>
+
+      <!-- Global Matching Overlay -->
+      <div id="global-matching-overlay" class="hidden absolute inset-0 z-[100] bg-white/95 flex flex-col items-center justify-center p-8 text-center animate-fade-in">
+        <div class="relative mb-8">
+          <div class="absolute inset-0 woowa-bg opacity-20 blur-3xl rounded-full scale-150"></div>
+          <i data-lucide="sparkles" class="text-[#2AC1BC] animate-bounce relative" size="64"></i>
+        </div>
+        <h3 class="text-2xl font-black text-slate-800 tracking-tight mb-2">크루원 매칭 중입니다...</h3>
+        <p class="text-slate-500 font-medium leading-relaxed text-sm">네트워코 AI가 성향을 분석하여<br>최적의 월/수/금 파트너를 찾고 있어요.</p>
+      </div>
+
+      <!-- Scrollable Content Area -->
+      <div class="flex-1 overflow-y-auto custom-scroll p-6 pb-24" id="dashboard-scroll-area">
+        <!-- TAB 1: 크루 목록 -->
+        <div id="tab-content-list" class="space-y-6">
+          <div id="registration-prompt" class="hidden bg-white border-2 border-dashed border-slate-200 rounded-[2.5rem] p-10 text-center space-y-6 shadow-sm">
+            <div class="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-300"><i data-lucide="user-plus" size="32"></i></div>
+            <p class="text-sm text-slate-500 font-bold leading-relaxed">이번 주 매칭 참여 명단에<br>내 이름을 올려주세요.</p>
+            <button id="btn-join-pool" class="w-full py-4 woowa-bg text-white rounded-2xl font-black shadow-xl text-lg transition-all active:scale-95">지금 참여하기</button>
+          </div>
+
+          <div id="wait-box" class="hidden bg-teal-50/50 rounded-[2.5rem] p-8 border border-teal-100 text-center shadow-inner relative overflow-hidden my-2">
+            <div class="absolute top-0 right-0 w-32 h-32 bg-white/20 blur-3xl"></div>
+            <div class="w-16 h-16 bg-white rounded-3xl flex items-center justify-center mx-auto text-teal-500 mb-4 shadow-xl"><i data-lucide="users-2" size="32"></i></div>
+            <h3 class="font-black text-xl text-slate-800 mb-2 tracking-tight">매칭 대기 중...</h3>
+            <p class="text-xs text-slate-500 mb-8 font-medium leading-relaxed">크루원들이 모두 모이면<br>월/수/금 매칭이 생성됩니다.</p>
+            <button id="btn-run-match" class="w-full bg-slate-900 text-white font-black py-4 rounded-[1.5rem] shadow-2xl text-base transition-all active:scale-95">전체 로테이션 매칭 실행</button>
+            <p id="ready-count" class="mt-4 text-[10px] text-teal-600 font-black uppercase tracking-widest font-mono">0 CREWS READY</p>
+          </div>
+
+          <div id="waiting-list-section" class="space-y-4">
+            <h3 class="text-xs font-black text-slate-400 px-1 uppercase tracking-[0.2em] flex items-center gap-2"><i data-lucide="users" size="14"></i> Waiting List</h3>
+            <div id="crews-grid" class="grid grid-cols-2 gap-3"></div>
+          </div>
+        </div>
+
+        <!-- TAB 2: 매칭 결과 -->
+        <div id="tab-content-result" class="hidden space-y-6 animate-fade-in">
+          <div id="result-board" class="space-y-6">
+            <div id="day-tabs" class="flex bg-slate-100 p-1.5 rounded-[1.5rem] shadow-inner">
+              <button onclick="setActiveDay('월요일')" id="tab-mon" class="flex-1 py-3 rounded-2xl text-sm font-black transition-all">월요일</button>
+              <button onclick="setActiveDay('수요일')" id="tab-wed" class="flex-1 py-3 rounded-2xl text-sm font-black transition-all">수요일</button>
+              <button onclick="setActiveDay('금요일')" id="tab-fri" class="flex-1 py-3 rounded-2xl text-sm font-black transition-all">금요일</button>
+            </div>
+
+            <div id="match-cards-container" class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-[2.5rem] p-6 text-white shadow-2xl relative overflow-hidden border border-white/5">
+              <div class="absolute top-0 right-0 w-40 h-40 bg-teal-500/10 blur-[80px]"></div>
+              <div class="flex justify-between items-center mb-8 relative z-10">
+                <h3 id="board-title" class="font-black text-lg italic tracking-tighter uppercase text-[#2AC1BC]">매칭 결과</h3>
+                <i data-lucide="sparkles" class="text-amber-400 animate-pulse" size="20"></i>
+              </div>
+              <div id="match-pairs-list" class="space-y-6 relative z-10"></div>
+              <div class="mt-8 pt-6 border-t border-white/10 text-center opacity-40">
+                <p class="text-[9px] font-black uppercase tracking-[0.2em]">Generated by Netwoo-co AI</p>
+              </div>
+            </div>
+            <button id="btn-re-match" class="w-full py-4 text-slate-400 text-[10px] font-black hover:text-[#2AC1BC] transition-all border-2 border-dashed border-slate-200 rounded-[1.5rem] uppercase tracking-widest">일정 다시 매칭하기</button>
+          </div>
+          <div id="no-result-msg" class="hidden py-16 text-center space-y-4">
+            <i data-lucide="info" class="mx-auto text-slate-300" size="40"></i>
+            <p class="text-slate-400 font-bold text-sm">아직 이번 주 매칭 결과가 없어요.<br>크루 목록 탭에서 매칭을 실행해 주세요!</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Tab Navigation (Fixed to Bottom of Card) -->
+      <nav class="bottom-nav absolute bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t border-slate-100 flex h-20 px-6 z-50">
+        <button onclick="switchDashboardTab('list')" id="nav-tab-list" class="flex-1 flex flex-col items-center justify-center gap-1 woowa-green transition-all">
+          <i data-lucide="layout-list" size="22"></i>
+          <span class="text-[10px] font-black uppercase tracking-tight">크루 목록</span>
+        </button>
+        <button onclick="switchDashboardTab('result')" id="nav-tab-result" class="flex-1 flex flex-col items-center justify-center gap-1 text-slate-300 transition-all relative">
+          <i data-lucide="trophy" size="22"></i>
+          <span class="text-[10px] font-black uppercase tracking-tight">매칭 결과</span>
+          <div id="new-result-badge" class="hidden absolute top-4 right-[35%] w-2 h-2 bg-red-500 rounded-full border-2 border-white"></div>
+        </button>
+      </nav>
+    </div>
+  </main>
+
+  <footer class="mt-8 text-center pb-8 opacity-30 flex-shrink-0">
+    <p class="text-[9px] font-black text-slate-500 uppercase tracking-[0.4em]">Netwoo-co • Connecting Crews</p>
+  </footer>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+  const firebaseConfig = JSON.parse(__firebase_config);
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'netwoo-co-v16-scrolling-fix';
+  const apiKey = "";
+
+  let state = {
+      user: null, view: 'loading', profileStep: 1, myData: null,
+      weeklyCrews: [], globalMatchResult: null, isRegistering: false,
+      activeDay: '월요일', activeTab: 'list', tendencyAnswers: [],
+      formData: { nickname: '', mbti: '', intro: '', preference: 'similar' }
+  };
+
+  const MBTI_LIST = ['ISTJ', 'ISFJ', 'INFJ', 'INTJ', 'ISTP', 'ISFP', 'INFP', 'INTP', 'ESTP', 'ESFP', 'ENFP', 'ENTP', 'ESTJ', 'ESFJ', 'ENFJ', 'ENTJ'];
+  const TENDENCY_QUESTIONS = [
+      { id: 1, question: "어떤 대화를 더 선호하시나요?", options: ["깊이 있는 기술 토크 💻", "편안한 일상 대화 ☕"] },
+      { id: 2, question: "나의 소통 스타일은?", options: ["차분하게 경청하는 편 👂", "활발하게 의견을 내는 편 🗣️"] },
+      { id: 3, question: "문제를 해결할 때?", options: ["논리와 팩트 중심 🔍", "공감과 배려 중심 🫂"] },
+      { id: 4, question: "학습 스타일은?", options: ["함께하는 페어 프로그래밍 🤝", "혼자 고민하는 딥다이브 📑"] },
+      { id: 5, question: "크루와 하고 싶은 것?", options: ["프로젝트와 스터디 📖", "맛집 탐방과 취미 공유 🍕"] }
+  ];
+
+  const fetchWithRetry = async (url, options, retries = 3, delay = 1500) => {
+      for (let i = 0; i < retries; i++) {
+          try {
+              const response = await fetch(url, options);
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              return await response.json();
+          } catch (err) {
+              if (i === retries - 1) throw err;
+              await new Promise(r => setTimeout(r, delay));
+              delay *= 1.5;
+          }
+      }
+  };
+
+  const getFormattedWeek = () => {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const date = now.getDate();
+      const firstDayOfMonth = new Date(year, now.getMonth(), 1);
+      const weekNo = Math.ceil((date + firstDayOfMonth.getDay()) / 7);
+      return `${year}년 ${month}월 ${weekNo}주차`;
+  };
+
+  const getWeekId = () => {
+      const now = new Date();
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+      const pastDaysOfYear = (now - startOfYear) / 86400000;
+      const weekNum = Math.ceil((pastDaysOfYear + startOfYear.getDay() + 1) / 7);
+      return `${now.getFullYear()}-W${weekNum}`;
+  };
+
+  const weekId = getWeekId();
+  document.getElementById('display-week').innerText = getFormattedWeek();
+
+  const updateView = (viewName) => {
+      state.view = viewName;
+      document.querySelectorAll('main > div').forEach(div => div.classList.add('hidden'));
+      const target = document.getElementById(`view-${viewName}`);
+      if (target) target.classList.remove('hidden');
+      lucide.createIcons();
+  };
+
+  const showError = (msg) => {
+      const bar = document.getElementById('error-bar');
+      const text = document.getElementById('error-text');
+      if (bar && text) {
+          if (msg) { text.innerText = msg; bar.classList.remove('hidden'); }
+          else { bar.classList.add('hidden'); }
+      }
+  };
+
+  window.switchDashboardTab = (tabId) => {
+      state.activeTab = tabId;
+      const listContent = document.getElementById('tab-content-list');
+      const resultContent = document.getElementById('tab-content-result');
+      const navListBtn = document.getElementById('nav-tab-list');
+      const navResultBtn = document.getElementById('nav-tab-result');
+      const badge = document.getElementById('new-result-badge');
+
+      if (listContent) listContent.classList.toggle('hidden', tabId !== 'list');
+      if (resultContent) resultContent.classList.toggle('hidden', tabId !== 'result');
+
+      if (navListBtn) {
+          navListBtn.classList.toggle('woowa-green', tabId === 'list');
+          navListBtn.classList.toggle('text-slate-300', tabId !== 'list');
+      }
+      if (navResultBtn) {
+          navResultBtn.classList.toggle('woowa-green', tabId === 'result');
+          navResultBtn.classList.toggle('text-slate-300', tabId !== 'result');
+      }
+
+      if (tabId === 'result') {
+          if (badge) badge.classList.add('hidden');
+          const hasData = !!state.globalMatchResult?.results;
+          document.getElementById('result-board')?.classList.toggle('hidden', !hasData);
+          document.getElementById('no-result-msg')?.classList.toggle('hidden', hasData);
+          if (hasData) renderMatches();
+      }
+      lucide.createIcons();
+  };
+
+  window.nextStep = (step) => {
+      const nicknameInput = document.getElementById('input-nickname');
+      if (step === 2 && !nicknameInput?.value.trim()) return;
+      if (step === 2) state.formData.nickname = nicknameInput.value.trim();
+      state.profileStep = step;
+      renderProfileSteps();
+  };
+
+  const renderProfileSteps = () => {
+      const progress = document.getElementById('profile-progress');
+      if (progress) {
+          progress.innerHTML = [1, 2, 3, 4, 5, 6, 7].map(s =>
+              `<div class="h-full flex-1 mx-0.5 rounded-full transition-all duration-300 ${state.profileStep >= s ? 'woowa-bg' : 'bg-slate-100'}"></div>`
+          ).join('');
+      }
+
+      const container = document.getElementById('profile-step-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const wrap = document.createElement('div');
+      wrap.className = "profile-step space-y-8 animate-fade-in";
+
+      if (state.profileStep === 1) {
+          wrap.innerHTML = `
+              <div class="text-center space-y-2">
+                  <h2 class="text-2xl font-black text-slate-800 tracking-tight">네트워코에 오신 것을 환영해요!</h2>
+                  <p class="text-slate-400 text-sm font-medium">크루원들이 부를 닉네임을 입력해주세요.</p>
+              </div>
+              <input id="input-nickname" type="text" class="w-full px-6 py-5 rounded-[1.5rem] border-4 border-slate-50 focus:border-[#2AC1BC] outline-none text-2xl font-black shadow-inner bg-slate-50 transition-all focus:bg-white" placeholder="예: 포비" value="${state.formData.nickname}">
+              <button onclick="nextStep(2)" class="w-full woowa-bg text-white font-black py-4 rounded-[1.2rem] shadow-xl text-lg flex items-center justify-center gap-2 transition-all active:scale-95">다음으로 <i data-lucide="arrow-right" size="20"></i></button>
+          `;
+      } else if (state.profileStep === 2) {
+          wrap.innerHTML = `
+              <div class="space-y-6">
+                  <div class="flex items-center gap-2">
+                      <button onclick="nextStep(1)" class="p-2 text-slate-300 hover:text-slate-500 transition-colors"><i data-lucide="chevron-left"></i></button>
+                      <div class="flex-1 text-center pr-8"><h2 class="text-2xl font-black text-slate-800 tracking-tight">MBTI 선택</h2></div>
+                  </div>
+                  <div class="grid grid-cols-4 gap-2">
+                      ${MBTI_LIST.map(m => `<button onclick="selectMBTI(this, '${m}')" class="mbti-btn py-4 rounded-2xl text-sm font-black border-2 transition-all ${state.formData.mbti === m ? 'woowa-bg border-[#2AC1BC] text-white shadow-lg scale-105' : 'bg-white border-slate-50 text-slate-400 hover:border-slate-200'}">${m}</button>`).join('')}
+                  </div>
+              </div>
+          `;
+      } else {
+          const qIdx = state.profileStep - 3;
+          const q = TENDENCY_QUESTIONS[qIdx];
+          wrap.innerHTML = `
+              <div class="space-y-8">
+                  <div class="flex items-center gap-2">
+                      <button onclick="nextStep(${state.profileStep - 1})" class="p-2 text-slate-300 hover:text-slate-500 transition-colors"><i data-lucide="chevron-left"></i></button>
+                      <div class="flex-1 text-center pr-8">
+                          <span class="text-[10px] font-black woowa-green uppercase tracking-widest bg-teal-50 px-3 py-1 rounded-full font-mono shadow-sm">Question ${q.id}/5</span>
+                          <h2 class="text-2xl font-black text-slate-800 mt-4 break-keep tracking-tight">${q.question}</h2>
+                      </div>
+                  </div>
+                  <div class="flex flex-col gap-4">
+                      ${q.options.map(opt => `<button onclick="selectTendency(this, '${opt}', ${qIdx})" class="option-card px-6 py-6 rounded-[1.8rem] text-lg font-bold text-left border-4 flex items-center justify-between bg-white border-slate-50 text-slate-500 hover:bg-slate-50 ${state.tendencyAnswers[qIdx] === opt ? 'selected' : ''}"><span>${opt}</span>${state.tendencyAnswers[qIdx] === opt ? '<i data-lucide="check" size="24"></i>' : ''}</button>`).join('')}
+                  </div>
+                  ${q.id === 5 ? `<button onclick="handleProfileDone()" id="btn-save-prof" class="w-full woowa-bg text-white font-black py-4 rounded-[1.2rem] shadow-xl text-lg mt-4 active:scale-95 transition-all">네트워코 시작하기</button>` : ''}
+              </div>
+          `;
+      }
+      container.appendChild(wrap);
+      lucide.createIcons();
+      const input = document.getElementById('input-nickname');
+      if (input) {
+          input.focus();
+          input.onkeypress = (e) => { if (e.key === 'Enter') nextStep(2); };
+      }
+  };
+
+  window.selectMBTI = (btn, m) => {
+      document.querySelectorAll('.mbti-btn').forEach(b => b.classList.remove('woowa-bg', 'text-white', 'scale-105', 'shadow-lg'));
+      btn.classList.add('woowa-bg', 'text-white', 'scale-105', 'shadow-lg');
+      state.formData.mbti = m;
+      setTimeout(() => nextStep(3), 150);
+  };
+
+  window.selectTendency = (btn, ans, idx) => {
+      btn.parentElement.querySelectorAll('.option-card').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      state.tendencyAnswers[idx] = ans;
+      if (idx < 4) setTimeout(() => nextStep(state.profileStep + 1), 200);
+  };
+
+  window.handleProfileDone = async () => {
+      state.formData.intro = state.tendencyAnswers.join(" / ");
+      await saveProfile();
+  };
+
+  const saveProfile = async () => {
+      try {
+          const profileRef = doc(db, 'artifacts', appId, 'users', state.user.uid, 'profile', 'main');
+          const payload = { ...state.formData, uid: state.user.uid, updatedAt: serverTimestamp() };
+          await setDoc(profileRef, payload);
+          state.myData = payload;
+          updateView('dashboard');
+          renderDashboard();
+      } catch (e) { showError("저장 오류가 발생했습니다."); }
+  };
+
+  const renderDashboard = () => {
+      if (!state.myData) return;
+
+      const nickEl = document.getElementById('user-nickname');
+      const mbtiEl = document.getElementById('user-mbti');
+      if (nickEl) nickEl.innerText = state.myData.nickname;
+      if (mbtiEl) mbtiEl.innerText = state.myData.mbti;
+
+      const isReg = state.weeklyCrews.some(c => c.nickname === state.myData.nickname);
+      const promptEl = document.getElementById('registration-prompt');
+      const matchAreaEl = document.getElementById('matching-area');
+      if (promptEl) promptEl.classList.toggle('hidden', isReg);
+      if (matchAreaEl) matchAreaEl.classList.toggle('hidden', !isReg);
+
+      if (isReg) {
+          const matchStatus = state.globalMatchResult?.status;
+          const isGlobalMatching = matchStatus === 'matching';
+
+          const overlay = document.getElementById('global-matching-overlay');
+          if (overlay) overlay.classList.toggle('hidden', !isGlobalMatching);
+
+          const hasResults = !!state.globalMatchResult?.results;
+          document.getElementById('wait-box')?.classList.toggle('hidden', isGlobalMatching || hasResults);
+
+          const readyCountEl = document.getElementById('ready-count');
+          if (readyCountEl) readyCountEl.innerText = `${state.weeklyCrews.length} CREWS READY`;
+
+          renderCrewsGrid();
+
+          if (state.activeTab === 'result') renderMatches();
+      }
+      lucide.createIcons();
+  };
+
+  const renderCrewsGrid = () => {
+      const grid = document.getElementById('crews-grid');
+      if (!grid) return;
+      grid.innerHTML = state.weeklyCrews.map(c => `
+          <div class="p-4 rounded-[1.2rem] border-2 transition-all flex flex-col gap-1.5 shadow-sm ${c.nickname === state.myData.nickname ? 'border-[#2AC1BC] bg-teal-50 font-bold' : 'border-slate-50 bg-white'}">
+              <span class="font-black text-slate-800 truncate text-sm tracking-tight">${c.nickname}</span>
+              <span class="text-[10px] font-black woowa-green opacity-80 uppercase font-mono font-bold">${c.mbti}</span>
+          </div>
+      `).join('');
+  };
+
+  window.setActiveDay = (day) => { state.activeDay = day; renderMatches(); };
+
+  const renderMatches = () => {
+      const dayTabs = ['월요일', '수요일', '금요일'];
+      dayTabs.forEach(d => {
+          const tabId = d === '월요일' ? 'mon' : d === '수요일' ? 'wed' : 'fri';
+          const btn = document.getElementById(`tab-${tabId}`);
+          if (btn) {
+              btn.className = `flex-1 py-3 rounded-2xl text-sm font-black transition-all ${state.activeDay === d ? 'woowa-bg text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`;
+          }
+      });
+
+      const titleEl = document.getElementById('board-title');
+      if (titleEl) titleEl.innerText = `${state.activeDay} 매칭 결과`;
+
+      if (!state.globalMatchResult?.results) return;
+
+      const results = state.globalMatchResult.results;
+      const dayKey = state.activeDay === '월요일' ? 'mon' : state.activeDay === '수요일' ? 'wed' : 'fri';
+      const pairs = results[dayKey] || [];
+
+      const sortedPairs = [...pairs].sort((a, b) => b.members.includes(state.myData.nickname) - a.members.includes(state.myData.nickname));
+
+      const list = document.getElementById('match-pairs-list');
+      if (list) {
+          list.innerHTML = sortedPairs.map(p => {
+              const isMine = p.members.includes(state.myData.nickname);
+              return `
+                  <div class="rounded-[2rem] border-2 overflow-hidden transition-all duration-300 ${isMine ? 'my-team-card border-[#2AC1BC] scale-105 shadow-2xl' : 'bg-white/5 border-white/10 opacity-90'}">
+                      <div class="p-6 text-center">
+                          <div class="flex items-center justify-center gap-4 font-black text-2xl mb-3 tracking-tighter">
+                              ${p.members.map((m, i) => `<span>${m}</span>${i < p.members.length - 1 ? `<i data-lucide="heart" fill="currentColor" class="${isMine ? 'text-white scale-125 animate-pulse' : 'woowa-green text-white/20'}"></i>` : ''}`).join('')}
+                          </div>
+                          <p class="text-sm font-bold leading-snug px-2 break-keep whitespace-pre-line ${isMine ? 'text-white' : 'text-slate-300 opacity-90'}">${p.reason}</p>
+                      </div>
+                      <div class="px-6 py-4 flex flex-col gap-2.5 ${isMine ? 'bg-black/10' : 'bg-white/5'}">
+                          <div class="flex items-center gap-2">
+                              <i data-lucide="message-square" size="14" class="${isMine ? 'text-white' : 'text-teal-400'}"></i>
+                              <span class="text-[10px] font-black uppercase tracking-[0.15em] opacity-70 font-mono">AI Topic Mission</span>
+                          </div>
+                          <p class="text-xs font-bold leading-relaxed italic opacity-90 text-center">"${p.topic}"</p>
+                      </div>
+                  </div>
+              `;
+          }).join('');
+      }
+      lucide.createIcons();
+  };
+
+  const registerForWeek = async () => {
+      state.isRegistering = true;
+      try {
+          const docId = `${weekId}_${state.user.uid}`;
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', docId), {
+              ...state.myData, registeredAt: serverTimestamp(), weekId: weekId
+          });
+      } catch (e) { showError("등록 실패. 인터넷 연결을 확인하세요."); }
+      state.isRegistering = false;
+  };
+
+  const runBatchMatching = async () => {
+      if (state.weeklyCrews.length < 2) { showError("참여 인원이 부족합니다."); return; }
+
+      const globalMatchRef = doc(db, 'artifacts', appId, 'public', 'data', 'global_matches', weekId);
+      try {
+          await setDoc(globalMatchRef, { status: 'matching' }, { merge: true });
+          showError("");
+
+          const systemPrompt = `네트워코(Netwoo-co) 매칭 마스터. 참여 인원 전원의 월/수/금 매칭 리스트 생성.
+          [지침]
+          1. 참여자가 홀수면 반드시 한 팀만 3인으로 구성.
+          2. 월/수/금 3일 동안 중복을 최소화하여 인원을 배치.
+          3. 추천 사유(reason)는 위트 있게 딱 2줄로만 작성.
+          4. 응답은 순수 JSON 형식으로, 키는 반드시 "mon", "wed", "fri"를 사용.
+          5. 각 배열 요소는 {"members": ["이름1","이름2"], "reason": "매칭 사유", "topic": "추천 대화 주제"} 형식.`;
+
+          const userQuery = `참여 명단:\n${state.weeklyCrews.map(c => `- ${c.nickname}(${c.mbti}, ${c.intro})`).join('\n')}`;
+
+          const result = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  contents: [{ parts: [{ text: userQuery }] }],
+                  systemInstruction: { parts: [{ text: systemPrompt }] },
+                  generationConfig: { responseMimeType: "application/json" }
+              })
+          });
+
+          const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+          const cleanJson = rawText.replace(/```json|```/g, "").trim();
+          const matchData = JSON.parse(cleanJson);
+
+          await setDoc(globalMatchRef, {
+              results: matchData, status: 'completed', createdAt: serverTimestamp(), executedBy: state.myData.nickname
+          });
+      } catch (e) {
+          console.error("Matching Error:", e);
+          await setDoc(globalMatchRef, { status: 'idle' }, { merge: true });
+          showError("AI 응답 지연이 발생했습니다. 다시 매칭 버튼을 눌러주세요.");
+      }
+  };
+
+  const initAuth = async () => {
+      try {
+          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+          else await signInAnonymously(auth);
+      } catch (e) { showError("로그인 세션 오류"); }
+  };
+
+  onAuthStateChanged(auth, async (u) => {
+      if (u) {
+          state.user = u;
+          try {
+              const snap = await getDoc(doc(db, 'artifacts', appId, 'users', u.uid, 'profile', 'main'));
+              if (snap.exists()) {
+                  state.myData = snap.data();
+                  state.formData = { ...state.formData, ...snap.data() };
+                  updateView('dashboard');
+                  renderDashboard();
+              } else {
+                  updateView('profile');
+                  renderProfileSteps();
+              }
+
+              onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'registrations'), (snap) => {
+                  state.weeklyCrews = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => c.weekId === weekId);
+                  if (state.view === 'dashboard') renderDashboard();
+              });
+
+              onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'global_matches', weekId), (snap) => {
+                  const oldStatus = state.globalMatchResult?.status;
+                  state.globalMatchResult = snap.exists() ? snap.data() : null;
+                  const newStatus = state.globalMatchResult?.status;
+
+                  if (oldStatus === 'matching' && newStatus === 'completed') {
+                      switchDashboardTab('result');
+                  } else if (newStatus === 'completed' && state.activeTab === 'list' && !oldStatus) {
+                      document.getElementById('new-result-badge')?.classList.remove('hidden');
+                  }
+
+                  if (state.view === 'dashboard') renderDashboard();
+              });
+          } catch (e) { console.error("Initial load error:", e); }
+      }
+  });
+
+  initAuth();
+  document.getElementById('btn-logout').onclick = () => signOut(auth).then(() => location.reload());
+  document.getElementById('btn-join-pool').onclick = registerForWeek;
+  document.getElementById('btn-run-match').onclick = runBatchMatching;
+  document.getElementById('btn-re-match').onclick = runBatchMatching;
+</script>
+</body>
+</html>

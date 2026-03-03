@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>잘잠 - Jal-Jam: 3D 수면 비서</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+
+    :root {
+        --bg-deep: #020617;
+        --indigo-primary: #6366f1;
+        --indigo-light: #818cf8;
+        --card-glass: rgba(255, 255, 255, 0.04);
+        --report-paper: #ffffff;
+    }
+
+    body {
+        font-family: 'Pretendard', sans-serif;
+        background-color: #000;
+        color: white;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        display: flex;
+        justify-content: center;
+        overscroll-behavior-y: none;
+    }
+
+    #app {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        height: 100dvh;
+        width: 100%;
+        max-width: 480px;
+        background-color: var(--bg-deep);
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 0 60px rgba(0,0,0,1);
+    }
+
+    .app-header {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 64px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 24px;
+        z-index: 110;
+        background: rgba(2, 6, 23, 0.7);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .scroll-view {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-top: 64px;
+        padding-bottom: 100px;
+        scrollbar-width: none;
+    }
+    .scroll-view::-webkit-scrollbar { display: none; }
+
+    .tab-content { display: none; min-height: 100%; width: 100%; position: relative; }
+    .tab-content.active { display: block; }
+
+    #onboarding, #tab-log {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        max-width: 480px;
+        margin: 0 auto;
+        z-index: 200;
+        background-color: var(--bg-deep);
+        display: flex;
+        flex-direction: column;
+        padding: 32px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #main-3d-container {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 0;
+    }
+
+    .glass-card {
+        background: var(--card-glass);
+        backdrop-filter: blur(25px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 32px;
+        padding: 24px;
+        margin-bottom: 20px;
+    }
+
+    .btn-main {
+        background: var(--indigo-primary);
+        color: white;
+        font-weight: 800;
+        padding: 18px;
+        border-radius: 24px;
+        text-align: center;
+        box-shadow: 0 8px 30px rgba(99, 102, 241, 0.3);
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s;
+    }
+    .btn-main:active { transform: scale(0.95); opacity: 0.9; }
+    .btn-main:disabled { opacity: 0.4; pointer-events: none; }
+
+    .log-step { display: none; flex-direction: column; height: 100%; padding-top: 80px; }
+    .log-step.active { display: flex; animation: slideUp 0.5s ease-out; }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+
+    .chart-container {
+        height: 180px;
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 12px;
+        align-items: flex-end;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        padding-bottom: 5px;
+    }
+    .chart-bar {
+        width: 100%;
+        border-radius: 8px 8px 4px 4px;
+        background: linear-gradient(to top, var(--indigo-primary), var(--indigo-light));
+        position: relative;
+        min-height: 4px;
+        box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
+    }
+    .chart-bar-val {
+        position: absolute;
+        top: -24px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 10px;
+        font-weight: 800;
+        color: var(--indigo-light);
+        white-space: nowrap;
+    }
+    .chart-bar-empty { height: 4px; background: rgba(255,255,255,0.05); border-radius: 4px; }
+
+    .fatigue-item {
+        flex: 1;
+        padding: 16px 4px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        transition: 0.3s;
+    }
+    .fatigue-item.active {
+        background: rgba(99, 102, 241, 0.15);
+        border-color: var(--indigo-primary);
+        transform: translateY(-4px);
+    }
+
+    .modern-report {
+        background: var(--report-paper);
+        color: #1e293b;
+        padding: 32px;
+        border-radius: 32px;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+        position: relative;
+        animation: reportFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes reportFadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+
+    .report-label { display: inline-block; padding: 4px 12px; background: #f1f5f9; border-radius: 10px; font-size: 10px; font-weight: 800; color: #64748b; margin-bottom: 16px; }
+
+    .ai-loading, .login-loading { display: none; align-items: center; justify-content: center; flex-direction: column; gap: 20px; padding: 40px 0; }
+    .ai-loading.active, .login-loading.active { display: flex; }
+    .spinner { width: 40px; height: 40px; border: 4px solid rgba(99, 102, 241, 0.1); border-top-color: var(--indigo-primary); border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    nav {
+        position: absolute;
+        bottom: 0; left: 0; right: 0; height: 90px;
+        background: rgba(2, 6, 23, 0.9);
+        backdrop-filter: blur(25px);
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        display: flex;
+        z-index: 100;
+    }
+    .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #475569; font-weight: 800; font-size: 10px; transition: 0.3s; cursor: pointer; }
+    .nav-item.active { color: var(--indigo-light); }
+
+    body.is-recording nav { display: none !important; }
+
+    .chat-container { height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 10px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+    .chat-bubble { max-width: 80%; padding: 16px 20px; border-radius: 20px; font-size: 0.9rem; line-height: 1.6; }
+    .chat-bubble.ai { align-self: flex-start; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.05); }
+    .chat-bubble.user { align-self: flex-end; background: var(--indigo-primary); color: white; border-bottom-right-radius: 4px; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.2); }
+
+    .hidden { display: none !important; }
+
+    input[type="time"]::-webkit-calendar-picker-indicator { background: transparent; bottom: 0; color: transparent; cursor: pointer; height: auto; left: 0; position: absolute; right: 0; top: 0; width: auto; z-index: 1; }
+    input[type="time"] { position: relative; }
+
+    @keyframes timeBlink {
+        0% { opacity: 1; transform: scale(1); filter: brightness(1); }
+        50% { opacity: 0.7; transform: scale(1.05); filter: brightness(1.5); }
+        100% { opacity: 1; transform: scale(1); filter: brightness(1); }
+    }
+    .time-blinking { animation: timeBlink 0.2s ease-out; }
+
+    /* 화살표 버튼 스타일링 - 하얀색 선명하게 */
+    .time-arrow-btn {
+        width: 44px; height: 44px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; user-select: none; transition: transform 0.1s;
+    }
+    .time-arrow-btn:active { transform: scale(0.85); }
+    .time-arrow-btn svg { width: 32px; height: 32px; filter: drop-shadow(0 2px 4px rgba(255,255,255,0.3)); }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <header class="app-header">
+    <div class="flex items-center gap-2">
+      <span class="text-xl">🌙</span>
+      <span class="text-lg font-black tracking-tight">잘잠</span>
+    </div>
+    <div id="userBadge" onclick="logout()" title="클릭하여 로그아웃" class="flex items-center gap-2 bg-white/5 px-4 py-1.5 rounded-full border border-white/5 cursor-pointer hover:bg-white/10 transition">
+      <span id="headerName" class="text-[10px] font-black text-indigo-300">사용자</span>
+      <div class="w-1 h-1 bg-green-500 rounded-full animate-pulse" id="networkStatusIndicator"></div>
+    </div>
+  </header>
+
+  <!-- Onboarding -->
+  <div id="onboarding">
+    <div class="text-center mb-12">
+      <div class="w-24 h-24 bg-indigo-600 rounded-[2.5rem] mx-auto mb-8 flex items-center justify-center shadow-2xl shadow-indigo-600/30">
+        <span class="text-5xl">💤</span>
+      </div>
+      <h1 class="text-4xl font-black mb-3">안녕하세요!</h1>
+      <p class="text-slate-400 text-sm leading-relaxed">당신의 수면을 연구하는<br>가장 똑똑한 비서, 잘잠입니다.</p>
+    </div>
+
+    <div id="onboard-step-name" class="space-y-4 mb-8">
+      <input id="userNameIn" type="text" placeholder="닉네임을 입력하세요" class="w-full bg-white/5 border border-white/10 p-5 rounded-2xl outline-none focus:border-indigo-500 text-white font-bold text-center transition">
+      <button id="loginBtn" onclick="handleNameSubmit()" class="btn-main w-full">시작하기</button>
+      <p id="loginStatus" class="text-center text-[11px] text-slate-500 font-bold h-5"></p>
+    </div>
+
+    <!-- 신규 사용자일 경우 나타나는 나이 입력 단계 -->
+    <div id="onboard-step-details" class="space-y-4 mb-8 hidden">
+      <p id="welcomeNewUser" class="text-center text-indigo-300 font-bold mb-4 text-sm"></p>
+      <input id="userAgeIn" type="number" placeholder="나이" class="w-full bg-white/5 border border-white/10 p-5 rounded-2xl outline-none focus:border-indigo-500 text-white font-bold text-center transition">
+      <button onclick="handleDetailsSubmit()" class="btn-main w-full">기록 시작하기</button>
+    </div>
+
+    <div id="loginLoading" class="login-loading">
+      <div class="spinner"></div>
+      <p class="text-[11px] font-black text-indigo-300 animate-pulse">클라우드 동기화 중...</p>
+    </div>
+  </div>
+
+  <main class="scroll-view">
+    <!-- Tab: Home -->
+    <div id="tab-home" class="tab-content active h-full">
+      <div id="main-3d-container"></div>
+      <div class="relative z-10 p-6 flex flex-col h-full pointer-events-none">
+        <div class="mt-6">
+          <h2 id="homeDateLabel" class="text-2xl font-black text-white drop-shadow-2xl">2026년 2월 26일</h2>
+          <p id="envLabel" class="text-sm text-indigo-300 font-bold mt-1">포근한 휴식이 필요한 시간입니다.</p>
+        </div>
+        <div class="mt-auto pointer-events-auto pb-4">
+          <div class="glass-card flex flex-col gap-5 mb-4">
+            <div class="flex justify-between items-end">
+              <div>
+                <p class="text-[10px] text-slate-500 font-black uppercase mb-1">수면 시간</p>
+                <span id="hHoursDisplay" class="text-4xl font-black text-white">0.0H</span>
+              </div>
+              <div class="text-right">
+                <p class="text-[10px] text-slate-500 font-black uppercase mb-1">나의 컨디션</p>
+                <span id="hEmojiDisplay" class="text-3xl">--</span>
+              </div>
+            </div>
+            <div class="flex justify-between items-center pt-4 border-t border-white/5">
+              <div class="flex items-center gap-2">
+                <div class="w-2 h-2 bg-indigo-500 rounded-full animate-ping"></div>
+                <span id="hTagDisplay" class="text-[10px] font-black text-indigo-200 tracking-wider uppercase">#기록 대기중</span>
+              </div>
+              <button onclick="switchTab('log')" class="text-[10px] font-black text-slate-500 hover:text-white transition">기록 업데이트 &gt;</button>
+            </div>
+          </div>
+
+          <!-- 전체 멤버 조회 섹션 (홈 화면 하단 추가) -->
+          <div class="glass-card !py-3 !px-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-xs">👥</span>
+              <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">현재 함께하는 잘잠 멤버들</h3>
+              <button onclick="fetchAllUsers()" class="ml-auto text-[9px] text-indigo-400 hover:text-indigo-300">새로고침 ↻</button>
+            </div>
+            <div id="allUsersList" class="flex flex-wrap gap-1.5 min-h-[24px]">
+              <span class="text-[10px] text-slate-600">데이터를 불러오는 중...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Weekly Stats & AI Chat -->
+    <div id="tab-weekly" class="tab-content p-6">
+      <h2 class="text-2xl font-black mb-8">수면 통계</h2>
+      <div class="glass-card mb-8">
+        <div class="flex justify-between items-center mb-8">
+          <h3 class="text-xs font-black text-slate-500 uppercase tracking-widest">주간 차트</h3>
+          <span id="weekRange" class="text-[10px] font-black text-indigo-400 bg-indigo-400/10 px-3 py-1 rounded-full"></span>
+        </div>
+        <div id="weeklyChartArea" class="chart-container mb-4"></div>
+        <div class="grid grid-cols-7 gap-2 text-center text-[10px] font-black text-slate-600">
+          <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+        </div>
+      </div>
+
+      <div class="glass-card min-h-[480px] flex flex-col">
+        <div class="flex items-center justify-between mb-8">
+          <h3 class="text-xs font-black text-slate-500 uppercase">AI 심층 분석</h3>
+          <div id="chatStatus" class="text-[9px] font-bold text-indigo-400 opacity-60">대화 분석 중</div>
+        </div>
+        <div id="chatWindow" class="chat-container flex-grow">
+          <div class="chat-bubble ai">반가워요! 어제 잠은 어떠셨나요? 평소보다 불편했거나 특별한 기억이 있다면 말씀해 주세요.</div>
+        </div>
+        <div id="aiLoading" class="ai-loading">
+          <div class="spinner"></div>
+          <p class="text-[11px] font-black text-indigo-300 animate-pulse uppercase tracking-widest">AI가 데이터를 심층 분석하고 있습니다</p>
+        </div>
+        <div id="chatControls" class="flex gap-2 mt-4">
+          <input id="chatInputBox" type="text" placeholder="메시지를 입력하세요..." class="flex-1 bg-white/5 border border-white/10 p-4 rounded-2xl outline-none text-sm focus:border-indigo-500">
+          <button onclick="handleSendMessage()" class="p-4 bg-indigo-600 rounded-2xl shadow-xl active:scale-90 transition">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+          </button>
+        </div>
+        <div id="reportSection" class="hidden">
+          <div class="modern-report">
+            <span class="report-label">AI SLEEP ANALYSIS</span>
+            <div id="reportContent" class="text-[0.95rem] leading-relaxed text-slate-800 font-medium"></div>
+            <div class="mt-8 pt-4 border-t border-slate-100 flex justify-between items-center">
+              <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Jal-Jam Digital Doctor</span>
+              <span class="text-xl">🌙</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Guide -->
+    <div id="tab-info" class="tab-content p-6">
+      <h2 class="text-2xl font-black mb-8">수면 지식</h2>
+      <div class="glass-card mb-4">
+        <h4 class="text-xs font-black text-indigo-400 mb-6 uppercase tracking-widest">권장 수면 가이드</h4>
+        <div class="space-y-3">
+          <div class="flex justify-between items-center p-5 bg-white/5 rounded-3xl border border-white/5 text-xs"><span class="text-slate-400">성인 (18-64세)</span><span class="font-black text-indigo-300">7 - 9 시간</span></div>
+          <div class="flex justify-between items-center p-5 bg-white/5 rounded-3xl border border-white/5 text-xs"><span class="text-slate-400">청소년 (14-17세)</span><span class="font-black text-indigo-300">8 - 10 시간</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Log Overlay -->
+  <div id="tab-log" class="hidden">
+    <div id="logStep1" class="log-step active">
+      <h2 class="text-3xl font-black mb-4">어제 밤,<br>몇 시에 잠드셨나요?</h2>
+      <p class="text-slate-500 text-xs mb-10 tracking-wider font-bold">10분 단위로 정교하게 입력하세요.</p>
+      <div class="flex-1 flex items-center justify-center">
+        <div class="flex items-center border-b-2 border-indigo-500 pb-2">
+          <input id="logInSleep" type="time" step="600" value="23:00" class="bg-transparent py-1 outline-none text-5xl text-center font-black text-indigo-400 w-[220px] transition-all duration-200">
+          <div class="flex flex-col items-center justify-center ml-3 relative z-10 gap-2">
+            <button onclick="adjustTime('logInSleep', 10)" class="time-arrow-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>
+            </button>
+            <button onclick="adjustTime('logInSleep', -10)" class="time-arrow-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <button onclick="moveLogStep(2)" class="btn-main mt-auto">다음 단계로</button>
+    </div>
+
+    <div id="logStep2" class="log-step">
+      <h2 class="text-3xl font-black mb-4">오늘 아침,<br>언제 일어나셨나요?</h2>
+      <p class="text-slate-500 text-xs mb-10 tracking-wider font-bold">오늘 하루도 힘차게 시작해봐요.</p>
+      <div class="flex-1 flex items-center justify-center">
+        <div class="flex items-center border-b-2 border-emerald-500 pb-2">
+          <input id="logInWake" type="time" step="600" value="07:00" class="bg-transparent py-1 outline-none text-5xl text-center font-black text-emerald-400 w-[220px] transition-all duration-200">
+          <div class="flex flex-col items-center justify-center ml-3 relative z-10 gap-2">
+            <button onclick="adjustTime('logInWake', 10)" class="time-arrow-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>
+            </button>
+            <button onclick="adjustTime('logInWake', -10)" class="time-arrow-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="mt-auto flex gap-4">
+        <button onclick="moveLogStep(1)" class="flex-1 bg-white/5 p-5 rounded-3xl font-bold text-slate-400 border border-white/5 text-sm">이전</button>
+        <button onclick="moveLogStep(3)" class="flex-[2] btn-main">다음 단계로</button>
+      </div>
+    </div>
+
+    <div id="logStep3" class="log-step">
+      <h2 class="text-2xl font-black mb-10 text-center uppercase tracking-tighter">오늘 아침 컨디션</h2>
+      <div class="grid grid-cols-5 gap-3 mb-14">
+        <button onclick="pickFatigueState(1)" class="fatigue-item" data-v="1"><span class="text-2xl">😵</span><span class="text-[9px] font-black text-slate-500">지침</span></button>
+        <button onclick="pickFatigueState(2)" class="fatigue-item" data-v="2"><span class="text-2xl">🥱</span><span class="text-[9px] font-black text-slate-500">피곤</span></button>
+        <button onclick="pickFatigueState(3)" class="fatigue-item active" data-v="3"><span class="text-2xl">😐</span><span class="text-[9px] font-black text-slate-500">보통</span></button>
+        <button onclick="pickFatigueState(4)" class="fatigue-item" data-v="4"><span class="text-2xl">🙂</span><span class="text-[9px] font-black text-slate-500">쾌적</span></button>
+        <button onclick="pickFatigueState(5)" class="fatigue-item" data-v="5"><span class="text-2xl">✨</span><span class="text-[9px] font-black text-slate-500">상쾌</span></button>
+      </div>
+      <div class="mt-auto flex gap-4">
+        <button onclick="moveLogStep(2)" class="flex-1 bg-white/5 p-5 rounded-3xl font-bold text-slate-400 border border-white/5 text-sm">이전</button>
+        <button onclick="moveLogStep(4)" class="flex-[2] btn-main">마지막 단계</button>
+      </div>
+    </div>
+
+    <div id="logStep4" class="log-step">
+      <h2 class="text-2xl font-black mb-4">활동/지연 사유</h2>
+      <p class="text-slate-500 text-xs mb-10 font-bold uppercase tracking-widest">어떤 일들이 있었나요?</p>
+      <div id="tagPills" class="flex flex-wrap gap-3 mb-14">
+        <button onclick="pickActivityTag(this)" class="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-bold text-slate-400 transition">운동</button>
+        <button onclick="pickActivityTag(this)" class="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-bold text-slate-400 transition">독서</button>
+        <button onclick="pickActivityTag(this)" class="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-bold text-slate-400 transition">유튜브/SNS</button>
+        <button onclick="pickActivityTag(this)" class="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-bold text-slate-400 transition">약속/회식</button>
+        <button onclick="pickActivityTag(this)" class="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-bold text-slate-400 transition">공부/야근</button>
+      </div>
+      <div class="mt-auto flex gap-4">
+        <button onclick="moveLogStep(3)" class="flex-1 bg-white/5 p-5 rounded-3xl font-bold text-slate-400 border border-white/5 text-sm">이전</button>
+        <button onclick="executeFinalLog()" class="flex-[2] btn-main shadow-indigo-600/40">기록 완료</button>
+      </div>
+    </div>
+  </div>
+
+  <nav id="bottomNav">
+    <div onclick="switchTab('home')" class="nav-item active">
+      <span class="text-2xl mb-1">🏠</span><span>Home</span>
+    </div>
+    <div onclick="switchTab('weekly')" class="nav-item">
+      <span class="text-2xl mb-1">📊</span><span>Stats</span>
+    </div>
+    <div onclick="switchTab('info')" class="nav-item">
+      <span class="text-2xl mb-1">💡</span><span>Guide</span>
+    </div>
+  </nav>
+</div>
+
+<!-- 모듈 스크립트를 사용하여 공식 Firebase Firestore 및 Auth 연동 -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+  // Gemini 환경 & 외부 환경 하이브리드 지원 로직
+  let app, auth, db, appId = 'jal-jam-app';
+  let isFirebaseActive = false;
+
+  async function initFirebase() {
+      try {
+          if (typeof __firebase_config !== 'undefined') {
+              const config = JSON.parse(__firebase_config);
+              appId = typeof __app_id !== 'undefined' ? __app_id : 'jal-jam-app';
+              app = initializeApp(config);
+              auth = getAuth(app);
+              db = getFirestore(app);
+
+              if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                  await signInWithCustomToken(auth, __initial_auth_token);
+              } else {
+                  await signInAnonymously(auth);
+              }
+              isFirebaseActive = true;
+              // 연결 상태 표시
+              document.getElementById('networkStatusIndicator').classList.remove('bg-red-500');
+              document.getElementById('networkStatusIndicator').classList.add('bg-green-500');
+          } else {
+              document.getElementById('networkStatusIndicator').classList.remove('bg-green-500');
+              document.getElementById('networkStatusIndicator').classList.add('bg-red-500');
+          }
+      } catch(e) {
+          console.log("Firebase 초기화 건너뜀. 로컬 스토리지 모드로 작동합니다.", e);
+      }
+  }
+
+  const apiKey = "";
+  let currentUserName = '';
+  let userData = {
+      name: '', age: 25, gender: 'male',
+      history: [], chatCnt: 0, isConcluded: false, lastAiReport: "", lastDateLogged: ""
+  };
+
+  let scene, camera, renderer, charGroup, skySphere, sunMoon, stars, charLegL, charLegR, charArmL, charArmR;
+  let animTime = 0, dayCycle = 0.5, currentTag = "휴식", currentFatigue = 3;
+
+  // 한국 시간(로컬) 기준으로 날짜를 완벽하게 구하는 함수
+  function getLocalToday() {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
+  // DB Load (Firebase 연결 시 LocalStorage 오염(우회) 방지 수정)
+  async function loadUserFromDB(nickname) {
+      if (isFirebaseActive) {
+          try {
+              const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', nickname);
+              const snap = await getDoc(docRef);
+              if (snap.exists()) {
+                  return snap.data();
+              } else {
+                  return null; // DB에 없으면 확실히 null 반환하여 신규 가입 유도
+              }
+          } catch(e) {
+              console.error("Firestore Load Error:", e);
+          }
+      }
+      // Firebase가 비활성화 상태일 때만 로컬 스토리지 조회
+      const localData = JSON.parse(localStorage.getItem('jalJam_multi_users')) || {};
+      return localData[nickname] || null;
+  }
+
+  async function persistData() {
+      if (!userData.name && currentUserName) userData.name = currentUserName;
+      if (!currentUserName || !userData.name) return;
+
+      // 로컬 스토리지 백업
+      const localData = JSON.parse(localStorage.getItem('jalJam_multi_users')) || {};
+      localData[currentUserName] = JSON.parse(JSON.stringify(userData));
+      localStorage.setItem('jalJam_multi_users', JSON.stringify(localData));
+
+      // 파이어베이스 영구 저장
+      if (isFirebaseActive) {
+          try {
+              const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUserName);
+              await setDoc(docRef, JSON.parse(JSON.stringify(userData)));
+          } catch(e) { console.error("Firestore Save Error:", e); }
+      }
+  }
+
+  // 전체 유저 목록 불러오기 함수 추가 (홈 화면용)
+  window.fetchAllUsers = async () => {
+      const listDiv = document.getElementById('allUsersList');
+      if (!listDiv) return;
+
+      listDiv.innerHTML = '<span class="text-[10px] text-slate-600">데이터를 불러오는 중...</span>';
+
+      let users = [];
+      if (isFirebaseActive) {
+          try {
+              const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+              const snap = await getDocs(usersRef);
+              snap.forEach(doc => {
+                  if(doc.data().name) users.push(doc.data().name);
+              });
+          } catch(e) {
+              console.error("Failed to fetch all users", e);
+          }
+      } else {
+          const localData = JSON.parse(localStorage.getItem('jalJam_multi_users')) || {};
+          users = Object.keys(localData);
+      }
+
+      if (users.length === 0) {
+          listDiv.innerHTML = '<span class="text-[10px] text-slate-500">아직 등록된 멤버가 없습니다.</span>';
+      } else {
+          listDiv.innerHTML = users.map(u =>
+              `<span class="text-[10px] bg-indigo-500/10 border border-indigo-500/20 px-2 py-1 rounded-md text-indigo-300 shadow-sm">${u}</span>`
+          ).join('');
+      }
+  };
+
+  window.onload = async () => {
+      const today = new Date();
+      document.getElementById('homeDateLabel').innerText = today.toLocaleDateString('ko-KR', { year:'numeric', month:'long', day:'numeric' });
+
+      init3DScene();
+      animateLoop();
+
+      await initFirebase();
+
+      // 자동 로그인 로직
+      const lastUser = localStorage.getItem('jalJam_last_user');
+      if (lastUser) {
+          const existing = await loadUserFromDB(lastUser);
+          if (existing) {
+              currentUserName = lastUser;
+              userData = JSON.parse(JSON.stringify(existing));
+
+              const todayKey = getLocalToday();
+              const hasToday = userData.lastDateLogged === todayKey;
+              loginSuccess(true, hasToday ? 'home' : 'log');
+          }
+      }
+
+      document.getElementById('userNameIn').addEventListener('keypress', (e) => {
+          if(e.key === 'Enter') window.handleNameSubmit();
+      });
+      document.getElementById('chatInputBox').addEventListener('keypress', (e) => {
+          if(e.key === 'Enter') window.handleSendMessage();
+      });
+      dayCycle = (today.getHours() * 3600 + today.getMinutes() * 60) / 86400;
+  };
+
+  // 닉네임 입력 분기 로직
+  window.handleNameSubmit = async () => {
+      const name = document.getElementById('userNameIn').value.trim();
+      if (!name) return;
+
+      const btn = document.getElementById('loginBtn');
+      btn.disabled = true;
+
+      document.getElementById('onboard-step-name').classList.add('hidden');
+      document.getElementById('loginLoading').classList.add('active');
+
+      try {
+          const existing = await loadUserFromDB(name);
+          currentUserName = name;
+
+          if (existing) {
+              // 1. 기존 회원 -> 기록 여부 판단
+              userData = JSON.parse(JSON.stringify(existing));
+              if (!userData.history) userData.history = [];
+
+              const todayKey = getLocalToday();
+              const hasToday = userData.lastDateLogged === todayKey;
+
+              loginSuccess(false, hasToday ? 'home' : 'log');
+          } else {
+              // 2. 신규 회원 -> 나이 입력창으로 전환
+              document.getElementById('loginLoading').classList.remove('active');
+              document.getElementById('onboard-step-details').classList.remove('hidden');
+              document.getElementById('welcomeNewUser').innerText = `${name}님, 처음 뵙겠습니다!\n정확한 분석을 위해 나이를 입력해주세요.`;
+
+              userData = {
+                  name: name, age: 25, gender: 'male',
+                  history: [], chatCnt: 0, isConcluded: false, lastAiReport: "", lastDateLogged: ""
+              };
+          }
+      } catch (e) {
+          document.getElementById('loginLoading').classList.remove('active');
+          document.getElementById('onboard-step-name').classList.remove('hidden');
+          document.getElementById('loginStatus').innerText = '데이터를 불러오지 못했습니다.';
+          btn.disabled = false;
+      }
+  };
+
+  // 신규 회원: 나이 입력 완료 처리
+  window.handleDetailsSubmit = async () => {
+      const ageInput = document.getElementById('userAgeIn').value;
+      if (ageInput) userData.age = parseInt(ageInput);
+
+      await persistData();
+      loginSuccess(false, 'log');
+  };
+
+  function loginSuccess(isAuto, destination) {
+      localStorage.setItem('jalJam_last_user', currentUserName);
+
+      document.getElementById('headerName').innerText = userData.name;
+      document.getElementById('onboarding').style.opacity = '0';
+
+      setTimeout(() => {
+          document.getElementById('onboarding').style.display = 'none';
+          document.getElementById('loginLoading').classList.remove('active');
+          applyCharGenderColors();
+          updateUIRefresh();
+          window.switchTab(destination);
+
+          if (userData.isConcluded) showFinalModernReport(userData.lastAiReport);
+      }, 400);
+  }
+
+  window.logout = () => {
+      localStorage.removeItem('jalJam_last_user');
+      location.reload();
+  };
+
+  window.switchTab = (t) => {
+      const contents = document.querySelectorAll('.tab-content');
+      const navItems = document.querySelectorAll('.nav-item');
+      const logTab = document.getElementById('tab-log');
+
+      contents.forEach(c => c.classList.remove('active'));
+      navItems.forEach(n => n.classList.remove('active'));
+      logTab.classList.add('hidden');
+
+      if (t === 'log') {
+          logTab.classList.remove('hidden');
+          document.body.classList.add('is-recording');
+          window.moveLogStep(1);
+      } else {
+          document.getElementById(`tab-${t}`).classList.add('active');
+          const btn = document.querySelector(`.nav-item[onclick="switchTab('${t}')"]`);
+          if(btn) btn.classList.add('active');
+          document.body.classList.remove('is-recording');
+      }
+
+      // 홈 화면 진입 시 전체 유저 목록 로드
+      if (t === 'home') {
+          window.fetchAllUsers();
+          setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+      }
+  };
+
+  window.moveLogStep = (s) => {
+      document.querySelectorAll('.log-step').forEach(step => step.classList.remove('active'));
+      const target = document.getElementById(`logStep${s}`);
+      if (target) target.classList.add('active');
+  };
+
+  window.pickFatigueState = (v) => {
+      currentFatigue = v;
+      document.querySelectorAll('.fatigue-item').forEach(i => {
+          i.classList.remove('active');
+          i.querySelector('span:last-child').className = "text-[9px] font-black text-slate-500";
+      });
+      const active = document.querySelector(`.fatigue-item[data-v="${v}"]`);
+      active.classList.add('active');
+      active.querySelector('span:last-child').className = "text-[9px] font-black text-indigo-300";
+  };
+
+  window.pickActivityTag = (btn) => {
+      currentTag = btn.innerText;
+      document.querySelectorAll('#tagPills button').forEach(t => {
+          t.className = "px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-bold text-slate-400 transition";
+      });
+      btn.className = "px-6 py-3 bg-indigo-600 text-white border-indigo-500 rounded-2xl text-xs font-bold transition shadow-lg shadow-indigo-600/20";
+  };
+
+  window.adjustTime = (inputId, deltaMins) => {
+      const input = document.getElementById(inputId);
+      if (!input.value) return;
+      const [hours, mins] = input.value.split(':').map(Number);
+      const date = new Date();
+      date.setHours(hours, mins + deltaMins, 0, 0);
+      const newHours = String(date.getHours()).padStart(2, '0');
+      const newMins = String(date.getMinutes()).padStart(2, '0');
+      input.value = `${newHours}:${newMins}`;
+
+      input.classList.remove('time-blinking');
+      void input.offsetWidth;
+      input.classList.add('time-blinking');
+  };
+
+  window.executeFinalLog = async () => {
+      const todayKey = getLocalToday();
+      const sleepVal = document.getElementById('logInSleep').value;
+      const wakeVal = document.getElementById('logInWake').value;
+
+      const sleepD = new Date(`${todayKey}T${sleepVal}:00`);
+      let wakeD = new Date(`${todayKey}T${wakeVal}:00`);
+      if (wakeD < sleepD) wakeD.setDate(wakeD.getDate() + 1);
+      const totalHours = parseFloat(((wakeD - sleepD) / (1000 * 60 * 60)).toFixed(1));
+
+      if (!userData.history) userData.history = [];
+      userData.history = userData.history.filter(h => h.date !== todayKey);
+      userData.history.push({ date: todayKey, hours: totalHours, activity: currentTag, fatigue: currentFatigue });
+      userData.lastDateLogged = todayKey;
+      userData.chatCnt = 0; userData.isConcluded = false; userData.lastAiReport = "";
+
+      await persistData();
+      updateUIRefresh();
+      resetDailyConversation();
+      window.switchTab('home');
+  };
+
+  function updateUIRefresh() {
+      const hist = userData.history || [];
+      const last = hist[hist.length - 1];
+      document.getElementById('hHoursDisplay').innerText = last ? `${last.hours}H` : '0.0H';
+      const emojiMap = ["", "😵", "🥱", "😐", "🙂", "✨"];
+      document.getElementById('hEmojiDisplay').innerText = last ? emojiMap[last.fatigue] : "--";
+      document.getElementById('hTagDisplay').innerText = last ? `#${last.activity}` : '#기록 대기중';
+      renderWeeklyChart();
+  }
+
+  function renderWeeklyChart() {
+      const chartArea = document.getElementById('weeklyChartArea');
+      chartArea.innerHTML = '';
+      const hist = userData.history || [];
+      const now = new Date(), sun = new Date(now);
+      sun.setDate(now.getDate() - now.getDay());
+      const dates = [];
+      for(let i=0; i<7; i++) {
+          const d = new Date(sun); d.setDate(sun.getDate() + i);
+          dates.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+      }
+      document.getElementById('weekRange').innerText = `${sun.getMonth()+1}/${sun.getDate()} - ${new Date(dates[6]).getDate()}`;
+      dates.forEach(dKey => {
+          const entry = hist.find(x => x.date === dKey);
+          const barWrap = document.createElement('div');
+          barWrap.className = 'flex flex-col h-full justify-end';
+          if (entry && entry.hours > 0) {
+              const bar = document.createElement('div');
+              bar.className = 'chart-bar';
+              bar.style.height = `${Math.min(100, (entry.hours / 12) * 100)}%`;
+              bar.innerHTML = `<span class="chart-bar-val">${entry.hours}H</span>`;
+              barWrap.appendChild(bar);
+          } else {
+              const empty = document.createElement('div');
+              empty.className = 'chart-bar-empty';
+              barWrap.appendChild(empty);
+          }
+          chartArea.appendChild(barWrap);
+      });
+  }
+
+  function init3DScene() {
+      const container = document.getElementById('main-3d-container');
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      container.appendChild(renderer.domElement);
+
+      skySphere = new THREE.Mesh(new THREE.SphereGeometry(30, 32, 32), new THREE.MeshBasicMaterial({ color: 0x0c4a6e, side: THREE.BackSide }));
+      scene.add(skySphere);
+      sunMoon = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), new THREE.MeshBasicMaterial({ color: 0xfde047 }));
+      scene.add(sunMoon);
+
+      const starGeo = new THREE.BufferGeometry();
+      const starPos = [];
+      for(let i=0; i<400; i++) starPos.push(THREE.MathUtils.randFloatSpread(60), THREE.MathUtils.randFloatSpread(60), THREE.MathUtils.randFloatSpread(60));
+      starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+      stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.15, transparent: true }));
+      scene.add(stars);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+      const spot = new THREE.PointLight(0xffffff, 1);
+      spot.position.set(5, 5, 5); scene.add(spot);
+
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshPhongMaterial({ color: 0x111827 }));
+      floor.rotation.x = -Math.PI/2; scene.add(floor);
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(0.2, 6, 10), new THREE.MeshPhongMaterial({ color: 0x1e293b }));
+      wall.position.set(-5, 3, 0); scene.add(wall);
+
+      const bed = new THREE.Group();
+      bed.add(new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.4, 5.2), new THREE.MeshPhongMaterial({ color: 0x374151 })));
+      const mattress = new THREE.Mesh(new THREE.BoxGeometry(3, 0.3, 5), new THREE.MeshPhongMaterial({ color: 0xffffff }));
+      mattress.position.y = 0.35; bed.add(mattress);
+      const cover = new THREE.Mesh(new THREE.BoxGeometry(3.05, 0.15, 3.5), new THREE.MeshPhongMaterial({ color: 0x4f46e5 }));
+      cover.position.set(0, 0.45, -0.7); bed.add(cover);
+      bed.position.set(-3, 0.2, -1); scene.add(bed);
+
+      const lampHead = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), new THREE.MeshPhongMaterial({ color: 0xfde047, emissive: 0xfde047, emissiveIntensity: 0.5 }));
+      lampHead.position.set(-4.2, 1.2, 1.5); scene.add(lampHead);
+
+      charGroup = new THREE.Group(); charGroup.scale.set(0.65, 0.65, 0.65);
+      const skin = new THREE.MeshPhongMaterial({ color: 0xffdbac }), pjs = new THREE.MeshPhongMaterial({ color: 0x818cf8 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.3), pjs);
+      body.name = 'charBody'; body.position.y = 0.85; charGroup.add(body);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.35), skin); head.position.y = 1.4;
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), new THREE.MeshBasicMaterial({ color: 0x111111 }));
+      const eL = eye.clone(); eL.position.set(-0.1, 0.05, 0.18); const eR = eye.clone(); eR.position.x = 0.1;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, 0.02), new THREE.MeshBasicMaterial({ color: 0xaa4444 }));
+      m.position.set(0, -0.1, 0.18); head.add(eL, eR, m); charGroup.add(head);
+      const limb = new THREE.BoxGeometry(0.15, 0.5, 0.15);
+      charArmL = new THREE.Mesh(limb, skin); charArmL.position.set(-0.35, 1.0, 0);
+      charArmR = new THREE.Mesh(limb, skin); charArmR.position.set(0.35, 1.0, 0);
+      charLegL = new THREE.Mesh(limb, pjs); charLegL.position.set(-0.15, 0.25, 0); charLegL.name = "charLegL";
+      charLegR = new THREE.Mesh(limb, pjs); charLegR.position.set(0.15, 0.25, 0); charLegR.name = "charLegR";
+      charGroup.add(charArmL, charArmR, charLegL, charLegR); scene.add(charGroup);
+      camera.position.set(4, 3.5, 8.5); camera.lookAt(0, 1.2, 0);
+      applyCharGenderColors();
+  }
+
+  function applyCharGenderColors() {
+      if(!charGroup) return;
+      const col = userData.gender === 'male' ? 0x818cf8 : 0xf472b6;
+      charGroup.getObjectByName('charBody').material.color.setHex(col);
+      charGroup.getObjectByName('charLegL').material.color.setHex(col);
+      charGroup.getObjectByName('charLegR').material.color.setHex(col);
+  }
+
+  function animateLoop() {
+      requestAnimationFrame(animateLoop); animTime += 0.05;
+      dayCycle = (dayCycle + 0.00015) % 1;
+      const ang = dayCycle * Math.PI * 2;
+      sunMoon.position.set(Math.cos(ang)*22, Math.sin(ang)*22, -18);
+      const isDayTime = Math.sin(ang) > 0;
+      skySphere.material.color.setHex(isDayTime ? 0x38bdf8 : 0x020617);
+      sunMoon.material.color.setHex(isDayTime ? 0xfde047 : 0xf8fafc);
+      stars.visible = !isDayTime;
+      const env = document.getElementById('envLabel');
+      if(env) env.innerText = isDayTime ? "활기차고 밝은 낮입니다." : "조용하고 아늑한 밤입니다.";
+
+      if(charGroup) {
+          const hist = userData.history || [];
+          const entry = hist[hist.length-1];
+          if(entry?.activity === '운동') {
+              const sq = Math.abs(Math.sin(animTime*2.5))*0.4;
+              charGroup.position.y = sq*-0.5+0.05; charArmL.rotation.x = -1; charArmR.rotation.x = -1;
+          } else {
+              const wk = Math.sin(animTime*3);
+              charLegL.rotation.x = wk*0.5; charLegR.rotation.x = -wk*0.5;
+              charArmL.rotation.x = -wk*0.4; charArmR.rotation.x = wk*0.4;
+              charGroup.position.y = Math.sin(animTime*0.4)*0.03;
+          }
+      }
+      if(renderer) renderer.render(scene, camera);
+  }
+
+  window.handleSendMessage = async () => {
+      const input = document.getElementById('chatInputBox');
+      if(!input.value || userData.isConcluded) return;
+      const msg = input.value;
+      addBubble(msg, 'user');
+      input.value = ''; userData.chatCnt++;
+
+      const hist = userData.history || [];
+      const lastLog = hist[hist.length-1];
+
+      const positiveIntents = ["응", "그래", "네", "만들어줘", "결과", "분석", "좋아", "yes", "okay", "그렇게 해줘"];
+      const isRequestingReport = positiveIntents.some(keyword => msg.toLowerCase().includes(keyword));
+
+      if (isRequestingReport && userData.chatCnt >= 2) {
+          triggerFinalReportGeneration();
+          return;
+      }
+
+      let prompt = userData.chatCnt >= 3 ?
+          `사용자 ${userData.name}와 대화 중입니다. 대화가 충분한 것 같으니 "분석 리포트를 만들어 드릴까요?"라고 묻고 질문을 마쳐줘. 한국어로 말해줘.` :
+          `사용자 ${userData.name}가 어제 ${lastLog?.hours}H 잤고 활동은 ${lastLog?.activity}입니다. 사용자: "${msg}". 친절하게 공감하고 짧은 질문을 하나 더 해줘.`;
+
+      try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+              method: 'POST', headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+          });
+          const data = await res.json();
+          addBubble(data.candidates[0].content.parts[0].text, 'ai');
+      } catch (e) { addBubble("연결 상태를 확인해 주세요.", 'ai'); }
+      await persistData();
+  };
+
+  async function triggerFinalReportGeneration() {
+      document.getElementById('chatControls').classList.add('hidden');
+      document.getElementById('chatWindow').classList.add('hidden');
+      document.getElementById('aiLoading').classList.add('active');
+
+      const hist = userData.history || [];
+      const lastLog = hist[hist.length - 1];
+      const prompt = `수면 데이터 심층 분석: 사용자 ${userData.name}(${userData.age}세). 수면 시간(${lastLog?.hours}H), 활동(${lastLog?.activity}), 컨디션 점수(${lastLog?.fatigue}점/5점 만점 - 1점이 가장 피곤함, 5점이 가장 상쾌함).
+      이 정보를 바탕으로 다음 2가지 양식에 맞춰 작성해줘:
+      1. 첫 번째 줄에는 가장 중요한 '한 줄 핵심 처방 및 요약'을 작성해줘.
+      2. 줄바꿈을 한 뒤, 두 번째 줄부터 그 이유와 내일을 위한 상세 조언을 2~3문장으로 따뜻하고 과학적으로 작성해줘. HTML 태그는 쓰지말고 일반 텍스트로 줘.`;
+
+      try {
+          await new Promise(r => setTimeout(r, 2500));
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+              method: 'POST', headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+          });
+          const data = await res.json();
+          const result = data.candidates[0].content.parts[0].text;
+
+          userData.isConcluded = true;
+          userData.lastAiReport = result;
+          showFinalModernReport(result);
+      } catch (e) {
+          showFinalModernReport("데이터 분석 중 오류가 발생했습니다.\n다시 시도해주세요.");
+      } finally {
+          document.getElementById('aiLoading').classList.remove('active');
+          await persistData();
+      }
+  }
+
+  function showFinalModernReport(text) {
+      document.getElementById('chatWindow').classList.add('hidden');
+      document.getElementById('chatControls').classList.add('hidden');
+      document.getElementById('reportSection').classList.remove('hidden');
+
+      const lines = text.trim().split('\n').filter(line => line.trim() !== '');
+      let highlightText = '', detailText = '';
+
+      if (lines.length > 1) {
+          highlightText = lines[0].replace(/\*\*/g, '');
+          detailText = lines.slice(1).join('<br><br>').replace(/\*\*/g, '');
+      } else {
+          highlightText = "오늘의 수면 분석 결과";
+          detailText = text.replace(/\*\*/g, '');
+      }
+
+      document.getElementById('reportContent').innerHTML = `
+          <div class="bg-indigo-50 border border-indigo-100 p-5 rounded-2xl mb-6 shadow-sm">
+              <div class="text-[10px] font-black text-indigo-400 mb-2 uppercase tracking-widest flex items-center gap-1">
+                  <span>💡</span> 핵심 요약
+              </div>
+              <div class="text-lg font-black text-indigo-700 leading-snug tracking-tight">${highlightText}</div>
+          </div>
+          <div class="text-[0.95rem] leading-relaxed text-slate-700 font-medium px-2">${detailText}</div>
+      `;
+      document.getElementById('chatStatus').innerText = "분석 완료";
+  }
+
+  function resetDailyConversation() {
+      document.getElementById('chatWindow').innerHTML = `<div class="chat-bubble ai">기록이 업데이트되었습니다. 어제 밤은 좀 어떠셨나요?</div>`;
+      document.getElementById('chatWindow').classList.remove('hidden');
+      document.getElementById('chatControls').classList.remove('hidden');
+      document.getElementById('reportSection').classList.add('hidden');
+      document.getElementById('chatStatus').innerText = "대화 분석 중";
+  }
+
+  function addBubble(text, sender) {
+      const win = document.getElementById('chatWindow');
+      const b = document.createElement('div');
+      b.className = `chat-bubble ${sender}`; b.innerText = text;
+      win.appendChild(b); win.scrollTop = win.scrollHeight;
+  }
+
+  window.addEventListener('resize', () => {
+      const container = document.getElementById('main-3d-container');
+      if(container && renderer && camera) {
+          camera.aspect = container.clientWidth / container.clientHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(container.clientWidth, container.clientHeight);
+      }
+  });
+</script>
+</body>
+</html>

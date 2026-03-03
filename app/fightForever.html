@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>방치형 RPG: 챕터 마스터 레전드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap');
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #020617;
+            color: white;
+            overflow-x: hidden;
+            overflow-y: auto;
+            user-select: none;
+        }
+
+        .progress-bar { transition: width 0.3s ease-in-out; }
+
+        /* 캐릭터 및 몬스터 애니메이션 */
+        @keyframes idleBob {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-6px) scale(1.02); }
+        }
+        .animate-idle { animation: idleBob 2s ease-in-out infinite; }
+
+        /* 몬스터 등장 */
+        @keyframes slideIn {
+            0% { opacity: 0; transform: translateX(100px); }
+            100% { opacity: 1; transform: translateX(0); }
+        }
+        .monster-enter { animation: slideIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+        /* 챕터별 배경 테마 */
+        .bg-meadow {
+            background-image: url('image_6dded7.jpg');
+            background-size: cover;
+            background-position: center;
+        }
+        .bg-ocean { background: linear-gradient(180deg, #0ea5e9 0%, #1e40af 100%); }
+        .bg-volcano { background: linear-gradient(180deg, #f43f5e 0%, #881337 100%); }
+        .bg-wasteland { background: linear-gradient(180deg, #fbbf24 0%, #92400e 100%); }
+        .bg-castle { background: linear-gradient(180deg, #a855f7 0%, #4c1d95 100%); }
+
+        #battle-bg {
+            aspect-ratio: 1 / 1;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+            border-radius: 2.5rem;
+        }
+
+        .hud-glass {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+
+        /* 스킬 슬롯 디자인 */
+        .skill-slot {
+            width: 3.8rem; height: 3.8rem; border-radius: 1.2rem;
+            background: rgba(15, 23, 42, 0.9); border: 2px solid rgba(255,255,255,0.1);
+            position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;
+        }
+        .skill-ready { border-color: #818cf8; box-shadow: 0 0 20px rgba(129,140,248,0.5); }
+        .skill-level-badge {
+            position: absolute; top: -1px; right: -1px;
+            background: #4338ca; color: white;
+            font-size: 10px; font-weight: 900; padding: 2px 8px;
+            border-radius: 0 1.2rem 0 1rem; border: 1.5px solid rgba(255,255,255,0.3);
+            z-index: 30;
+        }
+
+        /* 이펙트 노드 */
+        .effect-node { position: absolute; pointer-events: none; z-index: 100; }
+        .slash-active {
+            animation: slashAnim 0.3s steps(4) forwards;
+            background: white; height: 5px; width: 140px; transform: rotate(-45deg);
+        }
+        @keyframes slashAnim {
+            0% { opacity: 0; transform: translate(-30px, -30px) rotate(-45deg) scaleX(0.1); }
+            50% { opacity: 1; transform: translate(0, 0) rotate(-45deg) scaleX(1.2); }
+            100% { opacity: 0; transform: translate(30px, 30px) rotate(-45deg) scaleX(1.6); }
+        }
+        .burst-active {
+            animation: burstAnim 0.4s steps(5) forwards;
+            background: radial-gradient(circle, #fff 0%, #818cf8 60%, transparent 80%);
+            width: 140px; height: 140px; border-radius: 50%;
+        }
+        @keyframes burstAnim {
+            0% { opacity: 0; transform: scale(0.2); }
+            100% { opacity: 0; transform: scale(2.5); }
+        }
+
+        .damage-float {
+            animation: floatUp 0.8s steps(6) forwards;
+            position: absolute; font-weight: 900; pointer-events: none; z-index: 150;
+            text-shadow: 2px 2px 0px #000;
+        }
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-80px); }
+        }
+
+        #job-overlay {
+            position: fixed; inset: 0; background: rgba(2, 6, 23, 0.98);
+            z-index: 1000; display: flex; align-items: center; justify-content: center;
+        }
+        .pixelated { image-rendering: pixelated; }
+    </style>
+</head>
+<body class="flex flex-col items-center">
+
+<!-- 시작 직업 선택 모달 -->
+<div id="job-overlay">
+    <div class="bg-slate-900 p-8 rounded-[2.5rem] border-4 border-indigo-500/20 max-w-sm w-full text-center space-y-6 shadow-2xl">
+        <h1 class="text-2xl font-black text-indigo-400 tracking-tighter uppercase italic tracking-[0.2em]">전설의 모험가 선택</h1>
+        <div class="grid gap-3">
+            <button onclick="selectJob('warrior')" class="flex items-center justify-between bg-slate-800/50 p-4 rounded-2xl border border-slate-700 hover:border-orange-500 transition group shadow-lg">
+                <div class="bg-slate-950 p-1 rounded-lg" id="preview-warrior"></div>
+                <div class="text-right">
+                    <div class="font-black text-lg text-orange-400 uppercase">Warrior</div>
+                    <div class="text-[8px] text-slate-500 font-bold uppercase tracking-widest">강철의 도트 전사</div>
+                </div>
+            </button>
+            <button onclick="selectJob('mage')" class="flex items-center justify-between bg-slate-800/50 p-4 rounded-2xl border border-slate-700 hover:border-purple-500 transition group shadow-lg">
+                <div class="bg-slate-950 p-1 rounded-lg" id="preview-mage"></div>
+                <div class="text-right">
+                    <div class="font-black text-lg text-purple-400 uppercase">Mage</div>
+                    <div class="text-[8px] text-slate-500 font-bold uppercase tracking-widest">비전 대마법사</div>
+                </div>
+            </button>
+            <button onclick="selectJob('thief')" class="flex items-center justify-between bg-slate-800/50 p-4 rounded-2xl border border-slate-700 hover:border-emerald-500 transition group shadow-lg">
+                <div class="bg-slate-950 p-1 rounded-lg" id="preview-thief"></div>
+                <div class="text-right">
+                    <div class="font-black text-lg text-emerald-400 uppercase">Thief</div>
+                    <div class="text-[8px] text-slate-500 font-bold uppercase tracking-widest">그림자 암살자</div>
+                </div>
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="app" class="w-full max-w-md min-h-screen flex flex-col p-4 space-y-3">
+
+    <!-- 최상단 리소스 바 -->
+    <div class="flex justify-between items-center px-2 shrink-0">
+        <div class="bg-slate-900/80 px-4 py-1.5 rounded-full border border-slate-800 shadow-lg">
+            <span class="text-emerald-400 font-black text-sm" id="p-gold">0 G</span>
+        </div>
+        <div class="bg-slate-900/80 px-4 py-1.5 rounded-full border border-slate-800 shadow-lg">
+            <span class="text-red-400 font-black text-[10px] italic uppercase">Potion <span id="p-potions">0</span></span>
+        </div>
+    </div>
+
+    <!-- 정사각형 전투 구역 -->
+    <div id="battle-bg" class="bg-meadow shadow-2xl flex flex-col border-4 border-slate-800/50 transition-all duration-1000 relative overflow-hidden">
+
+        <!-- 미니 챕터 HUD (최상단) -->
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-none">
+            <div class="hud-glass px-3 py-1 rounded-full text-[8px] font-black tracking-[0.4em] text-white shadow-2xl mb-1 border border-white/20 uppercase" id="chapter-display">CH 1-1</div>
+            <div class="w-16 bg-black/50 h-1 rounded-full overflow-hidden">
+                <div id="stage-progress-bar" class="bg-white h-full progress-bar shadow-[0_0_8px_white]" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- 실제 전투 영역 -->
+        <div class="flex-grow w-full flex items-center justify-between px-10 relative">
+            <!-- 주인공 캐릭터 -->
+            <div class="relative animate-idle" id="player-node">
+                <div class="w-14 h-2 bg-black/40 absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-[50%] blur-md"></div>
+                <div id="player-sprite-container"></div>
+                <div id="player-damage-container" class="absolute -top-16 left-1/2 -translate-x-1/2 w-32 h-32 pointer-events-none"></div>
+
+                <!-- 캐릭터 HP바 -->
+                <div class="absolute -bottom-12 left-1/2 -translate-x-1/2 w-14">
+                    <div class="w-full bg-black/60 h-1 rounded-full overflow-hidden border border-white/10 shadow-lg">
+                        <div id="p-hp-bar-small" class="bg-red-500 h-full progress-bar" style="width: 100%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-white/5 font-black italic text-4xl select-none uppercase tracking-tighter pointer-events-none z-0">FIGHT</div>
+
+            <!-- 몬스터 영역 -->
+            <div class="relative" id="enemy-node">
+                <div id="enemy-area" class="opacity-0 flex flex-col items-center">
+                    <div class="w-16 h-3 bg-black/40 absolute -bottom-3 left-1/2 -translate-x-1/2 rounded-[50%] blur-md"></div>
+                    <!-- 몬스터 이모지 -->
+                    <div id="enemy-sprite" class="text-7xl drop-shadow-2xl mb-2">👾</div>
+
+                    <div class="absolute -top-14 left-1/2 -translate-x-1/2 w-20">
+                        <div class="w-full bg-black/60 h-1.5 rounded-full overflow-hidden shadow-lg">
+                            <div id="e-hp-bar" class="bg-orange-500 h-full progress-bar" style="width: 100%"></div>
+                        </div>
+                    </div>
+
+                    <!-- 몬스터 미니 정보창 -->
+                    <div class="mt-4 hud-glass px-2 py-1 rounded-lg text-[6px] font-black min-w-[75px] border border-white/5 text-center">
+                        <span id="enemy-name" class="block mb-1 text-white/80 tracking-tighter truncate font-bold uppercase">MONSTER</span>
+                        <div class="grid grid-cols-2 gap-1 text-[5px]">
+                            <span class="text-orange-400">A:<span id="e-stat-atk">0</span></span>
+                            <span class="text-blue-400">D:<span id="e-stat-def">0</span></span>
+                        </div>
+                    </div>
+                </div>
+                <div id="enemy-damage-container" class="absolute -top-16 left-1/2 -translate-x-1/2 w-32 h-32 pointer-events-none"></div>
+                <div id="slash-effect" class="effect-node top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+                <div id="burst-effect" class="effect-node top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+            </div>
+        </div>
+
+        <!-- [HUD 통합 배치] 스킬 + 레벨 + 경험치 (스킬 아래 레벨 위치 요청 반영) -->
+        <div class="z-20 w-full px-6 pb-6 flex flex-col items-center space-y-4">
+            <!-- 스킬 슬롯 영역 -->
+            <div id="skill-container" class="flex space-x-4 justify-center"></div>
+
+            <!-- 통합 성장 HUD (스킬 아래 배치) -->
+            <div class="hud-glass w-full max-w-[280px] px-5 py-3 rounded-[1.5rem] flex items-center space-x-5 shadow-2xl">
+                <div class="flex flex-col shrink-0">
+                    <div class="text-[8px] text-indigo-400 font-black uppercase leading-none mb-1 tracking-widest" id="p-job-display">READY</div>
+                    <div class="text-white font-black text-2xl tracking-tighter leading-none">Lv.<span id="p-level">1</span></div>
+                </div>
+                <div class="flex-grow flex flex-col justify-center">
+                    <div class="flex justify-between text-[7px] font-black text-white/40 uppercase mb-1 tracking-tighter">
+                        <span>Experience Progress</span>
+                        <span id="exp-text">0 / 10</span>
+                    </div>
+                    <div class="w-full bg-black/60 h-2 rounded-full overflow-hidden p-[1.5px] border border-white/5">
+                        <div id="exp-progress-bar" class="bg-gradient-to-r from-indigo-500 to-blue-400 h-full progress-bar rounded-full shadow-[0_0_10px_rgba(99,102,241,0.6)]" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 메뉴 및 강화 요약 -->
+    <div class="shrink-0 space-y-3">
+        <!-- 4대 스탯 확인 -->
+        <div class="grid grid-cols-4 gap-2 bg-slate-900/80 p-3 rounded-[1.5rem] border border-slate-800 shadow-xl">
+            <div class="text-center"><div class="text-[6px] text-slate-500 uppercase font-black mb-0.5 tracking-tighter">P-Atk</div><div id="p-atk" class="text-[10px] text-orange-400 font-black">0</div></div>
+            <div class="text-center"><div class="text-[6px] text-slate-500 uppercase font-black mb-0.5 tracking-tighter">P-Def</div><div id="p-def" class="text-[10px] text-blue-400 font-black">0</div></div>
+            <div class="text-center"><div class="text-[6px] text-slate-500 uppercase font-black mb-0.5 tracking-tighter">M-Atk</div><div id="p-mag-atk" class="text-[10px] text-purple-400 font-black">0</div></div>
+            <div class="text-center"><div class="text-[6px] text-slate-500 uppercase font-black mb-0.5 tracking-tighter">M-Def</div><div id="p-mag-def" class="text-[10px] text-cyan-400 font-black">0</div></div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+            <button onclick="switchTab('combat')" id="btn-combat" class="bg-indigo-600 py-3 rounded-2xl font-black shadow-lg transition active:scale-95 text-[10px] uppercase text-white">전투</button>
+            <button onclick="switchTab('upgrade')" id="btn-upgrade" class="bg-slate-800 py-3 rounded-2xl font-black shadow-lg transition text-indigo-300 active:scale-95 text-[10px] uppercase">강화</button>
+            <button onclick="switchTab('shop')" id="btn-shop" class="bg-slate-800 py-3 rounded-2xl font-black shadow-lg transition text-indigo-300 active:scale-95 text-[10px] uppercase">상점</button>
+        </div>
+    </div>
+
+    <!-- 하단 패널 -->
+    <div class="grow flex flex-col bg-slate-900 rounded-[2.5rem] border border-slate-800 overflow-hidden min-h-[140px] shadow-inner">
+        <div id="panel-combat" class="flex flex-col h-full p-5">
+            <div class="flex justify-between items-center mb-2 border-b border-slate-800 pb-2">
+                <span class="text-[9px] text-indigo-400 font-black tracking-widest uppercase">실시간 모험 기록</span>
+                <button onclick="toggleSpeed()" id="speed-btn" class="text-[7px] font-bold bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/20">SPEED x1</button>
+            </div>
+            <div id="battle-log" class="log-container grow overflow-y-auto text-[9px] space-y-1.5 text-slate-400 pr-1">
+                <div>모험가님, 시작할 캐릭터를 고르세요!</div>
+            </div>
+        </div>
+
+        <div id="panel-upgrade" class="hidden h-full p-5 overflow-y-auto space-y-2">
+            <h3 class="font-black text-indigo-400 text-[10px] uppercase mb-1 tracking-widest">능력 수련</h3>
+            <div id="upgrade-list" class="space-y-2"></div>
+        </div>
+
+        <div id="panel-shop" class="hidden h-full p-5 overflow-y-auto space-y-3">
+            <h3 class="font-black text-yellow-400 text-[10px] uppercase mb-1 tracking-widest">비밀 거래소</h3>
+            <div class="flex justify-between items-center bg-green-900/10 p-3 rounded-2xl border border-green-500/20 mb-1 shadow-inner">
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-black text-green-400">생명의 정수 (x5)</span>
+                    <span class="text-[7px] text-slate-500 font-bold uppercase">자동 회복 장치 가동 중</span>
+                </div>
+                <button onclick="buyPotion()" class="bg-green-700 hover:bg-green-600 px-4 py-1.5 rounded-xl text-[10px] font-black shadow-lg text-white">10 G</button>
+            </div>
+            <div id="shop-items" class="space-y-2 pb-4"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ---------------------------------------------------------
+    // 직업 데이터 선언 (jobsData 중복 정의 방지)
+    // ---------------------------------------------------------
+    const jobsData = {
+        warrior: { name: '전사', atk: 350, def: 320, magAtk: 10, magDef: 200, hp: 12000 },
+        mage: { name: '마법사', atk: 60, def: 150, magAtk: 600, magDef: 400, hp: 6500 },
+        thief: { name: '도적', atk: 500, def: 200, magAtk: 150, magDef: 200, hp: 8500 }
+    };
+
+    // ---------------------------------------------------------
+    // 캐릭터 SVG 생성기
+    // ---------------------------------------------------------
+    const getHeroSVG = (job, width = 80) => {
+        const colors = {
+            warrior: { armor: '#94a3b8', cloth: '#b91c1c', plume: '#ef4444', sword: '#f8fafc', shield: '#64748b' },
+            mage: { body: '#7e22ce', cloth: '#4c1d95', weapon: '#e9d5ff', acc: '#f0abfc' },
+            thief: { body: '#059669', cloth: '#064e3b', weapon: '#94a3b8', acc: '#34d399' }
+        };
+        const c = colors[job];
+        const p = 4;
+
+        if(job === 'warrior') {
+            return `<svg viewBox="0 0 80 100" class="pixelated" style="width: ${width}px; height: auto;">
+                <defs><filter id="sh"><feGaussianBlur in="SourceAlpha" stdDeviation="1.2" /><feOffset dx="2" dy="2" /><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+                <rect x="32" y="80" width="${p*2}" height="${p*3}" fill="#1e293b" />
+                <rect x="44" y="80" width="${p*2}" height="${p*3}" fill="#1e293b" />
+                <rect x="28" y="48" width="${p*8}" height="${p*8}" fill="${c.armor}" stroke="black" stroke-width="0.5" filter="url(#sh)"/>
+                <rect x="24" y="44" width="${p*10}" height="${p*2}" fill="${c.cloth}" />
+                <rect x="26" y="0" width="${p*4}" height="${p*2}" fill="${c.plume}" />
+                <rect x="30" y="12" width="${p*9}" height="${p*8}" fill="${c.armor}" stroke="black" stroke-width="0.5" filter="url(#sh)"/>
+                <rect x="36" y="16" width="${p*6}" height="${p}" fill="#1e293b" />
+                <path d="M 45 55 L 65 55 L 65 75 Q 55 85 45 75 Z" fill="${c.shield}" stroke="black" stroke-width="0.5" />
+                <rect x="15" y="40" width="${p*2}" height="${p*11}" fill="${c.sword}" stroke="black" stroke-width="0.5" transform="rotate(-10, 20, 50)"/>
+                <rect x="12" y="82" width="${p*3}" height="${p}" fill="#451a03" stroke="black" stroke-width="0.5" transform="rotate(-10, 20, 50)"/>
+            </svg>`;
+        } else if(job === 'mage') {
+            return `<svg viewBox="0 0 80 100" style="width: ${width}px; height: auto;">
+                <rect x="20" y="75" width="40" height="15" rx="5" fill="#1e293b" />
+                <rect x="22" y="45" width="36" height="35" rx="12" fill="${c.body}" stroke="black" stroke-width="1"/>
+                <circle cx="40" cy="30" r="26" fill="#ffedd5" stroke="black" stroke-width="1"/>
+                <path d="M 15 25 L 40 5 L 65 25 Z" fill="${c.cloth}" stroke="black" stroke-width="1"/>
+                <rect x="60" y="20" width="4" height="60" fill="#451a03" rx="2"/>
+                <circle cx="62" cy="15" r="8" fill="${c.acc}" fill-opacity="0.8"/>
+                <circle cx="34" cy="32" r="3" fill="#0f172a" /><circle cx="46" cy="32" r="3" fill="#0f172a" />
+            </svg>`;
+        } else { // thief
+            return `<svg viewBox="0 0 80 100" style="width: ${width}px; height: auto;">
+                <rect x="20" y="75" width="40" height="15" rx="5" fill="#1e293b" />
+                <rect x="22" y="45" width="36" height="35" rx="10" fill="${c.body}" stroke="black" stroke-width="1"/>
+                <circle cx="40" cy="30" r="26" fill="#ffedd5" stroke="black" stroke-width="1"/>
+                <rect x="22" y="10" width="36" height="20" rx="10" fill="${c.cloth}" stroke="black" stroke-width="1"/>
+                <rect x="10" y="55" width="8" height="25" fill="${c.weapon}" stroke="black" stroke-width="0.5" />
+                <rect x="62" y="55" width="8" height="25" fill="${c.weapon}" stroke="black" stroke-width="0.5" />
+                <circle cx="34" cy="32" r="3" fill="#0f172a" /><circle cx="46" cy="32" r="3" fill="#0f172a" />
+            </svg>`;
+        }
+    };
+
+    // ---------------------------------------------------------
+    // 게임 시스템 초기 상태
+    // ---------------------------------------------------------
+    const state = {
+        isInitialized: false, gameSpeed: 1,
+        player: {
+            job: null, jobName: '', level: 1, exp: 0, gold: 0,
+            baseAtk: 0, baseDef: 0, baseMagAtk: 0, baseMagDef: 0,
+            maxHp: 5000, hp: 5000, potions: 0,
+            upgrades: { atk: 0, def: 0, magAtk: 0, magDef: 0 },
+            equipment: { weapon: null, armor: null }
+        },
+        world: { chapter: 1, subStage: 1, totalKills: 0, subStageKills: 0, maxChapters: 5 },
+        currentEnemy: null,
+        shopItems: [
+            { id: 'w1', name: '녹슨 검', type: 'weapon', atk: 350, magAtk: 50, def: 0, magDef: 0, price: 30 },
+            { id: 'w2', name: '명공의 대검', type: 'weapon', atk: 2000, magAtk: 300, def: 0, magDef: 0, price: 500 },
+            { id: 'w3', name: '용살자', type: 'weapon', atk: 15000, magAtk: 3000, def: 1000, magDef: 1000, price: 3000 },
+            { id: 'm1', name: '나무 지팡이', type: 'weapon', atk: 50, magAtk: 650, def: 0, magDef: 0, price: 30 },
+            { id: 'm2', name: '마도사의 보주', type: 'weapon', atk: 100, magAtk: 4000, def: 0, magDef: 0, price: 500 },
+            { id: 'm3', name: '공허의 지식', type: 'weapon', atk: 300, magAtk: 22000, def: 500, magDef: 2000, price: 3000 },
+            { id: 'a1', name: '가죽 방어구', type: 'armor', atk: 0, magAtk: 0, def: 250, magDef: 220, price: 30 },
+            { id: 'a2', name: '강철 기사 갑주', type: 'armor', atk: 0, magAtk: 0, def: 1800, magDef: 1600, price: 600 },
+            { id: 'a3', name: '성역의 비늘', type: 'armor', atk: 500, magAtk: 500, def: 10000, magDef: 9500, price: 4500 }
+        ],
+        boughtIds: []
+    };
+
+    const chapterBases = {
+        1: { hp: 350, atk: 55, def: 35, magAtk: 30, magDef: 35, gold: 120, theme: 'bg-meadow' },
+        2: { hp: 2200, atk: 260, def: 200, magAtk: 180, magDef: 200, gold: 500, theme: 'bg-ocean' },
+        3: { hp: 10000, atk: 900, def: 800, magAtk: 700, magDef: 800, gold: 2000, theme: 'bg-volcano' },
+        4: { hp: 55000, atk: 3500, def: 3000, magAtk: 2500, magDef: 3000, gold: 8000, theme: 'bg-wasteland' },
+        5: { hp: 280000, atk: 12000, def: 11000, magAtk: 9000, magDef: 11000, gold: 45000, theme: 'bg-castle' }
+    };
+
+    const jobSkills = {
+        warrior: [
+            { id: 'w1', name: "방어구 파쇄", unlock: 2, mult: 7.5, ignoreDef: 0.5, cd: 4000, lastUsed: 0, type: 'atk', icon: '⚔️' },
+            { id: 'w2', name: "방패 돌격", unlock: 5, mult: 12.0, ignoreDef: 0.7, cd: 7500, lastUsed: 0, type: 'atk', icon: '🛡️' },
+            { id: 'w3', name: "용신의 참격", unlock: 8, mult: 45.0, ignoreDef: 1.0, cd: 16000, lastUsed: 0, type: 'atk', icon: '☀️' }
+        ],
+        mage: [
+            { id: 'm1', name: "화염구", unlock: 2, mult: 9.0, ignoreDef: 0.6, cd: 5000, lastUsed: 0, type: 'magAtk', icon: '🔥' },
+            { id: 'm2', name: "냉기 폭발", unlock: 5, mult: 18.0, ignoreDef: 0.8, cd: 8500, lastUsed: 0, type: 'magAtk', icon: '❄️' },
+            { id: 'm3', name: "공허 소환", unlock: 8, mult: 65.0, ignoreDef: 1.0, cd: 22000, lastUsed: 0, type: 'magAtk', icon: '🌌' }
+        ],
+        thief: [
+            { id: 't1', name: "그림자 찌르기", unlock: 2, mult: 10.0, ignoreDef: 0.8, cd: 3800, lastUsed: 0, type: 'atk', icon: '🗡️' },
+            { id: 't2', name: "치명 암습", unlock: 5, mult: 16.0, ignoreDef: 0.9, cd: 6500, lastUsed: 0, type: 'atk', icon: '👥' },
+            { id: 't3', name: "환영 습격", unlock: 8, mult: 55.0, ignoreDef: 1.0, cd: 13000, lastUsed: 0, type: 'atk', icon: '✨' }
+        ]
+    };
+
+    // ---------------------------------------------------------
+    // 유틸리티 및 UI 핸들러
+    // ---------------------------------------------------------
+    const safeSetText = (id, text) => { const el = document.getElementById(id); if (el) el.innerText = text; };
+
+    function selectJob(id) {
+        const j = jobsData[id];
+        state.player = { ...state.player, job: id, jobName: j.name, baseAtk: j.atk, baseDef: j.def, baseMagAtk: j.magAtk, baseMagDef: j.magDef, maxHp: j.hp, hp: j.hp };
+        const spr = document.getElementById('player-sprite-container');
+        if(spr) spr.innerHTML = getHeroSVG(id, 90);
+        safeSetText('p-job-display', j.name);
+        document.getElementById('job-overlay').style.display = 'none';
+        state.isInitialized = true;
+        renderUpgrades(); renderSkills(); updateUI();
+    }
+
+    function toggleSpeed() {
+        state.gameSpeed = state.gameSpeed === 1 ? 2.5 : 1;
+        safeSetText('speed-btn', `SPEED x${state.gameSpeed}`);
+    }
+
+    function getCurrentStat(f) {
+        const p = state.player;
+        const bonus = f.includes('Atk') ? 120 : 100;
+        const equip = (p.equipment.weapon?.[f] || 0) + (p.equipment.armor?.[f] || 0);
+        return p['base' + f.charAt(0).toUpperCase() + f.slice(1)] + (p.upgrades[f] * bonus) + equip;
+    }
+
+    function updateUI() {
+        if (!state.isInitialized) return;
+        const p = state.player, w = state.world;
+        const expReq = 10 * Math.pow(2.2, p.level - 1);
+
+        safeSetText('p-level', p.level); safeSetText('p-gold', Math.floor(p.gold).toLocaleString() + ' G'); safeSetText('p-potions', p.potions);
+        safeSetText('exp-text', `${Math.floor(p.exp)} / ${Math.floor(expReq)}`);
+
+        const hs = document.getElementById('p-hp-bar-small'); if(hs) hs.style.width = (p.hp/p.maxHp*100) + '%';
+        const eb = document.getElementById('exp-progress-bar'); if(eb) eb.style.width = (p.exp/expReq*100)+'%';
+
+        safeSetText('p-atk', Math.floor(getCurrentStat('atk'))); safeSetText('p-def', Math.floor(getCurrentStat('def')));
+        safeSetText('p-mag-atk', Math.floor(getCurrentStat('magAtk'))); safeSetText('p-mag-def', Math.floor(getCurrentStat('magDef')));
+
+        safeSetText('chapter-display', `CHAPTER ${w.chapter}-${w.subStage}`);
+        const sb = document.getElementById('stage-progress-bar'); if(sb) sb.style.width = (w.subStageKills*10)+'%';
+
+        const theme = chapterBases[w.chapter].theme, bg = document.getElementById('battle-bg');
+        if(bg && !bg.classList.contains(theme)) {
+            ['bg-meadow','bg-ocean','bg-volcano','bg-wasteland','bg-castle'].forEach(t => bg.classList.remove(t));
+            bg.classList.add(theme);
+        }
+
+        if (state.currentEnemy) {
+            safeSetText('enemy-name', state.currentEnemy.name);
+            const eh = document.getElementById('e-hp-bar'); if(eh) eh.style.width = (state.currentEnemy.hp/state.currentEnemy.maxHp*100)+'%';
+            const es = document.getElementById('enemy-sprite'); if(es) es.innerText = state.currentEnemy.emoji;
+            safeSetText('e-stat-atk', Math.floor(state.currentEnemy.atk)); safeSetText('e-stat-def', Math.floor(state.currentEnemy.def));
+        }
+        updateSkillsUI(); renderShop();
+    }
+
+    function renderUpgrades() {
+        const c = document.getElementById('upgrade-list'); if(!c) return; c.innerHTML = '';
+        [{id:'atk',n:'물리 공격',c:'text-orange-400'},{id:'def',n:'물리 방어',c:'text-blue-400'},{id:'magAtk',n:'마법 공격',c:'text-purple-400'},{id:'magDef',n:'마법 방어',c:'text-cyan-400'}].forEach(s => {
+            const lv = state.player.upgrades[s.id], cost = 10 + (lv * 30);
+            const div = document.createElement('div'); div.className = "flex justify-between items-center bg-slate-800/40 p-3 rounded-2xl border border-slate-700 shadow-sm";
+            div.innerHTML = `<div><div class="text-[9px] font-black ${s.c} uppercase">${s.n}</div><div class="text-[7px] text-slate-500 font-bold uppercase tracking-widest">LV ${lv}</div></div><button onclick="buyUpgrade('${s.id}')" class="bg-indigo-700 hover:bg-indigo-600 px-4 py-1.5 rounded-xl text-[10px] font-black transition active:scale-95 text-white">${cost} G</button>`;
+            c.appendChild(div);
+        });
+    }
+
+    function renderSkills() {
+        const c = document.getElementById('skill-container'); if(!c) return; c.innerHTML = '';
+        jobSkills[state.player.job].forEach(sk => {
+            const div = document.createElement('div'); div.id = `sk-${sk.id}`; div.className = "skill-slot opacity-20 shadow-xl";
+            div.innerHTML = `<span class="text-2xl z-10">${sk.icon}</span><div id="cd-${sk.id}" class="absolute bottom-0 left-0 w-full bg-indigo-500/40 h-0"></div><div class="skill-level-badge">L.${sk.unlock}</div>`;
+            c.appendChild(div);
+        });
+    }
+
+    function updateSkillsUI() {
+        const now = Date.now();
+        jobSkills[state.player.job].forEach(sk => {
+            const el = document.getElementById(`sk-${sk.id}`), cd = document.getElementById(`cd-${sk.id}`);
+            if(!el || !cd) return;
+            if(state.player.level >= sk.unlock) {
+                el.classList.remove('opacity-20');
+                const p = now - sk.lastUsed;
+                if(p < sk.cd) { cd.style.height = (100 - (p/sk.cd*100))+'%'; el.classList.remove('skill-ready'); }
+                else { cd.style.height = '0%'; el.classList.add('skill-ready'); }
+            }
+        });
+    }
+
+    function renderShop() {
+        const c = document.getElementById('shop-items'); if(!c) return; c.innerHTML = '';
+        state.shopItems.forEach(it => {
+            const bought = state.boughtIds.includes(it.id);
+            const equipped = (state.player.equipment.weapon?.id === it.id || state.player.equipment.armor?.id === it.id);
+            const div = document.createElement('div');
+            div.className = `flex justify-between items-center bg-slate-800/40 p-3 rounded-2xl border border-slate-700 shadow-md ${bought ? 'opacity-50' : ''}`;
+
+            let bText = '';
+            if (it.atk > 0) bText += `PA+${it.atk} `;
+            if (it.magAtk > 0) bText += `MA+${it.magAtk} `;
+            if (it.def > 0) bText += `PD+${it.def} `;
+            if (it.magDef > 0) bText += `MD+${it.magDef} `;
+
+            div.innerHTML = `
+                <div>
+                    <div class="text-[10px] font-black text-slate-200">${it.name}</div>
+                    <div class="text-[8px] text-indigo-400 font-bold uppercase tracking-tighter">${bText.trim()}</div>
+                </div>
+                <button onclick="buyItem('${it.id}')" class="${bought ? 'bg-slate-700' : 'bg-yellow-600'} px-4 py-2 rounded-xl text-[10px] font-black transition active:scale-95 text-white" ${bought && equipped ? 'disabled' : ''}>
+                    ${bought ? (equipped ? '착용 중' : '교체') : it.price + 'G'}
+                </button>`;
+            c.appendChild(div);
+        });
+    }
+
+    function buyPotion() { if(state.player.gold >= 10) { state.player.gold -= 10; state.player.potions += 5; updateUI(); } }
+
+    function spawnEnemy() {
+        if (!state.isInitialized || state.isMonsterEntering) return;
+        const w = state.world, ch = chapterBases[w.chapter];
+
+        // 요청하신 몬스터 이모지 풀 적용
+        const monsterPool = [
+            {n:'까마귀',e:'🐦‍⬛',a:2.2,d:1.0,ma:2.5}, {n:'독수리',e:'🦅',a:2.5,d:1.2,ma:1.5},
+            {n:'박쥐',e:'🦇',a:1.8,d:0.8,ma:3.0}, {n:'개미',e:'🐜',a:1.5,d:2.5,ma:0.5},
+            {n:'모기',e:'🦟',a:3.0,d:0.5,ma:1.0}, {n:'티라노',e:'🦖',a:4.5,d:2.5,ma:1.5},
+            {n:'뱀',e:'🐍',a:2.2,d:1.1,ma:3.5}, {n:'상어',e:'🦈',a:3.5,d:1.8,ma:1.0},
+            {n:'돌고래',e:'🐬',a:2.0,d:1.5,ma:4.0}, {n:'거북이',e:'🐢',a:1.0,d:5.0,ma:0.5},
+            {n:'전갈',e:'🦂',a:2.8,d:1.6,ma:2.0}, {n:'호랑이',e:'🐅',a:3.2,d:1.4,ma:1.0},
+            {n:'코뿔소',e:'🦏',a:3.0,d:3.5,ma:0.5}, {n:'말',e:'🐎',a:2.4,d:1.5,ma:1.0},
+            {n:'매머드',e:'🦣',a:3.5,d:4.0,ma:2.0}, {n:'캥거루',e:'🦘',a:2.8,d:1.3,ma:1.5}
+        ];
+
+        const t = monsterPool[Math.floor(Math.random() * monsterPool.length)];
+        const m = Math.pow(1.18, (w.chapter - 1) * 1.5 + (w.subStage * 0.12));
+
+        state.currentEnemy = {
+            name: t.n, emoji: t.e,
+            maxHp: Math.floor(ch.hp * m), hp: Math.floor(ch.hp * m),
+            atk: ch.atk * t.a * m, def: ch.def * (t.d || 1) * m,
+            magAtk: ch.magAtk * (t.ma || 1) * m, magDef: ch.magDef * m,
+            gold: ch.gold * m, exp: Math.max(1, m * 0.8)
+        };
+
+        state.isMonsterEntering = true;
+        const node = document.getElementById('enemy-area');
+        if(node) { node.classList.remove('monster-enter', 'opacity-0'); void node.offsetWidth; node.classList.add('monster-enter'); }
+        setTimeout(() => { state.isMonsterEntering = false; }, 600); updateUI();
+    }
+
+    function battleTick() {
+        if(state.isMonsterEntering) return;
+        const p = state.player, curA = getCurrentStat('atk'), curD = getCurrentStat('def'), curMA = getCurrentStat('magAtk'), curMD = getCurrentStat('magDef');
+        if(p.hp/p.maxHp <= 0.3 && p.potions > 0) { p.potions--; p.hp = Math.min(p.maxHp, p.hp+(p.maxHp * 0.5)); addLog(`위기 상황! 자동 물약 사용`, 'text-green-400 font-bold'); }
+
+        const now = Date.now(), sks = jobSkills[p.job]; let sk = null;
+        for(let i=sks.length-1; i>=0; i--) if(p.level >= sks[i].unlock && now-sks[i].lastUsed >= sks[i].cd) { sk = sks[i]; break; }
+
+        let dmg = 0;
+        if(sk) {
+            const base = sk.type==='atk'?curA:curMA, td = sk.type==='atk'?state.currentEnemy.def:state.currentEnemy.magDef;
+            dmg = Math.max(base * 1.5, (base * sk.mult) - (td * (1 - sk.ignoreDef)));
+            sk.lastUsed = now; addLog(`${sk.name}! (${Math.floor(dmg)})`, 'text-indigo-400 font-black'); triggerVisual('burst');
+        } else {
+            dmg = Math.max(curA*0.35, curA-state.currentEnemy.def) + Math.max(curMA*0.35, curMA-state.currentEnemy.magDef); triggerVisual('slash');
+        }
+
+        state.currentEnemy.hp -= dmg; floatDamage('enemy', Math.floor(dmg));
+        if(state.currentEnemy.hp <= 0) { handleVictory(); return; }
+
+        setTimeout(() => {
+            if(!state.currentEnemy) return;
+            const ed = Math.max(state.currentEnemy.atk*0.05, state.currentEnemy.atk-curD) + Math.max(1, state.currentEnemy.magAtk-curMD);
+            p.hp -= ed; floatDamage('player', Math.floor(ed)); updateUI();
+        }, 300/state.gameSpeed);
+    }
+
+    function triggerVisual(type) {
+        const node = document.getElementById(`${type}-effect`); if(!node) return;
+        node.classList.remove(`${type}-active`); void node.offsetWidth; node.classList.add(`${type}-active`);
+    }
+
+    function floatDamage(target, val) {
+        const cont = document.getElementById(target + '-damage-container'); if(!cont) return;
+        const spr = document.getElementById(target==='player'?'player-sprite-container':'enemy-sprite');
+        if(spr) { spr.classList.add('hit-effect'); setTimeout(() => spr.classList.remove('hit-effect'), 150); }
+        const el = document.createElement('div'); el.className = `damage-float ${target==='player'?'text-red-500':'text-yellow-400'}`;
+        el.innerText = `-${val}`; el.style.left = `${Math.random()*40+30}%`;
+        cont.appendChild(el); setTimeout(() => el.remove(), 800);
+    }
+
+    function handleVictory() {
+        const e = state.currentEnemy, p = state.player, w = state.world;
+        p.gold += e.gold; p.exp += e.exp; addLog(`${e.name} 처치 (+${Math.floor(e.gold)}G)`, 'text-slate-500');
+        const req = 10 * Math.pow(2.2, p.level - 1);
+        if(p.exp >= req) {
+            p.level++; p.exp = 0; p.maxHp += 3000; p.hp = p.maxHp;
+            p.baseAtk += 200; p.baseMagAtk += 200; p.baseDef += 150; p.baseMagDef += 150;
+            addLog(`LEVEL UP! Lv.${p.level} 능력치 각성!`, 'text-yellow-400 font-black'); renderUpgrades();
+        }
+        w.totalKills++; w.subStageKills++;
+        if(w.subStageKills >= 10) {
+            w.subStage++; w.subStageKills = 0;
+            if(w.subStage > 10 && w.chapter < w.maxChapters) { w.chapter++; w.subStage = 1; addLog(`새로운 챕터 진입!`, 'text-indigo-400 font-black'); }
+        }
+        state.currentEnemy = null; document.getElementById('enemy-area').classList.add('opacity-0'); updateUI();
+    }
+
+    function handleDefeat() {
+        addLog(`쓰러졌습니다... 구역 초기화.`, 'text-red-600 font-black');
+        state.player.hp = state.player.maxHp; state.world.subStageKills = 0; state.currentEnemy = null;
+        document.getElementById('enemy-area').classList.add('opacity-0'); updateUI();
+    }
+
+    function addLog(m, c = 'text-slate-500') {
+        const log = document.getElementById('battle-log'); if(!log) return;
+        const el = document.createElement('div'); el.className = c; el.innerText = `> ${m}`;
+        log.prepend(el); if(log.children.length > 25) log.removeChild(log.lastChild);
+    }
+
+    function buyUpgrade(id) {
+        const lv = state.player.upgrades[id], cost = 10 + (lv * 30);
+        if(state.player.gold >= cost) { state.player.gold -= cost; state.player.upgrades[id]++; renderUpgrades(); updateUI(); }
+    }
+
+    function buyItem(id) {
+        const it = state.shopItems.find(i => i.id === id);
+        if(it && !state.boughtIds.includes(id) && state.player.gold >= it.price) {
+            state.player.gold -= it.price; state.boughtIds.push(id); state.player.equipment[it.type] = it;
+            addLog(`${it.name} 장착!`, 'text-yellow-500 font-black'); updateUI();
+        } else if(it && state.boughtIds.includes(id)) { state.player.equipment[it.type] = it; updateUI(); }
+    }
+
+    function switchTab(t) {
+        ['combat', 'upgrade', 'shop'].forEach(x => {
+            const p = document.getElementById(`panel-${x}`), b = document.getElementById(`btn-${x}`);
+            if(p) p.classList.add('hidden'); if(b) { b.classList.replace('bg-indigo-600', 'bg-slate-800'); b.classList.add('text-indigo-300'); }
+        });
+        const tp = document.getElementById(`panel-${t}`), tb = document.getElementById(`btn-${t}`);
+        if(tp) tp.classList.remove('hidden'); if(tb) { tb.classList.replace('bg-slate-800', 'bg-indigo-600'); tb.classList.remove('text-indigo-300'); }
+    }
+
+    let lastTick = Date.now();
+    function loop() {
+        const now = Date.now(); if(!state.isInitialized) { requestAnimationFrame(loop); return; }
+        if(state.player.hp <= 0) handleDefeat();
+        else if(state.currentEnemy) { if(now - lastTick >= (850 / state.gameSpeed)) { battleTick(); lastTick = now; } }
+        else spawnEnemy();
+        updateSkillsUI(); requestAnimationFrame(loop);
+    }
+
+    window.onload = () => {
+        ['warrior', 'mage', 'thief'].forEach(j => {
+            const el = document.getElementById(`preview-${j}`);
+            if(el) el.innerHTML = getHeroSVG(j, 70);
+        });
+        requestAnimationFrame(loop);
+    };
+</script>
+</body>
+</html>

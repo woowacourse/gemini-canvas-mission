@@ -1,0 +1,849 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Globe, MapPin, Clock, ExternalLink, AlertTriangle, ChevronRight, X, Filter, Layers, Search, Plus, Hash, Menu, Bookmark, Check, Loader2, RefreshCw, Languages, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+
+// --- [1] CONSTANTS & CONFIG ---
+
+const CATEGORIES = ['전체', '정치', '경제', '사회', 'IT/과학', '문화', '스포츠'];
+
+// 국가별 RSS 요청을 위한 언어(hl) 및 지역(gl) 설정
+const COUNTRY_SETTINGS = {
+  KR: { hl: 'ko', gl: 'KR', name: '대한민국', coords: [38.0, 127.5], zoom: 7 },
+  US: { hl: 'en', gl: 'US', name: '미국', coords: [39.8, -98.5], zoom: 4 },
+  JP: { hl: 'ja', gl: 'JP', name: '일본', coords: [36.2, 138.2], zoom: 5 },
+  DE: { hl: 'de', gl: 'DE', name: '독일', coords: [51.16, 10.45], zoom: 5 },
+  GB: { hl: 'en', gl: 'GB', name: '영국', coords: [55.3, -3.4], zoom: 5 },
+  FR: { hl: 'fr', gl: 'FR', name: '프랑스', coords: [46.2, 2.2], zoom: 5 },
+  IT: { hl: 'it', gl: 'IT', name: '이탈리아', coords: [41.87, 12.56], zoom: 5 },
+  CA: { hl: 'en', gl: 'CA', name: '캐나다', coords: [56.13, -106.34], zoom: 3 },
+  CN: { hl: 'zh-CN', gl: 'CN', name: '중국', coords: [35.8, 104.1], zoom: 4 },
+  RU: { hl: 'ru', gl: 'RU', name: '러시아', coords: [61.52, 105.31], zoom: 3 },
+  IN: { hl: 'en', gl: 'IN', name: '인도', coords: [20.59, 78.96], zoom: 4 },
+  BR: { hl: 'pt-BR', gl: 'BR', name: '브라질', coords: [-14.23, -51.92], zoom: 4 },
+  AU: { hl: 'en', gl: 'AU', name: '호주', coords: [-25.27, 133.77], zoom: 4 },
+  ES: { hl: 'es', gl: 'ES', name: '스페인', coords: [40.46, -3.74], zoom: 5 },
+  MX: { hl: 'es-419', gl: 'MX', name: '멕시코', coords: [23.63, -102.55], zoom: 4 },
+  NL: { hl: 'nl', gl: 'NL', name: '네덜란드', coords: [52.13, 5.29], zoom: 6 },
+  CH: { hl: 'de', gl: 'CH', name: '스위스', coords: [46.81, 8.22], zoom: 6 },
+  SE: { hl: 'sv', gl: 'SE', name: '스웨덴', coords: [60.12, 18.64], zoom: 4 },
+  PL: { hl: 'pl', gl: 'PL', name: '폴란드', coords: [51.91, 19.14], zoom: 5 },
+  BE: { hl: 'nl', gl: 'BE', name: '벨기에', coords: [50.50, 4.46], zoom: 6 },
+  NO: { hl: 'no', gl: 'NO', name: '노르웨이', coords: [60.47, 8.46], zoom: 4 },
+  AT: { hl: 'de', gl: 'AT', name: '오스트리아', coords: [47.51, 14.55], zoom: 6 },
+  TR: { hl: 'tr', gl: 'TR', name: '튀르키예', coords: [38.96, 35.24], zoom: 5 }
+};
+
+// [강력 필터] 각 국가의 기간 언론사 화이트리스트
+const PRIORITY_PUBLISHERS = {
+  KR: ['KBS', 'MBC', 'SBS', '연합뉴스', 'YTN', '중앙일보', '조선일보', '한겨레', '매일경제', '한국경제', '동아일보', '경향신문', '뉴시스', '뉴스1', 'JTBC'],
+  US: ['Associated Press', 'Reuters', 'CNN', 'The New York Times', 'ABC News', 'The Wall Street Journal', 'Bloomberg', 'Washington Post', 'NBC News', 'CBS News', 'USA TODAY', 'Politico'],
+  JP: ['NHK', '朝日新聞', '読売新聞', '日本경제新聞', 'Kyodo News', '毎日新聞', '産経ニュース', '時事通信'],
+  GB: ['BBC News', 'The Guardian', 'Sky News', 'Reuters', 'The Times', 'Financial Times', 'The Independent'],
+  FR: ['Le Monde', 'Le Figaro', 'France 24', 'AFP', 'Libération', 'Le Parisien', 'Les Echos'],
+  DE: ['Tagesschau', 'Deutsche Welle', 'Der Spiegel', 'ZDF', 'Frankfurter Allgemeine', 'Süddeutsche Zeitung', 'Die Welt'],
+  IT: ['RAI', 'Corriere della Sera', 'La Repubblica', 'ANSA', 'La Stampa'],
+  ES: ['El País', 'El Mundo', 'EFE', 'RTVE', 'ABC.es'],
+  CA: ['CBC News', 'The Globe and Mail', 'Toronto Star', 'CTV News', 'National Post'],
+  AU: ['ABC News', 'The Sydney Morning Herald', 'The Age', 'SBS News', 'The Australian'],
+  IN: ['Times of India', 'NDTV', 'The Hindu', 'Press Trust of India', 'Hindustan Times'],
+  CN: ['Xinhua', '新华', 'South China Morning Post', '南华早报', 'Caixin', '财新', 'Global Times', '环球', 'People\'s Daily', '人民', 'CCTV', '央视', '中新网', '中国新闻网', '澎湃', '观察者网'],
+  RU: ['ТАСС', 'TASS', 'РИА Новости', 'RIA', 'Интерфакс', 'Interfax', 'Известия', 'Izvestia', 'Коммерсантъ', 'Kommersant', 'РБК', 'RBC', 'Ведомости', 'Vedomosti', 'Российская газета', 'RT', 'Sputnik', 'Лента', 'Lenta'],
+  NL: ['NOS', 'De Telegraaf', 'NRC', 'Algemeen Dagblad'],
+  CH: ['SRF', 'Neue Zürcher Zeitung', 'Le Temps', 'Swissinfo'],
+  SE: ['SVT', 'Dagens Nyheter', 'Aftonbladet', 'Expressen'],
+  MX: ['El Universal', 'Excélsior', 'Reforma', 'Televisa News'],
+  TR: ['TRT World', 'Anadolu Agency', 'Hürriyet', 'Sabah'],
+  PL: ['TVP Info', 'Gazeta Wyborcza', 'Rzeczpospolita', 'PAP'],
+  BE: ['RTBF', 'VRT', 'Le Soir', 'De Standaard'],
+  NO: ['NRK', 'Aftenposten', 'VG', 'Dagbladet'],
+  AT: ['ORF', 'Der Standard', 'Die Presse', 'Kurier']
+};
+
+// --- [HELPERS] ---
+
+const getFlagIcon = (countryCode) => {
+  if (!countryCode || countryCode.length !== 2) return null;
+  return `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`;
+};
+
+// --- [2] MAIN COMPONENT ---
+
+export default function App() {
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [geoJsonData, setGeoJsonData] = useState(null);
+  const [allNewsData, setAllNewsData] = useState([]);
+  const [isLoadingNews, setIsLoadingNews] = useState(true);
+  const [isFetchingSpecificCountry, setIsFetchingSpecificCountry] = useState(false); 
+  
+  const [selectedCategory, setSelectedCategory] = useState('전체');
+  const [includeUnverified, setIncludeUnverified] = useState(false);
+  const [customFilters, setCustomFilters] = useState([]);
+  const [customFilterInput, setCustomFilterInput] = useState('');
+  const [isAddingFilter, setIsAddingFilter] = useState(false);
+  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [isSearchPanelOpen, setIsSearchPanelOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isNewsPanelOpen, setIsNewsPanelOpen] = useState(false);
+  
+  const [isOptionsExpanded, setIsOptionsExpanded] = useState(false); 
+  const [isCategoryExpanded, setIsCategoryExpanded] = useState(true);
+
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(15);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+  const [readNewsIds, setReadNewsIds] = useState([]);
+  const [bookmarkedNewsIds, setBookmarkedNewsIds] = useState([]);
+  const [showOnlyBookmarked, setShowOnlyBookmarked] = useState(false);
+
+  const [translations, setTranslations] = useState({});
+  const [summaries, setSummaries] = useState({}); 
+  
+  const [isSidebarTranslating, setIsSidebarTranslating] = useState(false);
+  const [isPanelTranslating, setIsPanelTranslating] = useState(false);
+
+  const [activeCountry, setActiveCountry] = useState(null);
+  const [activeCountryName, setActiveCountryName] = useState('');
+  const [panelCategory, setPanelCategory] = useState('전체');
+
+  // [추가] 새로고침 타이머 상태
+  const [globalRefreshTime, setGlobalRefreshTime] = useState(new Date());
+  const [globalRefreshAgo, setGlobalRefreshAgo] = useState('방금 전');
+  const [countryRefreshTime, setCountryRefreshTime] = useState(new Date());
+  const [countryRefreshAgo, setCountryRefreshAgo] = useState('방금 전');
+
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersLayerRef = useRef(null);
+  const activeCountryRef = useRef(activeCountry);
+  const fetchStageRef = useRef({});
+
+  useEffect(() => { activeCountryRef.current = activeCountry; }, [activeCountry]);
+
+  // 지도 크기 조정
+  useEffect(() => {
+    if (mapInstanceRef.current) {
+      const timer = setTimeout(() => { mapInstanceRef.current.invalidateSize(); }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isSidebarOpen]);
+
+  useEffect(() => {
+    setVisibleCount(15);
+    setPanelCategory('전체');
+  }, [activeCountry, selectedCategory, searchQuery, showOnlyBookmarked, includeUnverified]);
+
+  // [추가] 경과 시간 계산 인터벌
+  useEffect(() => {
+    const updateTimeAgo = (time, setString) => {
+      const diff = Math.floor((new Date() - time) / 1000);
+      if (diff < 60) setString(`${diff}초 전`);
+      else if (diff < 3600) setString(`${Math.floor(diff / 60)}분 전`);
+      else setString(`${Math.floor(diff / 3600)}시간 전`);
+    };
+    const interval = setInterval(() => {
+      updateTimeAgo(globalRefreshTime, setGlobalRefreshAgo);
+      updateTimeAgo(countryRefreshTime, setCountryRefreshAgo);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [globalRefreshTime, countryRefreshTime]);
+
+  // --- [3] FETCHING & PARSING LOGIC ---
+
+  const parseRSS = (xmlText, countryCode) => {
+    try {
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(xmlText, "text/xml");
+      const items = Array.from(xml.querySelectorAll("item"));
+      let idCounter = Date.now();
+      
+      // [추가] 5시간 제한 밀리초 계산
+      const FIVE_HOURS_MS = 5 * 60 * 60 * 1000; 
+      const now = Date.now();
+
+      // map 대신 reduce를 사용하여 5시간 지난 기사는 제외하고 배열 완성
+      return items.reduce((acc, item) => {
+        const pubDateStr = item.querySelector("pubDate")?.textContent;
+        const pubDate = pubDateStr ? new Date(pubDateStr).getTime() : now;
+        
+        // 발행일이 파싱 가능하고, 5시간 이상 지났다면 acc(결과)에 추가하지 않고 건너뜀
+        if (!isNaN(pubDate) && now - pubDate > FIVE_HOURS_MS) return acc;
+
+        const fullTitle = item.querySelector("title")?.textContent || "";
+        
+        // 다중 소스 지원을 위한 매체명 추출 로직 (Bing News, Google News 혼합 대응)
+        let publisher = item.querySelector("source")?.textContent || "Unknown";
+        let title = fullTitle;
+        if (publisher === "Unknown") {
+          const split = fullTitle.split(" - ");
+          if (split.length > 1) {
+            publisher = split.pop();
+            title = split.join(" - ");
+          }
+        }
+
+        const rawDesc = item.querySelector("description")?.textContent || "";
+        const cleanDesc = rawDesc.replace(/<[^>]*>?/gm, '').slice(0, 150);
+        let categoryText = item.querySelector("category")?.textContent || "";
+
+        // [강화] 내용, 제목, 카테고리 태그 딥 스캔 분류
+        const t = (title + " " + categoryText + " " + cleanDesc).toLowerCase();
+        let category = '사회';
+        if (t.match(/정치|대통령|국회|선거|의원|여야|정부|백악관|총리|당|election|president|parliament|politics|gov|민주|공화/)) category = '정치';
+        else if (t.match(/경제|금융|주식|기업|투자|달러|금리|증시|시장|물가|economy|market|stock|business|finance|trade|bank/)) category = '경제';
+        else if (t.match(/it|과학|기술|반도체|ai|애플|구글|삼성|우주|tech|science|apple|google|cyber|software|앱|스마트폰/)) category = 'IT/과학';
+        else if (t.match(/스포츠|축구|야구|농구|올림픽|월드컵|손흥민|sports|football|soccer|baseball|basketball|olympic|경기|리그/)) category = '스포츠';
+        else if (t.match(/문화|예술|영화|음악|공연|축제|전시|연예|culture|art|movie|music|entertainment|festival|star|드라마|배우/)) category = '문화';
+
+        const priorityList = PRIORITY_PUBLISHERS[countryCode] || [];
+        const isPriority = priorityList.some(p => publisher.toLowerCase().includes(p.toLowerCase()));
+
+        acc.push({
+          id: `news_${countryCode}_${idCounter++}_${Math.random().toString(36).substr(2, 5)}`,
+          country: countryCode,
+          category,
+          isUnverified: false,
+          isPriority,
+          title,
+          summary: cleanDesc || "기사 내용을 확인해 주세요.", 
+          publisher,
+          date: pubDateStr || new Date().toISOString(),
+          thumbnail: `https://picsum.photos/seed/${idCounter}/300/200`,
+          link: item.querySelector("link")?.textContent || "#"
+        });
+        return acc;
+      }, []);
+    } catch (e) {
+      console.error("RSS Parsing Error", e);
+      return [];
+    }
+  };
+
+  const fetchWithFallback = async (url) => {
+    const proxies = [
+      `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+      `https://corsproxy.io/?${encodeURIComponent(url)}`
+    ];
+    for (const proxy of proxies) {
+      try {
+        const res = await fetch(proxy);
+        if (!res.ok) continue;
+        if (proxy.includes('allorigins')) {
+          const data = await res.json();
+          if (data.contents) return data.contents;
+        } else {
+          const text = await res.text();
+          if (text) return text;
+        }
+      } catch (e) {}
+    }
+    return null;
+  };
+
+  const fetchNewsForCountry = async (countryCode, isForce = false) => {
+    const existingCount = allNewsData.filter(n => n.country === countryCode).length;
+    if (!isForce && existingCount > 10) return;
+    
+    if (isForce) {
+      fetchStageRef.current[countryCode] = 0;
+    }
+    
+    setIsFetchingSpecificCountry(true);
+    const settings = COUNTRY_SETTINGS[countryCode] || { hl: 'en', gl: countryCode };
+    
+    // [강화] 다중 소스 병렬 요청 (Google News + Bing News)
+    const gnewsUrl = `https://news.google.com/rss?hl=${settings.hl}&gl=${settings.gl}&ceid=${settings.gl}:${settings.hl}`;
+    const bingUrl = `https://www.bing.com/news/search?q=${encodeURIComponent(settings.name)}&format=rss`;
+
+    try {
+      const [gContents, bContents] = await Promise.all([
+        fetchWithFallback(gnewsUrl),
+        fetchWithFallback(bingUrl)
+      ]);
+      
+      let newItems = [];
+      if (gContents) newItems = [...newItems, ...parseRSS(gContents, countryCode)];
+      if (bContents) newItems = [...newItems, ...parseRSS(bContents, countryCode)];
+
+      setAllNewsData(prev => {
+        const filtered = prev.filter(n => n.country !== countryCode);
+        
+        // 중복 제거
+        const uniqueTitles = new Set();
+        const deduplicated = newItems.filter(item => {
+          if (uniqueTitles.has(item.title)) return false;
+          uniqueTitles.add(item.title);
+          return true;
+        });
+
+        return [...filtered, ...deduplicated].sort((a, b) => {
+          if (a.isPriority !== b.isPriority) return b.isPriority ? -1 : 1;
+          return new Date(b.date) - new Date(a.date);
+        });
+      });
+      setCountryRefreshTime(new Date());
+      setCountryRefreshAgo('방금 전');
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsFetchingSpecificCountry(false);
+    }
+  };
+
+  const loadMoreNews = async (countryCode) => {
+    if (isFetchingMore) return;
+    const stages = ['NATION', 'BUSINESS', 'TECHNOLOGY', 'ENTERTAINMENT', 'SPORTS', 'SCIENCE', 'HEALTH'];
+    const currentStage = fetchStageRef.current[countryCode] || 0;
+    if (currentStage >= stages.length) return;
+
+    setIsFetchingMore(true);
+    const topic = stages[currentStage];
+    fetchStageRef.current[countryCode] = currentStage + 1; 
+
+    const settings = COUNTRY_SETTINGS[countryCode] || { hl: 'en', gl: countryCode };
+    const url = `https://news.google.com/rss/headlines/section/topic/${topic}?hl=${settings.hl}&gl=${settings.gl}&ceid=${settings.gl}:${settings.hl}`;
+
+    try {
+      const contents = await fetchWithFallback(url);
+      if (contents) {
+        const newItems = parseRSS(contents, countryCode);
+        setAllNewsData(prev => {
+          const existingTitles = new Set(prev.map(n => n.title));
+          const uniqueNewItems = newItems.filter(n => !existingTitles.has(n.title));
+          return [...prev, ...uniqueNewItems].sort((a, b) => {
+            if (a.isPriority !== b.isPriority) return b.isPriority ? -1 : 1;
+            return new Date(b.date) - new Date(a.date);
+          });
+        });
+      }
+    } catch (e) {
+      console.error(`Failed to fetch more news for ${countryCode}`, e);
+    } finally {
+      setIsFetchingMore(false);
+    }
+  };
+
+  const fetchLiveNews = async (isForce = false) => {
+    if (isForce) setIsRefreshing(true);
+    else setIsLoadingNews(true);
+    
+    const countryCodes = Object.keys(COUNTRY_SETTINGS);
+    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    
+    try {
+      let combinedNews = [];
+      const batchSize = 5;
+      for (let i = 0; i < countryCodes.length; i += batchSize) {
+        const batch = countryCodes.slice(i, i + batchSize);
+        const results = await Promise.all(batch.map(async (code) => {
+          await delay(Math.random() * 100);
+          const settings = COUNTRY_SETTINGS[code];
+          
+          // [강화] 실시간 피드도 다중 소스 수집
+          const gUrl = `https://news.google.com/rss?hl=${settings.hl}&gl=${settings.gl}&ceid=${settings.gl}:${settings.hl}`;
+          const bUrl = `https://www.bing.com/news/search?q=${encodeURIComponent(settings.name)}&format=rss`;
+          
+          const [gCont, bCont] = await Promise.all([fetchWithFallback(gUrl), fetchWithFallback(bUrl)]);
+          
+          let items = [];
+          if (gCont) items = [...items, ...parseRSS(gCont, code)];
+          if (bCont) items = [...items, ...parseRSS(bCont, code)];
+          return items;
+        }));
+        results.forEach(items => { combinedNews = [...combinedNews, ...items]; });
+        await delay(100);
+      }
+      
+      const uniqueTitles = new Set();
+      const deduplicated = combinedNews.filter(item => {
+        if (uniqueTitles.has(item.title)) return false;
+        uniqueTitles.add(item.title);
+        return true;
+      });
+
+      setAllNewsData(deduplicated.sort((a, b) => {
+        if (a.isPriority !== b.isPriority) return b.isPriority ? -1 : 1;
+        return new Date(b.date) - new Date(a.date);
+      }));
+      setGlobalRefreshTime(new Date());
+      setGlobalRefreshAgo('방금 전');
+    } catch (err) {
+      console.error("Global fetch error", err);
+    } finally {
+      if (isForce) setIsRefreshing(false);
+      else setIsLoadingNews(false);
+    }
+  };
+
+  useEffect(() => { fetchLiveNews(); }, []);
+
+  // --- [4] MAP INITIALIZATION ---
+
+  useEffect(() => {
+    const loadLeaflet = async () => {
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link'); link.id = 'leaflet-css'; link.rel = 'stylesheet'; link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(link);
+      }
+      if (!document.getElementById('leaflet-js')) {
+        const script = document.createElement('script'); script.id = 'leaflet-js'; script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; script.onload = () => setMapLoaded(true); document.head.appendChild(script);
+      } else { setMapLoaded(true); }
+    };
+    loadLeaflet();
+  }, []);
+
+  useEffect(() => {
+    const fetchGeoJson = async () => {
+      try {
+        const response = await fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json');
+        const data = await response.json();
+        setGeoJsonData(data);
+      } catch (error) {}
+    };
+    fetchGeoJson();
+  }, []);
+
+  const filteredNews = useMemo(() => {
+    return allNewsData.filter(item => {
+      const priorityList = PRIORITY_PUBLISHERS[item.country];
+      if (priorityList) {
+        const isOfficialMatch = priorityList.some(p => 
+          item.publisher.toLowerCase().includes(p.toLowerCase())
+        );
+        if (!isOfficialMatch) return false;
+      }
+
+      if (showOnlyBookmarked && !bookmarkedNewsIds.includes(item.id)) return false;
+
+      let matchCategory = true;
+      if (selectedCategory !== '전체') {
+        if (CATEGORIES.includes(selectedCategory)) matchCategory = item.category === selectedCategory;
+        else {
+          const kw = selectedCategory.toLowerCase();
+          matchCategory = item.title.toLowerCase().includes(kw) || item.summary.toLowerCase().includes(kw);
+        }
+      }
+      if (!matchCategory) return false;
+
+      if (searchQuery && !item.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+
+      return true;
+    });
+  }, [allNewsData, selectedCategory, searchQuery, showOnlyBookmarked, bookmarkedNewsIds]);
+
+  const countryCounts = useMemo(() => {
+    const counts = {}; filteredNews.forEach(item => { counts[item.country] = (counts[item.country] || 0) + 1; }); return counts;
+  }, [filteredNews]);
+
+  useEffect(() => {
+    if (!mapLoaded || !geoJsonData || !mapRef.current || mapInstanceRef.current) return;
+    const L = window.L;
+    const map = L.map(mapRef.current, { 
+      preferCanvas: true, zoomControl: false, attributionControl: false, minZoom: 2, 
+      maxBounds: [[-90, -180], [90, 180]], maxBoundsViscosity: 1.0, worldCopyJump: true 
+    }).setView([20, 0], 2);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { opacity: 0.6 }).addTo(map);
+
+    const iso3To2 = { 
+      KOR: 'KR', PRK: 'KR', // 한반도 통합
+      USA: 'US', CHN: 'CN', JPN: 'JP', GBR: 'GB', FRA: 'FR', IND: 'IN', BRA: 'BR', ZAF: 'ZA', AUS: 'AU', DEU: 'DE', CAN: 'CA', ITA: 'IT', ESP: 'ES', NLD: 'NL', CHE: 'CH', SWE: 'SE', MEX: 'MX', TUR: 'TR', POL: 'PL', BEL: 'BE', AUT: 'AT', NOR: 'NO', DNK: 'DK',
+      RUS: 'RU', VNM: 'VN', THA: 'TH', IDN: 'ID', PHL: 'PH', MYS: 'MY', SGP: 'SG', ARG: 'AR', CHL: 'CL', COL: 'CO', PER: 'PE', EGY: 'EG', SAU: 'SA', ARE: 'AE', ISR: 'IL', UKR: 'UA', FIN: 'FI', GRC: 'GR', PRT: 'PT'
+    };
+
+    L.geoJSON(geoJsonData, {
+      style: (feature) => {
+        const isPeninsula = feature.id === 'KOR' || feature.id === 'PRK';
+        return { fillColor: '#E5E7EB', color: isPeninsula ? '#E5E7EB' : '#FFFFFF', weight: isPeninsula ? 0.3 : 1.5, fillOpacity: 1 };
+      },
+      onEachFeature: (feature, layer) => {
+        layer.on('mouseover', () => { layer.setStyle({ fillColor: '#D1D5DB' }); });
+        layer.on('mouseout', () => { layer.setStyle({ fillColor: '#E5E7EB' }); });
+        layer.on('click', (e) => {
+          const code = iso3To2[feature.id];
+          if (code) {
+            setActiveCountry(code);
+            setActiveCountryName(code === 'KR' ? '대한민국' : (COUNTRY_SETTINGS[code]?.name || feature.properties.name));
+            setIsNewsPanelOpen(true);
+            setIsSearchPanelOpen(false);
+            fetchNewsForCountry(code);
+            const targetCoords = code === 'KR' ? COUNTRY_SETTINGS.KR.coords : layer.getBounds().getCenter();
+            map.flyTo(targetCoords, code === 'KR' ? 7 : 5, { duration: 1.2 });
+          }
+        });
+      }
+    }).addTo(map);
+
+    markersLayerRef.current = L.layerGroup().addTo(map);
+    mapInstanceRef.current = map;
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    setIsMapReady(true);
+  }, [mapLoaded, geoJsonData]);
+
+  useEffect(() => {
+    if (!isMapReady || !mapInstanceRef.current || !markersLayerRef.current) return;
+    const L = window.L; const layer = markersLayerRef.current; layer.clearLayers();
+    const codes = [...new Set(allNewsData.map(n => n.country))];
+    
+    codes.forEach(code => {
+      const count = countryCounts[code] || 0;
+      if (count === 0) return;
+      const coords = COUNTRY_SETTINGS[code]?.coords || [0, 0];
+      if (coords[0] === 0) return;
+
+      const icon = L.divIcon({
+        className: 'custom-div-icon',
+        html: `<div class="relative flex flex-col items-center group cursor-pointer transform transition-transform hover:scale-110"><div class="relative flex items-center justify-center w-auto min-w-[40px] px-2 h-10 shadow-xl rounded-full bg-slate-800 border-2 border-white"><span class="text-white font-bold text-sm z-10">${count}</span></div><div class="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-transparent border-t-slate-800 drop-shadow-md"></div></div>`,
+        iconSize: [40, 48], iconAnchor: [20, 48]
+      });
+
+      const marker = L.marker(coords, { icon });
+      marker.on('click', () => { 
+        setActiveCountry(code); 
+        setActiveCountryName(COUNTRY_SETTINGS[code]?.name || code);
+        setIsNewsPanelOpen(true); 
+        fetchNewsForCountry(code);
+        mapInstanceRef.current.flyTo(coords, COUNTRY_SETTINGS[code]?.zoom || 5, { duration: 1.2 }); 
+      });
+      marker.addTo(layer);
+    });
+  }, [countryCounts, allNewsData, isMapReady]);
+
+  const handleClosePanel = () => { setActiveCountry(null); setIsNewsPanelOpen(false); setIsSearchPanelOpen(false); setSearchQuery(''); setSearchInput(''); if (mapInstanceRef.current) mapInstanceRef.current.flyTo([20, 0], 2, { duration: 1.2 }); };
+  const handleSearchSubmit = (e) => { e.preventDefault(); if (searchInput.trim()) { setSearchQuery(searchInput); setIsSearchPanelOpen(true); setIsNewsPanelOpen(false); setActiveCountry(null); } };
+  const handleClearSearch = () => { setSearchInput(''); setSearchQuery(''); setIsSearchPanelOpen(false); };
+  const toggleBookmark = (e, id) => { e.stopPropagation(); setBookmarkedNewsIds(prev => prev.includes(id) ? prev.filter(bId => bId !== id) : [...prev, id]); };
+  const markAsRead = (id) => { if (!readNewsIds.includes(id)) setReadNewsIds(prev => [...prev, id]); };
+
+  const summarizeNews = async (newsId, title, originalSummary) => {
+    if (summaries[newsId]?.isSummarizing) return;
+    setSummaries(prev => ({ ...prev, [newsId]: { isSummarizing: true } }));
+    const apiKey = ""; 
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    const translatedTitle = translations[newsId]?.showTranslation ? translations[newsId].title : title;
+    const prompt = `다음 소식의 핵심 내용을 1~2문장의 한국어로 요약해줘. \n내용: ${translatedTitle} / ${originalSummary}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          systemInstruction: { parts: [{ text: "너는 유능한 뉴스 요약 AI야. 핵심만 짧고 명확하게 한국어로 요약해." }] },
+          generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { summary: { type: "STRING" } } } }
+        })
+      });
+      const result = await res.json();
+      const data = JSON.parse(result.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+      setSummaries(prev => ({ ...prev, [newsId]: { text: data.summary, isSummarizing: false } }));
+    } catch (e) {
+      setSummaries(prev => ({ ...prev, [newsId]: { isSummarizing: false, error: true } }));
+    }
+  };
+
+  const translateListSequentially = async (listToTranslate, setLoader) => {
+    const list = listToTranslate.filter(n => n.country !== 'KR' && !translations[n.id]?.title).slice(0, 15);
+    if (list.length === 0) {
+      const anyShowing = listToTranslate.some(n => translations[n.id]?.showTranslation);
+      setTranslations(prev => { 
+        const next = { ...prev }; 
+        listToTranslate.forEach(n => { if (next[n.id]) next[n.id].showTranslation = !anyShowing; }); 
+        return next; 
+      });
+      return;
+    }
+    setLoader(true);
+    const apiKey = ""; 
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    for (const news of list) {
+      try {
+        const payload = { contents: [{ parts: [{ text: `Translate following news to Korean JSON {"title":"", "summary":""}:\nTitle: ${news.title}\nSummary: ${news.summary}` }] }], generationConfig: { responseMimeType: "application/json" } };
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
+        const result = await res.json(); 
+        const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+        const data = JSON.parse(rawText); 
+        if (data.title) setTranslations(prev => ({ ...prev, [news.id]: { title: data.title, summary: data.summary, showTranslation: true } }));
+        await new Promise(r => setTimeout(r, 80));
+      } catch (e) {}
+    }
+    setLoader(false);
+  };
+
+  // [추가] 개별 기사 번역 함수
+  const translateSingleArticle = async (news) => {
+    // 이미 번역된 기사라면 토글만 수행
+    if (translations[news.id]?.title) {
+      setTranslations(prev => ({
+        ...prev,
+        [news.id]: { ...prev[news.id], showTranslation: !prev[news.id].showTranslation }
+      }));
+      return;
+    }
+
+    // 개별 로딩 상태 켜기
+    setTranslations(prev => ({ ...prev, [news.id]: { ...prev[news.id], isTranslating: true } }));
+    
+    const apiKey = ""; 
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    try {
+      const payload = { contents: [{ parts: [{ text: `Translate following news to Korean JSON {"title":"", "summary":""}:\nTitle: ${news.title}\nSummary: ${news.summary}` }] }], generationConfig: { responseMimeType: "application/json" } };
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
+      const result = await res.json(); 
+      const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      const data = JSON.parse(rawText); 
+      if (data.title) {
+        setTranslations(prev => ({ ...prev, [news.id]: { title: data.title, summary: data.summary, showTranslation: true, isTranslating: false } }));
+      } else {
+        setTranslations(prev => ({ ...prev, [news.id]: { ...prev[news.id], isTranslating: false } }));
+      }
+    } catch (e) {
+      setTranslations(prev => ({ ...prev, [news.id]: { ...prev[news.id], isTranslating: false } }));
+    }
+  };
+
+  const getTimeAgo = (d) => { const diff = Date.now() - new Date(d).getTime(); const mins = Math.floor(diff / 60000); const hrs = Math.floor(mins / 60); if (mins < 60) return `${mins}분 전`; if (hrs < 24) return `${hrs}시간 전`; return `${Math.floor(hrs / 24)}일 전`; };
+  const displayedNewsList = useMemo(() => activeCountry ? filteredNews.filter(n => n.country === activeCountry) : filteredNews, [filteredNews, activeCountry]);
+  const panelNewsList = isSearchPanelOpen ? filteredNews : displayedNewsList;
+  const localPanelNewsList = useMemo(() => panelCategory === '전체' ? panelNewsList : panelNewsList.filter(n => n.category === panelCategory), [panelNewsList, panelCategory]);
+  
+  const handleScroll = async (e) => { 
+    if (e.target.scrollHeight - e.target.scrollTop <= e.target.clientHeight + 50) { 
+      if (visibleCount < localPanelNewsList.length) { 
+        setVisibleCount(prev => prev + 15); 
+      } else if (!isFetchingMore && activeCountry) {
+        loadMoreNews(activeCountry);
+      }
+    } 
+  };
+  
+  const handleSidebarNewsClick = (news) => { markAsRead(news.id); setActiveCountry(news.country); setIsNewsPanelOpen(true); setIsSearchPanelOpen(false); fetchNewsForCountry(news.country); if (mapInstanceRef.current && COUNTRY_SETTINGS[news.country]) { mapInstanceRef.current.flyTo(COUNTRY_SETTINGS[news.country].coords, COUNTRY_SETTINGS[news.country].zoom, { duration: 1 }); } };
+  const isAnyPanelOpen = isNewsPanelOpen || isSearchPanelOpen;
+
+  return (
+    <div className="relative w-full h-screen overflow-hidden font-sans text-slate-800 bg-black flex">
+      {/* LEFT SIDEBAR - 전체 스크롤 하나로 통합 */}
+      <div className={`h-full bg-white/95 backdrop-blur-xl shadow-2xl z-30 transform transition-all duration-500 ease-in-out flex flex-col border-r border-slate-200 overflow-hidden ${isSidebarOpen ? 'w-[340px]' : 'w-0'}`}>
+        
+        <div className="flex items-center justify-between p-6 border-b border-slate-200 bg-white shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-10 h-10 bg-blue-50/80 rounded-xl border border-blue-100 shadow-sm text-2xl">☁️</div>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold tracking-tight text-slate-900 leading-tight truncate">구름 뉴스</h1>
+              {/* [타이머 추가] 사이드바 갱신 시간 표시 */}
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <p className="text-xs text-blue-600 font-bold tracking-wide">● LIVE ({allNewsData.length})</p>
+                <span className="text-[10px] text-slate-400">({globalRefreshAgo} 갱신)</span>
+                <button onClick={() => fetchLiveNews(true)} disabled={isRefreshing} className="text-slate-400 hover:text-blue-600 disabled:opacity-50" title="전체 뉴스 새로고침">
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-500' : ''}`} />
+                </button>
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 shrink-0"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col min-h-0">
+          
+          <div className="p-6 pb-2 shrink-0">
+            <button onClick={() => setIsCategoryExpanded(!isCategoryExpanded)} className="flex items-center justify-between w-full p-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors mb-2"><div className="flex items-center gap-2"><Filter className="w-4 h-4" /> 카테고리 필터</div>{isCategoryExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</button>
+            <div className={`flex flex-col gap-3 overflow-hidden transition-all duration-300 ${isCategoryExpanded ? 'max-h-[500px] opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
+              <div className="flex flex-wrap gap-2">
+                {CATEGORIES.map(cat => <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all ${selectedCategory === cat ? 'bg-slate-800 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{cat}</button>)}
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 py-2 shrink-0">
+            <button onClick={() => setIsOptionsExpanded(!isOptionsExpanded)} className="flex items-center justify-between w-full p-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors mb-2"><div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> 추가 옵션</div>{isOptionsExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</button>
+            <div className={`flex flex-col gap-2 overflow-hidden transition-all duration-300 ${isOptionsExpanded ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+              <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"><span className="text-xs font-bold text-slate-700">공신력 낮은 매체 포함</span><div className={`relative w-10 h-5 rounded-full transition-colors ${includeUnverified ? 'bg-amber-500' : 'bg-slate-300'}`}><div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${includeUnverified ? 'translate-x-5' : 'translate-x-0'}`}></div></div><input type="checkbox" className="hidden" checked={includeUnverified} onChange={(e) => setIncludeUnverified(e.target.checked)} /></label>
+              <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"><span className="text-xs font-bold text-slate-700">스크랩/북마크만 보기</span><div className={`relative w-10 h-5 rounded-full transition-colors ${showOnlyBookmarked ? 'bg-blue-500' : 'bg-slate-300'}`}><div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${showOnlyBookmarked ? 'translate-x-5' : 'translate-x-0'}`}></div></div><input type="checkbox" className="hidden" checked={showOnlyBookmarked} onChange={(e) => setShowOnlyBookmarked(e.target.checked)} /></label>
+            </div>
+          </div>
+
+          <div className="px-6 shrink-0"><div className="w-full h-px bg-slate-200"></div></div>
+
+          <div className="px-4 py-4 shrink-0">
+            <div className="flex items-center justify-between px-2 mb-4 shrink-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-500 flex items-center gap-2"><Clock className="w-4 h-4" /> 실시간 뉴스 피드</h3>
+                <button onClick={() => translateListSequentially(filteredNews, setIsSidebarTranslating)} disabled={isSidebarTranslating} className={`p-1.5 rounded-lg transition-all ${isSidebarTranslating ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-100 text-slate-400 hover:text-indigo-600'}`} title="이 리스트 전체 번역">{isSidebarTranslating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}</button>
+              </div>
+              <span className="text-[10px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded shrink-0">최신순</span>
+            </div>
+
+            <div className="space-y-4 px-2 pb-10">
+              {filteredNews.length === 0 ? (
+                <div className="py-20 text-center flex flex-col items-center gap-2 text-slate-400"><Layers className="w-8 h-8 opacity-20" /><span className="text-xs">데이터 로딩 중...</span></div>
+              ) : (
+                filteredNews.slice(0, 100).map((news) => {
+                  const isRead = readNewsIds.includes(news.id); const isTranslated = translations[news.id]?.showTranslation;
+                  const flagUrl = getFlagIcon(news.country);
+                  return (
+                    <article key={news.id} onClick={() => handleSidebarNewsClick(news)} className={`group flex flex-col gap-2 p-3 rounded-2xl border border-transparent hover:border-slate-200 hover:bg-white hover:shadow-sm cursor-pointer transition-all ${isRead ? 'opacity-50' : ''}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center min-w-0">
+                          <span title={news.publisher} className={`text-[10px] font-bold px-1.5 py-0.5 rounded truncate max-w-[160px] flex items-center gap-1.5 ${news.isPriority ? 'bg-blue-600 text-white shadow-sm' : 'text-blue-600 bg-blue-50'}`}>
+                            {flagUrl && <img src={flagUrl} className="w-3.5 h-2.5 shrink-0 object-cover rounded-sm border border-black/10" alt={news.country} />}
+                            <span className="truncate">{news.publisher}</span>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* [수정] 좌측 피드에 개별 번역 버튼 적용 */}
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); translateSingleArticle(news); }} 
+                            disabled={translations[news.id]?.isTranslating} 
+                            className={`transition-colors ${translations[news.id]?.showTranslation ? 'text-indigo-600' : 'text-slate-300 hover:text-indigo-600'}`} 
+                            title="기사 번역"
+                          >
+                            {translations[news.id]?.isTranslating ? <Loader2 className="w-3 h-3 animate-spin text-indigo-500" /> : <Languages className="w-3 h-3" />}
+                          </button>
+                          <span className="text-[10px] text-slate-400 whitespace-nowrap">{getTimeAgo(news.date)}</span>
+                        </div>
+                      </div>
+                      <h4 className={`text-[13.5px] font-bold line-clamp-2 leading-snug group-hover:text-blue-600 ${news.isPriority ? 'text-blue-900' : 'text-slate-800'}`}>{isTranslated ? translations[news.id].title : news.title}</h4>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* MAIN MAP SECTION */}
+      <div className="flex-1 relative h-full bg-[#0a0a0a]">
+        <div ref={mapRef} className="absolute inset-0 z-0">
+          {!mapLoaded && <div className="flex items-center justify-center w-full h-full text-white"><Globe className="w-8 h-8 animate-spin mr-3 opacity-50" /><span>지도 데이터를 불러오는 중...</span></div>}
+        </div>
+        
+        {/* [추가] 워터마크 (우측 하단, 줌 컨트롤 영역을 피해 배치) */}
+        <div className="absolute bottom-6 right-[70px] z-[400] pointer-events-none select-none">
+          <span className="px-3 py-1.5 bg-black/40 backdrop-blur-sm rounded-lg text-white/80 text-xs font-bold shadow-md border border-white/10 tracking-wide">
+            Powered by 구름
+          </span>
+        </div>
+
+        {isLoadingNews && <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm text-white"><Loader2 className="w-12 h-12 animate-spin mb-4 text-blue-500" /><h2 className="text-2xl font-bold mb-2 tracking-tight">전 세계 뉴스를 잔뜩 모으고 있어요!</h2></div>}
+        <button onClick={() => setIsSidebarOpen(true)} className={`absolute top-4 left-4 md:top-6 md:left-6 z-20 p-3 bg-white/90 backdrop-blur-md shadow-lg rounded-2xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all ${isSidebarOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}><Menu className="w-6 h-6" /></button>
+        <div className="absolute top-4 right-4 md:top-6 md:right-6 z-10 pointer-events-auto">
+          <form onSubmit={handleSearchSubmit} className="relative group"><div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" /></div><input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="block w-full pl-10 pr-10 py-3 bg-white/90 backdrop-blur-md border border-white/20 rounded-2xl leading-5 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-lg transition-all md:w-80" placeholder="뉴스 검색 (예: 트럼프, 반도체)..." />{searchInput && <button type="button" onClick={handleClearSearch} className="absolute inset-y-0 right-0 pr-3 flex items-center"><X className="h-4 w-4 text-slate-400 hover:text-slate-600" /></button>}</form>
+        </div>
+
+        {/* RIGHT DETAIL PANEL */}
+        <div className={`absolute top-0 right-0 h-full w-full md:w-[450px] bg-white/95 backdrop-blur-xl shadow-2xl z-20 transform transition-transform duration-500 ease-in-out flex flex-col border-l border-slate-200 ${isAnyPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+          <div className="flex items-center justify-between p-6 border-b border-slate-200 bg-white shrink-0">
+            <div className="flex items-center gap-3 min-w-0"><button onClick={handleClosePanel} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 shrink-0"><X className="w-5 h-5" /></button><h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 truncate">{isSearchPanelOpen ? <><Search className="w-5 h-5 text-blue-600 shrink-0" /><span className="truncate">"{searchQuery}" 검색</span></> : <><Globe className="w-6 h-6 text-blue-600 shrink-0" /><span className="truncate">{activeCountryName}</span></>}</h2></div>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* [타이머 추가] 국가 탭 갱신 시간 및 새로고침 버튼 */}
+              {!isSearchPanelOpen && activeCountry && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-slate-400 hidden sm:inline-block">({countryRefreshAgo} 갱신)</span>
+                  <button 
+                    onClick={() => fetchNewsForCountry(activeCountry, true)} 
+                    disabled={isFetchingSpecificCountry} 
+                    className={`p-1.5 rounded-lg transition-all ${isFetchingSpecificCountry ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-100 text-slate-400 hover:text-blue-600'}`} 
+                    title="해당 국가 최신 뉴스 갱신"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isFetchingSpecificCountry ? 'animate-spin text-blue-500' : ''}`} />
+                  </button>
+                </div>
+              )}
+              <button onClick={() => translateListSequentially(localPanelNewsList, setIsPanelTranslating)} disabled={isPanelTranslating} className={`p-1.5 rounded-lg transition-all ${isPanelTranslating ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-100 text-slate-400 hover:text-indigo-600'}`} title="이 리스트 일괄 번역">{isPanelTranslating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}</button>
+              <div className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-bold">{localPanelNewsList.length}</div>
+            </div>
+          </div>
+          {isFetchingSpecificCountry && (
+            <div className="px-6 py-2 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2 text-indigo-600 text-xs font-bold"><Loader2 className="w-3 h-3 animate-spin" /> {activeCountryName} 뉴스를 가져오는 중...</div>
+          )}
+          {!isSearchPanelOpen && activeCountry && (
+            <div className="px-6 pt-4 pb-4 bg-slate-50 border-b border-slate-200 overflow-x-auto whitespace-nowrap hide-scrollbar shrink-0"><div className="flex gap-2">{CATEGORIES.map(cat => <button key={cat} onClick={() => { setPanelCategory(cat); setVisibleCount(15); }} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${panelCategory === cat ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>{cat}</button>)}</div></div>
+          )}
+          
+          <div className="flex-1 overflow-y-auto p-6 scroll-smooth scrollbar-hide" onScroll={handleScroll}>
+            {localPanelNewsList.length === 0 && !isFetchingSpecificCountry && !isFetchingMore ? (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-4"><Layers className="w-12 h-12 opacity-20" /><p>조건에 맞는 뉴스가 없습니다.</p></div>
+            ) : (
+              <div className="flex flex-col gap-6">
+                {localPanelNewsList.slice(0, visibleCount).map((news) => {
+                  const isRead = readNewsIds.includes(news.id); const isTranslated = translations[news.id]?.showTranslation;
+                  const summaryData = summaries[news.id]; const flagUrl = getFlagIcon(news.country);
+                  return (
+                    <article key={news.id} onClick={() => markAsRead(news.id)} className={`group flex flex-col gap-3 pb-6 border-b border-slate-100 last:border-0 relative cursor-pointer transition-all ${readNewsIds.includes(news.id) ? 'opacity-60' : ''}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center min-w-0 gap-2 flex-wrap">
+                          {readNewsIds.includes(news.id) && <span className="text-slate-500 bg-slate-100 px-2 py-1 rounded-md flex items-center gap-1 shrink-0"><Check className="w-3 h-3" /> 읽음</span>}
+                          <span title={news.publisher} className={`px-2 py-1 rounded-md truncate max-w-[220px] font-bold flex items-center gap-1.5 ${news.isPriority ? 'bg-blue-600 text-white shadow-md' : 'text-blue-600 bg-blue-50'}`}>
+                            {flagUrl && <img src={flagUrl} className="w-4 h-3 shrink-0 object-cover rounded-sm border border-black/10" alt={news.country} />}
+                            <span className="truncate">{news.publisher}</span>
+                          </span>
+                          <span className="text-slate-500 border border-slate-200 px-2 py-1 rounded-md shrink-0">{news.category}</span>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" />{getTimeAgo(news.date)}</span>
+                          {/* [수정] 우측 상세 패널에 개별 번역 버튼 적용 */}
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); translateSingleArticle(news); }} 
+                            disabled={translations[news.id]?.isTranslating} 
+                            className={`p-1.5 rounded-full transition-colors ${translations[news.id]?.showTranslation ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-100 text-slate-300 hover:text-indigo-600'}`} 
+                            title="기사 번역"
+                          >
+                            {translations[news.id]?.isTranslating ? <Loader2 className="w-4 h-4 animate-spin text-indigo-500" /> : <Languages className="w-4 h-4" />}
+                          </button>
+                          <button onClick={(e) => toggleBookmark(e, news.id)} className={`p-1.5 rounded-full transition-colors ${bookmarkedNewsIds.includes(news.id) ? 'bg-blue-50 text-blue-500' : 'hover:bg-slate-100 text-slate-300'}`}><Bookmark className={`w-4 h-4 ${bookmarkedNewsIds.includes(news.id) ? 'fill-current' : ''}`} /></button>
+                        </div>
+                      </div>
+                      <div className="flex gap-4">
+                        <div className="flex-1 flex flex-col gap-2 group-hover:text-blue-600 transition-colors min-w-0">
+                          <h3 className={`font-bold text-lg leading-snug line-clamp-2 ${news.isPriority ? 'text-blue-900' : 'text-slate-800'}`}>{isTranslated ? translations[news.id].title : news.title}</h3>
+                          <div className="mt-1">
+                            {summaryData?.text ? (
+                              <div className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 mb-2 leading-relaxed animate-in fade-in slide-in-from-top-1">
+                                <div className="flex items-center gap-1 text-[10px] font-bold text-indigo-500 mb-1 uppercase tracking-wider"><Sparkles className="w-3 h-3" /> AI Summary</div>
+                                {summaryData.text}
+                              </div>
+                            ) : (
+                              <button onClick={(e) => { e.stopPropagation(); summarizeNews(news.id, news.title, news.summary); }} disabled={summaryData?.isSummarizing} className="flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-all border border-indigo-100 mb-2 disabled:opacity-50">
+                                {summaryData?.isSummarizing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} AI 요약하기
+                              </button>
+                            )}
+                            <p className="text-[11px] text-slate-400 italic">원문 링크를 클릭하여 언론사 페이지에서 자세한 내용을 확인하세요.</p>
+                          </div>
+                        </div>
+                        <div className="w-24 h-24 shrink-0 rounded-xl overflow-hidden shadow-sm border border-slate-100 relative group-hover:shadow-md transition-all"><img src={news.thumbnail} alt="썸네일" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onError={(e) => { e.target.onerror = null; e.target.src = 'https://via.placeholder.com/300x200?text=No+Image'; }} /></div>
+                      </div>
+                      <a href={news.link} target="_blank" rel="noreferrer" onClick={(e) => { e.stopPropagation(); markAsRead(news.id); }} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-blue-600 transition-colors w-max">원문 보기 <ExternalLink className="w-3 h-3" /></a>
+                    </article>
+                  );
+                })}
+                
+                {/* 무한 스크롤 진행 중 로딩 애니메이션 */}
+                {isFetchingMore && (
+                  <div className="py-6 flex justify-center items-center text-indigo-500 gap-2 text-sm font-bold animate-pulse">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    지난 뉴스를 추가로 불러오는 중...
+                  </div>
+                )}
+                {/* 더 이상 불러올 데이터가 없을 때 */}
+                {visibleCount >= localPanelNewsList.length && !isFetchingMore && activeCountry && fetchStageRef.current[activeCountry] >= 7 && (
+                  <div className="py-8 text-center text-slate-400 text-xs font-bold">
+                    해당 국가의 주요 뉴스를 모두 확인했습니다.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
+    </div>
+  );
+}

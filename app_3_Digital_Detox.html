@@ -1,0 +1,956 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Play, Pause, Square, Plus, Trash2, Check, 
+  BarChart3, ListTodo, Timer, Maximize, Minimize, 
+  Leaf, PhoneOff, AlertCircle, Save, X, Clock, FileText, History,
+  BookOpen, BrainCircuit, Layers, Code2, ArrowRight, ArrowLeft, RotateCcw, ChevronRight, MonitorSmartphone, Database
+} from 'lucide-react';
+
+const QUOTES = [
+  "스마트폰을 내려놓고, 지금 이 순간에 집중하세요.",
+  "디지털 세상에서 벗어나 온전한 나를 만나는 시간.",
+  "가장 중요한 일은 언제나 오프라인에 있습니다.",
+  "잠시 화면을 끄고 깊은 심호흡을 해보세요.",
+  "우리의 시간은 무한하지 않습니다. 현명하게 사용하세요."
+];
+
+// --- Learning Data ---
+const LIFECYCLE_QUIZ = [
+  { 
+    question: "Activity가 백그라운드로 들어가서 더 이상 사용자에게 보이지 않을 때 호출되는 생명주기 메서드는?", 
+    options: ["onPause()", "onStop()", "onDestroy()", "onSaveInstanceState()"], 
+    answer: 1 
+  },
+  { 
+    question: "Jetpack Compose에서 상태(State)가 변경되어 UI를 다시 그리는 과정을 무엇이라고 하나요?", 
+    options: ["Recomposition", "Re-layout", "Redraw", "Refresh"], 
+    answer: 0 
+  },
+  { 
+    question: "Fragment 생명주기 중 뷰(View) 계층이 소멸될 때 호출되는 콜백은?", 
+    options: ["onDestroy()", "onDestroyView()", "onDetach()", "onStop()"], 
+    answer: 1 
+  },
+  {
+    question: "ViewModel의 데이터를 UI에서 관찰(Observe)하기 위해 권장되는 Kotlin 코루틴 기반의 데이터 홀더는?",
+    options: ["LiveData", "ObservableField", "StateFlow", "MutableList"],
+    answer: 2
+  }
+];
+
+const KOTLIN_CARDS = [
+  { 
+    title: "스코프 함수: let", 
+    code: "obj?.let { it.doSomething() }", 
+    desc: "수신 객체를 'it'으로 받으며, 람다의 마지막 줄(결과)을 반환합니다. 주로 객체가 null이 아닐 때만 특정 코드를 실행하고 싶을 때 안전 호출(?.)과 함께 사용합니다." 
+  },
+  { 
+    title: "스코프 함수: apply", 
+    code: "val obj = Obj().apply { \n  name = \"Test\" \n}", 
+    desc: "수신 객체를 'this'로 받으며, 객체 자신을 반환합니다. 주로 객체를 생성함과 동시에 프로퍼티들을 초기화할 때 유용하게 사용됩니다." 
+  },
+  { 
+    title: "Null Safety (!! vs ?.)", 
+    code: "val len1 = str!!.length\nval len2 = str?.length", 
+    desc: "!!(Not-null assertion)는 null일 경우 NullPointerException을 발생시킵니다. ?.(Safe call)는 null이면 에러 없이 null을 반환하여 안전합니다." 
+  },
+  { 
+    title: "엘비스 연산자 (?:)", 
+    code: "val len = str?.length ?: 0", 
+    desc: "왼쪽 식의 결과가 null이면 연산자 오른쪽 값을 반환합니다. null일 경우 사용할 기본값(Default)을 설정할 때 매우 유용합니다." 
+  }
+];
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('timer');
+  const [isZenMode, setIsZenMode] = useState(false);
+  const [quote, setQuote] = useState(QUOTES[0]);
+
+  // Timer State (Count-up)
+  const [focusTime, setFocusTime] = useState(0);
+  const [distractionTime, setDistractionTime] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+
+  // Refs for accurate background tracking
+  const isAwayRef = useRef(false);
+  const lastTickRef = useRef(null);
+  const accumFocusRef = useRef(0);
+  const accumDistractionRef = useRef(0);
+  
+  // Task State
+  const [tasks, setTasks] = useState([
+    { id: 1, text: '디지털 디톡스 목표 세우기', completed: false },
+    { id: 2, text: '안드로이드 MVVM 아키텍처 복습', completed: false }
+  ]);
+  const [newTaskText, setNewTaskText] = useState('');
+
+  // Stats State
+  const [focusStats, setFocusStats] = useState({
+    todayMinutes: 0,
+    history: [
+      { day: '월', minutes: 45 },
+      { day: '화', minutes: 90 },
+      { day: '수', minutes: 120 },
+      { day: '목', minutes: 30 },
+      { day: '금', minutes: 0 },
+      { day: '토', minutes: 0 },
+      { day: '일', minutes: 0 },
+    ]
+  });
+
+  // Retro & History State
+  const [showRetro, setShowRetro] = useState(false);
+  const [retroNote, setRetroNote] = useState('');
+  const [sessionHistory, setSessionHistory] = useState([]);
+
+  // Learning State
+  const [studyModule, setStudyModule] = useState(null); // 'quiz' | 'cards' | 'mvvm' | null
+  const [quizState, setQuizState] = useState({ index: 0, score: 0, showResult: false, selectedAnswer: null });
+  const [flashcardIndex, setFlashcardIndex] = useState(0);
+  const [isCardFlipped, setIsCardFlipped] = useState(false);
+
+  // --- Timer & Visibility Logic ---
+  const updateTime = (now) => {
+    if (!lastTickRef.current) return;
+    const delta = now - lastTickRef.current;
+    if (isAwayRef.current) {
+        accumDistractionRef.current += delta;
+    } else {
+        accumFocusRef.current += delta;
+    }
+    lastTickRef.current = now;
+  };
+
+  const setAwayState = (isAway) => {
+    if (!isActive) {
+        isAwayRef.current = isAway;
+        return;
+    }
+    if (isAwayRef.current === isAway) return;
+
+    const now = Date.now();
+    updateTime(now);
+    isAwayRef.current = isAway;
+  };
+
+  useEffect(() => {
+    const handleBlur = () => setAwayState(true);
+    const handleFocus = () => setAwayState(document.hidden);
+    const handleVisibilityChange = () => setAwayState(document.hidden || !document.hasFocus());
+
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+        window.removeEventListener('blur', handleBlur);
+        window.removeEventListener('focus', handleFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isActive]);
+
+  useEffect(() => {
+    let interval;
+    if (isActive) {
+        if (!lastTickRef.current) lastTickRef.current = Date.now();
+        
+        interval = setInterval(() => {
+            const now = Date.now();
+            updateTime(now);
+            setFocusTime(Math.floor(accumFocusRef.current / 1000));
+            setDistractionTime(Math.floor(accumDistractionRef.current / 1000));
+        }, 500); 
+    } else {
+        lastTickRef.current = null;
+    }
+    return () => clearInterval(interval);
+  }, [isActive]);
+
+  useEffect(() => {
+    if (isActive) {
+        const h = Math.floor(focusTime / 3600);
+        const m = Math.floor((focusTime % 3600) / 60);
+        const s = focusTime % 60;
+        const timeStr = h > 0 
+          ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+          : `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        
+        document.title = isAwayRef.current ? `[자리비움] 딴짓 중...` : `[${timeStr}] 집중 중!`;
+    } else {
+        document.title = 'Digital Detox';
+    }
+  }, [isActive, focusTime, distractionTime]);
+
+  useEffect(() => {
+    if (isZenMode) {
+      const interval = setInterval(() => {
+        setQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+      }, 10000); 
+      return () => clearInterval(interval);
+    }
+  }, [isZenMode]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setIsZenMode(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleTimer = () => setIsActive(!isActive);
+  
+  const resetTimer = () => {
+    setIsActive(false);
+    accumFocusRef.current = 0;
+    accumDistractionRef.current = 0;
+    setFocusTime(0);
+    setDistractionTime(0);
+    lastTickRef.current = null;
+  };
+
+  const handleStopTimer = async () => {
+    setIsActive(false);
+    
+    if (isZenMode && document.exitFullscreen) {
+      setIsZenMode(false);
+      await document.exitFullscreen().catch(e => console.log(e));
+    }
+
+    if (focusTime > 0 || distractionTime > 0) {
+      setShowRetro(true);
+    } else {
+      resetTimer();
+    }
+  };
+
+  const saveRetro = () => {
+    const newSession = {
+      id: Date.now(),
+      date: new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' }),
+      timeStr: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+      focusTime,
+      distractionTime,
+      note: retroNote
+    };
+    
+    setSessionHistory([newSession, ...sessionHistory]);
+    
+    const addedMinutes = Math.floor(focusTime / 60);
+    if (addedMinutes > 0) {
+      setFocusStats(prev => ({
+        ...prev,
+        todayMinutes: prev.todayMinutes + addedMinutes
+      }));
+    }
+
+    resetTimer();
+    setRetroNote('');
+    setShowRetro(false);
+    setActiveTab('stats');
+  };
+
+  const cancelRetro = () => {
+    resetTimer();
+    setRetroNote('');
+    setShowRetro(false);
+  };
+
+  const formatTime = (seconds) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) {
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const toggleZenMode = async () => {
+    if (!isZenMode) {
+      setIsZenMode(true);
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen().catch(e => console.log(e));
+      }
+    } else {
+      setIsZenMode(false);
+      if (document.exitFullscreen) {
+        await document.exitFullscreen().catch(e => console.log(e));
+      }
+    }
+  };
+
+  // --- Task Logic ---
+  const addTask = (e) => {
+    e.preventDefault();
+    if (!newTaskText.trim()) return;
+    setTasks([{ id: Date.now(), text: newTaskText, completed: false }, ...tasks]);
+    setNewTaskText('');
+  };
+
+  const toggleTask = (id) => {
+    setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  };
+
+  const deleteTask = (id) => {
+    setTasks(tasks.filter(t => t.id !== id));
+  };
+
+  // --- Learning Module Logic ---
+  const handleQuizSelect = (optionIndex) => {
+    if (quizState.selectedAnswer !== null) return;
+    const isCorrect = optionIndex === LIFECYCLE_QUIZ[quizState.index].answer;
+    setQuizState(prev => ({
+      ...prev,
+      selectedAnswer: optionIndex,
+      score: isCorrect ? prev.score + 1 : prev.score
+    }));
+  };
+
+  const nextQuizQuestion = () => {
+    if (quizState.index + 1 < LIFECYCLE_QUIZ.length) {
+      setQuizState(prev => ({ ...prev, index: prev.index + 1, selectedAnswer: null }));
+    } else {
+      setQuizState(prev => ({ ...prev, showResult: true }));
+    }
+  };
+
+  const resetQuiz = () => {
+    setQuizState({ index: 0, score: 0, showResult: false, selectedAnswer: null });
+  };
+
+  // --- Render Helpers ---
+  const renderTimer = () => (
+    <div className="flex flex-col items-center justify-center space-y-12 animate-fade-in py-12">
+      
+      {/* Main Timer (Focus) */}
+      <div className="flex flex-col items-center">
+        <div className="flex items-center space-x-2 mb-4">
+          <span className="relative flex h-3 w-3">
+            {isActive && !isAwayRef.current && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+            <span className={`relative inline-flex rounded-full h-3 w-3 ${isActive && !isAwayRef.current ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
+          </span>
+          <p className="text-emerald-600 dark:text-emerald-400 font-bold tracking-widest uppercase text-sm">
+            메인 타이머 (공부 시간)
+          </p>
+        </div>
+        <h1 className={`text-7xl md:text-[6rem] font-light font-mono tracking-tighter transition-colors duration-300 ${isActive && !isAwayRef.current ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-white'}`}>
+          {formatTime(focusTime)}
+        </h1>
+      </div>
+
+      {/* Sub Timer (Distraction) */}
+      <div className="flex flex-col items-center">
+         <div className="flex items-center space-x-2 mb-3">
+          <span className="relative flex h-2.5 w-2.5">
+            {isActive && isAwayRef.current && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>}
+            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isActive && isAwayRef.current ? 'bg-rose-500' : 'bg-slate-300'}`}></span>
+          </span>
+          <p className="text-rose-500 dark:text-rose-400 font-semibold tracking-wider uppercase text-xs">
+            서브 타이머 (딴짓 시간)
+          </p>
+        </div>
+        <h2 className={`text-4xl md:text-5xl font-light font-mono tracking-tighter transition-colors duration-300 ${isActive && isAwayRef.current ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-slate-500'}`}>
+          {formatTime(distractionTime)}
+        </h2>
+      </div>
+
+      {/* Controls */}
+      <div className="flex items-center space-x-6 pt-8">
+        <button 
+          onClick={toggleTimer}
+          className={`p-6 rounded-full shadow-xl transition-transform hover:scale-105 active:scale-95 ${isActive ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}
+        >
+          {isActive ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
+        </button>
+        <button 
+          onClick={handleStopTimer}
+          className="p-5 rounded-full bg-slate-200 text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 transition-colors shadow-md"
+        >
+          <Square size={24} />
+        </button>
+      </div>
+      
+      <button 
+        onClick={toggleZenMode}
+        className="flex items-center space-x-2 text-slate-500 hover:text-emerald-600 transition-colors mt-8"
+      >
+        <Maximize size={18} />
+        <span>전체화면 젠(Zen) 모드</span>
+      </button>
+    </div>
+  );
+
+  const renderTasks = () => (
+    <div className="max-w-md mx-auto w-full animate-fade-in">
+      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6 flex items-center">
+        <ListTodo className="mr-3 text-emerald-500" /> 오늘의 집중 목표
+      </h2>
+      
+      <form onSubmit={addTask} className="flex mb-6">
+        <input 
+          type="text" 
+          value={newTaskText}
+          onChange={(e) => setNewTaskText(e.target.value)}
+          placeholder="무엇에 집중하실 건가요?" 
+          className="flex-1 px-4 py-3 rounded-l-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+        />
+        <button type="submit" className="bg-emerald-600 text-white px-4 py-3 rounded-r-xl hover:bg-emerald-700 transition-colors">
+          <Plus size={24} />
+        </button>
+      </form>
+
+      <div className="space-y-3">
+        {tasks.length === 0 ? (
+          <p className="text-center text-slate-500 py-8">추가된 목표가 없습니다.</p>
+        ) : (
+          tasks.map(task => (
+            <div 
+              key={task.id} 
+              className={`flex items-center justify-between p-4 rounded-xl border transition-all ${task.completed ? 'bg-slate-50 border-slate-200 dark:bg-slate-800/50 dark:border-slate-700' : 'bg-white border-emerald-100 shadow-sm dark:bg-slate-800 dark:border-slate-600'}`}
+            >
+              <div className="flex items-center space-x-3 overflow-hidden">
+                <button 
+                  onClick={() => toggleTask(task.id)}
+                  className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${task.completed ? 'bg-emerald-500 border-emerald-500' : 'border-slate-400'}`}
+                >
+                  {task.completed && <Check size={14} className="text-white" />}
+                </button>
+                <span className={`truncate ${task.completed ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>
+                  {task.text}
+                </span>
+              </div>
+              <button onClick={() => deleteTask(task.id)} className="text-slate-400 hover:text-red-500 transition-colors">
+                <Trash2 size={18} />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  const renderStats = () => (
+    <div className="max-w-md mx-auto w-full animate-fade-in">
+      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6 flex items-center">
+        <BarChart3 className="mr-3 text-emerald-500" /> 디톡스 리포트
+      </h2>
+      
+      <div className="bg-emerald-600 text-white p-6 rounded-2xl shadow-lg mb-8">
+        <p className="text-emerald-100 text-sm font-medium mb-1">오늘 집중한 시간</p>
+        <div className="flex items-baseline space-x-2">
+          <span className="text-5xl font-bold">{focusStats.todayMinutes}</span>
+          <span className="text-xl opacity-80">분</span>
+        </div>
+        <p className="text-emerald-100 text-sm mt-4 flex items-center">
+          <AlertCircle size={14} className="mr-1" />
+          스마트폰 사용을 줄이고 나에게 온전히 집중한 시간입니다.
+        </p>
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+        <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-6">이번 주 기록</h3>
+        <div className="flex items-end justify-between h-40">
+          {focusStats.history.map((stat, idx) => {
+            const heightPercentage = Math.min((stat.minutes / 150) * 100, 100);
+            return (
+              <div key={idx} className="flex flex-col items-center flex-1">
+                <div className="w-full px-1 sm:px-2 flex justify-center h-32 items-end">
+                  <div 
+                    className={`w-full max-w-[32px] rounded-t-md transition-all duration-1000 ${stat.minutes > 0 ? 'bg-emerald-400' : 'bg-slate-100 dark:bg-slate-700'}`}
+                    style={{ height: `${heightPercentage}%` }}
+                  ></div>
+                </div>
+                <span className="text-xs text-slate-500 mt-2 font-medium">{stat.day}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {sessionHistory.length > 0 && (
+        <div className="mt-8 space-y-4">
+          <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center">
+            <History className="mr-2 text-emerald-500" size={20} /> 최근 회고 기록
+          </h3>
+          {sessionHistory.map(session => (
+            <div key={session.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 animate-fade-in">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{session.date} {session.timeStr}</span>
+                <div className="flex space-x-3 text-sm">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center">
+                    <Clock size={14} className="mr-1" /> {formatTime(session.focusTime)}
+                  </span>
+                  <span className="text-rose-500 dark:text-rose-400 font-semibold flex items-center">
+                    <AlertCircle size={14} className="mr-1" /> {formatTime(session.distractionTime)}
+                  </span>
+                </div>
+              </div>
+              {session.note && (
+                <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg text-slate-700 dark:text-slate-300 text-sm whitespace-pre-wrap">
+                  {session.note}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  // --- Study/Learning Tab Rendering ---
+  const renderStudyMenu = () => (
+    <div className="max-w-md mx-auto w-full animate-fade-in">
+      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2 flex items-center">
+        <BookOpen className="mr-3 text-emerald-500" /> 자투리 학습
+      </h2>
+      <p className="text-slate-500 dark:text-slate-400 mb-8 text-sm">딴짓 대신 가볍게 안드로이드 지식을 복습해 보세요.</p>
+      
+      <div className="space-y-4">
+        <button 
+          onClick={() => setStudyModule('quiz')}
+          className="w-full flex items-center justify-between p-5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all text-left group"
+        >
+          <div className="flex items-center">
+            <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mr-4 text-indigo-500">
+              <BrainCircuit size={24} />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 dark:text-slate-100">생명주기 퀴즈</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Activity, Fragment, Compose</p>
+            </div>
+          </div>
+          <ChevronRight className="text-slate-300 group-hover:text-emerald-500 transition-colors" />
+        </button>
+
+        <button 
+          onClick={() => { setStudyModule('cards'); setFlashcardIndex(0); setIsCardFlipped(false); }}
+          className="w-full flex items-center justify-between p-5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all text-left group"
+        >
+          <div className="flex items-center">
+            <div className="w-12 h-12 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center mr-4 text-amber-500">
+              <Code2 size={24} />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 dark:text-slate-100">코틀린 문법 카드</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Scope Functions, Null Safety</p>
+            </div>
+          </div>
+          <ChevronRight className="text-slate-300 group-hover:text-emerald-500 transition-colors" />
+        </button>
+
+        <button 
+          onClick={() => setStudyModule('mvvm')}
+          className="w-full flex items-center justify-between p-5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all text-left group"
+        >
+          <div className="flex items-center">
+            <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mr-4 text-emerald-500">
+              <Layers size={24} />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 dark:text-slate-100">MVVM 흐름 시각화</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Android 권장 아키텍처 패턴</p>
+            </div>
+          </div>
+          <ChevronRight className="text-slate-300 group-hover:text-emerald-500 transition-colors" />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderStudyQuiz = () => {
+    if (quizState.showResult) {
+      return (
+        <div className="max-w-md mx-auto w-full animate-fade-in text-center py-8">
+          <div className="w-24 h-24 bg-emerald-100 dark:bg-emerald-900/40 rounded-full flex items-center justify-center mx-auto mb-6">
+            <BrainCircuit size={48} className="text-emerald-500" />
+          </div>
+          <h2 className="text-3xl font-bold text-slate-800 dark:text-white mb-2">퀴즈 완료!</h2>
+          <p className="text-lg text-slate-600 dark:text-slate-300 mb-8">
+            총 {LIFECYCLE_QUIZ.length}문제 중 <span className="font-bold text-emerald-600">{quizState.score}문제</span>를 맞췄습니다.
+          </p>
+          <div className="flex space-x-4 justify-center">
+            <button onClick={resetQuiz} className="px-6 py-3 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-medium flex items-center">
+              <RotateCcw size={18} className="mr-2" /> 다시 풀기
+            </button>
+            <button onClick={() => setStudyModule(null)} className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-medium">
+              목록으로
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const currentQ = LIFECYCLE_QUIZ[quizState.index];
+    return (
+      <div className="max-w-md mx-auto w-full animate-fade-in">
+        <button onClick={() => setStudyModule(null)} className="flex items-center text-slate-500 hover:text-emerald-600 mb-6 transition-colors">
+          <ArrowLeft size={18} className="mr-1" /> 돌아가기
+        </button>
+        
+        <div className="flex justify-between items-center mb-6">
+          <span className="text-xs font-bold uppercase tracking-wider text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-full">
+            Question {quizState.index + 1} of {LIFECYCLE_QUIZ.length}
+          </span>
+          <span className="text-sm font-medium text-slate-500">Score: {quizState.score}</span>
+        </div>
+
+        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-8 leading-relaxed">
+          {currentQ.question}
+        </h3>
+
+        <div className="space-y-3">
+          {currentQ.options.map((opt, idx) => {
+            let btnClass = "w-full p-4 rounded-xl border text-left font-medium transition-all ";
+            if (quizState.selectedAnswer === null) {
+              btnClass += "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-emerald-400 dark:hover:border-emerald-500 text-slate-700 dark:text-slate-200";
+            } else {
+              if (idx === currentQ.answer) {
+                btnClass += "bg-emerald-50 border-emerald-500 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"; // Correct answer styling
+              } else if (idx === quizState.selectedAnswer) {
+                btnClass += "bg-rose-50 border-rose-500 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"; // Wrong answer styling
+              } else {
+                btnClass += "bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-500 opacity-50"; // Unselected styling
+              }
+            }
+
+            return (
+              <button key={idx} disabled={quizState.selectedAnswer !== null} onClick={() => handleQuizSelect(idx)} className={btnClass}>
+                <div className="flex justify-between items-center">
+                  <span>{opt}</span>
+                  {quizState.selectedAnswer !== null && idx === currentQ.answer && <Check size={20} className="text-emerald-500" />}
+                  {quizState.selectedAnswer === idx && idx !== currentQ.answer && <X size={20} className="text-rose-500" />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {quizState.selectedAnswer !== null && (
+          <button 
+            onClick={nextQuizQuestion}
+            className="w-full mt-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center transition-colors animate-fade-in"
+          >
+            {quizState.index + 1 === LIFECYCLE_QUIZ.length ? '결과 확인' : '다음 문제'} <ArrowRight size={20} className="ml-2" />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderStudyCards = () => {
+    const card = KOTLIN_CARDS[flashcardIndex];
+    return (
+      <div className="max-w-md mx-auto w-full animate-fade-in flex flex-col h-[70vh]">
+        <button onClick={() => setStudyModule(null)} className="flex items-center text-slate-500 hover:text-emerald-600 mb-6 transition-colors">
+          <ArrowLeft size={18} className="mr-1" /> 돌아가기
+        </button>
+        
+        <div className="flex justify-between items-center mb-6">
+          <span className="text-xs font-bold uppercase tracking-wider text-amber-500 bg-amber-50 dark:bg-amber-900/30 px-3 py-1 rounded-full">
+            Flashcard {flashcardIndex + 1} of {KOTLIN_CARDS.length}
+          </span>
+        </div>
+
+        {/* Flip Card Area */}
+        <div 
+          className="flex-1 relative perspective-1000 cursor-pointer group"
+          onClick={() => setIsCardFlipped(!isCardFlipped)}
+        >
+          <div className={`w-full h-full absolute transition-all duration-500 preserve-3d ${isCardFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
+            
+            {/* Front */}
+            <div className="absolute w-full h-full backface-hidden bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-lg flex flex-col items-center justify-center p-8 text-center">
+              <Code2 size={48} className="text-amber-400 mb-6 opacity-50" />
+              <h3 className="text-2xl font-bold text-slate-800 dark:text-white">{card.title}</h3>
+              <p className="mt-8 text-sm text-slate-400 font-medium tracking-widest uppercase animate-pulse">Tap to flip</p>
+            </div>
+
+            {/* Back */}
+            <div className="absolute w-full h-full backface-hidden bg-amber-50 dark:bg-slate-800 rounded-3xl border border-amber-200 dark:border-amber-700 shadow-lg flex flex-col justify-center p-8 [transform:rotateY(180deg)]">
+              <div className="bg-slate-900 rounded-xl p-4 mb-6 overflow-x-auto border border-slate-700">
+                <pre className="text-amber-400 font-mono text-sm leading-relaxed whitespace-pre-wrap">{card.code}</pre>
+              </div>
+              <p className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                {card.desc}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex justify-between items-center mt-8">
+          <button 
+            disabled={flashcardIndex === 0}
+            onClick={() => { setFlashcardIndex(prev => prev - 1); setIsCardFlipped(false); }}
+            className={`p-4 rounded-full ${flashcardIndex === 0 ? 'text-slate-300 dark:text-slate-700' : 'text-slate-600 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200'}`}
+          >
+            <ArrowLeft size={24} />
+          </button>
+          <span className="text-slate-500 font-medium">{flashcardIndex + 1} / {KOTLIN_CARDS.length}</span>
+          <button 
+            disabled={flashcardIndex === KOTLIN_CARDS.length - 1}
+            onClick={() => { setFlashcardIndex(prev => prev + 1); setIsCardFlipped(false); }}
+            className={`p-4 rounded-full ${flashcardIndex === KOTLIN_CARDS.length - 1 ? 'text-slate-300 dark:text-slate-700' : 'text-white bg-emerald-600 hover:bg-emerald-700'}`}
+          >
+            <ArrowRight size={24} />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderStudyMVVM = () => (
+    <div className="max-w-md mx-auto w-full animate-fade-in">
+      <button onClick={() => setStudyModule(null)} className="flex items-center text-slate-500 hover:text-emerald-600 mb-6 transition-colors">
+        <ArrowLeft size={18} className="mr-1" /> 돌아가기
+      </button>
+      
+      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2 flex items-center">
+        <Layers className="mr-3 text-emerald-500" /> MVVM 아키텍처
+      </h2>
+      <p className="text-slate-500 dark:text-slate-400 mb-8 text-sm leading-relaxed">
+        안드로이드 공식 권장 아키텍처. 관심사의 분리(Separation of Concerns)를 통해 코드를 관리하고 테스트하기 쉽게 만듭니다.
+      </p>
+
+      <div className="flex flex-col items-center space-y-2">
+        
+        {/* VIEW */}
+        <div className="w-full bg-blue-50 border-2 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800 p-5 rounded-2xl flex flex-col items-center text-center">
+          <MonitorSmartphone className="text-blue-500 mb-2" size={32} />
+          <h3 className="font-bold text-blue-700 dark:text-blue-300 text-lg">View (UI Layer)</h3>
+          <p className="text-xs text-blue-600/80 dark:text-blue-400/80 mt-1">Activity, Fragment, Compose</p>
+          <p className="text-sm text-blue-800 dark:text-blue-200 mt-3 font-medium">사용자 입력을 받고 ViewModel의 데이터를 관찰하여 화면을 그립니다.</p>
+        </div>
+
+        <div className="h-8 flex flex-col items-center justify-center text-slate-400">
+          <ArrowRight size={24} className="rotate-90" />
+        </div>
+
+        {/* VIEWMODEL */}
+        <div className="w-full bg-emerald-50 border-2 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800 p-5 rounded-2xl flex flex-col items-center text-center">
+          <BrainCircuit className="text-emerald-500 mb-2" size={32} />
+          <h3 className="font-bold text-emerald-700 dark:text-emerald-300 text-lg">ViewModel (UI State)</h3>
+          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80 mt-1">StateFlow, LiveData, UI Logic</p>
+          <p className="text-sm text-emerald-800 dark:text-emerald-200 mt-3 font-medium">뷰가 파괴되어도 데이터를 유지하며, 레포지토리에서 데이터를 가져와 가공합니다.</p>
+        </div>
+
+        <div className="h-8 flex flex-col items-center justify-center text-slate-400">
+          <ArrowRight size={24} className="rotate-90" />
+        </div>
+
+        {/* REPOSITORY & DATA */}
+        <div className="w-full bg-amber-50 border-2 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800 p-5 rounded-2xl flex flex-col items-center text-center">
+          <Database className="text-amber-500 mb-2" size={32} />
+          <h3 className="font-bold text-amber-700 dark:text-amber-300 text-lg">Repository (Data Layer)</h3>
+          <p className="text-xs text-amber-600/80 dark:text-amber-400/80 mt-1">Room DB, Retrofit API</p>
+          <p className="text-sm text-amber-800 dark:text-amber-200 mt-3 font-medium">데이터의 출처(네트워크, 로컬)를 캡슐화하여 단일 진실 공급원(SSOT)을 제공합니다.</p>
+        </div>
+
+      </div>
+    </div>
+  );
+
+  const renderStudy = () => {
+    switch (studyModule) {
+      case 'quiz': return renderStudyQuiz();
+      case 'cards': return renderStudyCards();
+      case 'mvvm': return renderStudyMVVM();
+      default: return renderStudyMenu();
+    }
+  };
+
+
+  const renderRetroModal = () => {
+    if (!showRetro) return null;
+    return (
+      <div className="fixed inset-0 z-[200] bg-slate-900/60 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+        <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl flex flex-col max-h-[90vh]">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center">
+              <FileText className="mr-2 text-emerald-500" /> 세션 회고
+            </h2>
+            <button onClick={cancelRetro} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+              <X size={24} />
+            </button>
+          </div>
+          
+          <div className="flex gap-4 mb-6">
+            <div className="flex-1 bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800/30 text-center">
+              <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">공부 시간</p>
+              <p className="text-2xl font-mono font-bold text-emerald-700 dark:text-emerald-300">{formatTime(focusTime)}</p>
+            </div>
+            <div className="flex-1 bg-rose-50 dark:bg-rose-900/20 p-4 rounded-2xl border border-rose-100 dark:border-rose-800/30 text-center">
+              <p className="text-xs font-semibold text-rose-500 dark:text-rose-400 mb-1">딴짓 시간</p>
+              <p className="text-2xl font-mono font-bold text-rose-600 dark:text-rose-300">{formatTime(distractionTime)}</p>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto min-h-[150px] mb-6">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              이번 집중 시간은 어떠셨나요?
+            </label>
+            <textarea 
+              value={retroNote}
+              onChange={(e) => setRetroNote(e.target.value)}
+              placeholder="예: 초반에는 집중이 잘 안 됐지만, 10분이 지나니 몰입할 수 있었다."
+              className="w-full h-32 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none text-slate-700 dark:text-slate-200"
+            ></textarea>
+          </div>
+
+          <div className="flex space-x-3 mt-auto pt-2">
+            <button 
+              onClick={cancelRetro}
+              className="flex-1 py-3 rounded-xl font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 transition-colors"
+            >
+              삭제 (저장 안 함)
+            </button>
+            <button 
+              onClick={saveRetro}
+              className="flex-1 py-3 rounded-xl font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors flex items-center justify-center"
+            >
+              <Save size={18} className="mr-2" /> 기록 저장
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (isZenMode) {
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center text-white transition-colors duration-700">
+        <button 
+          onClick={toggleZenMode}
+          className="absolute top-8 right-8 text-slate-500 hover:text-white transition-colors"
+        >
+          <Minimize size={28} />
+        </button>
+        
+        <div className="text-center space-y-16">
+          
+          {/* Main Timer */}
+          <div>
+            <p className="text-emerald-400 mb-4 text-xl tracking-widest uppercase opacity-80 flex items-center justify-center space-x-3">
+              <span className={`h-3 w-3 rounded-full ${isActive && !isAwayRef.current ? 'bg-emerald-400 animate-pulse' : 'bg-slate-700'}`}></span>
+              <span>Deep Focus</span>
+            </p>
+            <h1 className={`text-8xl md:text-[10rem] font-light font-mono tracking-tight ${isActive && !isAwayRef.current ? 'text-emerald-50' : 'text-slate-600'}`}>
+              {formatTime(focusTime)}
+            </h1>
+          </div>
+
+          {/* Sub Timer */}
+          <div>
+            <p className="text-rose-400 mb-3 text-lg tracking-widest uppercase opacity-80 flex items-center justify-center space-x-3">
+              <span className={`h-2.5 w-2.5 rounded-full ${isActive && isAwayRef.current ? 'bg-rose-400 animate-pulse' : 'bg-slate-700'}`}></span>
+              <span>Distracted</span>
+            </p>
+            <h2 className={`text-5xl md:text-7xl font-light font-mono tracking-tight ${isActive && isAwayRef.current ? 'text-rose-50' : 'text-slate-700'}`}>
+              {formatTime(distractionTime)}
+            </h2>
+          </div>
+
+          <div className="flex justify-center space-x-6 pt-8">
+            <button onClick={toggleTimer} className="p-6 rounded-full bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 transition-all">
+              {isActive ? <Pause size={36} fill="currentColor" /> : <Play size={36} fill="currentColor" className="ml-1" />}
+            </button>
+            <button onClick={handleStopTimer} className="p-6 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 transition-all">
+              <Square size={36} />
+            </button>
+          </div>
+
+          <p className="absolute bottom-16 left-0 right-0 text-center text-slate-400 italic font-light px-6 animate-pulse">
+            "{quote}"
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 transition-colors duration-300">
+      
+      {/* Header */}
+      <header className="bg-white dark:bg-slate-800 shadow-sm border-b border-slate-100 dark:border-slate-700 sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
+            <Leaf size={24} />
+            <span className="font-bold text-lg tracking-tight">디지털 디톡스</span>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-4xl mx-auto px-4 py-8 pb-24">
+        {activeTab === 'timer' && renderTimer()}
+        {activeTab === 'tasks' && renderTasks()}
+        {activeTab === 'study' && renderStudy()}
+        {activeTab === 'stats' && renderStats()}
+      </main>
+
+      {renderRetroModal()}
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 pb-safe z-40">
+        <div className="max-w-md mx-auto flex justify-around p-2">
+          <button 
+            onClick={() => setActiveTab('timer')}
+            className={`flex flex-col items-center p-3 w-16 rounded-xl transition-colors ${activeTab === 'timer' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <Timer size={24} className="mb-1" />
+            <span className="text-[10px] font-medium">타이머</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('tasks')}
+            className={`flex flex-col items-center p-3 w-16 rounded-xl transition-colors ${activeTab === 'tasks' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <ListTodo size={24} className="mb-1" />
+            <span className="text-[10px] font-medium">할 일</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('study')}
+            className={`flex flex-col items-center p-3 w-16 rounded-xl transition-colors ${activeTab === 'study' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <BookOpen size={24} className="mb-1" />
+            <span className="text-[10px] font-medium">학습</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('stats')}
+            className={`flex flex-col items-center p-3 w-16 rounded-xl transition-colors ${activeTab === 'stats' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <BarChart3 size={24} className="mb-1" />
+            <span className="text-[10px] font-medium">리포트</span>
+          </button>
+        </div>
+      </nav>
+      
+      {/* Global Style for Safe Area and Animations */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @supports (padding-bottom: env(safe-area-inset-bottom)) {
+          .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.4s ease-out forwards;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        /* 3D Flip Utilities */
+        .perspective-1000 {
+          perspective: 1000px;
+        }
+        .preserve-3d {
+          transform-style: preserve-3d;
+        }
+        .backface-hidden {
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+        }
+      `}} />
+    </div>
+  );
+}

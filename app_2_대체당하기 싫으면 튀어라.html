@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>대체당하기 싫으면 튀어라</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js 라이브러리 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+        body {
+            font-family: 'Pretendard', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            touch-action: none;
+            user-select: none;
+        }
+        #game-container {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+        }
+        /* 피격 시 화면 붉게 깜빡임 효과 */
+        #damage-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(255, 0, 0, 0.5);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.1s ease-out;
+            z-index: 15;
+        }
+        .flash {
+            opacity: 1 !important;
+        }
+        .neon-text {
+            text-shadow: 0 0 10px rgba(139, 92, 246, 0.8), 0 0 20px rgba(139, 92, 246, 0.8);
+        }
+    </style>
+</head>
+<body class="text-white">
+
+    <div id="game-container"></div>
+    <div id="damage-overlay"></div>
+
+    <!-- HUD (헤드업 디스플레이) -->
+    <div id="hud" class="absolute top-0 left-0 w-full h-full pointer-events-none hidden z-10 flex flex-col justify-between">
+        <!-- 상단 정보 -->
+        <div class="p-4 flex justify-between items-start">
+            <div class="flex flex-col drop-shadow-md bg-black/50 p-3 rounded-xl border border-gray-700 backdrop-blur-sm z-20">
+                <span id="level-display" class="text-xl font-black text-purple-400">Lv.1 학부생</span>
+                <span id="score-display" class="text-2xl font-bold font-mono">0 <span class="text-sm">XP</span></span>
+            </div>
+            <div class="flex flex-col items-end bg-black/50 p-3 rounded-xl border border-gray-700 backdrop-blur-sm z-20">
+                <span class="text-sm text-gray-400 font-bold mb-1">Life</span>
+                <div id="lives-display" class="flex gap-1 text-2xl tracking-widest">
+                    ❤️❤️❤️
+                </div>
+            </div>
+        </div>
+
+        <!-- 현재 퀴즈 UI (화면 최상단 정보판과 동일한 높이로 배치) -->
+        <div id="quiz-ui" class="absolute top-4 left-1/2 transform -translate-x-1/2 w-full max-w-lg text-center px-4 hidden transition-opacity duration-300 z-10">
+            <div class="bg-gray-900/80 border-2 border-purple-500 rounded-2xl p-3 shadow-[0_0_20px_rgba(168,85,247,0.5)] backdrop-blur-md">
+                <p class="text-purple-300 font-bold text-xs mb-1">다음 문제</p>
+                <h3 id="quiz-question" class="text-lg md:text-xl font-black break-keep">문제가 여기에 표시됩니다.</h3>
+            </div>
+        </div>
+
+        <!-- 하단 AI 거리 게이지 -->
+        <div class="p-6 w-full max-w-3xl mx-auto flex flex-col items-center">
+            <div class="w-full flex justify-between text-sm font-bold mb-4">
+                <span class="text-red-500 animate-pulse"></span>
+                <span id="distance-text" class="text-white font-mono text-xl bg-black/50 px-4 py-1 rounded-full border border-gray-700">거리: 100m</span>
+                <span class="text-green-400">목표 지점</span>
+            </div>
+            
+            <!-- 수직선 (Number Line) UI -->
+            <div class="w-full relative h-8 bg-gray-900/80 rounded-full border border-gray-600 shadow-inner flex items-center px-4 overflow-visible">
+                <!-- 맵 전체 길이 라인 -->
+                <div class="absolute left-4 right-4 h-1.5 bg-gray-600 rounded"></div>
+                <!-- 도착 지점 깃발 -->
+                <div class="absolute right-0 text-2xl transform translate-x-1/2 top-1/2 -translate-y-1/2">🏁</div>
+                
+                <!-- 플레이어 (마라톤 선수, 좌우반전 적용) -->
+                <div id="player-icon" class="absolute top-1/2 text-4xl transition-all duration-75 transform -translate-x-1/2 -translate-y-1/2 scale-x-[-1] drop-shadow-[0_0_10px_rgba(0,255,0,0.8)] z-20" style="left: 10%;">🏃‍♂️</div>
+                
+                <!-- AI (로봇 머리) -->
+                <div id="ai-icon" class="absolute top-1/2 text-4xl transition-all duration-75 transform -translate-x-1/2 -translate-y-1/2 drop-shadow-[0_0_10px_rgba(255,0,0,0.8)] z-10" style="left: 0%;">🤖</div>
+            </div>
+            <p class="mt-6 text-gray-400 text-sm bg-black/50 px-3 py-1 rounded-full">조작: [W] 전진 / [A][D] 좌우 이동 / [S] 감속 (누를 때만 이동합니다)</p>
+        </div>
+        
+        <!-- 모바일 터치 조작부 (모바일에서만 보임) -->
+        <div class="md:hidden absolute bottom-24 left-0 w-full flex justify-between px-8 pointer-events-auto opacity-70">
+            <div class="flex gap-2">
+                <button id="btn-left" class="w-16 h-16 bg-gray-800 rounded-full border-2 border-gray-600 text-2xl font-bold flex items-center justify-center active:bg-gray-600">A</button>
+                <button id="btn-right" class="w-16 h-16 bg-gray-800 rounded-full border-2 border-gray-600 text-2xl font-bold flex items-center justify-center active:bg-gray-600">D</button>
+            </div>
+            <button id="btn-forward" class="w-20 h-20 bg-purple-700 rounded-full border-2 border-purple-400 text-2xl font-bold flex items-center justify-center active:bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.6)]">W</button>
+        </div>
+    </div>
+
+    <!-- 시작 화면 -->
+    <div id="start-screen" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/90 backdrop-blur-md z-30 p-6 text-center">
+        <div class="mb-4 text-6xl animate-bounce">🏃‍♂️</div>
+        <h1 class="text-4xl md:text-6xl font-black mb-4 neon-text text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-500">
+            대체당하기 싫으면 튀어라
+        </h1>
+        <h2 class="text-xl font-bold mb-6 text-gray-300">~ 아등바등 CTO까지 ~</h2>
+        
+        <div class="bg-gray-800 p-6 rounded-2xl mb-8 border border-gray-700 shadow-xl text-left max-w-lg">
+            <p class="text-gray-300 mb-4 leading-relaxed text-center">
+                뒤에서 AI가 무서운 속도로 추격해옵니다.<br>
+                벽에 적힌 문제를 읽고 <strong class="text-green-400">정답이 적힌 문</strong>으로 전력 질주하세요!
+            </p>
+            <ul class="text-sm md:text-base text-gray-400 space-y-3 bg-black/40 p-4 rounded-lg">
+                <li>🟢 <strong>정답 문:</strong> 무사 통과, XP 획득! AI를 15m 뒤로 밀어냄</li>
+                <li>🔴 <strong>오답 문:</strong> 튕겨남, <strong class="text-red-400">목숨 1개 감소!</strong> (3회 틀리면 게임오버)</li>
+                <li>🕹️ <strong>조작:</strong> <code>W</code> 일정한 속도로 달리기, <code>A/D</code> 좌우 방향 전환</li>
+            </ul>
+        </div>
+
+        <button id="start-btn" class="px-10 py-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-full text-2xl shadow-[0_0_30px_rgba(139,92,246,0.6)] transition-transform transform hover:scale-105 active:scale-95">
+            게임 시작
+        </button>
+    </div>
+
+    <!-- 게임 오버 화면 -->
+    <div id="game-over-screen" class="absolute inset-0 flex flex-col items-center justify-center bg-red-950/95 backdrop-blur-lg z-30 p-6 text-center hidden opacity-0 transition-opacity duration-500">
+        <div class="text-8xl mb-4">💀</div>
+        <h2 class="text-5xl font-black text-red-500 mb-2 neon-text">AI에게 대체됨!</h2>
+        <p id="game-over-reason" class="text-xl text-gray-300 mb-6">오답 3회 누적 혹은 AI에게 잡혔습니다.</p>
+        
+        <div class="text-2xl font-bold mb-8 bg-black/50 p-6 rounded-xl border border-red-800">
+            도달한 직급: <span id="final-level" class="text-purple-400"></span><br>
+            최종 스코어: <span id="final-score" class="text-white">0</span> XP
+        </div>
+
+        <button id="restart-btn" class="px-8 py-4 bg-gray-800 border-2 border-red-600 hover:bg-gray-700 text-white font-bold rounded-full text-xl transition-transform transform hover:scale-105 active:scale-95">
+            다시 도전하기
+        </button>
+    </div>
+
+    <script>
+        // ==========================================
+        // 퀴즈 데이터베이스 (10단계) - 문제 대폭 추가 (각 15문항 이상)
+        // ==========================================
+        const QUIZ_DATA = [
+            { 
+                level: 1, name: "Lv.1 1학년 학부생", xpNeeded: 0, color: "#9CA3AF", speedMulti: 1.0,
+                questions: [
+                    { q: "값이 한 번 할당되면 변경할 수 없는(불변) 변수 선언자는?", a: "val", w: ["var", "fun"] },
+                    { q: "값이 언제든 변경될 수 있는(가변) 변수 선언자는?", a: "var", w: ["val", "const"] },
+                    { q: "Null을 허용하는 타입을 지정할 때 타입 뒤에 붙이는 기호는?", a: "?", w: ["!!", "*"] },
+                    { q: "조건이 여러 개일 때 Kotlin에서 switch 대신 쓰는 키워드는?", a: "when", w: ["if", "match"] },
+                    { q: "객체의 타입을 확인(Type check)할 때 사용하는 연산자는?", a: "is", w: ["as", "typeof"] },
+                    { q: "객체를 특정 타입으로 강제 캐스팅(형변환)할 때 사용하는 연산자는?", a: "as", w: ["is", "to"] },
+                    { q: "데이터 보관 목적으로 equals(), hashCode(), toString() 등을 자동 생성해주는 클래스는?", a: "data class", w: ["enum class", "sealed class"] },
+                    { q: "Java의 static과 유사하게 클래스 인스턴스 없이 멤버에 접근하게 해주는 블록은?", a: "companion object", w: ["init", "constructor"] },
+                    { q: "변수를 선언할 때 초기화를 나중으로 미루는(지연 초기화) 키워드 중 var에 사용하는 것은?", a: "lateinit", w: ["lazy", "suspend"] },
+                    { q: "변수를 선언할 때 초기화를 나중으로 미루는 키워드 중 val에 사용하는 것은?", a: "lazy", w: ["lateinit", "init"] },
+                    { q: "클래스의 주 생성자(Primary Constructor)가 호출된 직후 실행되는 초기화 블록은?", a: "init", w: ["constructor", "apply"] },
+                    { q: "수신 객체를 람다 내부에서 this로 접근하며, 수신 객체 자신을 반환하는 스코프 함수는?", a: "apply", w: ["let", "run"] },
+                    { q: "수신 객체를 람다 내부에서 it으로 접근하며, 람다의 결과를 반환하는 스코프 함수는?", a: "let", w: ["also", "with"] },
+                    { q: "크기가 고정된 배열을 생성할 때 사용하는 Kotlin 클래스는?", a: "Array", w: ["List", "Set"] },
+                    { q: "코틀린에서 모든 클래스의 최상위 부모 클래스(Java의 Object격)는?", a: "Any", w: ["Unit", "Nothing"] }
+                ]
+            },
+            { 
+                level: 2, name: "Lv.2 취업 준비생", xpNeeded: 300, color: "#60A5FA", speedMulti: 1.1,
+                questions: [
+                    { q: "앱의 UI를 그리는 메인 스레드가 오랫동안 막히면 발생하는 응답 없음 에러는?", a: "ANR", w: ["NPE", "OOM"] },
+                    { q: "화면을 구성하는 가장 기본이 되는 안드로이드 UI 컴포넌트는?", a: "Activity", w: ["Service", "BroadcastReceiver"] },
+                    { q: "Activity 생성 시 가장 먼저 호출되는 생명주기 콜백 함수는?", a: "onCreate", w: ["onStart", "onResume"] },
+                    { q: "대량의 리스트 데이터를 효율적으로 재활용하여 보여주는 뷰는?", a: "RecyclerView", w: ["ListView", "ScrollView"] },
+                    { q: "화면에 보이지 않는 백그라운드에서 오래 걸리는 작업을 수행하는 컴포넌트는?", a: "Service", w: ["Activity", "ContentProvider"] },
+                    { q: "안드로이드 컴포넌트 간에 메시지(작업 요청)를 전달하는 매개체는?", a: "Intent", w: ["Bundle", "Context"] },
+                    { q: "앱의 패키지 이름, 컴포넌트, 권한 등의 메타데이터를 정의하는 필수 XML 파일은?", a: "AndroidManifest", w: ["build.gradle", "strings.xml"] },
+                    { q: "화면에 잠깐 나타났다 사라지는 간단한 텍스트 메시지 팝업은?", a: "Toast", w: ["Snackbar", "Dialog"] },
+                    { q: "뷰의 너비나 높이를 부모 레이아웃의 남은 공간에 꽉 채울 때 사용하는 속성 값은?", a: "match_parent", w: ["wrap_content", "fill_parent"] },
+                    { q: "안드로이드에서 화면 밀도(Density)에 독립적인 픽셀 단위는?", a: "dp", w: ["sp", "px"] },
+                    { q: "텍스트 크기를 지정할 때 사용자의 글꼴 크기 설정에 따라 가변적인 단위는?", a: "sp", w: ["dp", "pt"] },
+                    { q: "뷰들을 가로나 세로로 일렬로 배치하는 가장 기본적인 레이아웃은?", a: "LinearLayout", w: ["ConstraintLayout", "FrameLayout"] },
+                    { q: "제약 조건을 통해 뷰들의 상대적인 위치를 복잡하게 배치할 수 있는 레이아웃은?", a: "ConstraintLayout", w: ["RelativeLayout", "LinearLayout"] },
+                    { q: "로그캣(Logcat)에 디버그(Debug) 레벨의 메시지를 출력하는 메서드는?", a: "Log.d()", w: ["Log.e()", "Log.i()"] },
+                    { q: "시스템의 배터리 부족, 네트워크 변경 등의 이벤트를 수신하는 컴포넌트는?", a: "BroadcastReceiver", w: ["Service", "Activity"] }
+                ]
+            },
+            { 
+                level: 3, name: "Lv.3 병아리 신입", xpNeeded: 700, color: "#818CF8", speedMulti: 1.2,
+                questions: [
+                    { q: "코루틴에서 일시 중단 및 재개 가능한 함수를 선언하는 키워드는?", a: "suspend", w: ["async", "yield"] },
+                    { q: "UI 관련 데이터를 Activity 생명주기에 구애받지 않고 보관/관리하는 클래스는?", a: "ViewModel", w: ["LiveData", "DataStore"] },
+                    { q: "로컬 관계형 데이터베이스(SQLite)를 객체 지향적으로 쉽게 다루도록 돕는 구글 공식 라이브러리는?", a: "Room", w: ["SharedPreferences", "Firebase"] },
+                    { q: "네트워크 REST API 통신을 인터페이스 형태로 쉽게 구현해주는 라이브러리는?", a: "Retrofit", w: ["Volley", "Glide"] },
+                    { q: "Activity의 화면을 여러 독립적인 모듈로 나누어 관리할 수 있게 해주는 UI 컴포넌트는?", a: "Fragment", w: ["View", "Layout"] },
+                    { q: "Fragment 간의 화면 전환 및 이동을 관리하는 객체는?", a: "FragmentManager", w: ["Intent", "NavController"] },
+                    { q: "XML 레이아웃 파일의 뷰를 Kotlin 코드와 안전하게 연결해주는 기능은?", a: "ViewBinding", w: ["findViewById", "ButterKnife"] },
+                    { q: "관찰 가능한(Observable) 데이터 홀더 클래스로, 생명주기를 인식하여 UI를 업데이트하는 것은?", a: "LiveData", w: ["StateFlow", "Bundle"] },
+                    { q: "코루틴을 시작할 때 코루틴의 수명주기를 관리하는 범위를 지정하는 인터페이스는?", a: "CoroutineScope", w: ["Dispatcher", "Job"] },
+                    { q: "현재 스레드를 차단(Block)하면서 코루틴을 실행하는 빌더 함수는?", a: "runBlocking", w: ["launch", "async"] },
+                    { q: "결과값을 반환하지 않는(Job 반환) 가장 기본적인 코루틴 실행 빌더는?", a: "launch", w: ["async", "withContext"] },
+                    { q: "결과값을 반환하는(Deferred 반환) 코루틴 실행 빌더는?", a: "async", w: ["launch", "yield"] },
+                    { q: "JSON 데이터를 Kotlin 객체로 변환(역직렬화)할 때 널리 쓰이는 구글 라이브러리는?", a: "Gson", w: ["Moshi", "Room"] },
+                    { q: "이미지를 빠르고 효율적으로 비동기 로딩 및 캐싱해주는 대표적인 라이브러리는?", a: "Glide", w: ["Retrofit", "Dagger"] },
+                    { q: "앱의 글로벌 정보, 리소스, 시스템 서비스에 접근할 수 있는 안드로이드 핵심 객체는?", a: "Context", w: ["Application", "Intent"] }
+                ]
+            },
+            { 
+                level: 4, name: "Lv.4 1인분 주임", xpNeeded: 1200, color: "#A78BFA", speedMulti: 1.3,
+                questions: [
+                    { q: "상태(State)를 관찰가능하게 보유하며, 항상 최신 값을 방출하는 Hot Stream Flow는?", a: "StateFlow", w: ["SharedFlow", "LiveData"] },
+                    { q: "상태가 아닌 이벤트(Event)를 여러 구독자에게 전달할 때 주로 사용하는 Hot Stream Flow는?", a: "SharedFlow", w: ["StateFlow", "Channel"] },
+                    { q: "비동기 작업의 결과(스트림)를 순차적으로 방출(emit)하는 코루틴의 Cold Stream 타입은?", a: "Flow", w: ["Channel", "Promise"] },
+                    { q: "백그라운드에서 반드시 실행되어야 하는 지연 가능한 비동기 작업을 예약하는 Jetpack 라이브러리는?", a: "WorkManager", w: ["AlarmManager", "JobScheduler"] },
+                    { q: "사용자 설정 데이터(Key-Value)를 비동기/코루틴 기반으로 안전하게 저장하는 최신 API는?", a: "DataStore", w: ["SharedPreferences", "Room"] },
+                    { q: "코루틴에서 메인 스레드(UI 업데이트)를 사용하도록 지정하는 Dispatcher는?", a: "Dispatchers.Main", w: ["Dispatchers.IO", "Dispatchers.Default"] },
+                    { q: "코루틴에서 파일 읽기/쓰기, 네트워크 통신 등 I/O 작업에 최적화된 Dispatcher는?", a: "Dispatchers.IO", w: ["Dispatchers.Default", "Dispatchers.Unconfined"] },
+                    { q: "코루틴에서 무거운 연산(CPU 집약적 작업)을 수행할 때 최적화된 Dispatcher는?", a: "Dispatchers.Default", w: ["Dispatchers.IO", "Dispatchers.Main"] },
+                    { q: "RecyclerView에서 리스트 데이터가 변경되었을 때, 바뀐 아이템만 계산하여 애니메이션을 적용해주는 유틸리티는?", a: "DiffUtil", w: ["notifyDataSetChanged", "ListAdapter"] },
+                    { q: "DiffUtil을 내장하여 리스트 업데이트를 자동으로 관리해주는 RecyclerView 어댑터 구현체는?", a: "ListAdapter", w: ["RecyclerView.Adapter", "BaseAdapter"] },
+                    { q: "코루틴 내부에서 다른 Dispatcher로 실행 컨텍스트를 잠시 전환할 때 사용하는 함수는?", a: "withContext", w: ["launch", "async"] },
+                    { q: "코루틴의 생명주기를 제어하고 취소(Cancel)할 수 있는 핸들 역할을 하는 객체는?", a: "Job", w: ["Dispatcher", "Deferred"] },
+                    { q: "Flow에서 발행된 데이터를 수집(구독)하는 가장 기본적인 터미널 연산자는?", a: "collect", w: ["emit", "map"] },
+                    { q: "데이터 목록을 스와이프하여 삭제하거나 드래그하여 순서를 바꿀 때 사용하는 헬퍼 클래스는?", a: "ItemTouchHelper", w: ["SwipeRefreshLayout", "GestureDetector"] },
+                    { q: "Android 앱 간에 보안 파일(URI)을 안전하게 공유하기 위해 제공하는 Provider는?", a: "FileProvider", w: ["ContentProvider", "UriMatcher"] }
+                ]
+            },
+            { 
+                level: 5, name: "Lv.5 선임 연구원", xpNeeded: 1800, color: "#C084FC", speedMulti: 1.4,
+                questions: [
+                    { q: "클린 아키텍처(Clean Architecture)에서 프레임워크에 의존하지 않는 순수 비즈니스 로직을 담당하는 핵심 계층은?", a: "Domain Layer", w: ["Data Layer", "Presentation Layer"] },
+                    { q: "데이터 소스(네트워크, DB)를 캡슐화하고, Domain 계층에 일관된 인터페이스를 제공하는 패턴은?", a: "Repository Pattern", w: ["Factory Pattern", "Singleton Pattern"] },
+                    { q: "구글에서 공식적으로 지원하며 Dagger 위에 구축된 안드로이드 전용 의존성 주입(DI) 라이브러리는?", a: "Hilt", w: ["Koin", "Guice"] },
+                    { q: "상태(State)는 위에서 아래로 흐르고, 이벤트(Event)는 아래에서 위로 흐르는 단방향 아키텍처 패턴은?", a: "UDF (단방향 데이터 흐름)", w: ["Two-way Binding", "MVC"] },
+                    { q: "Domain 계층에서 특정 비즈니스 로직(단일 책임) 단위를 캡슐화하여 정의하는 클래스는?", a: "UseCase (Interactor)", w: ["Repository", "DataSource"] },
+                    { q: "객체의 생성과 관리를 개발자가 아닌 프레임워크가 대신 수행하는 객체 지향 원칙은?", a: "IoC (제어의 역전)", w: ["SRP (단일 책임)", "Encapsulation"] },
+                    { q: "네트워크 통신 결과를 담을 때 성공(Success), 실패(Error) 상태를 명확히 정의하는 코틀린 클래스 종류는?", a: "Sealed Class", w: ["Data Class", "Enum Class"] },
+                    { q: "의존성 주입 시, Hilt 모듈에 객체 생성 방법을 정의할 때 사용하는 어노테이션은?", a: "@Provides", w: ["@Inject", "@HiltAndroidApp"] },
+                    { q: "Application 클래스에 Hilt를 초기화하기 위해 반드시 선언해야 하는 어노테이션은?", a: "@HiltAndroidApp", w: ["@AndroidEntryPoint", "@Singleton"] },
+                    { q: "Activity나 Fragment에 Hilt 의존성을 주입받기 위해 선언해야 하는 어노테이션은?", a: "@AndroidEntryPoint", w: ["@Inject", "@HiltAndroidApp"] },
+                    { q: "SOLID 원칙 중 '소프트웨어 개체는 확장에 열려 있어야 하고, 변경에는 닫혀 있어야 한다'는 원칙은?", a: "OCP (개방-폐쇄 원칙)", w: ["SRP", "DIP"] },
+                    { q: "SOLID 원칙 중 '구체적인 클래스에 의존하지 말고, 추상화된 인터페이스에 의존하라'는 원칙은?", a: "DIP (의존성 역전 원칙)", w: ["LSP", "ISP"] },
+                    { q: "네트워크에서 받아오는 데이터 모델 구조체(Data Transfer Object)를 부르는 약어는?", a: "DTO", w: ["DAO", "VO"] },
+                    { q: "데이터베이스에 직접 접근하여 CRUD 작업을 수행하는 객체를 부르는 약어는?", a: "DAO", w: ["DTO", "UseCase"] },
+                    { q: "ViewModel에서 UI 상태를 단일 진실 공급원(Single Source of Truth)으로 관리하는 기법은?", a: "UiState", w: ["DataBinding", "Two-way Binding"] }
+                ]
+            },
+            { 
+                level: 6, name: "Lv.6 파트장 (리드)", xpNeeded: 2500, color: "#E879F9", speedMulti: 1.5,
+                questions: [
+                    { q: "XML을 완전히 대체하며, Kotlin 함수만으로 UI를 선언형(Declarative)으로 구성하는 최신 툴킷은?", a: "Jetpack Compose", w: ["ViewBinding", "DataBinding"] },
+                    { q: "Compose 함수임을 컴파일러에 알려주어 UI를 그리게 하는 필수 어노테이션은?", a: "@Composable", w: ["@Preview", "@JvmStatic"] },
+                    { q: "Compose에서 데이터(상태)가 변경되었을 때, 영향을 받는 UI 부분만 다시 그리는 과정은?", a: "Recomposition", w: ["Invalidate", "Refresh"] },
+                    { q: "Compose 내에서 코루틴을 안전하게 실행하고 생명주기를 맞추는 부수효과(Side-Effect) API는?", a: "LaunchedEffect", w: ["SideEffect", "DisposableEffect"] },
+                    { q: "컴포저블의 크기, 여백(Padding), 배경색, 클릭 이벤트 등을 연쇄적으로 제어하는 객체는?", a: "Modifier", w: ["Attribute", "LayoutParams"] },
+                    { q: "컴포저블이 소멸될 때 특정 리소스를 해제(Cleanup)하기 위해 사용하는 부수효과 API는?", a: "DisposableEffect", w: ["LaunchedEffect", "remember"] },
+                    { q: "Compose에서 상태(State)를 재생성하지 않고 유지하기 위해 메모리에 저장해두는 키워드는?", a: "remember", w: ["mutableStateOf", "Flow"] },
+                    { q: "화면 회전(Configuration Change) 시에도 Compose 상태를 안전하게 보존해주는 함수는?", a: "rememberSaveable", w: ["remember", "StateFlow"] },
+                    { q: "Compose에서 RecyclerView와 같이 아이템을 수직으로 지연 렌더링(스크롤)하는 컴포넌트는?", a: "LazyColumn", w: ["Column", "ListView"] },
+                    { q: "하위 컴포저블의 상태(State)를 상위로 끌어올려 상태 관리를 분리하는 Compose 디자인 패턴은?", a: "상태 호이스팅(State Hoisting)", w: ["UDF", "Slot API"] },
+                    { q: "Compose에서 컴포저블 함수의 매개변수로 다른 컴포저블 블록(람다)을 넘겨 UI를 확장하는 패턴은?", a: "Slot API", w: ["Render Props", "State Hoisting"] },
+                    { q: "트리 상단에서 선언한 데이터를 매개변수 전달 없이 하위 컴포저블 전역에서 접근하게 해주는 API는?", a: "CompositionLocal", w: ["ViewModel", "SharedFlow"] },
+                    { q: "Compose에서 자식 컴포저블들을 수평(가로) 방향으로 배치하는 레이아웃은?", a: "Row", w: ["Column", "Box"] },
+                    { q: "Compose에서 자식 컴포저블들을 겹치게(Z축) 배치하는 레이아웃은?", a: "Box", w: ["Surface", "Stack"] },
+                    { q: "Material Design의 기본 구조(TopBar, BottomBar, FAB 등)를 쉽게 배치할 수 있도록 뼈대를 제공하는 컴포넌트는?", a: "Scaffold", w: ["Surface", "ConstraintLayout"] }
+                ]
+            },
+            { 
+                level: 7, name: "Lv.7 개발 팀장", xpNeeded: 3400, color: "#F472B6", speedMulti: 1.6,
+                questions: [
+                    { q: "코드 난독화 및 사용하지 않는 리소스와 클래스를 제거하여 앱 용량을 줄이는 최적화 도구는?", a: "R8 (ProGuard)", w: ["Lint", "Gradle"] },
+                    { q: "참조가 해제되어야 할 객체가 어딘가에 강하게 결합되어 GC(가비지 컬렉터)에 의해 수거되지 않는 메모리 누수 현상은?", a: "Memory Leak", w: ["StackOverflow", "Deadlock"] },
+                    { q: "메모리 누수를 자동으로 탐지하여 개발자에게 알림을 띄워주는 유명한 오픈소스 라이브러리는?", a: "LeakCanary", w: ["BlockCanary", "Crashlytics"] },
+                    { q: "테스트 환경에서 코루틴의 가상 시간을 제어하여 비동기 코드를 동기적으로 즉시 검증할 수 있게 해주는 API는?", a: "runTest", w: ["runBlocking", "launch"] },
+                    { q: "코루틴 계층 구조에서 자식 코루틴이 예외를 발생시켜도, 다른 자식이나 부모 코루틴이 취소되지 않도록 막아주는 Job은?", a: "SupervisorJob", w: ["Job", "Deferred"] },
+                    { q: "최상위 코루틴에서 발생하는 예외를 전역적으로 포착(Catch)하여 처리할 수 있게 해주는 인터페이스는?", a: "CoroutineExceptionHandler", w: ["try-catch", "Result.onFailure"] },
+                    { q: "Flow에서 데이터의 방출 속도가 수집 속도보다 빠를 때, 백프레셔(Backpressure)를 완화하기 위해 버퍼를 두는 연산자는?", a: "buffer", w: ["conflate", "collectLatest"] },
+                    { q: "Flow에서 최신 데이터만 유지하고 중간에 처리하지 못한 데이터는 버리는(Drop) 연산자는?", a: "conflate", w: ["buffer", "debounce"] },
+                    { q: "Flow 수집 중 새 데이터가 들어오면 기존의 느린 비동기 처리를 취소하고 새 데이터를 즉시 처리하는 연산자는?", a: "collectLatest", w: ["collect", "flatMapLatest"] },
+                    { q: "연속적인 이벤트(예: 검색어 입력)가 발생할 때, 지정된 시간 동안 추가 이벤트가 없을 때만 데이터를 방출하는 연산자는?", a: "debounce", w: ["throttleFirst", "delay"] },
+                    { q: "앱의 메인 스레드나 네트워크 통신 등에서 발생하는 UI 버벅임, 느린 작업 등을 감지하고 경고해주는 개발자 도구는?", a: "StrictMode", w: ["Profiler", "Systrace"] },
+                    { q: "메모리 부족 시 안드로이드 시스템이 프로세스를 강제로 종료시킬 때 발생하는 에러는?", a: "OutOfMemoryError (OOM)", w: ["ANR", "NullPointerException"] },
+                    { q: "네이티브 C/C++ 크래시가 발생했을 때 생성되는 덤프 파일로, 오류 원인을 분석하는 데 사용되는 파일은?", a: "Tombstone", w: ["HPROF", "Logcat"] },
+                    { q: "코루틴에서 현재 상태를 확인하여 취소 요청이 들어왔다면 즉시 예외(CancellationException)를 던지는 함수는?", a: "ensureActive()", w: ["cancel()", "yield()"] },
+                    { q: "코루틴 취소 불가능한 블록을 만들어 반드시 실행되어야 하는 자원 해제 작업 등을 보장할 때 사용하는 함수는?", a: "withContext(NonCancellable)", w: ["finally", "SupervisorScope"] }
+                ]
+            },
+            { 
+                level: 8, name: "Lv.8 개발 실장", xpNeeded: 4500, color: "#FB923C", speedMulti: 1.7,
+                questions: [
+                    { q: "앱 코드를 여러 개의 독립적인 모듈(Feature, Core 등)로 분리하여 빌드 속도를 높이고 결합도를 낮추는 기법은?", a: "Multi-Module", w: ["Monolithic", "Microservice"] },
+                    { q: "Compose에서 객체의 모든 속성이 불변함을 컴파일러에게 확신시켜 리컴포지션을 최적화하는 어노테이션은?", a: "@Immutable", w: ["@Stable", "@Volatile"] },
+                    { q: "빌드, 테스트, 배포 등 일련의 개발 과정을 자동화하는 파이프라인 시스템을 통칭하는 약어는?", a: "CI/CD", w: ["Agile", "DevOps"] },
+                    { q: "기기 환경에 맞춰 필요한 리소스(해상도, 언어 등)만 조합하여 최적화된 용량으로 제공하는 구글 플레이 앱 게시 포맷은?", a: "App Bundle (AAB)", w: ["APK", "JAR"] },
+                    { q: "앱 설치 시 전체 기능을 다운받지 않고, 사용자가 특정 기능에 진입할 때 런타임에 동적으로 모듈을 다운받게 하는 기술은?", a: "Dynamic Feature (Delivery)", w: ["Instant App", "Over The Air (OTA)"] },
+                    { q: "Gradle 설정 파일들을 Groovy 대신 Kotlin 언어로 작성하는 방식의 명칭은?", a: "Gradle Kotlin DSL", w: ["Toml", "Groovy Script"] },
+                    { q: "멀티 모듈 환경에서 라이브러리 버전들을 중앙 집중식으로 한 곳에서 관리하는 Gradle 최신 기능은?", a: "Version Catalog (.toml)", w: ["ext 블록", "buildSrc"] },
+                    { q: "동일한 코드베이스로 무료버전/유료버전, 개발용/운영용 등 다양한 환경의 앱을 생성할 때 사용하는 Gradle 설정은?", a: "Build Variants (Flavors)", w: ["Build Types", "ProGuard"] },
+                    { q: "GitHub Repository에 푸시될 때 자동으로 빌드와 테스트를 실행하게 해주는 워크플로우 서비스는?", a: "GitHub Actions", w: ["Jenkins", "Bitrise"] },
+                    { q: "Firebase에서 제공하며, 개발 중인 앱을 테스터 기기에 쉽게 배포하고 관리할 수 있도록 도와주는 서비스는?", a: "App Distribution", w: ["TestFlight", "Crashlytics"] },
+                    { q: "멀티 모듈 구조에서 의존성 주입 시, 각 모듈의 의존성을 캡슐화하기 위해 Hilt에서 지원하는 기능은?", a: "Hilt Modules (@InstallIn)", w: ["Dagger Subcomponents", "Koin Modules"] },
+                    { q: "Compose에서 상태가 변할 가능성이 있지만, 변할 경우 Compose 런타임에 반드시 알려주겠다고 약속하는 어노테이션은?", a: "@Stable", w: ["@Immutable", "@State"] },
+                    { q: "라이브러리를 모듈에 포함할 때, 현재 모듈에서만 쓰고 외부 모듈로 API를 노출하지 않도록 하는 Gradle 의존성 키워드는?", a: "implementation", w: ["api", "compileOnly"] },
+                    { q: "라이브러리를 모듈에 포함할 때, 현재 모듈을 참조하는 다른 모듈에게도 해당 라이브러리 API를 노출하는 Gradle 의존성 키워드는?", a: "api", w: ["implementation", "annotationProcessor"] },
+                    { q: "코드의 복잡도를 측정하는 정적 분석 도구로, Kotlin 코드의 컨벤션 위반이나 잠재적 버그를 잡아주는 유명한 린터(Linter)는?", a: "Detekt", w: ["Ktlint", "SonarQube"] }
+                ]
+            },
+            { 
+                level: 9, name: "Lv.9 본부장", xpNeeded: 5800, color: "#FBBF24", speedMulti: 1.8,
+                questions: [
+                    { q: "앱 설치 시점에 자주 쓰이는 코드를 미리 파악해두어 AOT 컴파일을 유도함으로써 앱 초기 실행(콜드스타트) 속도를 획기적으로 개선하는 프로필은?", a: "Baseline Profiles", w: ["Proguard Rules", "Trace"] },
+                    { q: "현재 안드로이드의 기본 런타임 환경으로, 앱 설치/실행 시 AOT(미리 컴파일)와 JIT(실시간 컴파일) 방식을 혼합하여 사용하는 시스템은?", a: "ART", w: ["Dalvik", "Zygote"] },
+                    { q: "앱 화면에 보이지 않는 뒷면의 픽셀들을 불필요하게 여러 번 그리는 현상으로, GPU 성능 저하의 주범이 되는 것은?", a: "Overdraw", w: ["Jank", "Memory Churn"] },
+                    { q: "앱의 렌더링 프레임이 16ms(60fps 기준)를 초과하여 화면이 버벅거리거나 끊기는 현상을 가리키는 용어는?", a: "Jank", w: ["ANR", "Tear"] },
+                    { q: "안드로이드 스튜디오에서 앱의 메모리 누수, 할당 내역 등을 시각적으로 확인하고 강제 GC를 발생시킬 수 있는 도구는?", a: "Memory Profiler", w: ["Layout Inspector", "Logcat"] },
+                    { q: "동작 중인 앱의 UI 뷰 계층 구조를 3D로 분해하여 확인하고, State 값 등을 실시간으로 검사할 수 있는 디버깅 도구는?", a: "Layout Inspector", w: ["App Inspection", "Systrace"] },
+                    { q: "Compose에서 자식 컴포저블의 크기를 직접 측정(Measure)하고 X, Y 좌표에 커스텀하게 배치할 때 사용하는 저수준 레이아웃 함수는?", a: "Layout", w: ["Canvas", "Surface"] },
+                    { q: "앱의 성능 측정 라이브러리로, 스크롤, 시작 시간 등을 기기 레벨에서 반복 측정하여 통계를 내주는 라이브러리는?", a: "Macrobenchmark", w: ["Microbenchmark", "Trace"] },
+                    { q: "운영체제에서 모든 안드로이드 앱 프로세스의 부모 역할을 하는 핵심 프로세스로, 자원을 미리 로드하여 앱 실행 속도를 높이는 것은?", a: "Zygote", w: ["System Server", "Init"] },
+                    { q: "안드로이드 OS 레벨의 성능 분석 도구로, CPU 코어별 스케줄링, 프레임 렌더링 지연 시간 등을 밀리초 단위로 캡처하는 강력한 도구는?", a: "Systrace (Perfetto)", w: ["LeakCanary", "Strict Mode"] },
+                    { q: "메모리의 단편화를 줄이고 객체의 생존 기간(Age)에 따라 Young/Old 영역을 나누어 효율적으로 메모리를 수거하는 GC 방식은?", a: "Generational GC", w: ["Mark and Sweep", "Reference Counting"] },
+                    { q: "앱이 완전히 종료된 상태에서 새롭게 프로세스를 생성하고 초기화하며 실행되는 가장 무거운 앱 시작 방식은?", a: "Cold Start", w: ["Warm Start", "Hot Start"] },
+                    { q: "앱 프로세스는 메모리에 살아있지만 Activity가 파괴된 상태에서 다시 진입하여 화면을 복원하는 시작 방식은?", a: "Warm Start", w: ["Cold Start", "Hot Start"] },
+                    { q: "UI 스레드의 드로우 사이클을 관리하며 VSYNC 신호에 맞춰 화면을 그리도록 스케줄링하는 안드로이드 내부 클래스는?", a: "Choreographer", w: ["SurfaceFlinger", "Window"] },
+                    { q: "Compose의 측정(Measure) 단계에서 자식의 크기를 여러 번 측정하려 할 때 발생하는 크래시를 방지하기 위해 강제되는 원칙은?", a: "Single Pass Measurement", w: ["Double Buffering", "State Hoisting"] }
+                ]
+            },
+            { 
+                level: 10, name: "Lv.10 최고 기술 책임자(CTO)", xpNeeded: 7500, color: "#FDE047", speedMulti: 2.0,
+                questions: [
+                    { q: "안드로이드, iOS, 데스크톱 등 여러 플랫폼의 비즈니스 로직을 한 번에 작성하여 네이티브로 컴파일하는 크로스 플랫폼 기술은?", a: "KMP (Kotlin Multiplatform)", w: ["Flutter", "React Native"] },
+                    { q: "안드로이드 OS 레벨에서 프로세스 간 통신(IPC)과 RPC를 고속으로 처리하기 위해 고안된 핵심 커널 드라이버/구조는?", a: "Binder", w: ["Socket", "SharedMemory"] },
+                    { q: "KMP에서 공통 모듈에 선언만 해두고, Android와 iOS 각 플랫폼 모듈에서 구체적인 구현체를 제공하도록 강제하는 키워드는?", a: "expect / actual", w: ["interface / impl", "abstract / override"] },
+                    { q: "가변 상태를 완전히 배제하고, 불변 객체와 부수효과(Side-Effect)가 없는 순수 함수들만으로 프로그램을 구성하는 패러다임은?", a: "Functional Programming", w: ["Object Oriented", "Reactive"] },
+                    { q: "시스템 설계 시, 고수준 모듈이 저수준 모듈에 의존하지 않고 둘 다 추상화에 의존해야 한다는 원칙(SOLID의 D)은?", a: "DIP (의존성 역전 원칙)", w: ["SRP", "OCP"] },
+                    { q: "안드로이드 오픈 소스 프로젝트의 약자로, 구글이 관리하는 안드로이드 코어 프레임워크와 OS 소스코드 전체를 일컫는 말은?", a: "AOSP", w: ["HAL", "Kernel"] },
+                    { q: "안드로이드 프레임워크와 하드웨어 드라이버 사이의 표준 인터페이스를 정의하여, 기기 제조사가 OS 코어 수정 없이 하드웨어를 제어하게 하는 계층은?", a: "HAL (Hardware Abstraction Layer)", w: ["JNI", "VNDK"] },
+                    { q: "모든 윈도우 표면(Surface)을 조합(Composite)하여 최종 화면 데이터를 디스플레이 하드웨어로 보내는 안드로이드의 핵심 시스템 서비스는?", a: "SurfaceFlinger", w: ["WindowManager", "Choreographer"] },
+                    { q: "Kotlin 코드를 머신 코드로 컴파일할 때, Compose UI의 최적화와 메모리 관리를 위해 코드를 변환하는 백엔드 컴파일러 플러그인은?", a: "Compose Compiler Plugin", w: ["KSP", "KAPT"] },
+                    { q: "앱 내부에서 C/C++ 네이티브 라이브러리를 호출하고 상호작용하기 위해 사용하는 자바 프레임워크 인터페이스는?", a: "JNI (Java Native Interface)", w: ["NDK", "AIDL"] },
+                    { q: "기기 내부의 텐서 처리 장치(NPU) 등을 활용하여 서버 통신 없이 디바이스 자체에서 AI 모델(LLM 등)을 추론하는 기술은?", a: "On-Device ML", w: ["Cloud Computing", "WebRTC"] },
+                    { q: "단방향 아키텍처 중 상태 머신(State Machine)과 Reducer 개념을 도입하여, 오직 정의된 Action에 의해서만 상태를 변경하는 엄격한 아키텍처 패턴은?", a: "MVI / Redux", w: ["MVVM", "Clean Architecture"] },
+                    { q: "OS 업데이트 시 제조사 드라이버 코드와 안드로이드 프레임워크 코드를 분리하여 빠른 OS 업데이트를 가능하게 한 구글의 아키텍처 프로젝트는?", a: "Project Treble", w: ["Project Mainline", "AOSP"] },
+                    { q: "Kotlin/Native 기술을 사용하여 C/Objective-C 코드를 직접 호출할 수 있도록 메모리를 수동/자동으로 양방향 관리해주는 도구는?", a: "cinterop", w: ["JNI", "KAPT"] },
+                    { q: "미래의 양자 컴퓨터 공격에도 안전하도록 설계되는 최신 암호화 알고리즘 체계를 일컫는 용어는?", a: "PQC (양자 내성 암호)", w: ["RSA", "AES-256"] }
+                ]
+            }
+        ];
+
+        // ==========================================
+        // Three.js 및 게임 변수 초기화
+        // ==========================================
+        const container = document.getElementById('game-container');
+        
+        // Scene Setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050510);
+        scene.fog = new THREE.Fog(0x050510, 50, 400); 
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(100, 200, 50);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // 환경 (Grid 바닥)
+        const gridHelper = new THREE.GridHelper(2000, 100, 0x8b5cf6, 0x222244);
+        gridHelper.position.y = 0;
+        scene.add(gridHelper);
+
+        // 변수들
+        let gameActive = false;
+        let lives = 3;
+        let score = 0;
+        let currentLevelIndex = 0;
+        
+        let player, aiChase, leftWall, rightWall;
+        let walls = []; // 퀴즈 벽 배열
+
+        let availableQuestionIndices = [];
+        let lastQuestionIndex = -1;
+
+        let levelStartZ = 0;
+        let levelStartAIZ = -100;
+
+        let playerVelocity = new THREE.Vector3();
+        let currentSpeed = 0;
+
+        // 키보드 상태
+        const keys = { w: false, a: false, s: false, d: false };
+
+        // ==========================================
+        // 텍스처 헬퍼 함수
+        // ==========================================
+        function createTextCanvas(text, width, height, bgColor, textColor, initialFontSize, enableWrap = false) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.strokeStyle = textColor;
+            ctx.lineWidth = width * 0.02;
+            ctx.strokeRect(0, 0, width, height);
+
+            ctx.fillStyle = textColor;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            let fontSize = initialFontSize;
+            ctx.font = `bold ${fontSize}px Pretendard, sans-serif`;
+
+            const words = text.split(' ');
+            let maxWordWidth = Math.max(...words.map(w => ctx.measureText(w).width));
+            
+            while (maxWordWidth > width - 40 && fontSize > 20) {
+                fontSize -= 5;
+                ctx.font = `bold ${fontSize}px Pretendard, sans-serif`;
+                maxWordWidth = Math.max(...words.map(w => ctx.measureText(w).width));
+            }
+
+            if (enableWrap) {
+                let line = '';
+                let lines = [];
+                for(let n = 0; n < words.length; n++) {
+                    let testLine = line + words[n] + ' ';
+                    let metrics = ctx.measureText(testLine);
+                    if (metrics.width > width - 40 && n > 0) {
+                        lines.push(line);
+                        line = words[n] + ' ';
+                    } else {
+                        line = testLine;
+                    }
+                }
+                lines.push(line);
+                
+                let startY = height/2 - ((lines.length - 1) * fontSize)/2;
+                for(let k = 0; k < lines.length; k++){
+                    ctx.fillText(lines[k].trim(), width/2, startY + (k * fontSize * 1.15));
+                }
+            } else {
+                ctx.fillText(text, width/2, height/2);
+            }
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // ==========================================
+        // 오브젝트 생성 함수
+        // ==========================================
+        function initWorld() {
+            // 플레이어 생성
+            const pGeo = new THREE.BoxGeometry(4, 4, 4);
+            const pMat = new THREE.MeshStandardMaterial({ 
+                color: 0x00ffcc, 
+                emissive: 0x008866,
+                roughness: 0.2
+            });
+            player = new THREE.Mesh(pGeo, pMat);
+            player.position.set(0, 2, 0);
+            scene.add(player);
+
+            // AI (추격자)
+            const aiGeo = new THREE.BoxGeometry(200, 100, 20);
+            const aiMat = new THREE.MeshBasicMaterial({ 
+                color: 0xff0000, 
+                transparent: true, 
+                opacity: 0.7 
+            });
+            aiChase = new THREE.Mesh(aiGeo, aiMat);
+            aiChase.position.set(0, 50, -100); 
+            scene.add(aiChase);
+
+            // 양 옆 막힌 벽 생성
+            const sideWallGeo = new THREE.BoxGeometry(10, 100, 2000);
+            const sideWallMat = new THREE.MeshStandardMaterial({ 
+                color: 0x111122, 
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            
+            leftWall = new THREE.Mesh(sideWallGeo, sideWallMat);
+            leftWall.position.set(-45, 50, 0); 
+            scene.add(leftWall);
+
+            rightWall = new THREE.Mesh(sideWallGeo, sideWallMat);
+            rightWall.position.set(45, 50, 0);
+            scene.add(rightWall);
+
+            // 첫 벽들 생성
+            spawnWall(150);
+            spawnWall(350);
+        }
+
+        function getRandomQuiz() {
+            const levelData = QUIZ_DATA[currentLevelIndex];
+            
+            if (availableQuestionIndices.length === 0) {
+                let indices = Array.from({length: levelData.questions.length}, (_, i) => i);
+                indices.sort(() => Math.random() - 0.5); // 셔플
+                
+                if (indices.length > 1 && indices[indices.length - 1] === lastQuestionIndex) {
+                    let temp = indices[indices.length - 1];
+                    indices[indices.length - 1] = indices[0];
+                    indices[0] = temp;
+                }
+                availableQuestionIndices = indices;
+            }
+            
+            const qIndex = availableQuestionIndices.pop();
+            lastQuestionIndex = qIndex;
+            return levelData.questions[qIndex];
+        }
+
+        function spawnWall(zPosition) {
+            const quiz = getRandomQuiz();
+            const wallGroup = new THREE.Group();
+            wallGroup.position.z = zPosition;
+            wallGroup.passed = false; 
+
+            const doorPositions = [-25, 0, 25];
+            
+            let options = [quiz.a, quiz.w[0], quiz.w[1]];
+            options.sort(() => Math.random() - 0.5); 
+
+            // 상단 3D 문제 간판 (시야를 절대 가리지 않게 Y 위치를 120으로 대폭 상향)
+            const qTex = createTextCanvas(quiz.q, 2048, 512, '#111', '#a855f7', 100, true);
+            const qGeo = new THREE.PlaneGeometry(80, 20);
+            const qMat = new THREE.MeshBasicMaterial({ map: qTex });
+            const qMesh = new THREE.Mesh(qGeo, qMat);
+            qMesh.position.set(0, 120, 0);
+            wallGroup.add(qMesh);
+
+            // 기둥 생성 (간판 높이에 맞춰 기둥 길이 120, 중심 60으로 세팅)
+            const pillarGeo = new THREE.BoxGeometry(10, 120, 5);
+            const pillarMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            [-40, -12.5, 12.5, 40].forEach(x => {
+                const p = new THREE.Mesh(pillarGeo, pillarMat);
+                p.position.set(x, 60, 0);
+                wallGroup.add(p);
+            });
+
+            // 문 생성
+            wallGroup.doors = [];
+            for (let i = 0; i < 3; i++) {
+                const isCorrect = (options[i] === quiz.a);
+                
+                const tex = createTextCanvas(options[i], 1024, 1024, '#1e1b4b', '#ffffff', 240, true);
+                const doorGeo = new THREE.BoxGeometry(15, 15, 2);
+                const doorMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.9 });
+                
+                const door = new THREE.Mesh(doorGeo, doorMat);
+                door.position.set(doorPositions[i], 10, 0);
+                door.isCorrect = isCorrect;
+                door.isActive = true;
+
+                wallGroup.add(door);
+                wallGroup.doors.push(door);
+            }
+
+            wallGroup.quizText = quiz.q; 
+            scene.add(wallGroup);
+            walls.push(wallGroup);
+        }
+
+        // ==========================================
+        // UI 및 게임 로직 업데이트
+        // ==========================================
+        function updateHUD() {
+            document.getElementById('score-display').innerHTML = `${score} <span class="text-sm">XP</span>`;
+            
+            let hearts = '';
+            for(let i=0; i<3; i++) hearts += (i < lives) ? '❤️' : '🖤';
+            document.getElementById('lives-display').innerHTML = hearts;
+
+            const lvlData = QUIZ_DATA[currentLevelIndex];
+            const lvlElem = document.getElementById('level-display');
+            lvlElem.textContent = lvlData.name;
+            lvlElem.style.color = lvlData.color;
+
+            const maxSafeDist = 200;
+            const aiFrontZ = aiChase.position.z + 10;
+            const playerBackZ = player.position.z - 2;
+            let dist = playerBackZ - aiFrontZ; 
+            if(dist < 0) dist = 0;
+            
+            document.getElementById('distance-text').textContent = `거리: ${Math.floor(dist)}m`;
+            
+            // 수직선 UI (트랙) 비율 계산
+            let xpNeededForNext = QUIZ_DATA[currentLevelIndex + 1] ? QUIZ_DATA[currentLevelIndex + 1].xpNeeded : QUIZ_DATA[currentLevelIndex].xpNeeded + 2000;
+            let currentLevelStartXP = QUIZ_DATA[currentLevelIndex].xpNeeded;
+            let xpRequiredThisLevel = xpNeededForNext - currentLevelStartXP;
+            
+            let distanceForLevel = (xpRequiredThisLevel / 50) * 200;
+            let totalTrackDistance = (levelStartZ + distanceForLevel) - levelStartAIZ;
+            
+            let aiDist = aiChase.position.z - levelStartAIZ;
+            let playerDist = player.position.z - levelStartAIZ;
+            
+            let aiPercent = (aiDist / totalTrackDistance) * 100;
+            let playerPercent = (playerDist / totalTrackDistance) * 100;
+            
+            if (aiPercent < 0) aiPercent = 0;
+            if (aiPercent > 100) aiPercent = 100;
+            if (playerPercent < 0) playerPercent = 0;
+            if (playerPercent > 100) playerPercent = 100;
+            
+            document.getElementById('ai-icon').style.left = `${aiPercent}%`;
+            document.getElementById('player-icon').style.left = `${playerPercent}%`;
+
+            // 통과하지 않은 다음 벽의 문제만 HUD에 표시 (겹침 텍스트 버그 방지)
+            let nextWall = walls.find(w => w.position.z > player.position.z && !w.passed);
+            const quizUi = document.getElementById('quiz-ui');
+            if (nextWall && (nextWall.position.z - player.position.z < 180)) {
+                document.getElementById('quiz-question').textContent = nextWall.quizText;
+                quizUi.classList.remove('hidden');
+            } else {
+                quizUi.classList.add('hidden');
+            }
+        }
+
+        function checkLevelUp() {
+            if (currentLevelIndex >= QUIZ_DATA.length - 1) return;
+            const nextLvl = QUIZ_DATA[currentLevelIndex + 1];
+            if (score >= nextLvl.xpNeeded) {
+                currentLevelIndex++;
+                availableQuestionIndices = [];
+                lastQuestionIndex = -1;
+                // 레벨업 보상: AI 뒤로
+                aiChase.position.z -= 30; 
+                
+                // 수직선 UI 기준점 갱신
+                levelStartZ = player.position.z;
+                levelStartAIZ = aiChase.position.z;
+            }
+        }
+
+        function takeDamage() {
+            lives--;
+            
+            const overlay = document.getElementById('damage-overlay');
+            overlay.classList.add('flash');
+            setTimeout(() => overlay.classList.remove('flash'), 150);
+
+            // 튕겨남 (속도 0으로 초기화 후 후방 물리력 작용)
+            playerVelocity.z = -50.0; 
+            currentSpeed = 0;
+            
+            // 패널티: AI 접근
+            aiChase.position.z += 20;
+
+            if (lives <= 0) {
+                gameOver("오답 3회 누적으로 멘탈이 붕괴되었습니다.");
+            }
+            updateHUD();
+        }
+
+        function handleDoorCollision(door, wall) {
+            if (!door.isActive) return;
+            door.isActive = false;
+
+            if (door.isCorrect) {
+                score += 50;
+                wall.passed = true;
+                door.visible = false;
+                
+                // 보상: AI를 15m 뒤로 밀어내어 거리 벌리기
+                aiChase.position.z -= 15;
+
+                // 새 벽 생성 (항상 맨 마지막 벽 뒤에 생성하여 겹침 원천 차단)
+                const lastWallZ = walls[walls.length - 1].position.z;
+                spawnWall(lastWallZ + 200);
+                
+                checkLevelUp();
+                updateHUD();
+            } else {
+                takeDamage();
+                door.material.color.setHex(0xff0000);
+            }
+        }
+
+        function gameOver(reason) {
+            gameActive = false;
+            document.getElementById('game-over-reason').textContent = reason;
+            document.getElementById('final-score').textContent = score;
+            document.getElementById('final-level').textContent = QUIZ_DATA[currentLevelIndex].name;
+            
+            const goScreen = document.getElementById('game-over-screen');
+            goScreen.classList.remove('hidden');
+            void goScreen.offsetWidth;
+            goScreen.style.opacity = 1;
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('quiz-ui').classList.add('hidden');
+        }
+
+        function startGame() {
+            scene.remove(player);
+            scene.remove(aiChase);
+            if (leftWall) scene.remove(leftWall);
+            if (rightWall) scene.remove(rightWall);
+            walls.forEach(w => scene.remove(w));
+            walls = [];
+            
+            lives = 3;
+            score = 0;
+            currentLevelIndex = 0;
+            currentSpeed = 0;
+            
+            availableQuestionIndices = [];
+            lastQuestionIndex = -1;
+
+            levelStartZ = 0;
+            levelStartAIZ = -100;
+
+            initWorld();
+            
+            document.getElementById('start-screen').classList.add('hidden');
+            const goScreen = document.getElementById('game-over-screen');
+            goScreen.classList.add('hidden');
+            goScreen.style.opacity = 0;
+            document.getElementById('hud').classList.remove('hidden');
+            
+            gameActive = true;
+            updateHUD();
+            
+            lastTime = performance.now();
+            requestAnimationFrame(animate);
+        }
+
+        // ==========================================
+        // 입력 컨트롤
+        // ==========================================
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'w' || e.key === 'W') keys.w = true;
+            if (e.key === 's' || e.key === 'S') keys.s = true;
+            if (e.key === 'a' || e.key === 'A') keys.a = true;
+            if (e.key === 'd' || e.key === 'D') keys.d = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'w' || e.key === 'W') keys.w = false;
+            if (e.key === 's' || e.key === 'S') keys.s = false;
+            if (e.key === 'a' || e.key === 'A') keys.a = false;
+            if (e.key === 'd' || e.key === 'D') keys.d = false;
+        });
+
+        const bindBtn = (id, key) => {
+            const btn = document.getElementById(id);
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
+            btn.addEventListener('mousedown', (e) => { keys[key] = true; });
+            btn.addEventListener('mouseup', (e) => { keys[key] = false; });
+            btn.addEventListener('mouseleave', (e) => { keys[key] = false; });
+        };
+        bindBtn('btn-forward', 'w');
+        bindBtn('btn-left', 'a');
+        bindBtn('btn-right', 'd');
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ==========================================
+        // 메인 렌더 루프
+        // ==========================================
+        let lastTime = 0;
+        function animate(time) {
+            if (!gameActive) return;
+            requestAnimationFrame(animate);
+
+            let dt = (time - lastTime) / 1000;
+            if (dt > 0.1) dt = 0.1; 
+            lastTime = time;
+
+            // 1. 플레이어 이동 로직 (누를 때만 속도 발생)
+            let targetSpeed = 0.0; 
+            if (keys.w) targetSpeed = 80.0; // W를 누를 때만 달림
+            else if (keys.s) targetSpeed = -20.0; // S 누르면 브레이크/뒤로 가기
+
+            // 오답으로 인해 튕겨나는 중일 때
+            if (playerVelocity.z < 0) {
+                currentSpeed = 0;
+                playerVelocity.z += 100.0 * dt; // 튕긴 후 서서히 회복
+                if (playerVelocity.z > 0) playerVelocity.z = 0;
+            } else {
+                // 부드러운 가감속
+                if (currentSpeed < targetSpeed) {
+                    currentSpeed += 200.0 * dt;
+                    if (currentSpeed > targetSpeed) currentSpeed = targetSpeed;
+                } else if (currentSpeed > targetSpeed) {
+                    currentSpeed -= 200.0 * dt;
+                    if (currentSpeed < targetSpeed) currentSpeed = targetSpeed;
+                }
+            }
+            
+            // X축 (좌우 이동) - 일정한 속도
+            if (keys.a) playerVelocity.x = 70.0;
+            else if (keys.d) playerVelocity.x = -70.0; 
+            else playerVelocity.x = 0;
+
+            player.position.z += (currentSpeed + playerVelocity.z) * dt;
+            player.position.x += playerVelocity.x * dt;
+
+            // 도로 이탈 방지
+            const roadLimit = 40;
+            if (player.position.x > roadLimit) player.position.x = roadLimit;
+            if (player.position.x < -roadLimit) player.position.x = -roadLimit;
+
+            // 2. AI 이동 로직
+            const aiBaseSpeed = 40.0 * QUIZ_DATA[currentLevelIndex].speedMulti;
+            aiChase.position.z += aiBaseSpeed * dt;
+
+            const aiFrontZ = aiChase.position.z + 10;
+            const playerBackZ = player.position.z - 2;
+            if (aiFrontZ >= playerBackZ) {
+                gameOver("속도가 느려 AI에게 잡아먹혔습니다.");
+                return;
+            }
+
+            // 3. 충돌 검사
+            const pBox = new THREE.Box3().setFromObject(player);
+            pBox.expandByScalar(-0.5); 
+
+            for (let i = 0; i < walls.length; i++) {
+                const wall = walls[i];
+                if (wall.passed) continue;
+
+                if (player.position.z > wall.position.z - 5 && player.position.z < wall.position.z + 10) {
+                    let hitAnyDoor = false;
+
+                    for(let j=0; j<wall.doors.length; j++) {
+                        const door = wall.doors[j];
+                        if(!door.isActive) continue;
+
+                        const dBox = new THREE.Box3().setFromObject(door);
+                        dBox.min.z -= 5;
+                        dBox.max.z += 5;
+
+                        if (pBox.intersectsBox(dBox)) {
+                            handleDoorCollision(door, wall);
+                            hitAnyDoor = true;
+                        }
+                    }
+
+                    // 빈 기둥 충돌 방어
+                    if (!hitAnyDoor && !wall.passed && player.position.z > wall.position.z) {
+                        takeDamage();
+                        player.position.z = wall.position.z - 2; 
+                        currentSpeed = 0;
+                    }
+                }
+            }
+
+            // 지나친 벽 정리
+            if (walls.length > 0 && walls[0].position.z < player.position.z - 100) {
+                scene.remove(walls[0]);
+                walls.shift();
+            }
+
+            // 4. 카메라 및 환경 업데이트
+            camera.position.x = player.position.x;
+            camera.position.y = player.position.y + 15;
+            camera.position.z = player.position.z - 40;
+            camera.lookAt(player.position.x, player.position.y, player.position.z + 50);
+
+            gridHelper.position.z = player.position.z;
+            leftWall.position.z = player.position.z;
+            rightWall.position.z = player.position.z;
+
+            // 5. UI 업데이트
+            updateHUD();
+
+            renderer.render(scene, camera);
+        }
+
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        document.getElementById('restart-btn').addEventListener('click', startGame);
+
+        initWorld();
+        camera.position.set(0, 15, -40);
+        camera.lookAt(0, 0, 100);
+        renderer.render(scene, camera);
+
+    </script>
+</body>
+</html>

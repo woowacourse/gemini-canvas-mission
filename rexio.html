@@ -1,0 +1,1621 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lexio Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Noto Sans KR", sans-serif;
+        background-color: #2a0808; /* 다크 레드 배경으로 변경 */
+        color: #e2e8f0;
+        user-select: none;
+      }
+
+      /* Lexio Tile Styling - Responsive & Redesigned */
+      .lexio-tile {
+        width: 2.75rem;
+        height: 4rem;
+        background-color: #ffffff;
+        border-radius: 0.375rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        position: relative;
+      }
+
+      @media (min-width: 768px) {
+        .lexio-tile {
+          width: 3.5rem;
+          height: 5rem;
+          border-radius: 0.5rem;
+        }
+      }
+
+      .lexio-tile.ai-tile {
+        background-color: #cbd5e1;
+        background-image: repeating-linear-gradient(
+          45deg,
+          transparent,
+          transparent 10px,
+          #94a3b8 10px,
+          #94a3b8 20px
+        );
+        cursor: default;
+      }
+
+      .lexio-tile.selected {
+        transform: translateY(-0.75rem);
+        box-shadow: 0 8px 12px rgba(0, 0, 0, 0.4);
+        border: 2px solid #3b82f6;
+      }
+
+      @media (min-width: 768px) {
+        .lexio-tile.selected {
+          transform: translateY(-1rem);
+        }
+      }
+
+      /* 새 타일 디자인: 좌상단/우하단 숫자, 중앙 문양 */
+      .tile-num-tl {
+        position: absolute;
+        top: 0.2rem;
+        left: 0.25rem;
+        font-size: 0.9rem;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .tile-num-br {
+        position: absolute;
+        bottom: 0.2rem;
+        right: 0.25rem;
+        font-size: 0.9rem;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .tile-center-suit {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 1.5rem;
+        height: 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      @media (min-width: 768px) {
+        .tile-num-tl {
+          top: 0.3rem;
+          left: 0.35rem;
+          font-size: 1.1rem;
+        }
+        .tile-num-br {
+          bottom: 0.3rem;
+          right: 0.35rem;
+          font-size: 1.1rem;
+        }
+        .tile-center-suit {
+          width: 2.5rem;
+          height: 2.5rem;
+        }
+      }
+
+      /* 문양 색상 (디자인 이미지 컬러 반영) */
+      .suit-Cloud {
+        color: #406882;
+      } /* 파랑 (구름) */
+      .suit-Star {
+        color: #f4c430;
+      } /* 노랑 (별) */
+      .suit-Moon {
+        color: #71a85a;
+      } /* 초록 (달) */
+      .suit-Sun {
+        color: #d34343;
+      } /* 빨강 (해) */
+
+      /* Toast Animation */
+      @keyframes slideInUp {
+        from {
+          transform: translate(-50%, 100%);
+          opacity: 0;
+        }
+        to {
+          transform: translate(-50%, 0);
+          opacity: 1;
+        }
+      }
+      .toast {
+        animation: slideInUp 0.3s ease-out forwards;
+      }
+
+      /* Modal Overlay */
+      .modal-overlay {
+        background-color: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(4px);
+      }
+
+      /* Hand Container */
+      .hand-container {
+        display: flex;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      @media (min-width: 768px) {
+        .hand-container {
+          gap: 0.5rem;
+        }
+      }
+
+      .field-container {
+        min-height: 5rem;
+      }
+      @media (min-width: 768px) {
+        .field-container {
+          min-height: 6rem;
+        }
+      }
+
+      /* Scrollbar styles */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background-color: #4a5568;
+        border-radius: 3px;
+      }
+
+      .rules-content::-webkit-scrollbar {
+        width: 4px;
+      }
+      .rules-content::-webkit-scrollbar-thumb {
+        background-color: #5a1212;
+        border-radius: 2px;
+      }
+
+      /* Drag and Drop Styling */
+      .draggable-tile {
+        cursor: grab;
+        touch-action: none; /* 드래그 시 모바일 스크롤 방지 */
+      }
+      .draggable-tile:active {
+        cursor: grabbing;
+      }
+      .drag-over {
+        transform: scale(1.05);
+        border: 2px dashed #facc15;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen flex flex-col relative overflow-auto">
+    <!-- Top Bar: Scores & Round (Sticky) -->
+    <div
+      class="sticky top-0 w-full p-3 flex justify-between items-center shadow-lg z-30 border-b border-[#5A1212]"
+      style="background-color: #320b0b"
+    >
+      <div class="flex items-center gap-2 md:gap-4">
+        <div
+          class="text-lg md:text-xl font-bold text-yellow-400"
+          id="round-display"
+        >
+          라운드 1 / 3
+        </div>
+        <button
+          id="btn-rules"
+          class="px-2 py-1 md:px-3 md:py-1.5 bg-[#460F0F] hover:bg-[#5A1212] border border-[#5A1212] text-xs md:text-sm font-bold text-gray-200 rounded transition shadow"
+        >
+          ❓ 규칙 설명
+        </button>
+      </div>
+      <div class="flex gap-3 md:gap-6 text-xs md:text-base">
+        <div id="score-0" class="font-semibold text-white">나: 0점</div>
+        <div id="score-1" class="font-semibold text-gray-400">행성1: 0점</div>
+        <div id="score-2" class="font-semibold text-gray-400">행성2: 0점</div>
+      </div>
+    </div>
+
+    <!-- Main Game Area (Scrollable Content) -->
+    <div
+      class="flex-1 flex flex-col md:flex-row relative max-w-6xl w-full mx-auto pb-56 md:pb-48"
+    >
+      <!-- Opponents Area (Top/Sides) -->
+      <div
+        class="w-full md:w-1/4 p-2 md:p-4 flex flex-row md:flex-col justify-between md:justify-start gap-2 md:gap-4 border-b md:border-b-0 md:border-r border-[#5A1212]"
+        style="background-color: #460f0f"
+      >
+        <!-- 행성일 -->
+        <div
+          class="p-2 md:p-4 rounded-xl shadow border-2 border-[#5A1212] w-1/2 md:w-full flex flex-col items-center relative transition-all duration-300"
+          style="background-color: #320b0b"
+          id="p1-area"
+        >
+          <div
+            id="p1-pass-badge"
+            class="absolute top-2 right-2 bg-red-600 text-white text-[10px] md:text-xs px-2 py-0.5 rounded font-bold hidden shadow"
+          >
+            패스
+          </div>
+          <div
+            class="flex flex-row items-center justify-center gap-1.5 md:gap-2 mb-1 md:mb-2"
+          >
+            <div class="relative w-6 h-6 md:w-10 md:h-10 flex-shrink-0">
+              <img
+                src="슈퍼맨 포즈 행성.png"
+                alt="행성일"
+                class="w-full h-full object-contain bg-white rounded-full p-0.5 shadow-sm"
+                onerror="
+                  this.style.display = 'none';
+                  this.nextElementSibling.classList.remove('hidden');
+                  this.nextElementSibling.classList.add('flex');
+                "
+              />
+              <div
+                class="hidden w-full h-full items-center justify-center bg-gray-700 rounded-full text-sm md:text-xl shadow-sm border border-gray-600"
+              >
+                🪐
+              </div>
+            </div>
+            <div class="font-bold text-sm md:text-lg text-blue-300">행성일</div>
+          </div>
+          <div class="text-xs text-gray-400 hidden md:block mb-1">
+            남은 타일
+          </div>
+          <div
+            class="text-xl md:text-3xl font-black text-white flex items-center gap-1"
+          >
+            <span class="md:hidden text-xs text-gray-400 font-normal"
+              >남은 패:</span
+            >
+            <span id="p1-count">12</span>
+          </div>
+          <div
+            id="p1-indicator"
+            class="mt-1 md:mt-2 px-2 py-0.5 md:px-3 md:py-1 bg-yellow-500 text-gray-900 rounded-full text-[10px] md:text-xs font-bold hidden"
+          >
+            현재 턴
+          </div>
+        </div>
+
+        <!-- 행성이 -->
+        <div
+          class="p-2 md:p-4 rounded-xl shadow border-2 border-[#5A1212] w-1/2 md:w-full flex flex-col items-center relative transition-all duration-300"
+          style="background-color: #320b0b"
+          id="p2-area"
+        >
+          <div
+            id="p2-pass-badge"
+            class="absolute top-2 right-2 bg-red-600 text-white text-[10px] md:text-xs px-2 py-0.5 rounded font-bold hidden shadow"
+          >
+            패스
+          </div>
+          <div
+            class="flex flex-row items-center justify-center gap-1.5 md:gap-2 mb-1 md:mb-2"
+          >
+            <div class="relative w-6 h-6 md:w-10 md:h-10 flex-shrink-0">
+              <img
+                src="만세하는 행성 (1).png"
+                alt="행성이"
+                class="w-full h-full object-contain bg-white rounded-full p-0.5 shadow-sm"
+                onerror="
+                  this.style.display = 'none';
+                  this.nextElementSibling.classList.remove('hidden');
+                  this.nextElementSibling.classList.add('flex');
+                "
+              />
+              <div
+                class="hidden w-full h-full items-center justify-center bg-gray-700 rounded-full text-sm md:text-xl shadow-sm border border-gray-600"
+              >
+                ☄️
+              </div>
+            </div>
+            <div class="font-bold text-sm md:text-lg text-purple-300">
+              행성이
+            </div>
+          </div>
+          <div class="text-xs text-gray-400 hidden md:block mb-1">
+            남은 타일
+          </div>
+          <div
+            class="text-xl md:text-3xl font-black text-white flex items-center gap-1"
+          >
+            <span class="md:hidden text-xs text-gray-400 font-normal"
+              >남은 패:</span
+            >
+            <span id="p2-count">12</span>
+          </div>
+          <div
+            id="p2-indicator"
+            class="mt-1 md:mt-2 px-2 py-0.5 md:px-3 md:py-1 bg-yellow-500 text-gray-900 rounded-full text-[10px] md:text-xs font-bold hidden"
+          >
+            현재 턴
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Field -->
+      <div
+        class="flex-1 flex flex-col p-3 md:p-6 relative gap-4 justify-center items-center shadow-inner"
+        style="background: radial-gradient(circle, #751414 0%, #460f0f 100%)"
+      >
+        <div
+          class="field-container hand-container w-full max-w-lg flex items-center justify-center"
+          id="field-area"
+        >
+          <!-- Field Tiles go here -->
+        </div>
+        <div
+          id="field-combo-name"
+          class="mt-2 text-base md:text-lg font-bold text-yellow-300 h-6 drop-shadow-md"
+        ></div>
+      </div>
+    </div>
+
+    <!-- Player Area (Fixed Bottom) -->
+    <div
+      id="p0-area"
+      class="fixed bottom-0 left-0 w-full border-t-2 border-[#5A1212] p-3 md:p-4 flex flex-col z-40 shadow-[0_-5px_15px_rgba(0,0,0,0.5)] transition-all duration-300"
+      style="background-color: #460f0f"
+    >
+      <div
+        id="p0-pass-badge"
+        class="absolute top-2 right-4 md:right-8 bg-red-600 text-white text-[10px] md:text-xs px-2 py-1 md:px-3 md:py-1 rounded font-bold hidden shadow z-50"
+      >
+        패스 상태 (대기 중)
+      </div>
+      <div class="max-w-6xl w-full mx-auto flex flex-col">
+        <div class="flex justify-between items-center mb-2 md:mb-3">
+          <div class="flex items-center gap-2 md:gap-3">
+            <span class="font-bold text-base md:text-lg text-white"
+              >나의 패</span
+            >
+            <div
+              id="p0-indicator"
+              class="px-2 py-0.5 md:px-3 md:py-1 bg-yellow-500 text-gray-900 rounded-full text-[10px] md:text-xs font-bold hidden animate-pulse"
+            >
+              내 턴입니다!
+            </div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <button
+              id="btn-sort"
+              class="px-1.5 py-0.5 md:px-2 md:py-1 bg-[#320B0B] hover:bg-[#5A1212] border border-[#5A1212] text-gray-300 hover:text-white text-[10px] md:text-xs font-bold rounded shadow transition"
+            >
+              정렬
+            </button>
+            <div
+              class="w-px h-6 bg-[#5A1212] mx-1 self-center hidden md:block"
+            ></div>
+            <button
+              id="btn-pass"
+              class="px-4 py-1.5 md:px-6 md:py-2 bg-[#751414] hover:bg-[#5A1212] text-white text-sm md:text-base font-bold rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              패스
+            </button>
+            <button
+              id="btn-play"
+              class="px-4 py-1.5 md:px-6 md:py-2 bg-yellow-600 hover:bg-yellow-500 text-gray-900 text-sm md:text-base font-bold rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              제출
+            </button>
+          </div>
+        </div>
+        <!-- 위쪽 여백을 주어 선택 시 잘리지 않게 함 -->
+        <div
+          class="hand-container overflow-y-auto max-h-[25vh] md:max-h-[30vh] pt-5 pb-2 content-start"
+          id="player-hand"
+        >
+          <!-- User Tiles -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div
+      id="toast-container"
+      class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col gap-2 z-50 pointer-events-none"
+    ></div>
+
+    <!-- Modals -->
+    <div
+      id="modal-overlay"
+      class="fixed inset-0 modal-overlay z-50 hidden flex items-center justify-center p-4"
+    >
+      <!-- Rules Modal -->
+      <div
+        id="rules-modal"
+        class="bg-gray-800 border-2 border-[#5A1212] rounded-2xl shadow-2xl p-6 md:p-8 max-w-2xl w-full max-h-[85vh] hidden flex-col"
+      >
+        <h2
+          class="text-2xl md:text-3xl font-black text-yellow-400 mb-4 text-center border-b border-gray-700 pb-4"
+        >
+          📜 렉시오 게임 규칙
+        </h2>
+        <div
+          class="rules-content flex-1 overflow-y-auto pr-2 text-sm md:text-base text-gray-300 space-y-4"
+        >
+          <div>
+            <h3 class="font-bold text-white text-lg">기본 규칙</h3>
+            <ul class="list-disc pl-5 mt-1">
+              <li>
+                각 플레이어는 12장씩 타일을 나눠 가집니다. 가장 먼저 패를
+                털어내는 사람이 승리합니다.
+              </li>
+              <li>
+                이전 사람이 낸 패와
+                <span class="text-yellow-400 font-bold">동일한 장수</span>의
+                <span class="text-yellow-400 font-bold">더 강한 족보</span>만 낼
+                수 있습니다.
+              </li>
+              <li>
+                낼 패가 없거나 전략상 내고 싶지 않다면 <strong>'패스'</strong>를
+                할 수 있습니다.
+              </li>
+              <li>
+                모두가 패스하여 한 명만 남으면, 남은 사람이 새로운 턴의 선이
+                되어 원하는 패를 자유롭게 냅니다.
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h3 class="font-bold text-white text-lg">타일의 강도 순서</h3>
+            <ul class="list-disc pl-5 mt-1">
+              <li>
+                <strong>숫자:</strong> 3 &lt; 4 &lt; 5 &lt; 6 &lt; 7 &lt; 8 &lt;
+                9 &lt;
+                <span class="text-red-400 font-bold">1 &lt; 2 (최강)</span>
+              </li>
+              <li>
+                <strong>문양:</strong> 구름(파랑) &lt; 별(노랑) &lt; 달(초록)
+                &lt; <span class="text-red-400 font-bold">해(빨강, 최강)</span>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h3 class="font-bold text-white text-lg">허용되는 조합 (족보)</h3>
+            <ul class="list-disc pl-5 mt-1 space-y-2">
+              <li>
+                <strong>싱글 (1장):</strong> 1장. 숫자 비교 후 같으면 문양을
+                비교합니다.
+              </li>
+              <li>
+                <strong>페어 (2장):</strong> 같은 숫자 2장. (문양이 더 높은 패가
+                이깁니다)
+              </li>
+              <li><strong>트리플 (3장):</strong> 같은 숫자 3장.</li>
+              <li>
+                <strong>5장 족보:</strong> 5장 제출 시 아래 순서대로
+                강합니다.<br />
+                <span class="text-gray-400 text-xs">(약함)</span>
+                <ol class="list-decimal pl-5 mt-1 text-gray-200">
+                  <li>
+                    <strong>스트레이트:</strong> 연속된 숫자 5장 (문양 무관)
+                    <br /><span class="text-xs text-gray-400"
+                      >예: 3-4-5-6-7, 8-9-1-2-3 등 (1,2가 포함된 스트레이트가
+                      셈)</span
+                    >
+                  </li>
+                  <li><strong>플러시:</strong> 같은 문양 5장 (숫자 무관)</li>
+                  <li>
+                    <strong>풀하우스:</strong> 같은 숫자 3장 + 같은 숫자 2장
+                    (트리플+페어)
+                  </li>
+                  <li><strong>포카드:</strong> 같은 숫자 4장 + 아무 패 1장</li>
+                  <li>
+                    <strong>스트레이트 플러시:</strong> 같은 문양이면서 연속된
+                    숫자 5장
+                  </li>
+                </ol>
+                <span class="text-red-400 text-xs font-bold">(강함)</span>
+              </li>
+            </ul>
+            <p class="mt-2 text-xs text-red-400">
+              * 4장은 낼 수 없습니다. (포카드는 반드시 불필요한 패 1장을
+              포함하여 5장으로 내야 합니다)
+            </p>
+          </div>
+        </div>
+        <button
+          id="btn-close-rules"
+          class="mt-6 w-full py-3 bg-[#751414] hover:bg-red-700 rounded font-bold text-white transition text-sm md:text-base"
+        >
+          규칙 닫기
+        </button>
+      </div>
+
+      <!-- Round End Modal -->
+      <div
+        id="round-modal"
+        class="bg-gray-800 border-2 border-[#5A1212] rounded-2xl shadow-2xl p-6 md:p-8 max-w-md w-full flex-col items-center text-center hidden"
+      >
+        <h2
+          class="text-2xl md:text-3xl font-black text-white mb-2"
+          id="round-modal-title"
+        >
+          라운드 종료!
+        </h2>
+        <div
+          id="round-scores"
+          class="w-full bg-gray-900 rounded-lg p-4 my-4 md:my-6 flex flex-col gap-3 text-left text-sm md:text-base border border-gray-700"
+        >
+          <!-- Score updates inserted here -->
+        </div>
+        <div class="flex w-full gap-3 md:gap-4">
+          <button
+            id="btn-end-game"
+            class="flex-1 py-2 md:py-3 bg-red-600 hover:bg-red-500 rounded font-bold text-white transition text-sm md:text-base"
+          >
+            게임 종료
+          </button>
+          <button
+            id="btn-next-round"
+            class="flex-1 py-2 md:py-3 bg-blue-600 hover:bg-blue-500 rounded font-bold text-white transition text-sm md:text-base"
+          >
+            다음 라운드
+          </button>
+        </div>
+      </div>
+
+      <!-- Game Over Modal -->
+      <div
+        id="game-over-modal"
+        class="bg-gray-800 border-2 border-[#5A1212] rounded-2xl shadow-2xl p-6 md:p-8 max-w-md w-full flex-col items-center text-center hidden"
+      >
+        <h2 class="text-3xl md:text-4xl font-black text-yellow-400 mb-2">
+          최종 결과
+        </h2>
+        <div
+          id="final-winner"
+          class="text-xl md:text-2xl font-bold text-white mb-4 md:mb-6"
+        ></div>
+        <div
+          id="final-scores"
+          class="w-full bg-gray-900 rounded-lg p-4 my-4 flex flex-col gap-3 text-left text-sm md:text-base border border-gray-700"
+        >
+          <!-- Final scores -->
+        </div>
+        <button
+          id="btn-restart"
+          class="w-full py-2 md:py-3 bg-green-600 hover:bg-green-500 rounded font-bold text-white transition mt-2 md:mt-4 text-sm md:text-base"
+        >
+          새 게임 시작
+        </button>
+      </div>
+    </div>
+
+    <script>
+      /** --- 1. CORE DATA STRUCTURES & CONSTANTS --- */
+
+      // 일반적이고 깔끔한 모양의 벡터 SVG 아이콘으로 대체 (Heroicons 기준)
+      const SUITS = [
+        {
+          name: "Cloud",
+          icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-full h-full"><path fill-rule="evenodd" d="M4.5 9.75a6 6 0 0 1 11.573-2.226 3.75 3.75 0 0 1 4.133 4.303A4.5 4.5 0 0 1 18 20.25H6.75a5.25 5.25 0 0 1-2.25-10.5Z" clip-rule="evenodd" /></svg>',
+          colorClass: "suit-Cloud",
+          rank: 1,
+        },
+        {
+          name: "Star",
+          icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-full h-full"><path fill-rule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z" clip-rule="evenodd" /></svg>',
+          colorClass: "suit-Star",
+          rank: 2,
+        },
+        {
+          name: "Moon",
+          icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-full h-full"><path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 0 1 .162.819A8.97 8.97 0 0 0 9 6a9 9 0 0 0 9 9 8.97 8.97 0 0 0 3.463-.69.75.75 0 0 1 .981.98 10.503 10.503 0 0 1-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 0 1 .818.162Z" clip-rule="evenodd" /></svg>',
+          colorClass: "suit-Moon",
+          rank: 3,
+        },
+        {
+          name: "Sun",
+          icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-full h-full"><path d="M12 2.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75ZM7.5 12a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM18.894 6.166a.75.75 0 0 0-1.06-1.06l-1.591 1.59a.75.75 0 1 0 1.06 1.061l1.591-1.59ZM21.75 12a.75.75 0 0 1-.75.75h-2.25a.75.75 0 0 1 0-1.5H21a.75.75 0 0 1 .75.75ZM17.834 18.894a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 1 0-1.061 1.06l1.59 1.591ZM12 18a.75.75 0 0 1 .75.75V21a.75.75 0 0 1-1.5 0v-2.25A.75.75 0 0 1 12 18ZM7.758 17.303a.75.75 0 0 0-1.061-1.06l-1.591 1.59a.75.75 0 0 0 1.06 1.061l1.591-1.59ZM6 12a.75.75 0 0 1-.75.75H3a.75.75 0 0 1 0-1.5h2.25A.75.75 0 0 1 6 12ZM6.697 7.757a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 0 0-1.061 1.06l1.59 1.591Z" /></svg>',
+          colorClass: "suit-Sun",
+          rank: 4,
+        },
+      ];
+
+      const getMappedNum = (num) => (num === 1 ? 10 : num === 2 ? 11 : num);
+
+      const STRAIGHT_PATTERNS = [
+        [3, 4, 5, 6, 7],
+        [4, 5, 6, 7, 8],
+        [5, 6, 7, 8, 9],
+        [6, 7, 8, 9, 10], // 6,7,8,9,1
+        [7, 8, 9, 10, 11], // 7,8,9,1,2
+        [3, 8, 9, 10, 11], // 8,9,1,2,3
+        [3, 4, 9, 10, 11], // 9,1,2,3,4
+        [3, 4, 5, 10, 11], // 1,2,3,4,5
+        [3, 4, 5, 6, 11], // 2,3,4,5,6
+      ];
+
+      const STRAIGHT_LAST_ELEMENTS = [7, 8, 9, 10, 11, 3, 4, 5, 6];
+
+      /** --- 2. GAME STATE --- */
+
+      let state = {
+        round: 1,
+        maxRounds: 3,
+        players: [
+          { id: 0, name: "나 (User)", shortName: "나", hand: [], score: 0 },
+          { id: 1, name: "행성일", shortName: "행성1", hand: [], score: 0 },
+          { id: 2, name: "행성이", shortName: "행성2", hand: [], score: 0 },
+        ],
+        currentTurn: 0,
+        fieldCombo: null,
+        hasPassed: [false, false, false], // 이번 턴에서 패스했는지 여부 기록
+        isFirstTurnOfRound: true,
+        gameOver: false,
+        selectedTileIds: new Set(),
+      };
+
+      let resolveUserInput = null;
+
+      /** --- 3. TILE & COMBO LOGIC --- */
+
+      function createDeck() {
+        let deck = [];
+        let idCounter = 1;
+        for (let num = 1; num <= 9; num++) {
+          for (let suit of SUITS) {
+            deck.push({
+              id: `t${idCounter++}`,
+              num: num,
+              mappedNum: getMappedNum(num),
+              suit: suit.name,
+              suitRank: suit.rank,
+              icon: suit.icon,
+              colorClass: suit.colorClass,
+            });
+          }
+        }
+        return deck;
+      }
+
+      function shuffle(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+      }
+
+      function sortHand(hand) {
+        return hand.sort((a, b) => {
+          if (a.mappedNum !== b.mappedNum) return a.mappedNum - b.mappedNum;
+          return a.suitRank - b.suitRank;
+        });
+      }
+
+      function parseCombo(tiles) {
+        if (!tiles || tiles.length === 0) return null;
+
+        let sorted = [...tiles].sort((a, b) => a.mappedNum - b.mappedNum);
+        let len = sorted.length;
+
+        if (len === 1) {
+          return {
+            valid: true,
+            type: "Single",
+            typeRank: 0,
+            primaryRank: sorted[0].mappedNum,
+            suitRank: sorted[0].suitRank,
+            tiles: sorted,
+          };
+        }
+
+        if (len === 2) {
+          if (sorted[0].mappedNum === sorted[1].mappedNum) {
+            return {
+              valid: true,
+              type: "Pair",
+              typeRank: 0,
+              primaryRank: sorted[0].mappedNum,
+              suitRank: Math.max(sorted[0].suitRank, sorted[1].suitRank),
+              tiles: sorted,
+            };
+          }
+          return null;
+        }
+
+        if (len === 3) {
+          if (
+            sorted[0].mappedNum === sorted[1].mappedNum &&
+            sorted[1].mappedNum === sorted[2].mappedNum
+          ) {
+            return {
+              valid: true,
+              type: "Triple",
+              typeRank: 0,
+              primaryRank: sorted[0].mappedNum,
+              suitRank: Math.max(...sorted.map((t) => t.suitRank)),
+              tiles: sorted,
+            };
+          }
+          return null;
+        }
+
+        if (len === 5) {
+          let isFlush = sorted.every((t) => t.suit === sorted[0].suit);
+          let flushSuitRank = isFlush ? sorted[0].suitRank : 0;
+
+          let counts = {};
+          sorted.forEach((t) => {
+            counts[t.mappedNum] = (counts[t.mappedNum] || 0) + 1;
+          });
+          let countValues = Object.values(counts).sort((a, b) => b - a);
+
+          let isFourCard = countValues[0] === 4;
+          let isFullHouse = countValues[0] === 3 && countValues[1] === 2;
+
+          let isStraight = false;
+          let straightRank = -1;
+          let straightHighestCardNum = -1;
+
+          let mappedNumsStr = sorted.map((t) => t.mappedNum).join(",");
+          for (let i = 0; i < STRAIGHT_PATTERNS.length; i++) {
+            if (mappedNumsStr === STRAIGHT_PATTERNS[i].join(",")) {
+              isStraight = true;
+              straightRank = i;
+              straightHighestCardNum = STRAIGHT_LAST_ELEMENTS[i];
+              break;
+            }
+          }
+
+          if (isStraight && isFlush) {
+            let suitR = sorted.find(
+              (t) => t.mappedNum === straightHighestCardNum,
+            ).suitRank;
+            return {
+              valid: true,
+              type: "StraightFlush",
+              typeRank: 5,
+              primaryRank: straightRank,
+              suitRank: suitR,
+              tiles: sorted,
+            };
+          }
+          if (isFourCard) {
+            let quadNum = parseInt(
+              Object.keys(counts).find((k) => counts[k] === 4),
+            );
+            return {
+              valid: true,
+              type: "FourCard",
+              typeRank: 4,
+              primaryRank: quadNum,
+              suitRank: 0,
+              tiles: sorted,
+            };
+          }
+          if (isFullHouse) {
+            let tripNum = parseInt(
+              Object.keys(counts).find((k) => counts[k] === 3),
+            );
+            return {
+              valid: true,
+              type: "FullHouse",
+              typeRank: 3,
+              primaryRank: tripNum,
+              suitRank: 0,
+              tiles: sorted,
+            };
+          }
+          if (isFlush) {
+            return {
+              valid: true,
+              type: "Flush",
+              typeRank: 2,
+              primaryRank: sorted[4].mappedNum,
+              suitRank: flushSuitRank,
+              tiles: sorted,
+            };
+          }
+          if (isStraight) {
+            let suitR = sorted.find(
+              (t) => t.mappedNum === straightHighestCardNum,
+            ).suitRank;
+            return {
+              valid: true,
+              type: "Straight",
+              typeRank: 1,
+              primaryRank: straightRank,
+              suitRank: suitR,
+              tiles: sorted,
+            };
+          }
+        }
+
+        return null;
+      }
+
+      function isStronger(comboA, comboB) {
+        if (!comboA || !comboB) return false;
+        if (comboA.tiles.length !== comboB.tiles.length) return false;
+
+        if (comboA.typeRank !== comboB.typeRank) {
+          return comboA.typeRank > comboB.typeRank;
+        }
+
+        if (comboA.primaryRank !== comboB.primaryRank) {
+          return comboA.primaryRank > comboB.primaryRank;
+        }
+
+        return comboA.suitRank > comboB.suitRank;
+      }
+
+      function getCombinations(array, size) {
+        let results = [];
+        function run(level, start) {
+          if (level.length === size) {
+            results.push([...level]);
+            return;
+          }
+          for (let i = start; i < array.length; i++) {
+            level.push(array[i]);
+            run(level, i + 1);
+            level.pop();
+          }
+        }
+        run([], 0);
+        return results;
+      }
+
+      function getAllValidPlays(hand, currentField, isFirstTurn) {
+        let validPlays = [];
+        let sizes = currentField ? [currentField.tiles.length] : [1, 2, 3, 5];
+
+        for (let size of sizes) {
+          if (hand.length < size) continue;
+          let combos = getCombinations(hand, size);
+          for (let comboArr of combos) {
+            let parsed = parseCombo(comboArr);
+            if (parsed && parsed.valid) {
+              if (currentField && !isStronger(parsed, currentField)) continue;
+
+              validPlays.push(parsed);
+            }
+          }
+        }
+        return validPlays;
+      }
+
+      /** --- 4. AI LOGIC --- */
+
+      function getProtectedTiles(hand) {
+        let protectedSet = new Set();
+        let remaining = [...hand];
+
+        for (let i = 0; i < 2; i++) {
+          if (remaining.length < 5) break;
+          let combos5 = getCombinations(remaining, 5);
+          let valid5 = combos5
+            .map((c) => parseCombo(c))
+            .filter((p) => p && p.valid);
+
+          if (valid5.length > 0) {
+            valid5.sort((a, b) => {
+              if (a.typeRank !== b.typeRank) return b.typeRank - a.typeRank;
+              if (a.primaryRank !== b.primaryRank)
+                return b.primaryRank - a.primaryRank;
+              return b.suitRank - a.suitRank;
+            });
+
+            let best = valid5[0];
+            best.tiles.forEach((t) => protectedSet.add(t.id));
+            remaining = remaining.filter((t) => !protectedSet.has(t.id));
+          }
+        }
+        return protectedSet;
+      }
+
+      function decideAIPlay(playerIdx) {
+        let hand = state.players[playerIdx].hand;
+        let validPlays = getAllValidPlays(
+          hand,
+          state.fieldCombo,
+          state.isFirstTurnOfRound,
+        );
+
+        if (validPlays.length === 0) return "PASS";
+
+        // 다음 활성 플레이어 찾기 (패스한 사람 제외)
+        let nextPlayerIdx = (playerIdx + 1) % 3;
+        while (state.hasPassed[nextPlayerIdx] && nextPlayerIdx !== playerIdx) {
+          nextPlayerIdx = (nextPlayerIdx + 1) % 3;
+        }
+
+        let isNextPlayerOneCard =
+          state.players[nextPlayerIdx].hand.length === 1;
+
+        validPlays.sort((a, b) => {
+          if (a.tiles.length !== b.tiles.length)
+            return a.tiles.length - b.tiles.length;
+          if (a.typeRank !== b.typeRank) return a.typeRank - b.typeRank;
+          if (a.primaryRank !== b.primaryRank)
+            return a.primaryRank - b.primaryRank;
+          return a.suitRank - b.suitRank;
+        });
+
+        // FINISH MODE
+        if (hand.length <= 3) {
+          validPlays.sort((a, b) => {
+            if (b.tiles.length !== a.tiles.length)
+              return b.tiles.length - a.tiles.length;
+            if (a.typeRank !== b.typeRank) return a.typeRank - b.typeRank;
+            if (a.primaryRank !== b.primaryRank)
+              return a.primaryRank - b.primaryRank;
+            return a.suitRank - b.suitRank;
+          });
+          return validPlays[0];
+        }
+
+        // --- BLOCK MODE (견제 모드) ---
+        if (isNextPlayerOneCard && hand.length > 1) {
+          if (state.fieldCombo === null) {
+            // 선 턴: 무조건 2장 이상 콤보 우선 제출
+            let multiPlays = validPlays.filter((p) => p.tiles.length >= 2);
+            if (multiPlays.length > 0) {
+              multiPlays.sort((a, b) => {
+                if (b.tiles.length !== a.tiles.length)
+                  return b.tiles.length - a.tiles.length;
+                if (a.typeRank !== b.typeRank) return a.typeRank - b.typeRank;
+                if (a.primaryRank !== b.primaryRank)
+                  return a.primaryRank - b.primaryRank;
+                return a.suitRank - b.suitRank;
+              });
+              return multiPlays[0];
+            } else {
+              // 싱글밖에 없을 경우: 가장 강한 패로 견제
+              validPlays.sort((a, b) => {
+                if (b.typeRank !== a.typeRank) return b.typeRank - a.typeRank;
+                if (b.primaryRank !== a.primaryRank)
+                  return b.primaryRank - a.primaryRank;
+                return b.suitRank - a.suitRank;
+              });
+              return validPlays[0];
+            }
+          } else if (state.fieldCombo.tiles.length === 1) {
+            // 필드가 싱글일 경우: 내가 가진 가장 강한 패 제출
+            validPlays.sort((a, b) => {
+              if (b.typeRank !== a.typeRank) return b.typeRank - a.typeRank;
+              if (b.primaryRank !== a.primaryRank)
+                return b.primaryRank - a.primaryRank;
+              return b.suitRank - a.suitRank;
+            });
+            return validPlays[0];
+          }
+        }
+
+        // NORMAL MODE
+        let protectedTiles = getProtectedTiles(hand);
+        let safePlays = validPlays.filter(
+          (play) => !play.tiles.some((t) => protectedTiles.has(t.id)),
+        );
+
+        if (state.fieldCombo === null) {
+          if (safePlays.length > 0) {
+            safePlays.sort((a, b) => {
+              if (b.tiles.length !== a.tiles.length)
+                return b.tiles.length - a.tiles.length;
+              if (a.typeRank !== b.typeRank) return a.typeRank - b.typeRank;
+              if (a.primaryRank !== b.primaryRank)
+                return a.primaryRank - b.primaryRank;
+              return a.suitRank - b.suitRank;
+            });
+            return safePlays[0];
+          } else {
+            return validPlays[0];
+          }
+        } else {
+          if (safePlays.length > 0) {
+            return safePlays[0];
+          } else {
+            return "PASS";
+          }
+        }
+      }
+
+      /** --- 5. UI RENDERING --- */
+
+      function createTileHTML(
+        tile,
+        isFaceUp = true,
+        isSelected = false,
+        isDraggable = false,
+        index = -1,
+      ) {
+        if (!isFaceUp) {
+          return `<div class="lexio-tile ai-tile"></div>`;
+        }
+        let selClass = isSelected ? "selected" : "";
+        let dragAttrs = isDraggable
+          ? `draggable="true" data-index="${index}"`
+          : "";
+        let dragClass = isDraggable ? "draggable-tile" : "";
+        // UI용 숫자 처리: 10은 1, 11은 2로 표시
+        let displayNum =
+          tile.num === 10 ? "1" : tile.num === 11 ? "2" : tile.num;
+        return `
+            <div class="lexio-tile ${selClass} ${dragClass}" data-id="${tile.id}" ${dragAttrs} onclick="toggleSelect('${tile.id}')">
+                <div class="tile-num-tl ${tile.colorClass}">${displayNum}</div>
+                <div class="tile-center-suit ${tile.colorClass}">${tile.icon}</div>
+                <div class="tile-num-br ${tile.colorClass}">${displayNum}</div>
+            </div>
+        `;
+      }
+
+      function renderState() {
+        document.getElementById("round-display").innerText =
+          `라운드 ${state.round} / ${state.maxRounds}`;
+        for (let i = 0; i < 3; i++) {
+          document.getElementById(`score-${i}`).innerText =
+            `${state.players[i].shortName}: ${state.players[i].score}점`;
+        }
+
+        document.getElementById("p1-count").innerText =
+          state.players[1].hand.length;
+        document.getElementById("p2-count").innerText =
+          state.players[2].hand.length;
+
+        const isP0Turn = state.currentTurn === 0;
+        const isP1Turn = state.currentTurn === 1;
+        const isP2Turn = state.currentTurn === 2;
+
+        document
+          .getElementById("p0-indicator")
+          .classList.toggle("hidden", !isP0Turn);
+        document
+          .getElementById("p1-indicator")
+          .classList.toggle("hidden", !isP1Turn);
+        document
+          .getElementById("p2-indicator")
+          .classList.toggle("hidden", !isP2Turn);
+
+        // UI 반투명 처리 및 배지 (이번 턴에 패스한 플레이어)
+        document
+          .getElementById("p1-pass-badge")
+          .classList.toggle("hidden", !state.hasPassed[1]);
+        document
+          .getElementById("p2-pass-badge")
+          .classList.toggle("hidden", !state.hasPassed[2]);
+        document
+          .getElementById("p0-pass-badge")
+          .classList.toggle("hidden", !state.hasPassed[0]);
+
+        // Highlight & Opacity Player Area
+        const p0Area = document.getElementById("p0-area");
+        p0Area.classList.toggle("opacity-50", state.hasPassed[0]);
+        p0Area.classList.toggle("border-yellow-400", isP0Turn);
+        p0Area.classList.toggle("border-[#5A1212]", !isP0Turn);
+        p0Area.classList.toggle(
+          "shadow-[0_-5px_25px_rgba(250,204,21,0.3)]",
+          isP0Turn,
+        );
+        p0Area.classList.toggle(
+          "shadow-[0_-5px_15px_rgba(0,0,0,0.5)]",
+          !isP0Turn,
+        );
+
+        const p1Area = document.getElementById("p1-area");
+        p1Area.classList.toggle("opacity-50", state.hasPassed[1]);
+        p1Area.classList.toggle("border-yellow-400", isP1Turn);
+        p1Area.classList.toggle("border-[#5A1212]", !isP1Turn);
+        p1Area.classList.toggle(
+          "shadow-[0_0_15px_rgba(250,204,21,0.4)]",
+          isP1Turn,
+        );
+        p1Area.classList.toggle("scale-[1.03]", isP1Turn);
+        p1Area.classList.toggle("z-10", isP1Turn);
+
+        const p2Area = document.getElementById("p2-area");
+        p2Area.classList.toggle("opacity-50", state.hasPassed[2]);
+        p2Area.classList.toggle("border-yellow-400", isP2Turn);
+        p2Area.classList.toggle("border-[#5A1212]", !isP2Turn);
+        p2Area.classList.toggle(
+          "shadow-[0_0_15px_rgba(250,204,21,0.4)]",
+          isP2Turn,
+        );
+        p2Area.classList.toggle("scale-[1.03]", isP2Turn);
+        p2Area.classList.toggle("z-10", isP2Turn);
+
+        document.getElementById("btn-play").disabled = !isP0Turn;
+        document.getElementById("btn-pass").disabled = !isP0Turn;
+
+        const fieldEl = document.getElementById("field-area");
+        if (state.fieldCombo === null) {
+          fieldEl.innerHTML = "";
+          document.getElementById("field-combo-name").innerText = "";
+        } else {
+          fieldEl.innerHTML = state.fieldCombo.tiles
+            .map((t) => createTileHTML(t, true, false, false, -1))
+            .join("");
+          document.getElementById("field-combo-name").innerText =
+            getComboDisplayName(state.fieldCombo);
+        }
+
+        const handEl = document.getElementById("player-hand");
+        handEl.innerHTML = state.players[0].hand
+          .map((t, index) =>
+            createTileHTML(
+              t,
+              true,
+              state.selectedTileIds.has(t.id),
+              true,
+              index,
+            ),
+          )
+          .join("");
+      }
+
+      function getComboDisplayName(combo) {
+        const types = {
+          Single: "싱글",
+          Pair: "페어",
+          Triple: "트리플",
+          Straight: "스트레이트",
+          Flush: "플러시",
+          FullHouse: "풀하우스",
+          FourCard: "포카드",
+          StraightFlush: "스트레이트 플러시",
+        };
+        return types[combo.type] || combo.type;
+      }
+
+      function log(msg) {
+        console.log(`> ${msg}`);
+      }
+
+      function showToast(msg) {
+        const container = document.getElementById("toast-container");
+        const toast = document.createElement("div");
+        toast.className =
+          "bg-red-500/90 backdrop-blur text-white px-4 py-2 md:px-6 md:py-3 rounded-full shadow-lg font-bold toast text-center text-sm md:text-base pointer-events-auto";
+        toast.innerText = msg;
+        container.appendChild(toast);
+        setTimeout(() => toast.remove(), 2500);
+      }
+
+      /** --- 6. USER INTERACTION --- */
+
+      let isDragging = false; // 드래그 도중 터치(선택)되는 것을 방지
+
+      window.toggleSelect = function (id) {
+        if (isDragging) return;
+        if (state.currentTurn !== 0) return;
+        if (state.selectedTileIds.has(id)) {
+          state.selectedTileIds.delete(id);
+        } else {
+          state.selectedTileIds.add(id);
+        }
+        renderState();
+      };
+
+      // 강도 순 자동 정렬 버튼
+      document.getElementById("btn-sort").addEventListener("click", () => {
+        state.players[0].hand = sortHand(state.players[0].hand);
+        renderState();
+      });
+
+      document.getElementById("btn-play").addEventListener("click", () => {
+        if (state.currentTurn !== 0) return;
+        let selectedTiles = state.players[0].hand.filter((t) =>
+          state.selectedTileIds.has(t.id),
+        );
+
+        let parsed = parseCombo(selectedTiles);
+        if (!parsed || !parsed.valid) {
+          showToast("유효하지 않은 조합입니다.");
+          return;
+        }
+
+        if (state.fieldCombo && !isStronger(parsed, state.fieldCombo)) {
+          showToast("현재 필드보다 강한 조합을 내야 합니다.");
+          return;
+        }
+
+        if (resolveUserInput) resolveUserInput(parsed);
+      });
+
+      document.getElementById("btn-pass").addEventListener("click", () => {
+        if (state.currentTurn !== 0) return;
+        if (state.fieldCombo === null) {
+          showToast("선 플레이어는 패스할 수 없습니다.");
+          return;
+        }
+        if (resolveUserInput) resolveUserInput("PASS");
+      });
+
+      // 규칙 설명 모달 이벤트
+      document.getElementById("btn-rules").addEventListener("click", () => {
+        document.getElementById("modal-overlay").classList.remove("hidden");
+        document.getElementById("rules-modal").classList.remove("hidden");
+        document.getElementById("rules-modal").classList.add("flex");
+      });
+
+      document
+        .getElementById("btn-close-rules")
+        .addEventListener("click", () => {
+          document.getElementById("rules-modal").classList.add("hidden");
+          document.getElementById("rules-modal").classList.remove("flex");
+
+          // 라운드 종료나 게임 종료 모달이 떠있지 않다면 오버레이 숨김
+          if (
+            document
+              .getElementById("round-modal")
+              .classList.contains("hidden") &&
+            document
+              .getElementById("game-over-modal")
+              .classList.contains("hidden")
+          ) {
+            document.getElementById("modal-overlay").classList.add("hidden");
+          }
+        });
+
+      /** --- DRAG AND DROP SETUP --- */
+      function setupDragAndDrop() {
+        const handContainer = document.getElementById("player-hand");
+        let dragSrcIndex = null;
+        let touchTarget = null;
+
+        // Mouse Events (PC 환경)
+        handContainer.addEventListener("dragstart", (e) => {
+          const tile = e.target.closest(".draggable-tile");
+          if (!tile) {
+            e.preventDefault();
+            return;
+          }
+          dragSrcIndex = parseInt(tile.dataset.index);
+          isDragging = true;
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", dragSrcIndex);
+          setTimeout(() => tile.classList.add("opacity-50"), 0);
+        });
+
+        handContainer.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          const tile = e.target.closest(".draggable-tile");
+          if (tile && parseInt(tile.dataset.index) !== dragSrcIndex) {
+            tile.classList.add("drag-over");
+          }
+        });
+
+        handContainer.addEventListener("dragleave", (e) => {
+          const tile = e.target.closest(".draggable-tile");
+          if (tile) tile.classList.remove("drag-over");
+        });
+
+        handContainer.addEventListener("drop", (e) => {
+          e.preventDefault();
+          const tile = e.target.closest(".draggable-tile");
+          if (tile && dragSrcIndex !== null) {
+            const dropDestIndex = parseInt(tile.dataset.index);
+            if (dragSrcIndex !== dropDestIndex) {
+              reorderHand(dragSrcIndex, dropDestIndex);
+            }
+          }
+          cleanupDrag();
+        });
+
+        handContainer.addEventListener("dragend", cleanupDrag);
+
+        // Touch Events (모바일 환경)
+        handContainer.addEventListener(
+          "touchstart",
+          (e) => {
+            const tile = e.target.closest(".draggable-tile");
+            if (!tile) return;
+            dragSrcIndex = parseInt(tile.dataset.index);
+            touchTarget = tile;
+          },
+          { passive: false },
+        );
+
+        handContainer.addEventListener(
+          "touchmove",
+          (e) => {
+            if (dragSrcIndex === null) return;
+            isDragging = true;
+            e.preventDefault(); // 스크롤 방지
+            if (touchTarget) touchTarget.classList.add("opacity-50");
+
+            const touch = e.targetTouches[0];
+            const elem = document.elementFromPoint(
+              touch.clientX,
+              touch.clientY,
+            );
+            const dropTile = elem ? elem.closest(".draggable-tile") : null;
+
+            document
+              .querySelectorAll(".draggable-tile")
+              .forEach((t) => t.classList.remove("drag-over"));
+            if (dropTile && parseInt(dropTile.dataset.index) !== dragSrcIndex) {
+              dropTile.classList.add("drag-over");
+            }
+          },
+          { passive: false },
+        );
+
+        handContainer.addEventListener("touchend", (e) => {
+          if (dragSrcIndex === null) return;
+          if (isDragging) {
+            const touch = e.changedTouches[0];
+            const elem = document.elementFromPoint(
+              touch.clientX,
+              touch.clientY,
+            );
+            const dropTile = elem ? elem.closest(".draggable-tile") : null;
+
+            if (dropTile) {
+              const dropDestIndex = parseInt(dropTile.dataset.index);
+              if (dragSrcIndex !== dropDestIndex) {
+                reorderHand(dragSrcIndex, dropDestIndex);
+              }
+            }
+          }
+          cleanupDrag();
+        });
+
+        handContainer.addEventListener("touchcancel", cleanupDrag);
+
+        function cleanupDrag() {
+          document.querySelectorAll(".draggable-tile").forEach((t) => {
+            t.classList.remove("opacity-50", "drag-over");
+          });
+          dragSrcIndex = null;
+          touchTarget = null;
+          setTimeout(() => (isDragging = false), 50); // 선택 클릭 방지용 딜레이
+        }
+
+        function reorderHand(fromIdx, toIdx) {
+          const hand = state.players[0].hand;
+          const item = hand.splice(fromIdx, 1)[0];
+          hand.splice(toIdx, 0, item);
+          renderState();
+        }
+      }
+
+      /** --- 7. GAME FLOW LOGIC --- */
+
+      function sleep(ms) {
+        return new Promise((r) => setTimeout(r, ms));
+      }
+
+      async function waitForUser() {
+        return new Promise((resolve) => {
+          resolveUserInput = resolve;
+        });
+      }
+
+      async function runRound() {
+        let deck = shuffle(createDeck());
+        state.players.forEach((p) => {
+          p.hand = sortHand(deck.splice(0, 12));
+        });
+
+        state.fieldCombo = null;
+        state.hasPassed = [false, false, false];
+        state.isFirstTurnOfRound = true;
+        state.selectedTileIds.clear();
+
+        for (let i = 0; i < 3; i++) {
+          if (
+            state.players[i].hand.some((t) => t.num === 3 && t.suit === "Cloud")
+          ) {
+            state.currentTurn = i;
+            break;
+          }
+        }
+
+        log(`===== 라운드 ${state.round} 시작 =====`);
+        log(
+          `${state.players[state.currentTurn].name}님이 구름 3을 보유하여 선 플레이어입니다.`,
+        );
+
+        let roundOver = false;
+
+        while (!roundOver && !state.gameOver) {
+          // 1. 이번 턴(Trick) 종료 확인
+          // - 2명이 패스하여 활성 플레이어가 1명만 남았는지 체크
+          let activeCount = state.hasPassed.filter((p) => !p).length;
+          if (activeCount === 1 && state.fieldCombo !== null) {
+            let winnerIndex = state.hasPassed.findIndex((p) => !p); // 유일하게 패스하지 않은 플레이어
+            state.fieldCombo = null;
+            state.hasPassed = [false, false, false]; // 패스 상태 초기화
+            state.currentTurn = winnerIndex; // 승자가 다음 턴 선이 됨
+            log(
+              `다른 플레이어들이 모두 패스했습니다. ${state.players[state.currentTurn].name}님이 주도권을 잡습니다.`,
+            );
+            renderState();
+            await sleep(1000);
+          }
+
+          renderState();
+
+          // 2. 플레이어 조작 대기
+          let play = null;
+          if (state.currentTurn === 0) {
+            play = await waitForUser();
+            state.selectedTileIds.clear();
+          } else {
+            await sleep(1500);
+            play = decideAIPlay(state.currentTurn);
+          }
+
+          // 3. 행동 반영
+          if (play === "PASS") {
+            state.hasPassed[state.currentTurn] = true; // 패스한 플레이어 아웃 처리
+            log(`${state.players[state.currentTurn].name} 패스.`);
+          } else {
+            state.fieldCombo = play;
+            state.isFirstTurnOfRound = false;
+
+            let playIds = new Set(play.tiles.map((t) => t.id));
+            state.players[state.currentTurn].hand = state.players[
+              state.currentTurn
+            ].hand.filter((t) => !playIds.has(t.id));
+
+            log(
+              `${state.players[state.currentTurn].name}님 제출: ${getComboDisplayName(play)}`,
+            );
+          }
+
+          // 4. 라운드 종료 확인 (패 소진)
+          if (state.players[state.currentTurn].hand.length === 0) {
+            roundOver = true;
+            log(
+              `*** ${state.players[state.currentTurn].name}님의 패가 모두 소진되어 라운드 종료! ***`,
+            );
+            break;
+          }
+
+          // 5. 다음 플레이어로 턴 이동
+          state.currentTurn = (state.currentTurn + 1) % 3;
+
+          // 이미 이번 턴에서 패스한 플레이어는 건너뜀 (단, 이번 바퀴에서 턴이 종료될 예정이 아닐 경우)
+          if (state.hasPassed.filter((p) => !p).length > 1) {
+            while (state.hasPassed[state.currentTurn]) {
+              state.currentTurn = (state.currentTurn + 1) % 3;
+            }
+          }
+        }
+
+        if (roundOver) {
+          calculateScores();
+          renderState();
+          await handleRoundEnd();
+        }
+      }
+
+      function calculateScores() {
+        let sorted = state.players
+          .map((p) => ({ id: p.id, count: p.hand.length }))
+          .sort((a, b) => a.count - b.count);
+        let p1st = sorted[0];
+        let p2nd = sorted[1];
+        let p3rd = sorted[2];
+
+        let p1stPlayer = state.players.find((p) => p.id === p1st.id);
+        let p2ndPlayer = state.players.find((p) => p.id === p2nd.id);
+        let p3rdPlayer = state.players.find((p) => p.id === p3rd.id);
+
+        let x = p2nd.count;
+        let y = p3rd.count;
+
+        let delta = [];
+
+        delta[p1st.id] = x + y;
+        delta[p2nd.id] = -x + (y - x);
+        delta[p3rd.id] = -y - (y - x);
+
+        state.players.forEach((p) => (p.score += delta[p.id]));
+
+        const resultHTML = `
+            <div class="text-green-400 font-bold">1등: ${p1stPlayer.name} (+${delta[p1st.id]}점)</div>
+            <div class="text-yellow-400 font-bold">2등: ${p2ndPlayer.name} (${delta[p2nd.id] > 0 ? "+" : ""}${delta[p2nd.id]}점)</div>
+            <div class="text-red-400 font-bold">3등: ${p3rdPlayer.name} (${delta[p3rd.id]}점)</div>
+        `;
+        document.getElementById("round-scores").innerHTML = resultHTML;
+      }
+
+      async function handleRoundEnd() {
+        return new Promise((resolve) => {
+          const overlay = document.getElementById("modal-overlay");
+          const roundModal = document.getElementById("round-modal");
+
+          document.getElementById("round-modal-title").innerText =
+            `라운드 ${state.round} 종료`;
+
+          overlay.classList.remove("hidden");
+          roundModal.classList.remove("hidden");
+          roundModal.classList.add("flex");
+
+          const btnEnd = document.getElementById("btn-end-game");
+          const btnNext = document.getElementById("btn-next-round");
+
+          if (state.round >= state.maxRounds) {
+            btnNext.innerText = "최종 결과 보기";
+          } else {
+            btnNext.innerText = "다음 라운드 진행";
+          }
+
+          const cleanup = () => {
+            btnEnd.removeEventListener("click", onEnd);
+            btnNext.removeEventListener("click", onNext);
+            overlay.classList.add("hidden");
+            roundModal.classList.add("hidden");
+            roundModal.classList.remove("flex");
+          };
+
+          const onEnd = () => {
+            cleanup();
+            state.gameOver = true;
+            resolve();
+          };
+          const onNext = () => {
+            cleanup();
+            resolve();
+          };
+
+          btnEnd.addEventListener("click", onEnd);
+          btnNext.addEventListener("click", onNext);
+        });
+      }
+
+      function showGameOver() {
+        const overlay = document.getElementById("modal-overlay");
+        const goModal = document.getElementById("game-over-modal");
+
+        let sorted = [...state.players].sort((a, b) => b.score - a.score);
+
+        document.getElementById("final-winner").innerText =
+          `🏆 우승자: ${sorted[0].name}!`;
+
+        document.getElementById("final-scores").innerHTML = sorted
+          .map(
+            (p, i) => `
+            <div class="flex justify-between items-center border-b border-gray-700 pb-2 mb-2 last:border-0">
+                <span class="font-bold ${i === 0 ? "text-green-400" : "text-gray-300"}">${i + 1}위. ${p.name}</span>
+                <span class="font-black ${i === 0 ? "text-green-400" : "text-gray-300"}">${p.score}점</span>
+            </div>
+        `,
+          )
+          .join("");
+
+        overlay.classList.remove("hidden");
+        goModal.classList.remove("hidden");
+        goModal.classList.add("flex");
+
+        document.getElementById("btn-restart").onclick = () => {
+          location.reload();
+        };
+      }
+
+      async function gameLoop() {
+        while (state.round <= state.maxRounds && !state.gameOver) {
+          await runRound();
+          if (!state.gameOver) {
+            state.round++;
+          }
+        }
+        showGameOver();
+      }
+
+      // Start
+      setupDragAndDrop();
+      renderState();
+      gameLoop();
+    </script>
+  </body>
+</html>
